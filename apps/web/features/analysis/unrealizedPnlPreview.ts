@@ -463,10 +463,10 @@ function resolveSelectedSeriesIds(
   state: UnrealizedPnlAnalysisRouteState,
 ): string[] {
   if (ranking.length === 0) return [];
-  if (state.selection === "manualTickers" && state.tickerIds.length > 0) {
+  if (state.selection === "manualTickers" && state.tickerMode === "custom") {
     const allowed = new Set(ranking.map((row) => row.seriesId));
     const manual = state.tickerIds.filter((seriesId) => allowed.has(seriesId));
-    if (manual.length > 0) return manual.slice(0, 200);
+    return manual.slice(0, 200);
   }
   return ranking.slice(0, state.drivers).map((row) => row.seriesId);
 }

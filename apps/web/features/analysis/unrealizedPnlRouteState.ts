@@ -332,7 +332,11 @@ function unrealizedPnlStateToSearchParams(
   if (state.markets.length > 0) params.set("markets", state.markets.join(","));
   if (state.accounts.length > 0) params.set("accountIds", state.accounts.join(","));
   if (state.selection !== ANALYSIS_DEFAULT_STATE.selection) params.set("selection", state.selection);
-  if (state.tickerMode !== ANALYSIS_DEFAULT_STATE.tickerMode || state.tickerIds.length > 0) params.set("tickerMode", state.tickerMode);
+  if (
+    state.tickerMode !== ANALYSIS_DEFAULT_STATE.tickerMode
+    || state.tickerIds.length > 0
+    || (state.selection === "manualTickers" && state.tickerMode === "custom")
+  ) params.set("tickerMode", state.tickerMode);
   if (state.tickerMode === "custom" && state.tickerIds.length > 0) params.set("tickerIds", state.tickerIds.join(","));
   if (state.selection === "topDrivers" && state.drivers !== ANALYSIS_DEFAULT_STATE.drivers) params.set("drivers", String(state.drivers));
   if (state.positionStatus !== ANALYSIS_DEFAULT_STATE.positionStatus) params.set("positionStatus", state.positionStatus);
@@ -471,6 +475,7 @@ function modeSettingsFromState(
 function normalizeStateTickerMode(state: UnrealizedPnlAnalysisRouteState): UnrealizedPnlAnalysisRouteState {
   if (state.tickerMode === "allEligible") return { ...state, tickerIds: [] };
   if (state.tickerIds.length > 0) return state;
+  if (state.selection === "manualTickers") return { ...state, tickerIds: [] };
   return { ...state, tickerMode: "allEligible", tickerIds: [] };
 }
 

@@ -399,7 +399,7 @@ export function TickerHistoryClient({
   const searchParams = useSearchParams();
   const searchParamKey = searchParams.toString();
   const openedFromAnalysis = searchParams.get("source") === "unrealized-pnl-analysis";
-  const analysisIncludeProvisional = resolveAnalysisIncludeProvisional(searchParams);
+  const liveAnalysisIncludeProvisional = resolveAnalysisIncludeProvisional(searchParams);
   const tickerOpenMarketPollMs = resolveTickerPricePollMs(
     quotePollIntervalSeconds,
     tickerPriceIntradayRefreshIntervalMinutes,
@@ -412,17 +412,6 @@ export function TickerHistoryClient({
     initialChartMetadata.resolved.startDate,
     initialChartMetadata.resolved.endDate,
   );
-  // Per-page breadcrumb override (spec amendment #21). Display label uses the
-  // instrument name + ticker symbol when available, otherwise the ticker itself.
-  // The Portfolio parent segment keeps the breadcrumb actionable.
-  useBreadcrumb([
-    { label: dict.navigation.portfolioLabel, href: "/portfolio" },
-    {
-      label: instrument?.name
-        ? `${instrument.name} (${ticker})`
-        : ticker,
-    },
-  ]);
   const [isClientReady, setIsClientReady] = useState(false);
   const [isRecordDialogOpen, setIsRecordDialogOpen] = useState(false);
   const [isRepairDialogOpen, setIsRepairDialogOpen] = useState(false);
@@ -436,9 +425,12 @@ export function TickerHistoryClient({
   const detailsStateRef = useRef(details);
   const [isDetailsLoading, setIsDetailsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
+  const [analysisContextCleared, setAnalysisContextCleared] = useState(false);
   const [tickerChartSelection, setTickerChartSelection] = useState<TickerRangeControl>(() => initialTickerChartState.selection);
   const [tickerChartMetric, setTickerChartMetric] = useState<TickerChartMetric>(() => openedFromAnalysis ? "unrealizedPnl" : "price");
-  const previousOpenedFromAnalysisRef = useRef(openedFromAnalysis);
+  const analysisContextActive = openedFromAnalysis && !analysisContextCleared;
+  const analysisIncludeProvisional = analysisContextActive ? liveAnalysisIncludeProvisional : undefined;
+  const previousOpenedFromAnalysisRef = useRef(analysisContextActive);
   const [tickerTimelineMode, setTickerTimelineMode] = useState<TimelineMode>("auto");
   const [tickerChartRequest, setTickerChartRequest] = useState<TickerChartRequest>(() => initialTickerChartState.request);
   const [customStartDate, setCustomStartDate] = useState(initialTickerChartState.customStartDate);
@@ -458,7 +450,7 @@ export function TickerHistoryClient({
     reportingCurrency,
     sharedContextPermissions,
   } = useAppShellData();
-  const tickerDetailsProvisionalCacheScope = openedFromAnalysis
+  const tickerDetailsProvisionalCacheScope = analysisContextActive
     ? `analysis-provisional:${analysisIncludeProvisional ? "include" : "exclude"}`
     : "default-provisional";
   const tickerDetailsCacheKey = useMemo(
@@ -482,6 +474,15 @@ export function TickerHistoryClient({
   const canWriteTransactions = !isSharedContext || sharedContextPermissions.canWriteTransactions;
   const { targetRef: statsRef, isVisible: statsVisible } = useElementVisibility();
   const currency = detailsState.identity.currency;
+  const identityDisplayName = detailsState.identity.name?.trim();
+  const tickerTitle = identityDisplayName ? `${identityDisplayName} (${ticker})` : ticker;
+  // Per-page breadcrumb override (spec amendment #21). Display label uses the
+  // market-scoped details identity so duplicate ticker codes in other markets
+  // cannot leak a broad catalog name into the ticker page.
+  useBreadcrumb([
+    { label: dict.navigation.portfolioLabel, href: "/portfolio" },
+    { label: tickerTitle },
+  ]);
   const accountNameById = useMemo(() => new Map(accounts.map((account) => [account.id, account.name])), [accounts]);
   const accountScopeDisplayName = useMemo(() => {
     if (transactionAccountFilter) return accountNameById.get(transactionAccountFilter) ?? transactionAccountFilter;
@@ -517,6 +518,10 @@ export function TickerHistoryClient({
   }, []);
 
   useEffect(() => {
+    if (openedFromAnalysis) setAnalysisContextCleared(false);
+  }, [openedFromAnalysis, searchParamKey]);
+
+  useEffect(() => {
     const queryParams = new URLSearchParams(searchParamKey);
     const next = resolveInitialTickerChartState(
       queryParams,
@@ -531,10 +536,10 @@ export function TickerHistoryClient({
   }, [details.chart.range, initialChartMetadata.resolved.endDate, initialChartMetadata.resolved.startDate, searchParamKey]);
 
   useEffect(() => {
-    if (previousOpenedFromAnalysisRef.current === openedFromAnalysis) return;
-    previousOpenedFromAnalysisRef.current = openedFromAnalysis;
-    setTickerChartMetric(openedFromAnalysis ? "unrealizedPnl" : "price");
-  }, [openedFromAnalysis]);
+    if (previousOpenedFromAnalysisRef.current === analysisContextActive) return;
+    previousOpenedFromAnalysisRef.current = analysisContextActive;
+    setTickerChartMetric(analysisContextActive ? "unrealizedPnl" : "price");
+  }, [analysisContextActive]);
 
   useEffect(() => {
     setInstrumentState(instrument);
@@ -853,6 +858,10 @@ export function TickerHistoryClient({
     axisLabel: formatDateLabel(point.date, locale),
   }));
   const activeChartData = tickerChartMetric === "unrealizedPnl" ? pnlChartData : chartData;
+  const chartTitle = tickerChartMetric === "unrealizedPnl" ? dict.tickerHistory.unrealizedPnlChartTitle : dict.tickerHistory.chartTitle;
+  const chartSubtitle = tickerChartMetric === "unrealizedPnl" ? dict.tickerHistory.unrealizedPnlChartSubtitle : dict.tickerHistory.chartSubtitle;
+  const isPriceChartEmpty = tickerChartMetric === "price" && chartData.length === 0;
+  const isPriceChartLoading = isPriceChartEmpty && isDetailsLoading;
   const accountContributionData = useMemo(
     () => accountBreakdownRows.map((child) => {
       const reportingCurrency = child.reportingCurrency ?? null;
@@ -963,6 +972,28 @@ export function TickerHistoryClient({
     setTickerChartRequest(request);
     syncTickerChartUrl("CUSTOM", request);
   }, [customEndDate, customStartDate, dict.tickerHistory.chartCustomRangeError, syncTickerChartUrl]);
+
+  const clearAnalysisContext = useCallback(() => {
+    const nextRequest = buildTickerChartRequest("1Y");
+    setAnalysisContextCleared(true);
+    setTickerChartMetric("price");
+    setTickerChartError("");
+    setTickerChartSelection("1Y");
+    setTickerChartRequest(nextRequest);
+    setCustomStartDate("");
+    setCustomEndDate("");
+
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.delete("source");
+    nextParams.delete("fromDate");
+    nextParams.delete("toDate");
+    nextParams.delete("includeProvisional");
+    nextParams.delete("chartStart");
+    nextParams.delete("chartEnd");
+    nextParams.set("chartRange", "1Y");
+    const query = nextParams.toString();
+    window.history.replaceState(null, "", `${pathname}${query ? `?${query}` : ""}`);
+  }, [pathname, searchParams]);
 
   async function handleRepairSubmit(): Promise<void> {
     setIsRepairSubmitting(true);
@@ -1075,7 +1106,7 @@ export function TickerHistoryClient({
               </div>
               <div className="mt-4 flex flex-wrap items-end gap-3">
                 <h1 className="text-balance text-3xl font-semibold leading-tight text-foreground sm:text-4xl" data-testid="ticker-history-title">
-                  {detailsState.identity.name ? `${detailsState.identity.name} (${ticker})` : ticker}
+                  {tickerTitle}
                 </h1>
                 <span className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
                   {detailsState.identity.marketCode} · {detailsState.identity.instrumentType ?? dict.tickerHistory.instrumentFallbackLabel}
@@ -1264,8 +1295,8 @@ export function TickerHistoryClient({
             <Card className="rounded-[28px] border-slate-200 bg-white/94 p-5 shadow-[0_18px_34px_rgba(148,163,184,0.12)]" data-testid="ticker-detail-chart">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.chartTitle}</p>
-                  <h2 className="mt-2 text-xl font-semibold text-slate-950">{dict.tickerHistory.chartSubtitle}</h2>
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{chartTitle}</p>
+                  <h2 className="mt-2 text-xl font-semibold text-slate-950">{chartSubtitle}</h2>
                 </div>
                 <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
                   {detailsState.identity.currency}
@@ -1329,7 +1360,7 @@ export function TickerHistoryClient({
                     <ToggleGroupItem value="price">{dict.tickerHistory.currentPriceLabel}</ToggleGroupItem>
                     <ToggleGroupItem value="unrealizedPnl">{dict.tickerHistory.unrealizedPnlLabel}</ToggleGroupItem>
                   </ToggleGroup>
-                  {openedFromAnalysis ? (
+                  {analysisContextActive ? (
                     <div className="flex flex-wrap gap-1 text-xs text-slate-600">
                       <Badge variant="secondary">{dict.tickerHistory.analysisSourceLabel}</Badge>
                       {currentChartMetadata.resolved.startDate && currentChartMetadata.resolved.endDate ? (
@@ -1341,6 +1372,9 @@ export function TickerHistoryClient({
                           {formatTickerChartMessage(dict.tickerHistory.analysisAccountsCountLabel, { count: String(transactionAccountIdsFilter.length) })}
                         </Badge>
                       ) : null}
+                      <Button type="button" variant="ghost" size="sm" onClick={clearAnalysisContext}>
+                        {dict.tickerHistory.clearAnalysisRangeLabel}
+                      </Button>
                     </div>
                   ) : null}
                 </div>
@@ -1428,43 +1462,51 @@ export function TickerHistoryClient({
                   <div className="flex h-full items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500">
                     {dict.tickerHistory.unrealizedPnlEmptyState}
                   </div>
+                ) : isPriceChartLoading ? (
+                  <div className="flex h-full items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500">
+                    {dict.tickerHistory.priceChartLoadingState}
+                  </div>
+                ) : isPriceChartEmpty ? (
+                  <div className="flex h-full items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500">
+                    {dict.tickerHistory.priceChartEmptyState}
+                  </div>
                 ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={activeChartData} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
-                    <XAxis
-                      dataKey="dateMs"
-                      type="number"
-                      scale="time"
-                      domain={chartAxis.domain}
-                      ticks={chartAxis.ticks}
-                      tickFormatter={chartAxis.tickFormatter}
-                      tickLine={false}
-                      axisLine={false}
-                      minTickGap={32}
-                    />
-                    <YAxis tickLine={false} axisLine={false} width={90} tickFormatter={(value) => formatCompactNumber(locale, value)} />
-                    <Tooltip
-                      labelFormatter={(value) => (
-                        typeof value === "number"
-                          ? formatDateLabel(new Date(value).toISOString().slice(0, 10), locale)
-                          : String(value)
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={activeChartData} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
+                      <XAxis
+                        dataKey="dateMs"
+                        type="number"
+                        scale="time"
+                        domain={chartAxis.domain}
+                        ticks={chartAxis.ticks}
+                        tickFormatter={chartAxis.tickFormatter}
+                        tickLine={false}
+                        axisLine={false}
+                        minTickGap={32}
+                      />
+                      <YAxis tickLine={false} axisLine={false} width={90} tickFormatter={(value) => formatCompactNumber(locale, value)} />
+                      <Tooltip
+                        labelFormatter={(value) => (
+                          typeof value === "number"
+                            ? formatDateLabel(new Date(value).toISOString().slice(0, 10), locale)
+                            : String(value)
+                        )}
+                        formatter={(value, name) => {
+                          if (typeof value !== "number") return Array.isArray(value) ? value.join(" / ") : value;
+                          if (name === "quantity") return formatNumber(value, locale);
+                          return formatCurrencyAmount(value, tickerChartMetric === "unrealizedPnl" ? (detailsState.unrealizedPnlHistory[0]?.currency ?? currency) : currency, locale);
+                        }}
+                      />
+                      {tickerChartMetric === "price" ? (
+                        <>
+                          <Line type="monotone" dataKey="price" stroke="#0f766e" strokeWidth={2.5} dot={false} name={dict.tickerHistory.currentPriceLabel} />
+                          <Line type="monotone" dataKey="averageCost" stroke="#334155" strokeWidth={2} strokeDasharray="6 4" dot={false} name={dict.tickerHistory.avgCostLabel} />
+                        </>
+                      ) : (
+                        <Line type="monotone" dataKey="unrealizedPnl" stroke="#215dc6" strokeWidth={2.5} dot={false} connectNulls={false} name={dict.tickerHistory.unrealizedPnlLabel} />
                       )}
-                      formatter={(value, name) => {
-                        if (typeof value !== "number") return Array.isArray(value) ? value.join(" / ") : value;
-                        if (name === "quantity") return formatNumber(value, locale);
-                        return formatCurrencyAmount(value, tickerChartMetric === "unrealizedPnl" ? (detailsState.unrealizedPnlHistory[0]?.currency ?? currency) : currency, locale);
-                      }}
-                    />
-                    {tickerChartMetric === "price" ? (
-                      <>
-                        <Line type="monotone" dataKey="price" stroke="#0f766e" strokeWidth={2.5} dot={false} name={dict.tickerHistory.currentPriceLabel} />
-                        <Line type="monotone" dataKey="averageCost" stroke="#334155" strokeWidth={2} strokeDasharray="6 4" dot={false} name={dict.tickerHistory.avgCostLabel} />
-                      </>
-                    ) : (
-                      <Line type="monotone" dataKey="unrealizedPnl" stroke="#215dc6" strokeWidth={2.5} dot={false} connectNulls={false} name={dict.tickerHistory.unrealizedPnlLabel} />
-                    )}
-                  </LineChart>
-                </ResponsiveContainer>
+                    </LineChart>
+                  </ResponsiveContainer>
                 )}
               </div>
             </Card>

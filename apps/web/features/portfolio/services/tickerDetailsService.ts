@@ -181,6 +181,26 @@ function findHolding(
   ) ?? undefined;
 }
 
+function findScopedDashboardInstrument(
+  dashboard: DashboardSnapshot,
+  ticker: string,
+  marketCode: string | undefined,
+): DashboardSnapshot["instruments"][number] | undefined {
+  if (marketCode) {
+    return dashboard.instruments.find((candidate) => candidate.ticker === ticker && candidate.marketCode === marketCode);
+  }
+
+  return dashboard.instruments.find((candidate) => candidate.ticker === ticker);
+}
+
+function findScopedCatalogInstrument(
+  ticker: string,
+  marketCode: string,
+  instrument: InstrumentCatalogItemDto | null,
+): InstrumentCatalogItemDto | null {
+  return instrument?.ticker === ticker && instrument.marketCode === marketCode ? instrument : null;
+}
+
 function buildFallbackFundamentals(
   instrument: InstrumentCatalogItemDto | null,
   holding: DashboardOverviewHoldingDto | DashboardOverviewHoldingGroupDto | undefined,
@@ -269,6 +289,9 @@ export function buildPrimaryTickerDetails({
   const holding = findHolding(dashboard, ticker, accountId, marketCode);
   const realizedPnl = transactions.reduce((sum, transaction) => sum + (transaction.realizedPnlAmount ?? 0), 0);
   const scopedAccountIds = accountId ? [accountId] : accountIds ?? [];
+  const resolvedMarketCode = marketCode ?? holding?.marketCode ?? transactions[0]?.marketCode ?? instrument?.marketCode ?? "TW";
+  const scopedDashboardInstrument = findScopedDashboardInstrument(dashboard, ticker, resolvedMarketCode);
+  const scopedCatalogInstrument = findScopedCatalogInstrument(ticker, resolvedMarketCode, instrument);
   const currency = holding?.currency ?? transactions[0]?.priceCurrency ?? "TWD";
   const upcomingDividends = dashboard.dividends.upcoming.filter(
     (dividend) => dividend.ticker === ticker && (!accountId || dividend.accountId === accountId),
@@ -280,9 +303,9 @@ export function buildPrimaryTickerDetails({
   return {
     identity: {
       ticker,
-      name: instrument?.name ?? null,
-      marketCode: marketCode ?? instrument?.marketCode ?? transactions[0]?.marketCode ?? "TW",
-      instrumentType: instrument?.instrumentType ?? transactions[0]?.instrumentType ?? null,
+      name: scopedCatalogInstrument?.name ?? holding?.instrumentName?.trim() ?? null,
+      marketCode: resolvedMarketCode,
+      instrumentType: scopedCatalogInstrument?.instrumentType ?? scopedDashboardInstrument?.instrumentType ?? transactions[0]?.instrumentType ?? null,
       currency,
     },
     quote: {
@@ -327,7 +350,7 @@ export function buildPrimaryTickerDetails({
       lastPostedDate: recentDividends[0]?.postedAt ?? holding?.lastDividendPostedDate ?? null,
     },
     fundamentals: {
-      panels: buildFallbackFundamentals(instrument, holding),
+      panels: buildFallbackFundamentals(scopedCatalogInstrument, holding),
     },
   };
 }

@@ -65,6 +65,8 @@ export interface AppDictionary {
     tickerPickerCustomCount: string;
     tickerPickerUnavailable: string;
     tickerPickerReset: string;
+    tickerPickerUncheckAll: string;
+    tickerPickerZeroSelected: string;
     tickerPickerNoMatches: string;
     driversHint: string;
     noisyChartWarning: string;
@@ -111,6 +113,8 @@ export interface AppDictionary {
     reportsPreviewDescription: string;
     emptyTitle: string;
     emptyBody: string;
+    manualEmptyTitle: string;
+    manualEmptyBody: string;
     loadingTitle: string;
     loadingBody: string;
     timeoutMessage: string;
@@ -866,13 +870,18 @@ export interface AppDictionary {
       transactionsTabLabel: string;
       chartTitle: string;
       chartSubtitle: string;
+      unrealizedPnlChartTitle: string;
+      unrealizedPnlChartSubtitle: string;
       chartRangeLabel: string;
       chartMetricLabel: string;
       chartTimelineLabel: string;
       analysisSourceLabel: string;
+      clearAnalysisRangeLabel: string;
       analysisAccountCountLabel: string;
       analysisAccountsCountLabel: string;
       unrealizedPnlEmptyState: string;
+      priceChartLoadingState: string;
+      priceChartEmptyState: string;
       chartAllRangeLabel: string;
       chartCustomRangeLabel: string;
       chartCustomStartLabel: string;

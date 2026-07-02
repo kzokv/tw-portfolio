@@ -108,6 +108,22 @@ describe("unrealizedPnlRouteState", () => {
     );
   });
 
+  it("preserves empty manual custom selection across parse and serialization", () => {
+    const state = parseUnrealizedPnlRouteState({
+      selection: "manualTickers",
+      tickerMode: "custom",
+    });
+
+    expect(state.selection).toBe("manualTickers");
+    expect(state.tickerMode).toBe("custom");
+    expect(state.tickerIds).toEqual([]);
+    expect(unrealizedPnlRouteStateToSearchParams(state).toString()).toContain("selection=manualTickers");
+    expect(unrealizedPnlRouteStateToSearchParams(state).toString()).toContain("tickerMode=custom");
+    expect(buildUnrealizedPnlApiPath(state)).toBe(
+      "/analysis/unrealized-pnl?selection=manualTickers&tickerMode=custom&reportingCurrency=TWD",
+    );
+  });
+
   it("keeps incomplete custom ranges out of API fetches", () => {
     const incompleteCustomState = {
       ...ANALYSIS_DEFAULT_STATE,

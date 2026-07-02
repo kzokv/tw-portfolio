@@ -16,6 +16,9 @@ import { testPriceState } from "../../fixtures/priceState";
 const appShellDataMocks = vi.hoisted(() => ({
   openQuickActions: vi.fn(),
 }));
+const breadcrumbMocks = vi.hoisted(() => ({
+  set: vi.fn(),
+}));
 const navigationMocks = vi.hoisted(() => ({
   push: vi.fn(),
   refresh: vi.fn(),
@@ -47,6 +50,10 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
     sessionUserId: "user-1",
     uiDict: {},
   }),
+}));
+
+vi.mock("../../../components/layout/BreadcrumbProvider", () => ({
+  useBreadcrumb: (items: unknown) => breadcrumbMocks.set(items),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -140,6 +147,7 @@ afterEach(() => {
   window.sessionStorage.clear();
   vi.clearAllMocks();
   appShellDataMocks.openQuickActions.mockReset();
+  breadcrumbMocks.set.mockReset();
   navigationMocks.searchParams = "";
 });
 
@@ -863,6 +871,62 @@ describe("TickerHistoryClient", () => {
     expect(findButtonByText(element, dict.tickerHistory.unrealizedPnlLabel).getAttribute("aria-pressed")).toBe("false");
   });
 
+  it("uses market-scoped details identity for the title and breadcrumb when catalog rows collide across markets", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
+    const duplicateCatalogInstrument: InstrumentCatalogItemDto = {
+      ...tickerInstrument,
+      marketCode: "US",
+      name: "Acme Semiconductor ADR",
+    };
+    const element = renderTickerHistoryClient({
+      ...details,
+      identity: {
+        ...details.identity,
+        name: "Taiwan Semiconductor Manufacturing",
+        marketCode: "TW",
+      },
+    }, duplicateCatalogInstrument);
+    await flushEffects();
+
+    expect(element.querySelector('[data-testid="ticker-history-title"]')?.textContent).toContain("Taiwan Semiconductor Manufacturing (2330)");
+    expect(element.textContent).not.toContain("Acme Semiconductor ADR");
+    expect(breadcrumbMocks.set).toHaveBeenLastCalledWith([
+      { label: dict.navigation.portfolioLabel, href: "/portfolio" },
+      { label: "Taiwan Semiconductor Manufacturing (2330)" },
+    ]);
+  });
+
+  it("clears analysis context, resets the chart range, and switches back to Current Price", async () => {
+    navigationMocks.searchParams = "source=unrealized-pnl-analysis&fromDate=2026-04-10&toDate=2026-06-26&includeProvisional=true";
+    window.history.replaceState(null, "", "/tickers/2330?source=unrealized-pnl-analysis&fromDate=2026-04-10&toDate=2026-06-26&includeProvisional=true");
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
+
+    const element = renderTickerHistoryClient(makeAnalysisChartDetails());
+    await flushEffects();
+    vi.mocked(fetchTickerDetailsHydration).mockClear();
+
+    await act(async () => {
+      findButtonByText(element, dict.tickerHistory.clearAnalysisRangeLabel).click();
+    });
+    await flushEffects();
+
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get("chartRange")).toBe("1Y");
+    expect(params.has("source")).toBe(false);
+    expect(params.has("fromDate")).toBe(false);
+    expect(params.has("toDate")).toBe(false);
+    expect(params.has("includeProvisional")).toBe(false);
+    expect(element.textContent).not.toContain(dict.tickerHistory.analysisSourceLabel);
+    expect(findButtonByText(element, dict.tickerHistory.currentPriceLabel).getAttribute("aria-pressed")).toBe("true");
+    expect(findButtonByText(element, dict.tickerHistory.unrealizedPnlLabel).getAttribute("aria-pressed")).toBe("false");
+    expect(fetchTickerDetailsHydration).toHaveBeenLastCalledWith(expect.objectContaining({
+      range: "1Y",
+      startDate: undefined,
+      endDate: undefined,
+      includeProvisional: undefined,
+    }));
+  });
+
   it("locks record transactions to the full multi-account analysis scope", async () => {
     navigationMocks.searchParams = "source=unrealized-pnl-analysis";
     vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
@@ -936,6 +1000,63 @@ describe("TickerHistoryClient", () => {
 
     expect(findButtonByText(element, dict.tickerHistory.currentPriceLabel).getAttribute("aria-pressed")).toBe("true");
     expect(element.textContent).not.toContain(dict.tickerHistory.unrealizedPnlEmptyState);
+  });
+
+  it("switches the chart title and subtitle by metric", async () => {
+    navigationMocks.searchParams = "source=unrealized-pnl-analysis";
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
+
+    const element = renderTickerHistoryClient(makeAnalysisChartDetails());
+    await flushEffects();
+
+    expect(element.textContent).toContain(dict.tickerHistory.unrealizedPnlChartTitle);
+    expect(element.textContent).toContain(dict.tickerHistory.unrealizedPnlChartSubtitle);
+
+    await act(async () => {
+      findButtonByText(element, dict.tickerHistory.currentPriceLabel).click();
+    });
+
+    expect(element.textContent).toContain(dict.tickerHistory.chartTitle);
+    expect(element.textContent).toContain(dict.tickerHistory.chartSubtitle);
+  });
+
+  it("shows a price-chart loading state while hydration is in flight", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(() => new Promise(() => {}));
+
+    const element = renderTickerHistoryClient({
+      ...details,
+      chart: {
+        ...details.chart,
+        points: [],
+      },
+    });
+    await flushEffects();
+
+    expect(element.textContent).toContain(dict.tickerHistory.priceChartLoadingState);
+    expect(element.textContent).not.toContain(dict.tickerHistory.priceChartEmptyState);
+  });
+
+  it("shows a price-chart empty state after hydration finishes without chart data", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockResolvedValue({
+      ...details,
+      chart: {
+        ...details.chart,
+        points: [],
+      },
+    });
+
+    const element = renderTickerHistoryClient({
+      ...details,
+      chart: {
+        ...details.chart,
+        points: [],
+      },
+    });
+    await flushEffects();
+    await flushEffects();
+
+    expect(element.textContent).toContain(dict.tickerHistory.priceChartEmptyState);
+    expect(element.textContent).not.toContain(dict.tickerHistory.priceChartLoadingState);
   });
 
   it("renders refreshed account breakdown from ticker details state", async () => {

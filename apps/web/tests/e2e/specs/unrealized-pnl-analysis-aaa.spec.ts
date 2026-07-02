@@ -210,20 +210,22 @@ test("[analysis-unrealized-pnl-E]: manual legend selection and ticker detail lin
   await page.getByRole("button", { name: "Manual tickers", exact: true }).click();
   await page.waitForURL(/selection=manualTickers/);
   const manualLegend = page.getByTestId("analysis-chart-legend");
-  await manualLegend.getByRole("button", { name: "NVIDIA Corporation" }).click();
-  await page.waitForURL(/tickerMode=custom/);
+  const beforeLegendClick = new URL(page.url());
+  const nvdaManualLegend = manualLegend.getByRole("button", { name: "NVIDIA Corporation" });
+  await nvdaManualLegend.click();
   const url = new URL(page.url());
   await appShell.assert.mxAssertEqual(url.searchParams.get("selection"), "manualTickers", "manual legend keeps manual mode");
-  await appShell.assert.mxAssertEqual(url.searchParams.get("tickerMode"), "custom", "manual legend converts all eligible to custom");
-  await appShell.assert.mxAssertTruthy(!(url.searchParams.get("tickerIds") ?? "").includes("US:NVDA"), "manual legend removes the clicked ticker");
+  await appShell.assert.mxAssertEqual(url.searchParams.get("tickerMode"), beforeLegendClick.searchParams.get("tickerMode"), "manual legend keeps ticker mode local");
+  await appShell.assert.mxAssertEqual(url.searchParams.get("tickerIds"), beforeLegendClick.searchParams.get("tickerIds"), "manual legend does not remove ticker ids");
+  await appShell.assert.mxAssertEqual(await nvdaManualLegend.getAttribute("aria-pressed"), "false", "manual legend dims clicked ticker");
   await appShell.assert.mxAssertTruthy(
-    !(await page.getByTestId("analysis-selected-detail").textContent())?.includes("NVIDIA Corporation"),
-    "manual legend removes clicked ticker from detail",
+    (await page.getByTestId("analysis-selected-detail").textContent())?.includes("NVIDIA Corporation"),
+    "manual legend keeps clicked ticker in detail",
   );
   await appShell.assert.mxAssertEqual(
     await page.getByTestId("analysis-selected-detail").getByTestId("analysis-detail-muted").count(),
-    0,
-    "manual mode has no muted detail rows",
+    1,
+    "manual mode shows muted detail row",
   );
 });
 

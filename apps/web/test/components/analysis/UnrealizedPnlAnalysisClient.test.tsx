@@ -131,12 +131,12 @@ describe("UnrealizedPnlAnalysisClient", () => {
     expect(nvda?.getAttribute("aria-pressed")).toBe("false");
   });
 
-  it("builds ticker toggles from pending manual selection while data refetches", () => {
+  it("uses local muted state for manual legend toggles without changing route params", () => {
     const initialState = {
       ...ANALYSIS_DEFAULT_STATE,
       selection: "manualTickers" as const,
-      tickerMode: "allEligible" as const,
-      tickerIds: [],
+      tickerMode: "custom" as const,
+      tickerIds: ["US:AAPL", "US:NVDA"],
       drivers: 5 as const,
     };
     const initialData = buildPreviewUnrealizedPnlAnalysis(initialState);
@@ -153,12 +153,107 @@ describe("UnrealizedPnlAnalysisClient", () => {
       legendButton("Apple Inc.")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
+    expect(replaceMock).not.toHaveBeenCalled();
+    expect(legendButton("Apple Inc.")?.getAttribute("aria-pressed")).toBe("false");
+    expect(container.querySelector("[data-testid='analysis-detail-muted']")?.textContent).toContain("Muted context line");
+  });
+
+  it("renders the manual zero-selected empty state while preserving custom route state", () => {
+    const initialState = {
+      ...ANALYSIS_DEFAULT_STATE,
+      selection: "manualTickers" as const,
+      tickerMode: "custom" as const,
+      tickerIds: [],
+    };
+    const initialData = buildPreviewUnrealizedPnlAnalysis(initialState);
+
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={initialState} />
+        </AppShellDataProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("No tickers selected");
+    expect(container.textContent).toContain("Select tickers from the Tickers filter to draw lines.");
+    expect(container.querySelector("[data-testid='analysis-chart-legend']")).toBeNull();
+    expect(container.querySelector("[data-testid='analysis-focus-scrub']")).toBeNull();
+    expect(container.querySelector("[data-testid='analysis-detail-muted']")).toBeNull();
+    expect(container.querySelector("[data-testid='analysis-ticker-picker-trigger']")?.textContent).toContain("0 selected");
+  });
+
+  it("lets the manual picker uncheck all eligible without falling back to all-eligible mode", () => {
+    const initialState = {
+      ...ANALYSIS_DEFAULT_STATE,
+      selection: "manualTickers" as const,
+      tickerMode: "allEligible" as const,
+      tickerIds: [],
+    };
+    const initialData = buildPreviewUnrealizedPnlAnalysis(initialState);
+
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={initialState} />
+        </AppShellDataProvider>,
+      );
+    });
+    replaceMock.mockClear();
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>("[data-testid='analysis-ticker-picker-trigger']")?.click();
+    });
+    const uncheckAllButton = Array.from(document.body.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent === "Uncheck all eligible");
+    expect(uncheckAllButton).toBeDefined();
+
+    act(() => {
+      uncheckAllButton!.click();
+    });
+
     const lastUrl = String(replaceMock.mock.calls.at(-1)?.[0] ?? "");
-    expect(lastUrl).toContain("selection=manualTickers");
-    expect(lastUrl).toContain("tickerMode=custom");
-    expect(lastUrl).toContain("tickerIds=");
-    expect(lastUrl).toContain("US%3ANVDA");
-    expect(lastUrl).not.toContain("US%3AAAPL");
+    const params = new URL(lastUrl, "http://localhost").searchParams;
+    expect(params.get("selection")).toBe("manualTickers");
+    expect(params.get("tickerMode")).toBe("custom");
+    expect(params.get("tickerIds")).toBeNull();
+  });
+
+  it("resets manual muted state when picker membership changes", () => {
+    const initialState = {
+      ...ANALYSIS_DEFAULT_STATE,
+      selection: "manualTickers" as const,
+      tickerMode: "custom" as const,
+      tickerIds: ["US:AAPL", "US:NVDA"],
+    };
+    const initialData = buildPreviewUnrealizedPnlAnalysis(initialState);
+
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={initialState} />
+        </AppShellDataProvider>,
+      );
+    });
+
+    act(() => {
+      legendButton("Apple Inc.")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(container.querySelector("[data-testid='analysis-detail-muted']")?.textContent).toContain("Apple Inc.");
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>("[data-testid='analysis-ticker-picker-trigger']")?.click();
+    });
+    const nvdaCheckbox = Array.from(document.body.querySelectorAll<HTMLInputElement>("[data-testid='analysis-ticker-picker'] input[type='checkbox']"))
+      .find((input) => input.closest("label")?.textContent?.includes("US:NVDA"));
+    expect(nvdaCheckbox).toBeDefined();
+
+    act(() => {
+      nvdaCheckbox!.click();
+    });
+
+    const mutedRows = Array.from(container.querySelectorAll("[data-testid='analysis-detail-muted']"));
+    expect(mutedRows.some((row) => row.textContent?.includes("Apple Inc."))).toBe(false);
   });
 
   it("seeds all-eligible picker conversion from the full available ticker set", () => {
@@ -331,6 +426,38 @@ describe("UnrealizedPnlAnalysisClient", () => {
     expect(detailRows.length).toBeGreaterThan(1);
     expect(detailRows.at(-1)?.textContent).toContain("Apple Inc.");
     expect(detailRows.at(-1)?.textContent).toContain("Manual");
+  });
+
+  it("keeps muted and manual badges visible in table detail rows", () => {
+    const initialState = {
+      ...ANALYSIS_DEFAULT_STATE,
+      selection: "manualTickers" as const,
+      tickerMode: "custom" as const,
+      tickerIds: ["US:AAPL", "US:NVDA"],
+      detailLayout: "table" as const,
+    };
+    const previewData = buildPreviewUnrealizedPnlAnalysis(initialState);
+    const initialData = {
+      ...previewData,
+      tickerSelection: previewData.tickerSelection.map((row) => row.ticker === "AAPL"
+        ? { ...row, isManual: true, rankLabel: "Manual", rankSort: Number.MAX_SAFE_INTEGER }
+        : row),
+    };
+
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={initialState} />
+        </AppShellDataProvider>,
+      );
+    });
+
+    act(() => {
+      legendButton("Apple Inc.")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.querySelector("[data-testid='analysis-detail-table']")?.textContent).toContain("Manual");
+    expect(container.querySelector("[data-testid='analysis-detail-table']")?.textContent).toContain("Muted context line");
   });
 
   it("hydrates presentation defaults from preferences when the URL does not override them", async () => {

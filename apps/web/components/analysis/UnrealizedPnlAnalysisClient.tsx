@@ -27,7 +27,6 @@ import {
   parseAnalysisSettingsFromPreferences,
   settingsFromState,
   unrealizedPnlRouteStateToSearchParams,
-  updateAnalysisTickerSelection,
 } from "../../features/analysis/unrealizedPnlRouteState";
 import type { UnrealizedPnlAnalysisExplicitPreferenceKeys, UnrealizedPnlAnalysisSettings } from "../../features/analysis/unrealizedPnlRouteState";
 import type {
@@ -169,12 +168,14 @@ export function UnrealizedPnlAnalysisClient({
     };
   }, [explicitPreferenceKeys, router, startTransition]);
 
-  const candidateSeriesIds = useMemo(() => data?.selectedSeriesIds ?? state.tickerIds, [data?.selectedSeriesIds, state.tickerIds]);
-  const availableTickerIds = useMemo(() => data?.availableFilters.tickers.map((option) => option.value) ?? candidateSeriesIds, [candidateSeriesIds, data?.availableFilters.tickers]);
+  const candidateSeriesIds = useMemo(() => {
+    if (state.selection === "manualTickers" && state.tickerMode === "custom") return state.tickerIds;
+    return data?.selectedSeriesIds ?? state.tickerIds;
+  }, [data?.selectedSeriesIds, state.selection, state.tickerIds, state.tickerMode]);
   const selectedSet = useMemo(() => {
-    if (state.selection !== "topDrivers") return new Set(candidateSeriesIds);
     return new Set(candidateSeriesIds.filter((seriesId) => !mutedSeriesIds.has(seriesId)));
-  }, [candidateSeriesIds, mutedSeriesIds, state.selection]);
+  }, [candidateSeriesIds, mutedSeriesIds]);
+  const hasZeroSelectedManualTickers = state.selection === "manualTickers" && state.tickerMode === "custom" && candidateSeriesIds.length === 0;
   const chartDates = useMemo(() => collectChartDates(data?.tickerSeries ?? []), [data?.tickerSeries]);
   const maxFocusIndex = Math.max(0, chartDates.length - 1);
   const stateFocusIndex = state.focusDate ? chartDates.indexOf(state.focusDate) : -1;
@@ -225,6 +226,8 @@ export function UnrealizedPnlAnalysisClient({
   useEffect(() => {
     setMutedSeriesIds(new Set());
   }, [
+    candidateSeriesIds,
+    data?.selectedSeriesIds,
     state.accounts,
     state.from,
     state.granularity,
@@ -235,9 +238,9 @@ export function UnrealizedPnlAnalysisClient({
     state.markets,
     state.range,
     state.reportingCurrency,
-    state.tickerIds,
     state.selection,
     state.tickerIds,
+    state.tickerMode,
     state.to,
   ]);
 
@@ -276,32 +279,14 @@ export function UnrealizedPnlAnalysisClient({
   }
 
   function toggleSeries(seriesId: string): void {
-    if (state.selection === "topDrivers") {
-      setMutedSeriesIds((current) => {
-        const next = new Set(current);
-        if (next.has(seriesId)) {
-          next.delete(seriesId);
-        } else {
-          next.add(seriesId);
-        }
-        return next;
-      });
-      return;
-    }
-    const current = new Set(
-      state.selection === "manualTickers" && state.tickerMode === "custom"
-        ? state.tickerIds
-        : seedCustomTickerIdsFromAllEligible(availableTickerIds, seriesId),
-    );
-    if (current.has(seriesId)) {
-      if (current.size <= 1) return;
-      current.delete(seriesId);
-    } else {
-      current.add(seriesId);
-    }
-    replaceState({
-      ...updateAnalysisTickerSelection(state, [...current], "manualTickers"),
-      view: "compare",
+    setMutedSeriesIds((current) => {
+      const next = new Set(current);
+      if (next.has(seriesId)) {
+        next.delete(seriesId);
+      } else {
+        next.add(seriesId);
+      }
+      return next;
     });
   }
 
@@ -544,31 +529,37 @@ export function UnrealizedPnlAnalysisClient({
           <CardContent className="space-y-4">
             <div className="grid gap-4">
               <div className="min-w-0">
-                <AnalysisSvgChart
-                  ariaLabel={dict.chartAriaLabel}
-                  dates={chartDates}
-                  focusDate={focusDate}
-                  locale={resolvedLocale}
-                  onToggleSeries={toggleSeries}
-                  reducedMotion={reducedMotion}
-                  selectedSet={selectedSet}
-                  series={data?.tickerSeries ?? []}
-                />
-                <label className="mt-4 block text-xs font-medium text-muted-foreground" htmlFor="analysis-focus">{dict.focusLabel}</label>
-                <input
-                  data-testid="analysis-focus-scrub"
-                  id="analysis-focus"
-                  className="mt-2 w-full"
-                  max={maxFocusIndex}
-                  min={0}
-                  type="range"
-                  value={activeFocusIndex}
-                  onChange={(event) => updateFocus(Number(event.currentTarget.value))}
-                />
-                <div className="mt-2 text-sm text-muted-foreground">
-                  {focusDate ? formatDateLabel(focusDate, resolvedLocale) : dict.emptyBody}
-                </div>
-                {focusedSelectedValues.length > 0 ? (
+                {hasZeroSelectedManualTickers ? (
+                  <AnalysisEmptyState title={dict.manualEmptyTitle} body={dict.manualEmptyBody} />
+                ) : (
+                  <>
+                    <AnalysisSvgChart
+                      ariaLabel={dict.chartAriaLabel}
+                      dates={chartDates}
+                      focusDate={focusDate}
+                      locale={resolvedLocale}
+                      onToggleSeries={toggleSeries}
+                      reducedMotion={reducedMotion}
+                      selectedSet={selectedSet}
+                      series={data?.tickerSeries ?? []}
+                    />
+                    <label className="mt-4 block text-xs font-medium text-muted-foreground" htmlFor="analysis-focus">{dict.focusLabel}</label>
+                    <input
+                      data-testid="analysis-focus-scrub"
+                      id="analysis-focus"
+                      className="mt-2 w-full"
+                      max={maxFocusIndex}
+                      min={0}
+                      type="range"
+                      value={activeFocusIndex}
+                      onChange={(event) => updateFocus(Number(event.currentTarget.value))}
+                    />
+                    <div className="mt-2 text-sm text-muted-foreground">
+                      {focusDate ? formatDateLabel(focusDate, resolvedLocale) : dict.emptyBody}
+                    </div>
+                  </>
+                )}
+                {!hasZeroSelectedManualTickers && focusedSelectedValues.length > 0 ? (
                   <div className="mt-3 rounded-md border border-border/70 bg-muted/30 p-2" data-testid="analysis-focus-values">
                     <p className="text-[11px] font-semibold uppercase text-muted-foreground">{dict.focusValuesLabel}</p>
                     <div className="mt-2 grid gap-1 sm:grid-cols-2">
@@ -613,7 +604,9 @@ export function UnrealizedPnlAnalysisClient({
                 className={cn("mt-3 grid gap-3 lg:grid-cols-2", state.detailLayout === "table" && "hidden", state.detailLayout === "responsive" && "lg:hidden")}
                 data-testid="analysis-detail-cards"
               >
-                {detailRows.map((row) => {
+                {hasZeroSelectedManualTickers ? (
+                  <AnalysisEmptyState compact title={dict.manualEmptyTitle} body={dict.manualEmptyBody} />
+                ) : detailRows.map((row) => {
                   const series = seriesById.get(row.seriesId);
                   const isChecked = selectedSet.has(row.seriesId);
                   const href = buildTickerDetailHref(row, state, data);
@@ -629,10 +622,10 @@ export function UnrealizedPnlAnalysisClient({
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="flex min-w-0 items-center gap-2 font-medium">
-                            <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", row.isManual ? "bg-violet-100 text-violet-700" : "bg-muted text-muted-foreground")}>{row.isManual ? dict.manualBadge : row.rankLabel}</span>
+                            <SelectionBadge label={row.isManual ? dict.manualBadge : row.rankLabel} tone={row.isManual ? "manual" : "default"} />
                             <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: row.colorToken }} />
                             <a className="truncate text-primary hover:underline" href={href}>{row.displayName}</a>
-                            {!isChecked ? <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">{dict.mutedLineLabel}</span> : null}
+                            {!isChecked ? <SelectionBadge label={dict.mutedLineLabel} tone="muted" /> : null}
                           </p>
                           <p className="mt-1 text-xs text-muted-foreground"><a className="text-primary hover:underline" href={href}>{row.marketCode}:{row.ticker}</a> · {positionLabel(row.positionStatus)}</p>
                         </div>
@@ -663,6 +656,9 @@ export function UnrealizedPnlAnalysisClient({
                 className={cn("mt-3 overflow-x-auto rounded-md border border-border", state.detailLayout === "cards" && "hidden", state.detailLayout === "responsive" && "hidden lg:block")}
                 data-testid="analysis-detail-table"
               >
+                {hasZeroSelectedManualTickers ? (
+                  <AnalysisEmptyState compact title={dict.manualEmptyTitle} body={dict.manualEmptyBody} />
+                ) : (
                 <table className="min-w-full text-left text-sm">
                   <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
                     <tr>
@@ -685,9 +681,12 @@ export function UnrealizedPnlAnalysisClient({
                       return (
                         <tr key={row.seriesId} className={cn("border-t border-border", !isChecked && "bg-muted/30 opacity-60")}>
                           <td className="min-w-56 px-3 py-2">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <SelectionBadge label={row.isManual ? dict.manualBadge : row.rankLabel} tone={row.isManual ? "manual" : "default"} />
+                              {!isChecked ? <SelectionBadge label={dict.mutedLineLabel} tone="muted" /> : null}
+                            </div>
                             <a className="font-medium text-primary hover:underline" href={href}>{row.marketCode}:{row.ticker}</a>
                             <a className="mt-0.5 block max-w-64 truncate text-xs text-primary/80 hover:underline" href={href}>{row.displayName}</a>
-                            {!isChecked ? <span className="mt-1 inline-flex rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">{dict.mutedLineLabel}</span> : null}
                           </td>
                           <td className="px-3 py-2">{row.marketCode}</td>
                           <td className="px-3 py-2 font-mono tabular-nums">{formatNullableCurrency(row.endUnrealizedPnl, series?.currency ?? responseCurrency, resolvedLocale)}</td>
@@ -701,6 +700,7 @@ export function UnrealizedPnlAnalysisClient({
                     })}
                   </tbody>
                 </table>
+                )}
               </div>
             </div>
           </CardContent>
@@ -904,6 +904,26 @@ function AnalysisSvgChart({
   );
 }
 
+function AnalysisEmptyState({
+  body,
+  compact = false,
+  title,
+}: {
+  body: string;
+  compact?: boolean;
+  title: string;
+}) {
+  return (
+    <div className={cn(
+      "flex flex-col items-center justify-center rounded-md border border-dashed border-border bg-muted/20 text-center",
+      compact ? "min-h-28 p-4" : "min-h-[280px] p-6",
+    )}>
+      <p className="text-sm font-semibold text-foreground">{title}</p>
+      <p className="mt-1 max-w-md text-sm text-muted-foreground">{body}</p>
+    </div>
+  );
+}
+
 function ControlGroup({ children, label }: { children: ReactNode; label: string }) {
   return (
     <label className="flex flex-col gap-1 text-sm">
@@ -979,10 +999,17 @@ function TickerPicker({
   const filteredRows = rows.filter((row) => row.searchText.includes(search.trim().toLowerCase()));
   const groups = groupTickerRows(filteredRows);
   const selectedCount = tickerMode === "allEligible" ? 0 : tickerIds.length;
+  const isZeroSelectedManualState = selection === "manualTickers" && tickerMode === "custom" && selectedCount === 0;
   const triggerText = tickerMode === "allEligible"
     ? dict.tickerPickerAllEligible
-    : dict.tickerPickerCustomCount.replace("{count}", String(selectedCount));
-  const helperText = selection === "topDrivers" ? dict.driversHint : dict.tickerMembershipLabel;
+    : isZeroSelectedManualState
+      ? dict.tickerPickerZeroSelected
+      : dict.tickerPickerCustomCount.replace("{count}", String(selectedCount));
+  const helperText = selection === "topDrivers"
+    ? dict.driversHint
+    : isZeroSelectedManualState
+      ? dict.manualEmptyBody
+      : dict.tickerMembershipLabel;
 
   function close(nextOpen: boolean): void {
     setOpen(nextOpen);
@@ -995,10 +1022,8 @@ function TickerPicker({
       ? new Set(seedCustomTickerIdsFromAllEligible(availableRows.map((candidate) => candidate.tickerId), row.tickerId))
       : new Set(selectedSet);
     if (tickerMode === "allEligible") {
-      if (next.size <= 1 && next.has(row.tickerId)) return;
       next.delete(row.tickerId);
     } else if (next.has(row.tickerId)) {
-      if (next.size <= 1) return;
       next.delete(row.tickerId);
     } else {
       if (next.size >= CUSTOM_TICKER_ID_LIMIT) return;
@@ -1009,12 +1034,16 @@ function TickerPicker({
 
   function removeUnavailable(row: TickerPickerRow): void {
     const next = tickerIds.filter((tickerId) => tickerId !== row.tickerId);
-    if (next.length === 0) return;
     onChange("custom", next);
   }
 
   function reset(): void {
     onChange("allEligible", []);
+    close(false);
+  }
+
+  function uncheckAll(): void {
+    onChange("custom", []);
     close(false);
   }
 
@@ -1048,9 +1077,14 @@ function TickerPicker({
                 onChange={(event) => setSearch(event.currentTarget.value)}
               />
             </div>
-            {tickerMode === "custom" ? (
-              <Button className="mt-2 h-8 w-full" variant="secondary" onClick={reset}>{dict.tickerPickerReset}</Button>
-            ) : null}
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {selection === "manualTickers" ? (
+                <Button className="h-8 w-full" variant="secondary" onClick={uncheckAll}>{dict.tickerPickerUncheckAll}</Button>
+              ) : null}
+              {selection !== "manualTickers" && tickerMode === "custom" ? (
+                <Button className="h-8 w-full" variant="secondary" onClick={reset}>{dict.tickerPickerReset}</Button>
+              ) : null}
+            </div>
           </div>
           <div className="max-h-80 overflow-y-auto p-2" role="listbox" aria-multiselectable="true">
             {groups.length > 0 ? groups.map((group) => (
@@ -1322,6 +1356,27 @@ function DetailTerm({ label, value }: { label: string; value: string }) {
       <dt className="text-xs text-muted-foreground">{label}</dt>
       <dd className="font-medium text-foreground">{value}</dd>
     </div>
+  );
+}
+
+function SelectionBadge({
+  label,
+  tone,
+}: {
+  label: string;
+  tone: "default" | "manual" | "muted";
+}) {
+  return (
+    <span className={cn(
+      "rounded-full px-2 py-0.5 text-[11px] font-semibold",
+      tone === "manual"
+        ? "bg-violet-100 text-violet-700"
+        : tone === "muted"
+          ? "bg-muted text-muted-foreground"
+          : "bg-muted text-muted-foreground",
+    )}>
+      {label}
+    </span>
   );
 }
 
