@@ -68,6 +68,8 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
   const initialChartRange = openedFromUnrealizedPnlAnalysis && fromDate && toDate ? "CUSTOM" : chartRange;
   const initialChartStart = openedFromUnrealizedPnlAnalysis && fromDate ? fromDate : chartStart;
   const initialChartEnd = openedFromUnrealizedPnlAnalysis && toDate ? toDate : chartEnd;
+  const initialPrimaryStart = openedFromUnrealizedPnlAnalysis ? initialChartStart : undefined;
+  const initialPrimaryEnd = openedFromUnrealizedPnlAnalysis ? initialChartEnd : undefined;
   const analysisIncludeProvisional = normalizeAnalysisIncludeProvisional(source, includeProvisional);
   const locale = settings?.locale ?? "en";
   const dict = getDictionary(locale);
@@ -121,6 +123,8 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
     accountId: scopedAccountId,
     accountIds: scopedAccountIds,
     marketCode: scopedMarketCode,
+    startDate: initialPrimaryStart,
+    endDate: initialPrimaryEnd,
     includeProvisional: analysisIncludeProvisional,
     instrument,
     transactions,
