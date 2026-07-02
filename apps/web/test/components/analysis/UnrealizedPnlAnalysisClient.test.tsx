@@ -554,6 +554,7 @@ describe("UnrealizedPnlAnalysisClient", () => {
           topDrivers: expect.objectContaining({ drivers: 10, positionStatus: "includeClosed" }),
           manualTickers: expect.objectContaining({ positionStatus: "includeClosed" }),
         }),
+        analysisUnrealizedPnlDefaults: null,
       },
       { contextScope: "session" },
     );

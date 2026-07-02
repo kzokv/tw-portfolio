@@ -974,7 +974,7 @@ const unrealizedPnlTickerIdSchema = z
   .trim()
   .min(3)
   .max(128)
-  .regex(/^(TW|US|AU|KR|JP):[A-Z0-9._-]+$/, "unrealized_pnl_invalid_ticker_id");
+  .regex(/^(TW|US|AU|KR|JP):[A-Z0-9@._-]+$/, "unrealized_pnl_invalid_ticker_id");
 const unrealizedPnlTickerIdListSchema = z
   .array(unrealizedPnlTickerIdSchema)
   .max(200)

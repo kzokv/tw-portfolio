@@ -265,7 +265,7 @@ test.describe("user preferences API (KZO-159)", () => {
       manualTickers: {
         positionStatus: "openOnly",
         tickerMode: "custom",
-        tickerIds: ["US:NVDA"],
+        tickerIds: ["US:NVDA", "JP:7203@"],
       },
     };
 
@@ -295,6 +295,44 @@ test.describe("user preferences API (KZO-159)", () => {
     await adminApi.assert.statusIs(clearResponse, 200);
     const clearBody = await clearResponse.json() as PreferencesBody;
     await adminApi.assert.mxAssertDeepEqual(clearBody.preferences, {});
+  });
+
+  test("[user-prefs]: PATCH /user-preferences { analysisUnrealizedPnlDefaults: null } → 200 deletes legacy key only", async ({
+    request,
+    adminApi,
+  }) => {
+    const session = await createOauthSession(request, {
+      sub: "user-prefs-analysis-unrealized-pnl-legacy-clear-sub",
+      email: "user-prefs-analysis-unrealized-pnl-legacy-clear@example.com",
+      name: "Prefs Analysis Unrealized Pnl Legacy Clear",
+      role: "member",
+    });
+
+    const seedResponse = await request.post(apiPath("/__e2e/seed-user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+      data: {
+        userId: session.userId,
+        preferences: {
+          analysisUnrealizedPnlDefaults: {
+            granularity: "monthly",
+            lineCount: 10,
+          },
+          reportingCurrency: "USD",
+        },
+      },
+    });
+    await adminApi.assert.statusIs(seedResponse, 200);
+
+    const response = await request.patch(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+      data: { analysisUnrealizedPnlDefaults: null },
+    });
+
+    await adminApi.assert.statusIs(response, 200);
+    const body = await response.json() as PreferencesBody;
+    await adminApi.assert.mxAssertDeepEqual(body.preferences, {
+      reportingCurrency: "USD",
+    });
   });
 
   test("[user-prefs]: PATCH invalid analysisUnrealizedPnlSettings ticker IDs → 400 invalid_preference", async ({

@@ -155,7 +155,10 @@ export function UnrealizedPnlAnalysisClient({
         if (shouldMigrateLegacySettings && !hasLocalStateEditRef.current) {
           void patchJson(
             "/user-preferences",
-            { [ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY]: migratedSettings },
+            {
+              [ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY]: migratedSettings,
+              [LEGACY_ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY]: null,
+            },
             { contextScope: "session" },
           ).catch(() => undefined);
         }

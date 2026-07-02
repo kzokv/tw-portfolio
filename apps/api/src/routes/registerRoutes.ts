@@ -3940,6 +3940,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       analysisUnrealizedPnlSettings: z
         .union([unrealizedPnlAnalysisSettingsPreferenceSchema, z.null()])
         .optional(),
+      analysisUnrealizedPnlDefaults: z.null().optional(),
       holdingsTableSettings: z
         .union([holdingsTableSettingsPreferenceSchema, z.null()])
         .optional(),
