@@ -822,6 +822,35 @@ describe("TickerHistoryClient", () => {
     expect(findButtonByText(element, dict.tickerHistory.unrealizedPnlLabel).getAttribute("aria-pressed")).toBe("false");
   });
 
+  it("locks record transactions to the full multi-account analysis scope", async () => {
+    navigationMocks.searchParams = "source=unrealized-pnl-analysis";
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
+
+    const element = renderTickerHistoryClient(
+      makeAnalysisChartDetails(),
+      tickerInstrument,
+      undefined,
+      {
+        accountId: "acc-1",
+        transactionAccountFilter: undefined,
+        transactionAccountIdsFilter: ["acc-1", "acc-2"],
+      },
+    );
+    await flushEffects();
+
+    await act(async () => {
+      findButtonByText(element, dict.tickerHistory.recordTransaction).click();
+    });
+
+    const accountSelect = document.body.querySelector<HTMLSelectElement>('[data-testid="tx-account-select"]');
+    expect(accountSelect).not.toBeNull();
+    expect(Array.from(accountSelect?.options ?? []).map((option) => option.value)).toEqual(["acc-1", "acc-2"]);
+    expect(Array.from(accountSelect?.options ?? []).map((option) => option.textContent)).toEqual([
+      "Main Brokerage — Main Brokerage Default",
+      "Scope Brokerage — Scope Brokerage Default",
+    ]);
+  });
+
   it("keeps direct ticker visits on Current Price by default", async () => {
     vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
 

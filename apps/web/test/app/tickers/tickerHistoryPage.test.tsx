@@ -37,6 +37,7 @@ vi.mock("recharts", () => ({}));
 
 vi.mock("../../../app/tickers/[ticker]/TickerHistoryClient", () => ({
   TickerHistoryClient: ({
+    accountId,
     details,
     initialChartQuery,
     initialTradeDate,
@@ -45,10 +46,11 @@ vi.mock("../../../app/tickers/[ticker]/TickerHistoryClient", () => ({
     ticker,
     tickerPriceIntradayEnabled,
     tickerPriceIntradayRefreshIntervalMinutes,
-	    transactionAccountFilter,
-	    transactionAccountIdsFilter,
-	    transactionMarketFilter,
-	  }: {
+    transactionAccountFilter,
+    transactionAccountIdsFilter,
+    transactionMarketFilter,
+  }: {
+    accountId: string;
     details: {
       position?: { accountScope?: string };
       quote?: {
@@ -66,21 +68,22 @@ vi.mock("../../../app/tickers/[ticker]/TickerHistoryClient", () => ({
     ticker: string;
     tickerPriceIntradayEnabled?: boolean | null;
     tickerPriceIntradayRefreshIntervalMinutes?: number | null;
-	    transactionAccountFilter?: string;
-	    transactionAccountIdsFilter?: string[];
-	    transactionMarketFilter?: string;
-	  }) => (
+    transactionAccountFilter?: string;
+    transactionAccountIdsFilter?: string[];
+    transactionMarketFilter?: string;
+  }) => (
     <section
       data-testid="ticker-history-client"
+      data-account-id={accountId}
       data-instrument-ticker={instrument?.ticker ?? ""}
       data-primary-account-scope={details.position?.accountScope ?? ""}
       data-chart-range={initialChartQuery?.chartRange ?? ""}
       data-chart-start={initialChartQuery?.chartStart ?? ""}
       data-chart-end={initialChartQuery?.chartEnd ?? ""}
       data-initial-trade-date={initialTradeDate ?? ""}
-	      data-transaction-account-filter={transactionAccountFilter ?? ""}
-	      data-transaction-account-ids-filter={transactionAccountIdsFilter?.join(",") ?? ""}
-	      data-transaction-market-filter={transactionMarketFilter ?? ""}
+      data-transaction-account-filter={transactionAccountFilter ?? ""}
+      data-transaction-account-ids-filter={transactionAccountIdsFilter?.join(",") ?? ""}
+      data-transaction-market-filter={transactionMarketFilter ?? ""}
       data-ticker={ticker}
       data-quote-poll-seconds={quotePollIntervalSeconds ?? ""}
       data-intraday-enabled={tickerPriceIntradayEnabled === undefined || tickerPriceIntradayEnabled === null ? "" : String(tickerPriceIntradayEnabled)}
@@ -257,6 +260,7 @@ describe("TickerHistoryPage", () => {
       holdingGroups: [],
       instruments: [],
       accounts: [
+        { id: "acc-outside", name: "Outside Brokerage" },
         { id: "acc-1", name: "Brokerage 1" },
         { id: "acc-2", name: "Brokerage 2" },
       ],
@@ -280,6 +284,7 @@ describe("TickerHistoryPage", () => {
 
     expect(html).toContain('data-transaction-account-filter=""');
     expect(html).toContain('data-transaction-account-ids-filter="acc-1,acc-2"');
+    expect(html).toContain('data-account-id="acc-1"');
     expect(fetchTransactionHistoryMock).toHaveBeenCalledWith({
       ticker: "2330",
       accountId: undefined,

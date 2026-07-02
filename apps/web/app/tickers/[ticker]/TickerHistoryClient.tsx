@@ -485,6 +485,15 @@ export function TickerHistoryClient({
     }
     return dict.tickerHistory.allAccountsLabel;
   }, [accountNameById, dict.tickerHistory.allAccountsLabel, dict.tickerHistory.analysisAccountsCountLabel, transactionAccountFilter, transactionAccountIdsFilter]);
+  const recordAccountIds = useMemo(() => {
+    const scopedAccountIds = transactionAccountIdsFilter?.filter((candidateAccountId) =>
+      accounts.some((account) => account.id === candidateAccountId),
+    ) ?? [];
+    if (scopedAccountIds.length > 0) return scopedAccountIds;
+    return accountId ? [accountId] : [];
+  }, [accountId, accounts, transactionAccountIdsFilter]);
+  const recordAccountIdSet = useMemo(() => new Set(recordAccountIds), [recordAccountIds]);
+  const defaultRecordAccountId = recordAccountIds[0] ?? accountId;
   const effectiveHoldingGroup = detailsState.holdingGroup;
   const accountBreakdownRows = effectiveHoldingGroup?.children.length
     ? effectiveHoldingGroup.children
@@ -634,7 +643,7 @@ export function TickerHistoryClient({
     () => {
       return resolveTransactionDraftAccount(
         {
-          accountId,
+          accountId: defaultRecordAccountId,
           ticker,
           // KZO-169: pre-populate marketCode from the most-recent trade event
           // for this ticker. Edit-mode locks both chip + ticker (D9a) so the
@@ -658,8 +667,8 @@ export function TickerHistoryClient({
       );
     },
     [
-      accountId,
       accounts,
+      defaultRecordAccountId,
       detailsState.identity.marketCode,
       feeProfileBindings,
       feeProfiles,
@@ -683,16 +692,19 @@ export function TickerHistoryClient({
 
   const handleDraftChange = useCallback(
     (next: TransactionInput) => {
+      const nextAccountId = next.accountId && recordAccountIdSet.has(next.accountId)
+        ? next.accountId
+        : defaultRecordAccountId;
       submission.setDraftTransaction(
         resolveTransactionDraftAccount(
-          { ...next, ticker, accountId },
+          { ...next, ticker, accountId: nextAccountId },
           accounts,
           feeProfiles,
           feeProfileBindings,
         ),
       );
     },
-    [accountId, accounts, feeProfileBindings, feeProfiles, submission, ticker],
+    [accounts, defaultRecordAccountId, feeProfileBindings, feeProfiles, recordAccountIdSet, submission, ticker],
   );
 
   // KZO-169: include `defaultCurrency` so the chip default + account filter
@@ -701,7 +713,7 @@ export function TickerHistoryClient({
   const lockedAccountOptions = useMemo(
     () =>
       accounts
-        .filter((account) => account.id === accountId)
+        .filter((account) => recordAccountIdSet.has(account.id))
         .map((account) => ({
           id: account.id,
           name: account.name,
@@ -709,7 +721,7 @@ export function TickerHistoryClient({
           defaultCurrency: account.defaultCurrency,
           accountType: account.accountType,
         })),
-    [accountId, accounts, feeProfiles],
+    [accounts, feeProfiles, recordAccountIdSet],
   );
 
   const cooldownRemaining = useMemo(() => getCooldownRemainingMinutes(instrumentState?.repairAvailableAt), [instrumentState]);
