@@ -297,6 +297,18 @@ describe("unrealizedPnlRouteState", () => {
     expect(settings.reportingCurrency).toBe("USD");
   });
 
+  it("maps legacy custom line counts to the nearest supported driver count", () => {
+    expect(parseAnalysisSettingsFromPreferences({
+      analysisUnrealizedPnlDefaults: { lineCount: 12 },
+    }).topDrivers.drivers).toBe(10);
+    expect(parseAnalysisSettingsFromPreferences({
+      analysisUnrealizedPnlDefaults: { lineCount: 18 },
+    }).topDrivers.drivers).toBe(20);
+    expect(parseAnalysisSettingsFromPreferences({
+      analysisUnrealizedPnlDefaults: { lineCount: 4 },
+    }).topDrivers.drivers).toBe(5);
+  });
+
   it("maps report/dashboard ranges through the shared serializer", () => {
     expect(mapPerformanceRangeToAnalysisRange("2M")).toBe("3M");
     expect(mapPerformanceRangeToAnalysisRange("24M")).toBe("3Y");

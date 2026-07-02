@@ -154,7 +154,7 @@ function parseLegacyAnalysisSettings(value: unknown): Partial<UnrealizedPnlAnaly
   const source = value as Record<string, unknown>;
   const defaults = settingsFromState(ANALYSIS_DEFAULT_STATE);
   const drivers = typeof source.lineCount === "number" && Number.isFinite(source.lineCount)
-    ? normalizeDriverCount(String(Math.trunc(source.lineCount)), defaults.topDrivers.drivers)
+    ? normalizeLegacyDriverCount(source.lineCount, defaults.topDrivers.drivers)
     : defaults.topDrivers.drivers;
   const positionStatus = source.holdingsState === "include-sold" || source.holdingsState === "include-sold-out"
     ? "includeClosed"
@@ -518,6 +518,19 @@ function normalizeLegacyTickerIds(value: string | undefined, markets: AnalysisMa
 function normalizeDriverCount(value: string | undefined, fallback: AnalysisDriverCount = ANALYSIS_DEFAULT_STATE.drivers): AnalysisDriverCount {
   const parsed = Number.parseInt(value ?? "", 10);
   return (ANALYSIS_DRIVER_COUNTS as readonly number[]).includes(parsed) ? parsed as AnalysisDriverCount : fallback;
+}
+
+function normalizeLegacyDriverCount(value: number, fallback: AnalysisDriverCount): AnalysisDriverCount {
+  if (!Number.isFinite(value)) return fallback;
+  const parsed = Math.trunc(value);
+  if (parsed < 1 || parsed > 20) return fallback;
+  return ANALYSIS_DRIVER_COUNTS.reduce((nearest, candidate) => {
+    const nearestDistance = Math.abs(parsed - nearest);
+    const candidateDistance = Math.abs(parsed - candidate);
+    return candidateDistance < nearestDistance || (candidateDistance === nearestDistance && candidate > nearest)
+      ? candidate
+      : nearest;
+  }, ANALYSIS_DRIVER_COUNTS[0]);
 }
 
 function normalizeAnalysisSelection(value: string | undefined): AnalysisSelection {

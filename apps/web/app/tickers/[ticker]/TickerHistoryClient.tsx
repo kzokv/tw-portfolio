@@ -69,7 +69,7 @@ import {
   readRouteDtoCache,
   writeRouteDtoCache,
 } from "../../../lib/routeDtoCache";
-import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../../lib/utils";
+import { cn, formatCompactCurrencyAmount, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../../lib/utils";
 import { getNativeUnitPnl } from "../../../lib/holdingsMetrics";
 import { buildTimelineAxis, type TimelineMode } from "../../../lib/timelineAxis";
 import { buildPriceStateActivityPath, getPriceState, shouldPollForOpenMarket } from "../../../features/price-state/priceState";
@@ -893,6 +893,9 @@ export function TickerHistoryClient({
     axisLabel: formatDateLabel(point.date, locale),
   }));
   const activeChartData = tickerChartMetric === "unrealizedPnl" ? pnlChartData : chartData;
+  const activeChartCurrency = tickerChartMetric === "unrealizedPnl"
+    ? detailsState.unrealizedPnlHistory[0]?.currency ?? currency
+    : currency;
   const chartTitle = tickerChartMetric === "unrealizedPnl" ? dict.tickerHistory.unrealizedPnlChartTitle : dict.tickerHistory.chartTitle;
   const chartSubtitle = tickerChartMetric === "unrealizedPnl" ? dict.tickerHistory.unrealizedPnlChartSubtitle : dict.tickerHistory.chartSubtitle;
   const isPriceChartEmpty = tickerChartMetric === "price" && chartData.length === 0;
@@ -1519,7 +1522,7 @@ export function TickerHistoryClient({
                         axisLine={false}
                         minTickGap={32}
                       />
-                      <YAxis tickLine={false} axisLine={false} width={90} tickFormatter={(value) => formatCompactNumber(locale, value)} />
+                      <YAxis tickLine={false} axisLine={false} width={76} tickFormatter={(value: number) => formatCompactCurrencyAmount(value, activeChartCurrency, locale)} />
                       <Tooltip
                         labelFormatter={(value) => (
                           typeof value === "number"
@@ -1529,7 +1532,7 @@ export function TickerHistoryClient({
                         formatter={(value, name) => {
                           if (typeof value !== "number") return Array.isArray(value) ? value.join(" / ") : value;
                           if (name === "quantity") return formatNumber(value, locale);
-                          return formatCurrencyAmount(value, tickerChartMetric === "unrealizedPnl" ? (detailsState.unrealizedPnlHistory[0]?.currency ?? currency) : currency, locale);
+                          return formatCurrencyAmount(value, activeChartCurrency, locale);
                         }}
                       />
                       {tickerChartMetric === "price" ? (
