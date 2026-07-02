@@ -1,6 +1,6 @@
 import React, { Suspense } from "react";
 import Link from "next/link";
-import { MARKET_CODES, type InstrumentCatalogItemDto, type MarketCode, type UserSettings } from "@vakwen/shared-types";
+import { MARKET_CODES, TICKER_CHART_RANGES, type InstrumentCatalogItemDto, type MarketCode, type TickerChartRange, type UserSettings } from "@vakwen/shared-types";
 import { getDictionary } from "../../../lib/i18n";
 import { fetchDashboardPrimaryData } from "../../../features/dashboard/services/dashboardService";
 import { fetchTransactionHistory } from "../../../features/portfolio/services/portfolioService";
@@ -51,6 +51,12 @@ function normalizeAnalysisIncludeProvisional(source?: string, value?: string): b
   return value?.trim().toLowerCase() === "true";
 }
 
+function normalizeTickerChartRange(value?: string): TickerChartRange | undefined {
+  const normalized = value?.trim().toUpperCase();
+  if (!normalized) return undefined;
+  return (TICKER_CHART_RANGES as readonly string[]).includes(normalized) ? (normalized as TickerChartRange) : undefined;
+}
+
 export default async function TickerHistoryPage({ params, searchParams }: TickerHistoryPageProps) {
   const [{ ticker: rawTicker }, { accountId, accountIds, chartEnd, chartRange, chartStart, fromDate, includeProvisional, marketCode, source, toDate }, session, profile, sidebarOpen, settings] = await Promise.all([
     params,
@@ -65,11 +71,17 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
   const scopedAccountIds = !scopedAccountId ? normalizeAccountIdsQueryValue(accountIds) : undefined;
   const scopedMarketCode = normalizeMarketCode(marketCode);
   const openedFromUnrealizedPnlAnalysis = source === "unrealized-pnl-analysis";
-  const initialChartRange = openedFromUnrealizedPnlAnalysis && fromDate && toDate ? "CUSTOM" : chartRange;
-  const initialChartStart = openedFromUnrealizedPnlAnalysis && fromDate ? fromDate : chartStart;
-  const initialChartEnd = openedFromUnrealizedPnlAnalysis && toDate ? toDate : chartEnd;
-  const initialPrimaryStart = openedFromUnrealizedPnlAnalysis ? initialChartStart : undefined;
-  const initialPrimaryEnd = openedFromUnrealizedPnlAnalysis ? initialChartEnd : undefined;
+  const explicitChartRange = chartRange?.trim() ? chartRange.trim().toUpperCase() : undefined;
+  const explicitTickerChartRange = normalizeTickerChartRange(explicitChartRange);
+  const explicitChartStart = chartStart?.trim() || undefined;
+  const explicitChartEnd = chartEnd?.trim() || undefined;
+  const shouldUseAnalysisDateAlias = openedFromUnrealizedPnlAnalysis && !explicitChartRange && !explicitChartStart && !explicitChartEnd;
+  const initialChartRange = explicitChartRange ?? (shouldUseAnalysisDateAlias && fromDate && toDate ? "CUSTOM" : undefined);
+  const initialChartStart = explicitChartStart ?? (shouldUseAnalysisDateAlias ? fromDate : undefined);
+  const initialChartEnd = explicitChartEnd ?? (shouldUseAnalysisDateAlias ? toDate : undefined);
+  const initialPrimaryRange = explicitTickerChartRange;
+  const initialPrimaryStart = initialChartRange === "CUSTOM" ? initialChartStart : undefined;
+  const initialPrimaryEnd = initialChartRange === "CUSTOM" ? initialChartEnd : undefined;
   const analysisIncludeProvisional = normalizeAnalysisIncludeProvisional(source, includeProvisional);
   const locale = settings?.locale ?? "en";
   const dict = getDictionary(locale);
@@ -123,6 +135,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
     accountId: scopedAccountId,
     accountIds: scopedAccountIds,
     marketCode: scopedMarketCode,
+    range: initialPrimaryRange,
     startDate: initialPrimaryStart,
     endDate: initialPrimaryEnd,
     includeProvisional: analysisIncludeProvisional,

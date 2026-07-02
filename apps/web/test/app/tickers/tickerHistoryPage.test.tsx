@@ -217,7 +217,7 @@ describe("TickerHistoryPage", () => {
     expect(html).toContain('data-chart-end="2024-06-30"');
     expect(fetchDashboardPrimaryDataMock).toHaveBeenCalledTimes(1);
     expect(fetchTransactionHistoryMock).toHaveBeenCalledWith({ ticker: "2330", accountId: "acc-2", accountIds: undefined, marketCode: "TW" });
-    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/primary?accountId=acc-2&marketCode=TW");
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/primary?accountId=acc-2&marketCode=TW&startDate=2024-01-01&endDate=2024-06-30");
   });
 
   it("maps unrealized P&L analysis date scope into the ticker chart custom range", async () => {
@@ -251,6 +251,72 @@ describe("TickerHistoryPage", () => {
     expect(html).toContain('data-chart-end="2026-06-26"');
     expect(fetchTransactionHistoryMock).toHaveBeenCalledWith({ ticker: "2330", accountId: "acc-2", accountIds: undefined, marketCode: "TW" });
     expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/primary?accountId=acc-2&marketCode=TW&startDate=2026-04-10&endDate=2026-06-26&includeProvisional=false");
+  });
+
+  it("keeps explicit chart range ahead of stale analysis date aliases", async () => {
+    fetchDashboardPrimaryDataMock.mockResolvedValue({
+      settings: { locale: "en" },
+      holdings: [],
+      holdingGroups: [],
+      instruments: [],
+      accounts: [{ id: "acc-2", name: "Brokerage 2" }],
+      dividends: { upcoming: [], recent: [] },
+      actions: { integrityIssue: null },
+      feeProfiles: [],
+      feeProfileBindings: [],
+    } as never);
+
+    const element = await TickerHistoryPage({
+      params: Promise.resolve({ ticker: "2330" }),
+      searchParams: Promise.resolve({
+        accountId: "acc-2",
+        chartRange: "1Y",
+        fromDate: "2026-04-10",
+        marketCode: "tw",
+        source: "unrealized-pnl-analysis",
+        toDate: "2026-06-26",
+      }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain('data-chart-range="1Y"');
+    expect(html).toContain('data-chart-start=""');
+    expect(html).toContain('data-chart-end=""');
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/primary?accountId=acc-2&marketCode=TW&range=1Y&includeProvisional=false");
+  });
+
+  it("keeps explicit custom chart bounds ahead of stale analysis date aliases", async () => {
+    fetchDashboardPrimaryDataMock.mockResolvedValue({
+      settings: { locale: "en" },
+      holdings: [],
+      holdingGroups: [],
+      instruments: [],
+      accounts: [{ id: "acc-2", name: "Brokerage 2" }],
+      dividends: { upcoming: [], recent: [] },
+      actions: { integrityIssue: null },
+      feeProfiles: [],
+      feeProfileBindings: [],
+    } as never);
+
+    const element = await TickerHistoryPage({
+      params: Promise.resolve({ ticker: "2330" }),
+      searchParams: Promise.resolve({
+        accountId: "acc-2",
+        chartEnd: "2026-05-31",
+        chartRange: "CUSTOM",
+        chartStart: "2026-05-01",
+        fromDate: "2026-04-10",
+        marketCode: "tw",
+        source: "unrealized-pnl-analysis",
+        toDate: "2026-06-26",
+      }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain('data-chart-range="CUSTOM"');
+    expect(html).toContain('data-chart-start="2026-05-01"');
+    expect(html).toContain('data-chart-end="2026-05-31"');
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/primary?accountId=acc-2&marketCode=TW&startDate=2026-05-01&endDate=2026-05-31&includeProvisional=false");
   });
 
   it("passes multi-account analysis scope into initial ticker transactions", async () => {
