@@ -814,6 +814,105 @@ describe("GET /tickers/:ticker/details", () => {
     }));
   });
 
+  it("[ticker details]: honors ALL range in primary unrealized P&L history without chart hydration", async () => {
+    const createTrade = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: authHeaders({ "idempotency-key": "ticker-primary-all-range-trade" }),
+      payload: transactionPayload({
+        ticker: "2330",
+        quantity: 5,
+        unitPrice: 100,
+        tradeDate: "2026-01-02",
+      }),
+    });
+    expect(createTrade.statusCode).toBe(200);
+
+    const memoryPersistence = app.persistence as typeof app.persistence & {
+      _seedDailyBars?: (bars: Array<{
+        ticker: string;
+        marketCode: "TW" | "US" | "AU";
+        barDate: string;
+        open: number;
+        high: number;
+        low: number;
+        close: number;
+        volume: number;
+        source: string;
+        ingestedAt: string;
+      }>) => void;
+      _seedHoldingSnapshots?: (snapshots: HoldingSnapshot[]) => void;
+    };
+    memoryPersistence._seedDailyBars?.([
+      {
+        ticker: "2330",
+        marketCode: "TW",
+        barDate: "2026-01-15",
+        open: 100,
+        high: 102,
+        low: 99,
+        close: 105,
+        volume: 1_000,
+        source: "test-bars",
+        ingestedAt: "2026-01-15T08:00:00.000Z",
+      },
+      {
+        ticker: "2330",
+        marketCode: "TW",
+        barDate: "2026-02-15",
+        open: 110,
+        high: 122,
+        low: 109,
+        close: 120,
+        volume: 1_500,
+        source: "test-bars",
+        ingestedAt: "2026-02-15T08:00:00.000Z",
+      },
+    ]);
+    memoryPersistence._seedHoldingSnapshots?.([
+      makeHoldingSnapshot({
+        id: "ticker-primary-all-range-first",
+        snapshotDate: "2026-01-15",
+        closePrice: 105,
+        marketValue: 525,
+        valueNative: 525,
+        unrealizedPnl: 25,
+        unrealizedPnlNative: 25,
+      }),
+      makeHoldingSnapshot({
+        id: "ticker-primary-all-range-latest",
+        snapshotDate: "2026-02-15",
+        closePrice: 120,
+        marketValue: 600,
+        valueNative: 600,
+        unrealizedPnl: 100,
+        unrealizedPnlNative: 100,
+      }),
+    ]);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/tickers/2330/primary?marketCode=TW&range=ALL",
+      headers: authHeaders(),
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as Record<string, unknown>;
+    expect(body).not.toHaveProperty("chart");
+    expect(body).toEqual(expect.objectContaining({
+      unrealizedPnlHistory: [
+        expect.objectContaining({
+          date: "2026-01-15",
+          unrealizedPnlAmount: 25,
+        }),
+        expect.objectContaining({
+          date: "2026-02-15",
+          unrealizedPnlAmount: 100,
+        }),
+      ],
+    }));
+  });
+
   it("[ticker details]: returns requested and available chart metadata without backfilling provider data", async () => {
     const createTrade = await app.inject({
       method: "POST",

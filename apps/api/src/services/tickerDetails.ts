@@ -160,6 +160,10 @@ export async function buildTickerDetails(
     range: input.range,
     startDate: input.startDate,
     endDate: input.endDate,
+    availableStartDate: !loadChart && input.range === "ALL" && latestBarDate
+      ? historyStartFor(resolvedMarketCode)
+      : undefined,
+    availableEndDate: !loadChart && input.range === "ALL" ? latestBarDate : undefined,
   });
   const unrealizedPnlHistory = await buildUnrealizedPnlHistory({
     persistence: input.persistence,
@@ -860,11 +864,13 @@ function buildChart(input: {
   range?: TickerChartRange;
   startDate?: string;
   endDate?: string;
+  availableStartDate?: string | null;
+  availableEndDate?: string | null;
 }): TickerDetailsDto["chart"] {
   const requestedRange = input.startDate || input.endDate ? null : (input.range ?? "1Y");
   const resolvedRange: TickerChartSelection = input.startDate || input.endDate ? "CUSTOM" : (requestedRange ?? "1Y");
-  const availableStartDate = input.allLocalBars[0]?.barDate ?? null;
-  const availableEndDate = input.allLocalBars.at(-1)?.barDate ?? null;
+  const availableStartDate = input.allLocalBars[0]?.barDate ?? input.availableStartDate ?? null;
+  const availableEndDate = input.allLocalBars.at(-1)?.barDate ?? input.availableEndDate ?? null;
 
   if (input.startDate && input.endDate) {
     assertCustomRangeWithinTenYears(input.startDate, input.endDate);
