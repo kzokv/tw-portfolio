@@ -98,6 +98,20 @@ describe("fetchTickerDetails", () => {
       position: {
         quantity: 12,
       },
+      chart: {
+        range: "1Y",
+        points: [
+          {
+            date: "2026-05-20",
+            open: 900,
+            high: 920,
+            low: 895,
+            close: 912,
+            volume: 1000,
+            source: "test",
+          },
+        ],
+      },
       fundamentals: {
         panels: [
           {
@@ -144,6 +158,14 @@ describe("fetchTickerDetails", () => {
       quantity: 12,
       averageCost: null,
     });
+    expect(details.chart.points).toEqual([
+      expect.objectContaining({
+        date: "2026-05-20",
+        price: 912,
+        averageCost: null,
+      }),
+    ]);
+    expect(details.chart.points[0]).not.toHaveProperty("close");
     expect(details.fundamentals.panels).toEqual([
       {
         key: "profitability",
@@ -670,6 +692,18 @@ describe("fetchTickerDetails", () => {
           },
         ],
       },
+      unrealizedPnlHistory: [
+        {
+          date: "2026-05-20",
+          unrealizedPnlAmount: 4120,
+          currency: "USD",
+          quantity: 10,
+          closePrice: 912,
+          averageCostPerShare: 500,
+          accountIds: ["acc-1"],
+          isProvisional: false,
+        },
+      ],
       fundamentals: {
         marketCap: { value: 2_000_000_000_000, source: "provider", asOf: "2026-05-20" },
         enterpriseValue: { value: null, source: null, asOf: null },
@@ -735,6 +769,13 @@ describe("fetchTickerDetails", () => {
     expect(details.chart.points[0]).toMatchObject({
       date: "2026-05-20",
       label: "2026-05-20",
+      price: 912,
+      averageCost: 500,
+      quantity: 10,
+    });
+    expect(details.unrealizedPnlHistory[0]).toMatchObject({
+      date: "2026-05-20",
+      unrealizedPnl: 4120,
       price: 912,
       averageCost: 500,
       quantity: 10,
@@ -1353,13 +1394,14 @@ describe("fetchTickerDetails", () => {
       ticker: "NVDA",
       accountId: "acc-1",
       marketCode: "US",
+      includeProvisional: false,
       transactions: [],
       instrument,
       primaryDetails,
     });
 
     expect(details).toBe(primaryDetails);
-    expect(getJsonMock).toHaveBeenCalledWith("/tickers/NVDA/enrichment?accountId=acc-1&marketCode=US");
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/NVDA/enrichment?accountId=acc-1&marketCode=US&includeProvisional=false");
   });
 
   it("refreshes ticker details from the full details endpoint after mutations", async () => {

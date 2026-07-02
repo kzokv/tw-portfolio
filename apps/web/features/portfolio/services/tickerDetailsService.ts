@@ -31,6 +31,16 @@ export interface TickerDetailChartPoint {
   quantity: number;
 }
 
+export interface TickerDetailUnrealizedPnlPoint {
+  date: string;
+  label: string;
+  unrealizedPnl: number | null;
+  currency: string;
+  quantity: number;
+  price?: number | null;
+  averageCost?: number | null;
+}
+
 export interface TickerFundamentalField {
   key: string;
   label: string;
@@ -78,6 +88,7 @@ export interface TickerDetailsModel {
     metadata: TickerDetailsChartMetadataDto;
     points: TickerDetailChartPoint[];
   };
+  unrealizedPnlHistory: TickerDetailUnrealizedPnlPoint[];
   holdingGroup: DashboardOverviewHoldingGroupDto | null;
   accountBreakdown: DashboardOverviewHoldingChildDto[];
   stats: TickerDetailStat[];
@@ -94,6 +105,7 @@ export interface TickerDetailsModel {
 interface FetchTickerDetailsOptions {
   ticker: string;
   accountId?: string;
+  accountIds?: string[];
   marketCode?: string;
   dashboard: DashboardSnapshot;
   transactions: TransactionHistoryItemDto[];
@@ -103,10 +115,12 @@ interface FetchTickerDetailsOptions {
 interface TickerDetailsRequest {
   ticker: string;
   accountId?: string;
+  accountIds?: string[];
   marketCode?: string;
   range?: TickerChartRange;
   startDate?: string;
   endDate?: string;
+  includeProvisional?: boolean;
   instrument?: InstrumentCatalogItemDto | null;
   transactions?: TransactionHistoryItemDto[];
 }
@@ -167,6 +181,26 @@ function findHolding(
     ticker,
     marketCode,
   ) ?? undefined;
+}
+
+function findScopedDashboardInstrument(
+  dashboard: DashboardSnapshot,
+  ticker: string,
+  marketCode: string | undefined,
+): DashboardSnapshot["instruments"][number] | undefined {
+  if (marketCode) {
+    return dashboard.instruments.find((candidate) => candidate.ticker === ticker && candidate.marketCode === marketCode);
+  }
+
+  return dashboard.instruments.find((candidate) => candidate.ticker === ticker);
+}
+
+function findScopedCatalogInstrument(
+  ticker: string,
+  marketCode: string,
+  instrument: InstrumentCatalogItemDto | null,
+): InstrumentCatalogItemDto | null {
+  return instrument?.ticker === ticker && instrument.marketCode === marketCode ? instrument : null;
 }
 
 function buildFallbackFundamentals(
@@ -248,6 +282,7 @@ function buildFallbackFundamentals(
 export function buildPrimaryTickerDetails({
   ticker,
   accountId,
+  accountIds,
   marketCode,
   dashboard,
   transactions,
@@ -255,6 +290,10 @@ export function buildPrimaryTickerDetails({
 }: FetchTickerDetailsOptions): TickerDetailsModel {
   const holding = findHolding(dashboard, ticker, accountId, marketCode);
   const realizedPnl = transactions.reduce((sum, transaction) => sum + (transaction.realizedPnlAmount ?? 0), 0);
+  const scopedAccountIds = accountId ? [accountId] : accountIds ?? [];
+  const resolvedMarketCode = marketCode ?? holding?.marketCode ?? transactions[0]?.marketCode ?? instrument?.marketCode ?? "TW";
+  const scopedDashboardInstrument = findScopedDashboardInstrument(dashboard, ticker, resolvedMarketCode);
+  const scopedCatalogInstrument = findScopedCatalogInstrument(ticker, resolvedMarketCode, instrument);
   const currency = holding?.currency ?? transactions[0]?.priceCurrency ?? "TWD";
   const upcomingDividends = dashboard.dividends.upcoming.filter(
     (dividend) => dividend.ticker === ticker && (!accountId || dividend.accountId === accountId),
@@ -266,9 +305,9 @@ export function buildPrimaryTickerDetails({
   return {
     identity: {
       ticker,
-      name: instrument?.name ?? null,
-      marketCode: marketCode ?? instrument?.marketCode ?? transactions[0]?.marketCode ?? "TW",
-      instrumentType: instrument?.instrumentType ?? transactions[0]?.instrumentType ?? null,
+      name: scopedCatalogInstrument?.name ?? holding?.instrumentName?.trim() ?? null,
+      marketCode: resolvedMarketCode,
+      instrumentType: scopedCatalogInstrument?.instrumentType ?? scopedDashboardInstrument?.instrumentType ?? transactions[0]?.instrumentType ?? null,
       currency,
     },
     quote: {
@@ -280,7 +319,7 @@ export function buildPrimaryTickerDetails({
       priceState: holding?.priceState ?? null,
     },
     position: {
-      accountScope: accountId ?? marketCode ?? "all",
+      accountScope: accountId ?? (scopedAccountIds.length > 0 ? `${scopedAccountIds.length} accounts` : marketCode ?? "all"),
       quantity: holding?.quantity ?? 0,
       averageCost: holding?.averageCostPerShare ?? null,
       costBasis: holding?.costBasisAmount ?? null,
@@ -296,6 +335,7 @@ export function buildPrimaryTickerDetails({
       metadata: buildFallbackChartMetadata(DEFAULT_TICKER_CHART_RANGE, []),
       points: [],
     },
+    unrealizedPnlHistory: [],
     holdingGroup: null,
     accountBreakdown: [],
     stats: [
@@ -312,7 +352,7 @@ export function buildPrimaryTickerDetails({
       lastPostedDate: recentDividends[0]?.postedAt ?? holding?.lastDividendPostedDate ?? null,
     },
     fundamentals: {
-      panels: buildFallbackFundamentals(instrument, holding),
+      panels: buildFallbackFundamentals(scopedCatalogInstrument, holding),
     },
   };
 }
@@ -326,6 +366,10 @@ function mergeWithFallback(
   fallback: TickerDetailsModel,
 ): TickerDetailsModel {
   if (!isObject(payload)) return fallback;
+  const rawChart = isObject(payload.chart) ? payload.chart : null;
+  const normalizedChart = rawChart && Array.isArray(rawChart.points)
+    ? normalizeApiChartPayload(rawChart as TickerDetailsDto["chart"], fallback.chart)
+    : null;
 
   return {
     identity: {
@@ -341,13 +385,13 @@ function mergeWithFallback(
       ...(isObject(payload.position) ? payload.position : {}),
     },
     chart: {
-      range: fallback.chart.range,
-      metadata: fallback.chart.metadata,
-      points:
-        isObject(payload.chart) && Array.isArray(payload.chart.points)
-          ? (payload.chart.points as TickerDetailChartPoint[])
-          : fallback.chart.points,
+      range: normalizedChart?.range ?? fallback.chart.range,
+      metadata: normalizedChart?.metadata ?? fallback.chart.metadata,
+      points: normalizedChart ? mapApiChartPoints(normalizedChart, fallback) : fallback.chart.points,
     },
+    unrealizedPnlHistory: Array.isArray(payload.unrealizedPnlHistory)
+      ? (payload.unrealizedPnlHistory as TickerDetailUnrealizedPnlPoint[])
+      : fallback.unrealizedPnlHistory,
     holdingGroup: isObject(payload.holdingGroup)
       ? (payload.holdingGroup as unknown as DashboardOverviewHoldingGroupDto)
       : fallback.holdingGroup,
@@ -405,6 +449,22 @@ function mapApiChartPoints(
     price: point.close,
     averageCost: fallback.position.averageCost,
     quantity: fallback.position.quantity,
+  }));
+}
+
+function mapApiUnrealizedPnlHistory(
+  payload: TickerDetailsDto["unrealizedPnlHistory"] | TickerPrimaryDto["unrealizedPnlHistory"] | TickerEnrichmentDto["unrealizedPnlHistory"] | undefined,
+): TickerDetailUnrealizedPnlPoint[] {
+  if (!Array.isArray(payload)) return [];
+
+  return payload.map((point) => ({
+    date: point.date,
+    label: point.date,
+    unrealizedPnl: point.unrealizedPnlAmount,
+    currency: point.currency,
+    quantity: point.quantity,
+    price: point.closePrice ?? null,
+    averageCost: point.averageCostPerShare ?? null,
   }));
 }
 
@@ -497,6 +557,7 @@ function mapApiDetailsToModel(
       metadata: chart.metadata,
       points: mapApiChartPoints(chart, chartFallback),
     },
+    unrealizedPnlHistory: mapApiUnrealizedPnlHistory(payload.unrealizedPnlHistory),
     holdingGroup: payload.holdingGroup,
     accountBreakdown: payload.accountBreakdown,
     stats: fallback.stats,
@@ -550,6 +611,7 @@ export async function fetchTickerDetails(
   return fetchTickerDetailsFromEndpoint({
     ticker: options.ticker,
     accountId: options.accountId,
+    accountIds: options.accountIds,
     marketCode: options.marketCode,
     instrument: options.instrument,
     transactions: options.transactions,
@@ -561,6 +623,8 @@ function buildTickerDetailsPath(request: TickerDetailsRequest, endpoint: TickerD
   const params = new URLSearchParams();
   if (request.accountId) {
     params.set("accountId", request.accountId);
+  } else if (request.accountIds && request.accountIds.length > 0) {
+    params.set("accountIds", request.accountIds.join(","));
   }
   const marketCode = request.marketCode ?? request.instrument?.marketCode ?? request.transactions?.[0]?.marketCode;
   if (marketCode) {
@@ -571,6 +635,9 @@ function buildTickerDetailsPath(request: TickerDetailsRequest, endpoint: TickerD
     params.set("endDate", request.endDate);
   } else if (request.range) {
     params.set("range", request.range);
+  }
+  if (request.includeProvisional !== undefined) {
+    params.set("includeProvisional", request.includeProvisional ? "true" : "false");
   }
 
   return `/tickers/${encodeURIComponent(request.ticker)}/${endpoint}${params.toString() ? `?${params.toString()}` : ""}`;
@@ -609,6 +676,7 @@ function mapApiPrimaryToModel(
       nextDividendDate: payload.dividends.upcoming[0]?.paymentDate ?? payload.dividends.upcoming[0]?.exDividendDate ?? null,
       lastDividendPostedDate: payload.dividends.recent[0]?.postedAt ?? null,
     },
+    unrealizedPnlHistory: mapApiUnrealizedPnlHistory(payload.unrealizedPnlHistory),
     holdingGroup: payload.holdingGroup,
     accountBreakdown: payload.accountBreakdown,
     dividends: {
@@ -639,6 +707,7 @@ function mapApiEnrichmentToModel(
       metadata: chart.metadata,
       points: mapApiChartPoints(chart, fallback),
     },
+    unrealizedPnlHistory: mapApiUnrealizedPnlHistory(payload.unrealizedPnlHistory),
     fundamentals: {
       panels: mapApiFundamentalsToPanels(payload.fundamentals),
     },
@@ -648,10 +717,12 @@ function mapApiEnrichmentToModel(
 export async function fetchTickerDetailsHydration({
   ticker,
   accountId,
+  accountIds,
   marketCode,
   range,
   startDate,
   endDate,
+  includeProvisional,
   instrument = null,
   transactions = [],
   primaryDetails,
@@ -662,10 +733,12 @@ export async function fetchTickerDetailsHydration({
   return fetchTickerDetailsFromEndpoint({
     ticker,
     accountId,
+    accountIds,
     marketCode,
     range,
     startDate,
     endDate,
+    includeProvisional,
     instrument,
     transactions,
     primaryDetails,
@@ -675,10 +748,12 @@ export async function fetchTickerDetailsHydration({
 export async function fetchTickerDetailsFullRefresh({
   ticker,
   accountId,
+  accountIds,
   marketCode,
   range,
   startDate,
   endDate,
+  includeProvisional,
   instrument = null,
   transactions = [],
   primaryDetails,
@@ -688,10 +763,12 @@ export async function fetchTickerDetailsFullRefresh({
   return fetchTickerDetailsFromEndpoint({
     ticker,
     accountId,
+    accountIds,
     marketCode,
     range,
     startDate,
     endDate,
+    includeProvisional,
     instrument,
     transactions,
     primaryDetails,
@@ -701,10 +778,12 @@ export async function fetchTickerDetailsFullRefresh({
 export async function fetchTickerPrimaryDetails({
   ticker,
   accountId,
+  accountIds,
   marketCode,
   range,
   startDate,
   endDate,
+  includeProvisional,
   instrument = null,
   transactions = [],
   primaryDetails,
@@ -714,10 +793,12 @@ export async function fetchTickerPrimaryDetails({
   return fetchTickerDetailsFromEndpoint({
     ticker,
     accountId,
+    accountIds,
     marketCode,
     range,
     startDate,
     endDate,
+    includeProvisional,
     instrument,
     transactions,
     primaryDetails,
@@ -727,10 +808,12 @@ export async function fetchTickerPrimaryDetails({
 export async function fetchTickerDetailsEnrichment({
   ticker,
   accountId,
+  accountIds,
   marketCode,
   range,
   startDate,
   endDate,
+  includeProvisional,
   instrument = null,
   transactions = [],
   primaryDetails,
@@ -740,10 +823,12 @@ export async function fetchTickerDetailsEnrichment({
   return fetchTickerDetailsFromEndpoint({
     ticker,
     accountId,
+    accountIds,
     marketCode,
     range,
     startDate,
     endDate,
+    includeProvisional,
     instrument,
     transactions,
     primaryDetails,
@@ -757,17 +842,19 @@ function needsFullTickerDetailsHydration(primaryDetails: TickerDetailsModel): bo
 async function fetchTickerDetailsFromEndpoint({
   ticker,
   accountId,
+  accountIds,
   marketCode,
   range,
   startDate,
   endDate,
+  includeProvisional,
   instrument = null,
   transactions = [],
   primaryDetails,
 }: TickerDetailsRequest & {
   primaryDetails: TickerDetailsModel;
 }, endpoint: TickerDetailsEndpoint): Promise<TickerDetailsModel> {
-  const path = buildTickerDetailsPath({ ticker, accountId, marketCode, range, startDate, endDate, instrument, transactions }, endpoint);
+  const path = buildTickerDetailsPath({ ticker, accountId, accountIds, marketCode, range, startDate, endDate, includeProvisional, instrument, transactions }, endpoint);
 
   try {
     const payload = await getJson<unknown>(path);

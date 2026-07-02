@@ -6,11 +6,20 @@ export type AnalysisRangeOption = (typeof ANALYSIS_RANGE_OPTIONS)[number];
 export const ANALYSIS_GRANULARITIES = ["daily", "weekly", "monthly", "yearly"] as const;
 export type AnalysisGranularity = (typeof ANALYSIS_GRANULARITIES)[number];
 
-export const ANALYSIS_SELECTION_MODES = ["top-drivers", "manual"] as const;
-export type AnalysisSelectionMode = (typeof ANALYSIS_SELECTION_MODES)[number];
+export const ANALYSIS_SELECTIONS = ["topDrivers", "manualTickers"] as const;
+export type AnalysisSelection = (typeof ANALYSIS_SELECTIONS)[number];
 
-export const ANALYSIS_HOLDINGS_STATES = ["current-only", "include-sold"] as const;
-export type AnalysisHoldingsState = (typeof ANALYSIS_HOLDINGS_STATES)[number];
+export const ANALYSIS_POSITION_STATUSES = ["openOnly", "includeClosed"] as const;
+export type AnalysisPositionStatus = (typeof ANALYSIS_POSITION_STATUSES)[number];
+
+export const ANALYSIS_TICKER_MODES = ["allEligible", "custom"] as const;
+export type AnalysisTickerMode = (typeof ANALYSIS_TICKER_MODES)[number];
+
+export const ANALYSIS_DRIVER_COUNTS = [5, 10, 20] as const;
+export type AnalysisDriverCount = (typeof ANALYSIS_DRIVER_COUNTS)[number];
+
+export const ANALYSIS_DETAIL_LAYOUTS = ["responsive", "cards", "table"] as const;
+export type AnalysisDetailLayout = (typeof ANALYSIS_DETAIL_LAYOUTS)[number];
 
 export const ANALYSIS_VIEW_MODES = ["overview", "compare", "ticker-detail"] as const;
 export type AnalysisViewMode = (typeof ANALYSIS_VIEW_MODES)[number];
@@ -31,14 +40,15 @@ export interface UnrealizedPnlAnalysisRouteState {
   granularity: AnalysisGranularity;
   markets: AnalysisMarketCode[];
   accounts: string[];
-  tickers: string[];
-  selectionMode: AnalysisSelectionMode;
-  selected: string[];
-  lineCount: number;
-  holdingsState: AnalysisHoldingsState;
+  selection: AnalysisSelection;
+  tickerMode: AnalysisTickerMode;
+  tickerIds: string[];
+  drivers: AnalysisDriverCount;
+  positionStatus: AnalysisPositionStatus;
   reportingCurrency: AccountDefaultCurrency;
   includeProvisional: boolean;
   instrumentTypes: AnalysisInstrumentType[];
+  detailLayout: AnalysisDetailLayout;
   focusDate: string | null;
   view: AnalysisViewMode;
 }
@@ -53,14 +63,16 @@ export interface UnrealizedPnlAnalysisResolvedFilters {
   range: AnalysisRangeOption;
   from: string | null;
   to: string | null;
+  startDate: string;
+  endDate: string;
   granularity: AnalysisGranularity;
   markets: AnalysisMarketCode[];
   accounts: string[];
-  tickers: string[];
-  selectionMode: AnalysisSelectionMode;
-  selected: string[];
-  lineCount: number;
-  holdingsState: AnalysisHoldingsState;
+  selection: AnalysisSelection;
+  tickerMode: AnalysisTickerMode;
+  tickerIds: string[];
+  drivers: AnalysisDriverCount;
+  positionStatus: AnalysisPositionStatus;
   reportingCurrency: CurrencyCode | AccountDefaultCurrency;
   includeProvisional: boolean;
   instrumentTypes: AnalysisInstrumentType[];
@@ -189,6 +201,8 @@ export interface UnrealizedPnlReportsPreview {
 export interface UnrealizedPnlAnalysisDto {
   query: UnrealizedPnlAnalysisResolvedFilters;
   availableFilters: UnrealizedPnlFilterOptions;
+  requestedTickerAvailability: UnrealizedPnlRequestedTickerAvailability[];
+  warningFacts: UnrealizedPnlWarningFacts;
   summary: UnrealizedPnlSummarySection;
   dataHealth: UnrealizedPnlDataHealth;
   portfolioSeries: Array<{
@@ -203,4 +217,22 @@ export interface UnrealizedPnlAnalysisDto {
   reportsPreview: UnrealizedPnlReportsPreview;
   deepLink: string;
   generatedAt: string;
+}
+
+export interface UnrealizedPnlRequestedTickerAvailability {
+  tickerId: string;
+  marketCode: string;
+  ticker: string;
+  displayName: string | null;
+  available: boolean;
+  reason: "notInScope" | "noChartableSnapshots" | "valuationUnavailable" | "invalidTicker" | null;
+}
+
+export interface UnrealizedPnlWarningFacts {
+  candidateLimitApplied: boolean;
+  candidateLimit: number;
+  omittedEligibleCount: number;
+  noisyChart: boolean;
+  renderedCandidateCount: number;
+  noisyChartLineThreshold: number;
 }

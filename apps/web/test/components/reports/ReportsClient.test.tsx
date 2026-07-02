@@ -676,8 +676,9 @@ describe("ReportsClient", () => {
 
     const rowHref = document.querySelector("[data-testid='reports-holding-analysis-link-NVDA-US']")?.getAttribute("href");
     expect(rowHref).toContain("/analysis/unrealized-pnl?");
-    expect(rowHref).toContain("selectedTickers=US%3ANVDA");
-    expect(rowHref).toContain("selectionMode=manual");
+    expect(rowHref).toContain("tickerIds=US%3ANVDA");
+    expect(rowHref).toContain("selection=manualTickers");
+    expect(rowHref).toContain("tickerMode=custom");
     expect(rowHref).toContain("view=ticker-detail");
     expect(rowHref).toContain("reportingCurrency=USD");
   });

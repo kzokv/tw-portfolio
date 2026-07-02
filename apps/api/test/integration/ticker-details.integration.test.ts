@@ -264,6 +264,77 @@ describe("GET /tickers/:ticker/details", () => {
     }));
   });
 
+  it("[ticker details]: respects repeated accountIds query params", async () => {
+    const createSecondAccount = await app.inject({
+      method: "POST",
+      url: "/accounts",
+      headers: authHeaders(),
+      payload: {
+        name: "Second TWD Brokerage",
+        defaultCurrency: "TWD",
+        accountType: "broker",
+      },
+    });
+    expect(createSecondAccount.statusCode).toBe(200);
+    const secondAccount = createSecondAccount.json() as { id: string; name: string };
+
+    const createThirdAccount = await app.inject({
+      method: "POST",
+      url: "/accounts",
+      headers: authHeaders(),
+      payload: {
+        name: "Third TWD Brokerage",
+        defaultCurrency: "TWD",
+        accountType: "broker",
+      },
+    });
+    expect(createThirdAccount.statusCode).toBe(200);
+    const thirdAccount = createThirdAccount.json() as { id: string; name: string };
+
+    for (const [index, accountId] of ["acc-1", secondAccount.id, thirdAccount.id].entries()) {
+      const createTrade = await app.inject({
+        method: "POST",
+        url: "/portfolio/transactions",
+        headers: authHeaders({ "idempotency-key": `ticker-details-repeated-account-${index}` }),
+        payload: transactionPayload({
+          ticker: "2330",
+          accountId,
+          quantity: index + 1,
+          unitPrice: 100,
+          tradeDate: `2026-01-0${index + 2}`,
+        }),
+      });
+      expect(createTrade.statusCode).toBe(200);
+    }
+
+    const query = `accountIds=acc-1&accountIds=${secondAccount.id}`;
+    const detailsResponse = await app.inject({
+      method: "GET",
+      url: `/tickers/2330/details?${query}`,
+      headers: authHeaders(),
+    });
+    expect(detailsResponse.statusCode).toBe(200);
+    expect(detailsResponse.json()).toEqual(expect.objectContaining({
+      position: expect.objectContaining({
+        quantity: 3,
+        accountIds: expect.arrayContaining(["acc-1", secondAccount.id]),
+      }),
+      transactions: expect.not.arrayContaining([
+        expect.objectContaining({ accountId: thirdAccount.id }),
+      ]),
+    }));
+
+    const enrichmentResponse = await app.inject({
+      method: "GET",
+      url: `/tickers/2330/enrichment?${query}`,
+      headers: authHeaders(),
+    });
+    expect(enrichmentResponse.statusCode).toBe(200);
+    expect(enrichmentResponse.json()).toEqual(expect.objectContaining({
+      identity: expect.objectContaining({ ticker: "2330", marketCode: "TW" }),
+    }));
+  });
+
   it("[ticker details]: reuses realized pnl breakdown mapping for sell rows", async () => {
     const createZeroFeeProfile = await app.inject({
       method: "POST",

@@ -862,12 +862,33 @@ export interface DashboardHoldingFocusPreferenceDto {
   selectedPreset: DashboardHoldingFocusPreset;
 }
 
-export interface UnrealizedPnlAnalysisPresentationPreferenceDto {
+export type UnrealizedPnlAnalysisDetailLayoutPreference = "responsive" | "cards" | "table";
+export type UnrealizedPnlAnalysisSelection = "topDrivers" | "manualTickers";
+export type UnrealizedPnlAnalysisPositionStatusFilter = "openOnly" | "includeClosed";
+export type UnrealizedPnlAnalysisTickerMode = "allEligible" | "custom";
+export type UnrealizedPnlAnalysisDriverCount = 5 | 10 | 20;
+
+export interface UnrealizedPnlAnalysisModePreferenceDto {
+  positionStatus?: UnrealizedPnlAnalysisPositionStatusFilter;
+  tickerMode?: UnrealizedPnlAnalysisTickerMode;
+  tickerIds?: string[];
+}
+
+export interface UnrealizedPnlAnalysisTopDriversPreferenceDto extends UnrealizedPnlAnalysisModePreferenceDto {
+  drivers?: UnrealizedPnlAnalysisDriverCount;
+}
+
+export type UnrealizedPnlAnalysisManualTickersPreferenceDto = UnrealizedPnlAnalysisModePreferenceDto;
+
+export interface UnrealizedPnlAnalysisSettingsPreferenceDto {
+  version: 1;
+  selection?: UnrealizedPnlAnalysisSelection;
   granularity?: "daily" | "weekly" | "monthly" | "yearly";
-  lineCount?: number;
-  holdingsState?: "current-only" | "include-sold";
   reportingCurrency?: AccountDefaultCurrency;
   includeProvisional?: boolean;
+  detailLayout?: UnrealizedPnlAnalysisDetailLayoutPreference;
+  topDrivers?: UnrealizedPnlAnalysisTopDriversPreferenceDto;
+  manualTickers?: UnrealizedPnlAnalysisManualTickersPreferenceDto;
 }
 
 export type HoldingsTableLayoutStyle = "dashboard" | "portfolio";
@@ -948,13 +969,41 @@ export const dashboardHoldingFocusPreferenceSchema: z.ZodType<DashboardHoldingFo
     }
   });
 
-export const unrealizedPnlAnalysisPresentationPreferenceSchema: z.ZodType<UnrealizedPnlAnalysisPresentationPreferenceDto> = z
+const unrealizedPnlTickerIdSchema = z
+  .string()
+  .trim()
+  .min(3)
+  .max(128)
+  .regex(/^(TW|US|AU|KR|JP):[A-Z0-9._-]+$/, "unrealized_pnl_invalid_ticker_id");
+const unrealizedPnlTickerIdListSchema = z
+  .array(unrealizedPnlTickerIdSchema)
+  .max(200)
+  .refine(
+    (arr) => new Set(arr).size === arr.length,
+    { message: "unrealized_pnl_duplicate_ticker_id" },
+  );
+const unrealizedPnlAnalysisModePreferenceSchema = z
   .object({
+    positionStatus: z.enum(["openOnly", "includeClosed"]).optional(),
+    tickerMode: z.enum(["allEligible", "custom"]).optional(),
+    tickerIds: unrealizedPnlTickerIdListSchema.optional(),
+  })
+  .strict();
+const unrealizedPnlAnalysisTopDriversPreferenceSchema = unrealizedPnlAnalysisModePreferenceSchema.extend({
+  drivers: z.union([z.literal(5), z.literal(10), z.literal(20)]).optional(),
+});
+const unrealizedPnlAnalysisManualTickersPreferenceSchema = unrealizedPnlAnalysisModePreferenceSchema;
+
+export const unrealizedPnlAnalysisSettingsPreferenceSchema: z.ZodType<UnrealizedPnlAnalysisSettingsPreferenceDto> = z
+  .object({
+    version: z.literal(1),
+    selection: z.enum(["topDrivers", "manualTickers"]).optional(),
     granularity: z.enum(["daily", "weekly", "monthly", "yearly"]).optional(),
-    lineCount: z.number().int().min(1).max(20).optional(),
-    holdingsState: z.enum(["current-only", "include-sold"]).optional(),
     reportingCurrency: z.enum(ACCOUNT_DEFAULT_CURRENCIES).optional(),
     includeProvisional: z.boolean().optional(),
+    detailLayout: z.enum(["responsive", "cards", "table"]).optional(),
+    topDrivers: unrealizedPnlAnalysisTopDriversPreferenceSchema.optional(),
+    manualTickers: unrealizedPnlAnalysisManualTickersPreferenceSchema.optional(),
   })
   .strict();
 
@@ -1389,11 +1438,25 @@ export interface MarketReportDto {
 export const UNREALIZED_PNL_GRANULARITIES = ["daily", "weekly", "monthly", "yearly"] as const;
 export type UnrealizedPnlGranularity = typeof UNREALIZED_PNL_GRANULARITIES[number];
 
-export const UNREALIZED_PNL_HOLDINGS_STATES = ["open_only", "include_sold_out"] as const;
-export type UnrealizedPnlHoldingsState = typeof UNREALIZED_PNL_HOLDINGS_STATES[number];
+export const UNREALIZED_PNL_POSITION_STATUS_FILTERS = ["openOnly", "includeClosed"] as const;
+export type UnrealizedPnlPositionStatusFilter = typeof UNREALIZED_PNL_POSITION_STATUS_FILTERS[number];
 
-export const UNREALIZED_PNL_SELECTION_MODES = ["auto", "manual"] as const;
-export type UnrealizedPnlSelectionMode = typeof UNREALIZED_PNL_SELECTION_MODES[number];
+export const UNREALIZED_PNL_SELECTIONS = ["topDrivers", "manualTickers"] as const;
+export type UnrealizedPnlSelection = typeof UNREALIZED_PNL_SELECTIONS[number];
+
+export const UNREALIZED_PNL_TICKER_MODES = ["allEligible", "custom"] as const;
+export type UnrealizedPnlTickerMode = typeof UNREALIZED_PNL_TICKER_MODES[number];
+
+export const UNREALIZED_PNL_DRIVER_COUNTS = [5, 10, 20] as const;
+export type UnrealizedPnlDriverCount = typeof UNREALIZED_PNL_DRIVER_COUNTS[number];
+
+export const UNREALIZED_PNL_UNAVAILABLE_TICKER_REASONS = [
+  "notInScope",
+  "noChartableSnapshots",
+  "valuationUnavailable",
+  "invalidTicker",
+] as const;
+export type UnrealizedPnlUnavailableTickerReason = typeof UNREALIZED_PNL_UNAVAILABLE_TICKER_REASONS[number];
 
 export const UNREALIZED_PNL_TRADE_MARKER_KINDS = ["buy", "partial_sell", "full_exit", "aggregate"] as const;
 export type UnrealizedPnlTradeMarkerKind = typeof UNREALIZED_PNL_TRADE_MARKER_KINDS[number];
@@ -1436,6 +1499,21 @@ export interface UnrealizedPnlTickerRefDto {
   marketCode: MarketCode;
 }
 
+export interface UnrealizedPnlRequestedTickerAvailabilityDto extends UnrealizedPnlTickerRefDto {
+  tickerId: string;
+  instrumentName: string | null;
+  eligible: boolean;
+  reason: UnrealizedPnlUnavailableTickerReason | null;
+}
+
+export interface UnrealizedPnlAnalysisWarningFactsDto {
+  noisyChartLineCount: number;
+  noisyChartThreshold: number;
+  candidateLimitApplied: boolean;
+  candidateLimit: number;
+  omittedEligibleCount: number;
+}
+
 export interface UnrealizedPnlAnalysisQueryStateDto {
   granularity: UnrealizedPnlGranularity;
   range: DashboardPerformanceRange | "ALL" | null;
@@ -1445,13 +1523,13 @@ export interface UnrealizedPnlAnalysisQueryStateDto {
   endDate: string;
   markets: MarketCode[];
   accountIds: string[];
-  tickers: string[];
+  tickerIds: string[];
   instrumentTypes: InstrumentType[];
-  selectionMode: UnrealizedPnlSelectionMode;
-  selectedTickers: UnrealizedPnlTickerRefDto[];
-  comparisonLineCount: number;
-  rankingLimit: number;
-  holdingsState: UnrealizedPnlHoldingsState;
+  selection: UnrealizedPnlSelection;
+  tickerMode: UnrealizedPnlTickerMode;
+  requestedTickers: UnrealizedPnlTickerRefDto[];
+  drivers: UnrealizedPnlDriverCount;
+  positionStatus: UnrealizedPnlPositionStatusFilter;
   reportingCurrency: AccountDefaultCurrency;
   includeProvisional: boolean;
   asOf: string;
@@ -1565,7 +1643,9 @@ export interface UnrealizedPnlAnalysisDto {
   tickerSeries: UnrealizedPnlTickerSeriesPointDto[];
   rankings: UnrealizedPnlRankingRowDto[];
   tickerComposition: UnrealizedPnlTickerCompositionRowDto[];
-  selectedTickers: UnrealizedPnlTickerRefDto[];
+  candidateTickers: UnrealizedPnlTickerRefDto[];
+  requestedTickerAvailability: UnrealizedPnlRequestedTickerAvailabilityDto[];
+  warningFacts: UnrealizedPnlAnalysisWarningFactsDto;
   tradeMarkers: UnrealizedPnlTradeMarkerDto[];
   dataHealth: UnrealizedPnlAnalysisDataHealthDto;
   diagnostics: UnrealizedPnlAnalysisDiagnosticsDto;
@@ -1721,6 +1801,17 @@ export interface TickerDetailsChartPointDto {
   source: string;
 }
 
+export interface TickerDetailsUnrealizedPnlPointDto {
+  date: string;
+  unrealizedPnlAmount: number | null;
+  currency: CurrencyCode;
+  quantity: number;
+  closePrice?: number | null;
+  averageCostPerShare?: number | null;
+  accountIds: string[];
+  isProvisional: boolean;
+}
+
 export const TICKER_CHART_RANGES = ["1M", "3M", "YTD", "1Y", "3Y", "5Y", "ALL"] as const;
 export type TickerChartRange = (typeof TICKER_CHART_RANGES)[number];
 export type TickerChartSelection = TickerChartRange | "CUSTOM";
@@ -1763,6 +1854,7 @@ export interface TickerDetailsDto {
     metadata: TickerDetailsChartMetadataDto;
     points: TickerDetailsChartPointDto[];
   };
+  unrealizedPnlHistory: TickerDetailsUnrealizedPnlPointDto[];
   transactions: TransactionHistoryItemDto[];
   dividends: {
     upcoming: DashboardOverviewUpcomingDividendDto[];
@@ -1778,6 +1870,7 @@ export interface TickerPrimaryDto {
   identity: TickerDetailsDto["identity"];
   quote: TickerDetailsDto["quote"];
   position: TickerDetailsDto["position"];
+  unrealizedPnlHistory: TickerDetailsDto["unrealizedPnlHistory"];
   transactions: TickerDetailsDto["transactions"];
   dividends: TickerDetailsDto["dividends"];
   holdingGroup: TickerDetailsDto["holdingGroup"];
@@ -1787,6 +1880,7 @@ export interface TickerPrimaryDto {
 export interface TickerEnrichmentDto {
   identity: TickerDetailsDto["identity"];
   chart: TickerDetailsDto["chart"];
+  unrealizedPnlHistory: TickerDetailsDto["unrealizedPnlHistory"];
   fundamentals: TickerDetailsDto["fundamentals"];
   fundamentalsRefresh: TickerDetailsDto["fundamentalsRefresh"];
 }

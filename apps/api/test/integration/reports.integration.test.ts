@@ -2122,7 +2122,7 @@ describe("report routes", () => {
 
     const response = await app.inject({
       method: "GET",
-      url: "/reports/portfolio?currencyMode=specified&currency=TWD&limit=5",
+      url: "/reports/portfolio?range=1Y&currencyMode=specified&currency=TWD&limit=5",
       headers: { cookie: cookieHeader },
     });
 
@@ -2631,7 +2631,7 @@ describe("report routes", () => {
 
     const marketReport = await app.inject({
       method: "GET",
-      url: "/reports/market?scope=AU&currencyMode=specified&currency=AUD&limit=5",
+      url: "/reports/market?scope=AU&range=1Y&currencyMode=specified&currency=AUD&limit=5",
       headers: { cookie: cookieHeader },
     });
 

@@ -37,7 +37,17 @@ test("[mobile-analysis-unrealized-pnl-A]: open analysis workspace on mobile → 
   await page.getByRole("heading", { name: "Unrealized P&L Analysis" }).waitFor({ state: "visible" });
   await page.getByLabel("Unrealized P&L comparison chart").waitFor({ state: "visible" });
   await page.getByTestId("analysis-chart-legend").getByText("NVIDIA Corporation").waitFor({ state: "visible" });
-  await page.getByText("Ticker selection", { exact: true }).waitFor({ state: "visible" });
+  await page.getByRole("button", { name: /Filters Show filters/ }).click();
+  await page.getByText("Top drivers", { exact: true }).waitFor({ state: "visible" });
+  await page.getByText("Manual tickers", { exact: true }).waitFor({ state: "visible" });
+  await page.getByTestId("analysis-ticker-picker-trigger").waitFor({ state: "visible" });
+  await page.getByRole("button", { name: "Manual tickers", exact: true }).click();
+  await page.waitForURL(/selection=manualTickers/);
+  await page.locator("button").filter({ hasText: /^5$/ }).waitFor({ state: "hidden" });
+  await page.getByTestId("analysis-ticker-picker-trigger").click();
+  await page.getByTestId("analysis-ticker-picker").getByText("US:NVDA:NVIDIA Corporation").waitFor({ state: "visible" });
+  await page.keyboard.press("Escape");
+  await page.getByTestId("analysis-ticker-picker").waitFor({ state: "hidden" });
   await page.getByTestId("analysis-selected-detail").getByText("Selected ticker detail").waitFor({ state: "visible" });
   await page.getByTestId("analysis-focus-scrub").waitFor({ state: "visible" });
 
