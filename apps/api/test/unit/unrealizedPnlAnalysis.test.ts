@@ -452,6 +452,38 @@ describe("buildUnrealizedPnlAnalysis", () => {
     ]);
   });
 
+  it.each([
+    ["omitted ticker mode", undefined],
+    ["explicit all-eligible ticker mode", "allEligible" as const],
+  ])("normalizes ticker IDs to custom mode for %s", async (_label, tickerMode) => {
+    await seedInstrument({ ticker: "2330", marketCode: "TW", instrumentType: "STOCK", name: "TSMC" });
+    await seedInstrument({ ticker: "0050", marketCode: "TW", instrumentType: "ETF", name: "Taiwan 50" });
+    await seedSnapshots([
+      makeSnapshot({ ticker: "2330", marketCode: "TW", snapshotDate: "2026-01-01", unrealizedPnl: 0, unrealizedPnlNative: 0 }),
+      makeSnapshot({ ticker: "2330", marketCode: "TW", snapshotDate: "2026-01-31", unrealizedPnl: 500, unrealizedPnlNative: 500, marketValue: 1500, valueNative: 1500 }),
+      makeSnapshot({ ticker: "0050", marketCode: "TW", snapshotDate: "2026-01-01", unrealizedPnl: 0, unrealizedPnlNative: 0 }),
+      makeSnapshot({ ticker: "0050", marketCode: "TW", snapshotDate: "2026-01-31", unrealizedPnl: 10, unrealizedPnlNative: 10, marketValue: 1010, valueNative: 1010 }),
+    ]);
+
+    const report = await buildUnrealizedPnlAnalysis(app, "user-1", {
+      granularity: "daily",
+      fromDate: "2026-01-01",
+      toDate: "2026-01-31",
+      positionStatus: "includeClosed",
+      tickerIds: [{ ticker: "0050", marketCode: "TW" }],
+      ...(tickerMode ? { tickerMode } : {}),
+    });
+
+    expect(report.query).toEqual(expect.objectContaining({
+      tickerMode: "custom",
+      tickerIds: ["TW:0050"],
+    }));
+    expect(report.deepLink).toContain("tickerIds=TW%3A0050");
+    expect(report.deepLink).toContain("tickerMode=custom");
+    expect(report.summary.includedTickerCount).toBe(1);
+    expect(report.tickerComposition.map((row) => row.ticker)).toEqual(["0050"]);
+  });
+
   it("keeps manual custom tickers eligible when the range ends after the latest snapshot", async () => {
     await seedInstrument({ ticker: "0050", marketCode: "TW", instrumentType: "ETF", name: "Taiwan 50" });
     await seedSnapshots([

@@ -314,6 +314,7 @@ function resolveInput(
   assertAnalysisDateBounds(startDate, endDate, granularity);
 
   const requestedTickers = [...(input.tickerIds ?? [])].sort(compareTickerRefs);
+  const tickerMode = requestedTickers.length > 0 ? "custom" : (input.tickerMode ?? "allEligible");
   return {
     granularity,
     range,
@@ -326,7 +327,7 @@ function resolveInput(
     tickerIds: requestedTickers.map(tickerKey),
     instrumentTypes: [...(input.instrumentTypes ?? [])].sort() as InstrumentType[],
     selection: input.selection ?? "topDrivers",
-    tickerMode: input.tickerMode ?? "allEligible",
+    tickerMode,
     requestedTickers,
     drivers: input.drivers ?? DEFAULT_DRIVER_COUNT,
     positionStatus: input.positionStatus ?? "openOnly",
@@ -665,10 +666,10 @@ export async function buildUnrealizedPnlAnalysis(
       instrumentNameByKey.set(`${instrument.marketCode}:${instrument.ticker}`, instrument.name);
     }
   }
-  const customTickerScope = query.tickerIds.length > 0 ? new Set(query.tickerIds) : null;
-  const requestedTickerMarkets = [...new Set(query.requestedTickers.map((item) => item.marketCode))].sort();
+  const customTickerScope = query.tickerMode === "custom" && query.tickerIds.length > 0 ? new Set(query.tickerIds) : null;
+  const requestedTickerMarkets = customTickerScope ? [...new Set(query.requestedTickers.map((item) => item.marketCode))].sort() : [];
   const snapshotQueryMarkets = query.markets.length > 0 ? query.markets : (requestedTickerMarkets.length > 0 ? requestedTickerMarkets : undefined);
-  const requestedTickerSymbols = query.tickerIds.length > 0
+  const requestedTickerSymbols = customTickerScope
     ? [...new Set(query.requestedTickers.map((item) => item.ticker))]
     : undefined;
 
