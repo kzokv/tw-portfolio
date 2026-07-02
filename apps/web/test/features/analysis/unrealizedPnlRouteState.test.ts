@@ -113,10 +113,29 @@ describe("unrealizedPnlRouteState", () => {
       selection: "manualTickers",
       tickerMode: "custom",
     });
+    const explicitKeys = getExplicitAnalysisPreferenceKeys({
+      selection: "manualTickers",
+      tickerMode: "custom",
+    });
+    const settings = parseAnalysisSettingsFromPreferences({
+      analysisUnrealizedPnlSettings: {
+        version: 1,
+        selection: "manualTickers",
+        granularity: "weekly",
+        reportingCurrency: "TWD",
+        includeProvisional: false,
+        detailLayout: "responsive",
+        topDrivers: { positionStatus: "openOnly", tickerMode: "allEligible", tickerIds: [], drivers: 5 },
+        manualTickers: { positionStatus: "openOnly", tickerMode: "custom", tickerIds: ["US:NVDA"] },
+      },
+    });
+    const applied = applyAnalysisSettings(state, settings, explicitKeys);
 
     expect(state.selection).toBe("manualTickers");
     expect(state.tickerMode).toBe("custom");
     expect(state.tickerIds).toEqual([]);
+    expect(explicitKeys.tickerIds).toBe(true);
+    expect(applied.tickerIds).toEqual([]);
     expect(unrealizedPnlRouteStateToSearchParams(state).toString()).toContain("selection=manualTickers");
     expect(unrealizedPnlRouteStateToSearchParams(state).toString()).toContain("tickerMode=custom");
     expect(buildUnrealizedPnlApiPath(state)).toBe(

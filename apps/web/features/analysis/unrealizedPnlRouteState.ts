@@ -95,14 +95,20 @@ export function getExplicitAnalysisPreferenceKeys(
     if (input instanceof URLSearchParams) return input.has(key);
     return input[key] !== undefined;
   };
+  const read = (key: string): string | undefined => {
+    if (input instanceof URLSearchParams) return input.get(key) ?? undefined;
+    const value = input[key];
+    return Array.isArray(value) ? value[0] : value;
+  };
+  const hasExplicitTickerIds = has("tickerIds") || has("selectedTickers") || has("selected") || has("tickers");
 
   return {
     selection: has("selection") || has("selectionMode"),
     granularity: has("granularity"),
     drivers: has("drivers") || has("comparisonLineCount") || has("lines"),
     positionStatus: has("positionStatus") || has("holdingsState") || has("holdings"),
-    tickerMode: has("tickerMode") || has("tickerIds") || has("selectedTickers") || has("selected") || has("tickers"),
-    tickerIds: has("tickerIds") || has("selectedTickers") || has("selected") || has("tickers"),
+    tickerMode: has("tickerMode") || hasExplicitTickerIds,
+    tickerIds: hasExplicitTickerIds || read("tickerMode")?.trim() === "custom",
     reportingCurrency: has("reportingCurrency") || has("currency"),
     includeProvisional: has("includeProvisional") || has("provisional"),
   };
