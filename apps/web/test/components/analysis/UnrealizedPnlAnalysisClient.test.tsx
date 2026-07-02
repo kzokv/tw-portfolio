@@ -206,6 +206,9 @@ describe("UnrealizedPnlAnalysisClient", () => {
     });
     const uncheckAllButton = Array.from(document.body.querySelectorAll<HTMLButtonElement>("button"))
       .find((button) => button.textContent === "Uncheck all eligible");
+    const checkAllButton = Array.from(document.body.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent === "Check all eligible");
+    expect(checkAllButton).toBeDefined();
     expect(uncheckAllButton).toBeDefined();
 
     act(() => {
@@ -217,6 +220,23 @@ describe("UnrealizedPnlAnalysisClient", () => {
     expect(params.get("selection")).toBe("manualTickers");
     expect(params.get("tickerMode")).toBe("custom");
     expect(params.get("tickerIds")).toBeNull();
+
+    act(() => {
+      container.querySelector<HTMLButtonElement>("[data-testid='analysis-ticker-picker-trigger']")?.click();
+    });
+    const reopenedCheckAllButton = Array.from(document.body.querySelectorAll<HTMLButtonElement>("button"))
+      .find((button) => button.textContent === "Check all eligible");
+    expect(reopenedCheckAllButton).toBeDefined();
+
+    act(() => {
+      reopenedCheckAllButton!.click();
+    });
+
+    const resetUrl = String(replaceMock.mock.calls.at(-1)?.[0] ?? "");
+    const resetParams = new URL(resetUrl, "http://localhost").searchParams;
+    expect(resetParams.get("selection")).toBe("manualTickers");
+    expect(resetParams.get("tickerMode")).toBeNull();
+    expect(resetParams.get("tickerIds")).toBeNull();
   });
 
   it("resets manual muted state when picker membership changes", () => {
@@ -426,6 +446,9 @@ describe("UnrealizedPnlAnalysisClient", () => {
     expect(detailRows.length).toBeGreaterThan(1);
     expect(detailRows.at(-1)?.textContent).toContain("Apple Inc.");
     expect(detailRows.at(-1)?.textContent).toContain("Manual");
+    const cardNameLink = detailRows.at(-1)?.querySelector<HTMLAnchorElement>("a[href*='/tickers/AAPL']");
+    expect(cardNameLink?.className).toContain("break-words");
+    expect(cardNameLink?.className).not.toContain("truncate");
   });
 
   it("keeps muted and manual badges visible in table detail rows", () => {

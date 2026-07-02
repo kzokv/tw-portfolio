@@ -98,6 +98,20 @@ describe("fetchTickerDetails", () => {
       position: {
         quantity: 12,
       },
+      chart: {
+        range: "1Y",
+        points: [
+          {
+            date: "2026-05-20",
+            open: 900,
+            high: 920,
+            low: 895,
+            close: 912,
+            volume: 1000,
+            source: "test",
+          },
+        ],
+      },
       fundamentals: {
         panels: [
           {
@@ -144,6 +158,14 @@ describe("fetchTickerDetails", () => {
       quantity: 12,
       averageCost: null,
     });
+    expect(details.chart.points).toEqual([
+      expect.objectContaining({
+        date: "2026-05-20",
+        price: 912,
+        averageCost: null,
+      }),
+    ]);
+    expect(details.chart.points[0]).not.toHaveProperty("close");
     expect(details.fundamentals.panels).toEqual([
       {
         key: "profitability",

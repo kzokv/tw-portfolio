@@ -65,6 +65,7 @@ export interface AppDictionary {
     tickerPickerCustomCount: string;
     tickerPickerUnavailable: string;
     tickerPickerReset: string;
+    tickerPickerCheckAll: string;
     tickerPickerUncheckAll: string;
     tickerPickerZeroSelected: string;
     tickerPickerNoMatches: string;

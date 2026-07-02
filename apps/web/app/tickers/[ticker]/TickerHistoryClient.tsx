@@ -373,6 +373,26 @@ function thinTickerChartPoints(
     .filter((point, index, arr) => index === 0 || point !== arr[index - 1]);
 }
 
+function resolveTickerChartPrice(point: TickerDetailsModel["chart"]["points"][number]): number | null {
+  const rawClose = (point as typeof point & { close?: unknown }).close;
+  if (typeof point.price === "number") return point.price;
+  return typeof rawClose === "number" ? rawClose : null;
+}
+
+function resolveTickerChartAverageCost(
+  point: TickerDetailsModel["chart"]["points"][number],
+  fallbackAverageCost: number | null,
+): number | null {
+  return typeof point.averageCost === "number" ? point.averageCost : fallbackAverageCost;
+}
+
+function resolveTickerChartQuantity(
+  point: TickerDetailsModel["chart"]["points"][number],
+  fallbackQuantity: number,
+): number {
+  return typeof point.quantity === "number" ? point.quantity : fallbackQuantity;
+}
+
 export function TickerHistoryClient({
   transactions,
   dict,
@@ -848,6 +868,9 @@ export function TickerHistoryClient({
   const pnlPointByDate = new Map(detailsState.unrealizedPnlHistory.map((point) => [point.date, point]));
   const chartData = downsampledChart.points.map((point) => ({
     ...point,
+    price: resolveTickerChartPrice(point),
+    averageCost: resolveTickerChartAverageCost(point, detailsState.position.averageCost),
+    quantity: resolveTickerChartQuantity(point, detailsState.position.quantity),
     unrealizedPnl: pnlPointByDate.get(point.date)?.unrealizedPnl ?? null,
     dateMs: new Date(`${point.date}T00:00:00.000Z`).getTime(),
     axisLabel: point.label === "Now" ? dict.tickerHistory.nowLabel : formatDateLabel(point.date, locale),

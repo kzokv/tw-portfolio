@@ -25,6 +25,9 @@ const navigationMocks = vi.hoisted(() => ({
   replace: vi.fn(),
   searchParams: "",
 }));
+const rechartsMocks = vi.hoisted(() => ({
+  lineChartData: [] as unknown[][],
+}));
 
 vi.mock("../../../features/portfolio/services/tickerDetailsService", async () => {
   const actual = await vi.importActual<typeof import("../../../features/portfolio/services/tickerDetailsService")>(
@@ -83,7 +86,10 @@ vi.mock("recharts", () => ({
   Bar: () => null,
   BarChart: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
   Line: () => null,
-  LineChart: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
+  LineChart: ({ children, data }: { children?: React.ReactNode; data?: unknown[] }) => {
+    rechartsMocks.lineChartData.push(data ?? []);
+    return <div>{children}</div>;
+  },
   ResponsiveContainer: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
   Tooltip: () => null,
   XAxis: () => null,
@@ -133,6 +139,8 @@ beforeEach(() => {
   installStorageMocks();
   navigationMocks.searchParams = "";
   vi.mocked(fetchTickerDetailsFullRefresh).mockResolvedValue(details);
+  vi.mocked(fetchTickerDetailsHydration).mockResolvedValue(details);
+  rechartsMocks.lineChartData = [];
 });
 
 afterEach(() => {
@@ -1057,6 +1065,46 @@ describe("TickerHistoryClient", () => {
 
     expect(element.textContent).toContain(dict.tickerHistory.priceChartEmptyState);
     expect(element.textContent).not.toContain(dict.tickerHistory.priceChartLoadingState);
+  });
+
+  it("renders raw close chart points as current-price history when DTO-shaped points reach the client", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
+    const element = renderTickerHistoryClient({
+      ...details,
+      chart: {
+        ...details.chart,
+        points: [
+          {
+            date: "2026-06-11",
+            label: "2026-06-11",
+            close: 108,
+          },
+          {
+            date: "2026-06-12",
+            label: "2026-06-12",
+            close: 110,
+          },
+        ] as unknown as TickerDetailsModel["chart"]["points"],
+      },
+    });
+    await flushEffects();
+
+    expect(element.textContent).not.toContain(dict.tickerHistory.priceChartEmptyState);
+    const latestChartData = rechartsMocks.lineChartData.at(-1);
+    expect(latestChartData).toEqual([
+      expect.objectContaining({
+        date: "2026-06-11",
+        price: 108,
+        averageCost: 100,
+        quantity: 10,
+      }),
+      expect.objectContaining({
+        date: "2026-06-12",
+        price: 110,
+        averageCost: 100,
+        quantity: 10,
+      }),
+    ]);
   });
 
   it("renders refreshed account breakdown from ticker details state", async () => {

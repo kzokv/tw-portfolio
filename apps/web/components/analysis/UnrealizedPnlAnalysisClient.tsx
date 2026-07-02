@@ -621,10 +621,10 @@ export function UnrealizedPnlAnalysisClient({
                     <div key={row.seriesId} className={cn("rounded-md border border-border p-3", !isChecked && "bg-muted/30 opacity-60")} data-testid={isChecked ? "analysis-detail-expanded" : "analysis-detail-muted"}>
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <p className="flex min-w-0 items-center gap-2 font-medium">
+                          <p className="flex min-w-0 flex-wrap items-center gap-2 font-medium">
                             <SelectionBadge label={row.isManual ? dict.manualBadge : row.rankLabel} tone={row.isManual ? "manual" : "default"} />
                             <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: row.colorToken }} />
-                            <a className="truncate text-primary hover:underline" href={href}>{row.displayName}</a>
+                            <a className="min-w-0 flex-1 basis-40 break-words text-primary hover:underline" href={href}>{row.displayName}</a>
                             {!isChecked ? <SelectionBadge label={dict.mutedLineLabel} tone="muted" /> : null}
                           </p>
                           <p className="mt-1 text-xs text-muted-foreground"><a className="text-primary hover:underline" href={href}>{row.marketCode}:{row.ticker}</a> · {positionLabel(row.positionStatus)}</p>
@@ -1042,6 +1042,10 @@ function TickerPicker({
     close(false);
   }
 
+  function checkAll(): void {
+    reset();
+  }
+
   function uncheckAll(): void {
     onChange("custom", []);
     close(false);
@@ -1079,7 +1083,10 @@ function TickerPicker({
             </div>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               {selection === "manualTickers" ? (
-                <Button className="h-8 w-full" variant="secondary" onClick={uncheckAll}>{dict.tickerPickerUncheckAll}</Button>
+                <>
+                  <Button className="h-8 w-full" variant="secondary" onClick={checkAll}>{dict.tickerPickerCheckAll}</Button>
+                  <Button className="h-8 w-full" variant="secondary" onClick={uncheckAll}>{dict.tickerPickerUncheckAll}</Button>
+                </>
               ) : null}
               {selection !== "manualTickers" && tickerMode === "custom" ? (
                 <Button className="h-8 w-full" variant="secondary" onClick={reset}>{dict.tickerPickerReset}</Button>

@@ -364,6 +364,10 @@ function mergeWithFallback(
   fallback: TickerDetailsModel,
 ): TickerDetailsModel {
   if (!isObject(payload)) return fallback;
+  const rawChart = isObject(payload.chart) ? payload.chart : null;
+  const normalizedChart = rawChart && Array.isArray(rawChart.points)
+    ? normalizeApiChartPayload(rawChart as TickerDetailsDto["chart"], fallback.chart)
+    : null;
 
   return {
     identity: {
@@ -379,12 +383,9 @@ function mergeWithFallback(
       ...(isObject(payload.position) ? payload.position : {}),
     },
     chart: {
-      range: fallback.chart.range,
-      metadata: fallback.chart.metadata,
-      points:
-        isObject(payload.chart) && Array.isArray(payload.chart.points)
-          ? (payload.chart.points as TickerDetailChartPoint[])
-          : fallback.chart.points,
+      range: normalizedChart?.range ?? fallback.chart.range,
+      metadata: normalizedChart?.metadata ?? fallback.chart.metadata,
+      points: normalizedChart ? mapApiChartPoints(normalizedChart, fallback) : fallback.chart.points,
     },
     unrealizedPnlHistory: Array.isArray(payload.unrealizedPnlHistory)
       ? (payload.unrealizedPnlHistory as TickerDetailUnrealizedPnlPoint[])
