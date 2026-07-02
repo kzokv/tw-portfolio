@@ -92,6 +92,7 @@ export async function buildTickerDetails(
   const resolvedMarketCode = await resolveMarketCode({
     requestedMarketCode: input.marketCode,
     requestedAccountId: input.accountId,
+    requestedAccountIds,
     matchingTrades,
     matchingHoldings,
     accountById,
@@ -605,6 +606,7 @@ function maxNullableDate(values: Array<string | null>): string | null {
 async function resolveMarketCode(input: {
   requestedMarketCode?: MarketCode;
   requestedAccountId?: string;
+  requestedAccountIds?: readonly string[];
   matchingTrades: Store["accounting"]["facts"]["tradeEvents"];
   matchingHoldings: ReturnType<typeof listHoldings>;
   accountById: ReadonlyMap<string, Store["accounts"][number]>;
@@ -620,6 +622,16 @@ async function resolveMarketCode(input: {
     if (account) {
       return marketCodeFor(account.defaultCurrency);
     }
+  }
+
+  const requestedAccountMarkets = [...new Set(
+    (input.requestedAccountIds ?? [])
+      .map((accountId) => input.accountById.get(accountId)?.defaultCurrency)
+      .filter((currency): currency is NonNullable<typeof currency> => Boolean(currency))
+      .map((currency) => marketCodeFor(currency)),
+  )];
+  if (requestedAccountMarkets.length === 1) {
+    return requestedAccountMarkets[0] as MarketCode;
   }
 
   const tradeMarkets = [...new Set(input.matchingTrades.map((trade) => trade.marketCode))];

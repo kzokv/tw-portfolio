@@ -458,6 +458,9 @@ export function TickerHistoryClient({
     reportingCurrency,
     sharedContextPermissions,
   } = useAppShellData();
+  const tickerDetailsProvisionalCacheScope = openedFromAnalysis
+    ? `analysis-provisional:${analysisIncludeProvisional ? "include" : "exclude"}`
+    : "default-provisional";
   const tickerDetailsCacheKey = useMemo(
     () => buildRouteDtoCacheKey(
       "ticker-details",
@@ -471,8 +474,9 @@ export function TickerHistoryClient({
       tickerChartRequest.startDate ?? "",
       tickerChartRequest.endDate ?? "",
       reportingCurrency,
+      tickerDetailsProvisionalCacheScope,
     ),
-    [details.identity.marketCode, locale, reportingCurrency, sessionUserId, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, transactionAccountFilter, transactionAccountIdsFilter, transactionMarketFilter],
+    [details.identity.marketCode, locale, reportingCurrency, sessionUserId, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, tickerDetailsProvisionalCacheScope, transactionAccountFilter, transactionAccountIdsFilter, transactionMarketFilter],
   );
   const isSharedContext = sharedContextOwnerId !== null;
   const canWriteTransactions = !isSharedContext || sharedContextPermissions.canWriteTransactions;

@@ -302,6 +302,39 @@ describe("buildTickerDetails", () => {
     ]);
   });
 
+  it("uses same-market account ids to infer a cross-listed ticker market without scoped rows", async () => {
+    const store = buildCrossMarketStore();
+    const secondAudFeeProfile = createDefaultFeeProfile("acc-au-2", "AUD", "fp-au-2");
+    store.accounts.push({
+      id: "acc-au-2",
+      userId: "user-1",
+      name: "Second AU Broker",
+      feeProfileId: secondAudFeeProfile.id,
+      defaultCurrency: "AUD",
+      accountType: "broker",
+    });
+    store.feeProfiles.push(secondAudFeeProfile);
+    store.accounting.projections.holdings = store.accounting.projections.holdings
+      .filter((holding) => holding.ticker !== "BHP");
+    store.accounting.facts.tradeEvents = store.accounting.facts.tradeEvents
+      .filter((trade) => trade.ticker !== "BHP");
+
+    const { details, marketCode } = await buildTickerDetails({
+      persistence: createPersistence(),
+      store,
+      userId: "user-1",
+      ticker: "BHP",
+      accountIds: ["acc-au", "acc-au-2"],
+      loadChart: false,
+      fundamentalsRecord: null,
+    });
+
+    expect(marketCode).toBe("AU");
+    expect(details.position.accountIds).toEqual(["acc-au", "acc-au-2"]);
+    expect(details.position.quantity).toBe(0);
+    expect(details.transactions).toEqual([]);
+  });
+
   it("uses the requested marketCode for same ticker across multiple markets", async () => {
     const store = buildCrossMarketStore();
     store.marketData.dividendEvents.push(

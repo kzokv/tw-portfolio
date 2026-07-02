@@ -316,8 +316,24 @@ const details: TickerDetailsModel = {
   fundamentals: { panels: [] },
 };
 
-function tickerCacheKey(reportingCurrency: AccountDefaultCurrency = "TWD") {
-  return buildRouteDtoCacheKey("ticker-details", getRouteDtoContextScope("user-1"), "en", "2330", "TW", "acc-2", "1Y", "", "", reportingCurrency);
+function tickerCacheKey(
+  reportingCurrency: AccountDefaultCurrency = "TWD",
+  provisionalScope = "default-provisional",
+) {
+  return buildRouteDtoCacheKey(
+    "ticker-details",
+    getRouteDtoContextScope("user-1"),
+    "en",
+    "2330",
+    "TW",
+    "acc-2",
+    "",
+    "1Y",
+    "",
+    "",
+    reportingCurrency,
+    provisionalScope,
+  );
 }
 
 const tickerInstrument: InstrumentCatalogItemDto = {
@@ -548,6 +564,30 @@ describe("TickerHistoryClient", () => {
 
     const marketValueCard = element.querySelector('[data-testid="ticker-history-market-value"]');
     expect(marketValueCard?.textContent).toContain("NT$2,200");
+  });
+
+  it("does not restore provisional-included cache for analysis final-only links", async () => {
+    navigationMocks.searchParams = "source=unrealized-pnl-analysis&includeProvisional=false";
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(() => new Promise(() => {}));
+    writeRouteDtoCache<TickerDetailsModel>(tickerCacheKey("TWD", "analysis-provisional:include"), {
+      ...details,
+      position: {
+        ...details.position,
+        marketValue: 2200,
+      },
+    });
+
+    const element = renderTickerHistoryClient({
+      ...details,
+      position: {
+        ...details.position,
+        marketValue: null,
+      },
+    });
+    await flushEffects();
+
+    const marketValueCard = element.querySelector('[data-testid="ticker-history-market-value"]');
+    expect(marketValueCard?.textContent).not.toContain("NT$2,200");
   });
 
   it("ignores cached ticker details with a different reporting currency", async () => {
