@@ -390,7 +390,7 @@ function mergeWithFallback(
       points: normalizedChart ? mapApiChartPoints(normalizedChart, fallback) : fallback.chart.points,
     },
     unrealizedPnlHistory: Array.isArray(payload.unrealizedPnlHistory)
-      ? (payload.unrealizedPnlHistory as TickerDetailUnrealizedPnlPoint[])
+      ? mapApiUnrealizedPnlHistory(payload.unrealizedPnlHistory as TickerDetailUnrealizedPnlPoint[])
       : fallback.unrealizedPnlHistory,
     holdingGroup: isObject(payload.holdingGroup)
       ? (payload.holdingGroup as unknown as DashboardOverviewHoldingGroupDto)
@@ -452,20 +452,42 @@ function mapApiChartPoints(
   }));
 }
 
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function stringOrFallback(value: unknown, fallback: string): string {
+  return typeof value === "string" && value.trim().length > 0 ? value : fallback;
+}
+
 function mapApiUnrealizedPnlHistory(
-  payload: TickerDetailsDto["unrealizedPnlHistory"] | TickerPrimaryDto["unrealizedPnlHistory"] | TickerEnrichmentDto["unrealizedPnlHistory"] | undefined,
+  payload:
+    | TickerDetailsDto["unrealizedPnlHistory"]
+    | TickerPrimaryDto["unrealizedPnlHistory"]
+    | TickerEnrichmentDto["unrealizedPnlHistory"]
+    | TickerDetailUnrealizedPnlPoint[]
+    | undefined,
 ): TickerDetailUnrealizedPnlPoint[] {
   if (!Array.isArray(payload)) return [];
 
-  return payload.map((point) => ({
-    date: point.date,
-    label: point.date,
-    unrealizedPnl: point.unrealizedPnlAmount,
-    currency: point.currency,
-    quantity: point.quantity,
-    price: point.closePrice ?? null,
-    averageCost: point.averageCostPerShare ?? null,
-  }));
+  return payload.flatMap((point) => {
+    if (!isObject(point)) return [];
+    const date = typeof point.date === "string" ? point.date : "";
+    if (!date) return [];
+    return [{
+      date,
+      label: stringOrFallback(point.label, date),
+      unrealizedPnl: finiteNumber(point.unrealizedPnl)
+        ?? finiteNumber(point.unrealizedPnlAmount),
+      currency: stringOrFallback(point.currency, "TWD"),
+      quantity: finiteNumber(point.quantity) ?? 0,
+      price: finiteNumber(point.price)
+        ?? finiteNumber(point.closePrice)
+        ?? finiteNumber(point.close),
+      averageCost: finiteNumber(point.averageCost)
+        ?? finiteNumber(point.averageCostPerShare),
+    }];
+  });
 }
 
 function normalizeApiChartPayload(

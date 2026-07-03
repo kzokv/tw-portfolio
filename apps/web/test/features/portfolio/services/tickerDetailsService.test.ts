@@ -194,6 +194,44 @@ describe("fetchTickerDetails", () => {
     expect(getJsonMock).toHaveBeenCalledWith("/tickers/NVDA/details?marketCode=US");
   });
 
+  it("normalizes raw unrealized P&L history when merging partial API payloads", async () => {
+    getJsonMock.mockResolvedValue({
+      unrealizedPnlHistory: [
+        {
+          date: "2026-05-20",
+          unrealizedPnlAmount: 4120,
+          currency: "USD",
+          quantity: 10,
+          closePrice: 912,
+          averageCostPerShare: 500,
+        },
+      ],
+    } as never);
+
+    const details = await fetchTickerDetails({
+      ticker: "NVDA",
+      dashboard: buildDashboard(),
+      transactions: [],
+      instrument: {
+        ticker: "NVDA",
+        name: "NVIDIA",
+        marketCode: "US",
+        instrumentType: "STOCK",
+      } as never,
+    });
+
+    expect(details.unrealizedPnlHistory).toEqual([
+      expect.objectContaining({
+        date: "2026-05-20",
+        label: "2026-05-20",
+        unrealizedPnl: 4120,
+        price: 912,
+        averageCost: 500,
+        quantity: 10,
+      }),
+    ]);
+  });
+
   it("maps the ticker details API DTO into the ticker page model", async () => {
     getJsonMock.mockResolvedValue({
       identity: {

@@ -1209,6 +1209,64 @@ describe("TickerHistoryClient", () => {
     ]);
   });
 
+  it("uses raw API-shaped snapshot history when chart points are not usable finite prices", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
+    const element = renderTickerHistoryClient({
+      ...details,
+      chart: {
+        ...details.chart,
+        points: [
+          {
+            date: "2026-06-11",
+            label: "2026-06-11",
+            price: Number.NaN,
+          },
+          {
+            date: "2026-06-12",
+            label: "2026-06-12",
+            price: Number.NaN,
+          },
+        ] as unknown as TickerDetailsModel["chart"]["points"],
+      },
+      unrealizedPnlHistory: [
+        {
+          date: "2026-06-11",
+          unrealizedPnlAmount: 80,
+          currency: "TWD",
+          quantity: 10,
+          closePrice: 108,
+          averageCostPerShare: 100,
+        },
+        {
+          date: "2026-06-12",
+          unrealizedPnlAmount: 100,
+          currency: "TWD",
+          quantity: 10,
+          closePrice: 110,
+          averageCostPerShare: 100,
+        },
+      ] as unknown as TickerDetailsModel["unrealizedPnlHistory"],
+    });
+    await flushEffects();
+
+    expect(element.textContent).not.toContain(dict.tickerHistory.priceChartEmptyState);
+    const latestChartData = rechartsMocks.lineChartData.at(-1);
+    expect(latestChartData).toEqual([
+      expect.objectContaining({
+        date: "2026-06-11",
+        price: 108,
+        averageCost: 100,
+        quantity: 10,
+      }),
+      expect.objectContaining({
+        date: "2026-06-12",
+        price: 110,
+        averageCost: 100,
+        quantity: 10,
+      }),
+    ]);
+  });
+
   it("renders refreshed account breakdown from ticker details state", async () => {
     vi.mocked(fetchTickerDetailsHydration).mockResolvedValue({
       ...details,

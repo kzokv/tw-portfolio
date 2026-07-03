@@ -373,10 +373,22 @@ function thinTickerChartPoints(
     .filter((point, index, arr) => index === 0 || point !== arr[index - 1]);
 }
 
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function resolveTickerChartPrice(point: TickerDetailsModel["chart"]["points"][number]): number | null {
-  const rawClose = (point as typeof point & { close?: unknown }).close;
-  if (typeof point.price === "number") return point.price;
-  return typeof rawClose === "number" ? rawClose : null;
+  const rawPoint = point as typeof point & { close?: unknown; closePrice?: unknown };
+  return finiteNumber(point.price)
+    ?? finiteNumber(rawPoint.close)
+    ?? finiteNumber(rawPoint.closePrice);
+}
+
+function resolveTickerHistoryPrice(point: TickerDetailsModel["unrealizedPnlHistory"][number]): number | null {
+  const rawPoint = point as typeof point & { close?: unknown; closePrice?: unknown };
+  return finiteNumber(point.price)
+    ?? finiteNumber(rawPoint.closePrice)
+    ?? finiteNumber(rawPoint.close);
 }
 
 function hasUsableTickerChartPrice(points: TickerDetailsModel["chart"]["points"]): boolean {
@@ -387,14 +399,34 @@ function resolveTickerChartAverageCost(
   point: TickerDetailsModel["chart"]["points"][number],
   fallbackAverageCost: number | null,
 ): number | null {
-  return typeof point.averageCost === "number" ? point.averageCost : fallbackAverageCost;
+  const rawPoint = point as typeof point & { averageCostPerShare?: unknown };
+  return finiteNumber(point.averageCost)
+    ?? finiteNumber(rawPoint.averageCostPerShare)
+    ?? finiteNumber(fallbackAverageCost);
+}
+
+function resolveTickerHistoryAverageCost(
+  point: TickerDetailsModel["unrealizedPnlHistory"][number],
+  fallbackAverageCost: number | null,
+): number | null {
+  const rawPoint = point as typeof point & { averageCostPerShare?: unknown };
+  return finiteNumber(point.averageCost)
+    ?? finiteNumber(rawPoint.averageCostPerShare)
+    ?? finiteNumber(fallbackAverageCost);
 }
 
 function resolveTickerChartQuantity(
   point: TickerDetailsModel["chart"]["points"][number],
   fallbackQuantity: number,
 ): number {
-  return typeof point.quantity === "number" ? point.quantity : fallbackQuantity;
+  return finiteNumber(point.quantity) ?? finiteNumber(fallbackQuantity) ?? 0;
+}
+
+function resolveTickerHistoryQuantity(
+  point: TickerDetailsModel["unrealizedPnlHistory"][number],
+  fallbackQuantity: number,
+): number {
+  return finiteNumber(point.quantity) ?? finiteNumber(fallbackQuantity) ?? 0;
 }
 
 export function TickerHistoryClient({
@@ -852,13 +884,13 @@ export function TickerHistoryClient({
   ];
   const currentChartMetadata = getTickerChartMetadata(detailsState.chart);
   const snapshotPriceChartPoints = detailsState.unrealizedPnlHistory
-    .filter((point) => typeof point.price === "number")
+    .filter((point) => resolveTickerHistoryPrice(point) !== null)
     .map((point) => ({
       date: point.date,
       label: point.label,
-      price: point.price ?? null,
-      averageCost: point.averageCost ?? detailsState.position.averageCost,
-      quantity: point.quantity,
+      price: resolveTickerHistoryPrice(point),
+      averageCost: resolveTickerHistoryAverageCost(point, detailsState.position.averageCost),
+      quantity: resolveTickerHistoryQuantity(point, detailsState.position.quantity),
     }));
   const priceChartSourcePoints = hasUsableTickerChartPrice(detailsState.chart.points)
     ? detailsState.chart.points
