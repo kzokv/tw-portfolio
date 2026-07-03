@@ -129,6 +129,7 @@ import { scheduleReplayWithRetry } from "../services/replayPositionHistory.js";
 import { generateHoldingSnapshots } from "../services/snapshotGeneration.js";
 import { generateCurrencyWalletSnapshots } from "../services/currencyWalletSnapshotGeneration.js";
 import { ReadPathTiming } from "../services/readPathTiming.js";
+import { bookedChargeFieldSchema } from "../validation/bookedCharge.js";
 import {
   createFxTransfer,
   estimateFxTransfer,
@@ -342,8 +343,8 @@ const transactionSchema = z.object({
   tradeDate: isoDateSchema,
   tradeTimestamp: isoDateTimeSchema.optional(),
   bookingSequence: z.number().int().positive().optional(),
-  commissionAmount: z.number().int().nonnegative().optional(),
-  taxAmount: z.number().int().nonnegative().optional(),
+  commissionAmount: bookedChargeFieldSchema("Commission").optional(),
+  taxAmount: bookedChargeFieldSchema("Tax").optional(),
   type: z.enum(["BUY", "SELL"]),
   isDayTrade: z.boolean().default(false),
 });
@@ -5213,8 +5214,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     quantity: z.number().int().positive().optional(),
     price: z.number().positive().multipleOf(0.01).optional(),
     side: z.enum(["BUY", "SELL"]).optional(),
-    commissionAmount: z.number().int().nonnegative().optional(),
-    taxAmount: z.number().int().nonnegative().optional(),
+    commissionAmount: bookedChargeFieldSchema("Commission").optional(),
+    taxAmount: bookedChargeFieldSchema("Tax").optional(),
     confirmFeeRecalculation: z.boolean().optional(),
     keepManualFees: z.boolean().optional(),
   }).refine(
@@ -6872,8 +6873,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       tradeTimestamp: isoDateTimeSchema.nullish(),
       bookingSequence: z.number().int().positive().nullish(),
       isDayTrade: z.boolean().nullish(),
-      commissionAmount: z.number().nonnegative().nullish(),
-      taxAmount: z.number().nonnegative().nullish(),
+      commissionAmount: bookedChargeFieldSchema("Commission").nullish(),
+      taxAmount: bookedChargeFieldSchema("Tax").nullish(),
       note: z.string().trim().max(1_000).nullish(),
       sourceSnippet: z.string().trim().max(500).nullish(),
     }).strict(),

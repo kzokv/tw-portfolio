@@ -176,7 +176,7 @@ CREATE TABLE IF NOT EXISTS trade_fee_policy_snapshot_tax_components (
   tax_component_code TEXT NOT NULL,
   calculation_method TEXT NOT NULL CHECK (calculation_method IN ('RATE_BPS')),
   rate_bps INTEGER NOT NULL CHECK (rate_bps >= 0),
-  booked_tax_amount INTEGER NOT NULL CHECK (booked_tax_amount >= 0),
+  booked_tax_amount NUMERIC(20, 4) NOT NULL CHECK (booked_tax_amount >= 0),
   sort_order INTEGER NOT NULL DEFAULT 1 CHECK (sort_order > 0),
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -191,8 +191,8 @@ CREATE TABLE IF NOT EXISTS trade_events (
   quantity INTEGER NOT NULL CHECK (quantity > 0),
   unit_price NUMERIC(20, 2) NOT NULL CHECK (unit_price >= 0),
   trade_date DATE NOT NULL,
-  commission_amount INTEGER NOT NULL DEFAULT 0 CHECK (commission_amount >= 0),
-  tax_amount INTEGER NOT NULL DEFAULT 0 CHECK (tax_amount >= 0),
+  commission_amount NUMERIC(20, 4) NOT NULL DEFAULT 0 CHECK (commission_amount >= 0),
+  tax_amount NUMERIC(20, 4) NOT NULL DEFAULT 0 CHECK (tax_amount >= 0),
   is_day_trade BOOLEAN NOT NULL DEFAULT false,
   source TEXT NOT NULL,
   source_reference TEXT,
@@ -217,7 +217,7 @@ CREATE TABLE IF NOT EXISTS lots (
   account_id TEXT NOT NULL REFERENCES accounts(id),
   ticker TEXT NOT NULL,
   open_quantity INTEGER NOT NULL,
-  total_cost_amount NUMERIC(20, 2) NOT NULL,
+  total_cost_amount NUMERIC(20, 4) NOT NULL,
   opened_at DATE NOT NULL,
   opened_sequence INTEGER NOT NULL,
   cost_currency TEXT NOT NULL DEFAULT 'TWD',
@@ -237,7 +237,7 @@ CREATE TABLE IF NOT EXISTS lot_allocations (
   lot_opened_at DATE NOT NULL,
   lot_opened_sequence INTEGER NOT NULL CHECK (lot_opened_sequence > 0),
   allocated_quantity INTEGER NOT NULL CHECK (allocated_quantity > 0),
-  allocated_cost_amount NUMERIC(20, 2) NOT NULL CHECK (allocated_cost_amount >= 0),
+  allocated_cost_amount NUMERIC(20, 4) NOT NULL CHECK (allocated_cost_amount >= 0),
   created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   cost_currency TEXT NOT NULL DEFAULT 'TWD',
   FOREIGN KEY (account_id, user_id) REFERENCES accounts(id, user_id),
@@ -338,7 +338,7 @@ CREATE TABLE IF NOT EXISTS cash_ledger_entries (
       'REVERSAL'
     )
   ),
-  amount NUMERIC(20, 2) NOT NULL CHECK (amount <> 0),
+  amount NUMERIC(20, 4) NOT NULL CHECK (amount <> 0),
   currency TEXT NOT NULL,
   related_trade_event_id TEXT REFERENCES trade_events(id) ON DELETE CASCADE,
   related_dividend_ledger_entry_id TEXT REFERENCES dividend_ledger_entries(id),
@@ -428,10 +428,10 @@ CREATE TABLE IF NOT EXISTS daily_portfolio_snapshots (
 CREATE TABLE IF NOT EXISTS recompute_job_items (
   id TEXT PRIMARY KEY,
   job_id TEXT NOT NULL REFERENCES recompute_jobs(id),
-  previous_commission_amount INTEGER NOT NULL,
-  previous_tax_amount INTEGER NOT NULL,
-  next_commission_amount INTEGER NOT NULL,
-  next_tax_amount INTEGER NOT NULL,
+  previous_commission_amount NUMERIC(20, 4) NOT NULL,
+  previous_tax_amount NUMERIC(20, 4) NOT NULL,
+  next_commission_amount NUMERIC(20, 4) NOT NULL,
+  next_tax_amount NUMERIC(20, 4) NOT NULL,
   trade_event_id TEXT NOT NULL REFERENCES trade_events(id) ON DELETE CASCADE
 );
 

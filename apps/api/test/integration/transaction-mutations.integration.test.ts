@@ -244,6 +244,47 @@ describe("transaction mutations (delete + edit)", () => {
       expect(updatedTrade?.unitPrice).toBe(150);
     });
 
+    it("accepts decimal booked charges with up to 4 decimal places on patch", async () => {
+      const trade = await createTrade(app, { commissionAmount: 1, taxAmount: 0 });
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/portfolio/transactions/${trade.id}`,
+        payload: {
+          commissionAmount: 1.2345,
+          taxAmount: 0.4321,
+        },
+      });
+
+      expect(res.statusCode).toBe(202);
+      expect(res.json().changedFields).toEqual(expect.arrayContaining(["commissionAmount", "taxAmount"]));
+
+      await waitForRecompute();
+      const store = await getStore(app);
+      const updatedTrade = store.accounting.facts.tradeEvents.find((t) => t.id === trade.id);
+      expect(updatedTrade).toMatchObject({
+        commissionAmount: 1.2345,
+        taxAmount: 0.4321,
+        feesSource: "MANUAL",
+      });
+    });
+
+    it("rejects patch booked charges with more than 4 decimal places", async () => {
+      const trade = await createTrade(app);
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/portfolio/transactions/${trade.id}`,
+        payload: { commissionAmount: 1.23456 },
+      });
+
+      expect(res.statusCode).toBe(400);
+      expect(res.json()).toMatchObject({
+        error: "validation_error",
+      });
+      expect(res.body).toContain("at most 4 decimal places");
+    });
+
     it("recalculates fees when quantity changes with CALCULATED fees", async () => {
       // Create a fee profile with non-zero commission rate
       const fpRes = await app.inject({

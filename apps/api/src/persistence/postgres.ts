@@ -5179,8 +5179,8 @@ export class PostgresPersistence implements Persistence {
       tradeDate: normalizeDate(row.trade_date),
       tradeTimestamp: normalizeDateTime(row.trade_timestamp),
       bookingSequence: row.booking_sequence,
-      commissionAmount: row.commission_amount,
-      taxAmount: row.tax_amount,
+      commissionAmount: Number(row.commission_amount),
+      taxAmount: Number(row.tax_amount),
       isDayTrade: row.is_day_trade,
       feeSnapshot: hydrateTradeFeeSnapshot(
         row,
@@ -5656,8 +5656,8 @@ export class PostgresPersistence implements Persistence {
       tradeDate: normalizeDate(row.trade_date),
       tradeTimestamp: normalizeDateTime(row.trade_timestamp),
       bookingSequence: row.booking_sequence,
-      commissionAmount: row.commission_amount,
-      taxAmount: row.tax_amount,
+      commissionAmount: Number(row.commission_amount),
+      taxAmount: Number(row.tax_amount),
       isDayTrade: row.is_day_trade,
       feeSnapshot: hydrateTradeFeeSnapshot(
         row,
@@ -5768,10 +5768,10 @@ export class PostgresPersistence implements Persistence {
       const list = recomputeItems.get(item.job_id) ?? [];
       list.push({
         tradeEventId: item.trade_event_id,
-        previousCommissionAmount: item.previous_commission_amount,
-        previousTaxAmount: item.previous_tax_amount,
-        nextCommissionAmount: item.next_commission_amount,
-        nextTaxAmount: item.next_tax_amount,
+        previousCommissionAmount: Number(item.previous_commission_amount),
+        previousTaxAmount: Number(item.previous_tax_amount),
+        nextCommissionAmount: Number(item.next_commission_amount),
+        nextTaxAmount: Number(item.next_tax_amount),
       });
       recomputeItems.set(item.job_id, list);
     }

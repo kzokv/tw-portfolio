@@ -37,7 +37,6 @@ vi.mock("recharts", () => ({}));
 
 vi.mock("../../../app/tickers/[ticker]/TickerHistoryClient", () => ({
   TickerHistoryClient: ({
-    accountId,
     details,
     initialChartQuery,
     initialTradeDate,
@@ -50,7 +49,6 @@ vi.mock("../../../app/tickers/[ticker]/TickerHistoryClient", () => ({
     transactionAccountIdsFilter,
     transactionMarketFilter,
   }: {
-    accountId: string;
     details: {
       position?: { accountScope?: string };
       quote?: {
@@ -74,7 +72,6 @@ vi.mock("../../../app/tickers/[ticker]/TickerHistoryClient", () => ({
   }) => (
     <section
       data-testid="ticker-history-client"
-      data-account-id={accountId}
       data-instrument-ticker={instrument?.ticker ?? ""}
       data-primary-account-scope={details.position?.accountScope ?? ""}
       data-chart-range={initialChartQuery?.chartRange ?? ""}
@@ -350,7 +347,7 @@ describe("TickerHistoryPage", () => {
 
     expect(html).toContain('data-transaction-account-filter=""');
     expect(html).toContain('data-transaction-account-ids-filter="acc-1,acc-2"');
-    expect(html).toContain('data-account-id="acc-1"');
+    expect(html).not.toContain("data-account-id=");
     expect(fetchTransactionHistoryMock).toHaveBeenCalledWith({
       ticker: "2330",
       accountId: undefined,

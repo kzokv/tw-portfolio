@@ -8,6 +8,7 @@ import {
   type AiConnectorScope,
 } from "@vakwen/shared-types";
 import { unrealizedPnlAnalysisMcpInputSchema } from "../services/unrealizedPnlAnalysis.js";
+import { bookedChargeFieldSchema } from "../validation/bookedCharge.js";
 
 const adviceBoundary =
   "Descriptive portfolio and draft workflow only. Do not use this tool for investment, tax, suitability, target-price, buy/sell/hold, or rebalancing advice.";
@@ -137,8 +138,8 @@ export const mcpDraftCandidateSchema = z.object({
   tradeTimestamp: isoDateTimeSchema.optional(),
   bookingSequence: z.number().int().positive().optional(),
   isDayTrade: z.boolean().optional(),
-  commissionAmount: z.number().int().nonnegative().optional(),
-  taxAmount: z.number().int().nonnegative().optional(),
+  commissionAmount: bookedChargeFieldSchema("Commission").optional(),
+  taxAmount: bookedChargeFieldSchema("Tax").optional(),
   note: z.string().trim().max(1_000).optional(),
   sourceRowRef: z.string().trim().max(200).optional(),
   sourceSnippet: z.string().trim().max(500).optional(),

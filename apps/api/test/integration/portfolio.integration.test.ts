@@ -54,6 +54,52 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     });
   });
 
+  it("accepts decimal booked charges with up to 4 decimal places on create", async () => {
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-decimal-create" },
+      payload: transactionPayload({
+        commissionAmount: 1.2345,
+        taxAmount: 0.6789,
+      }),
+    });
+    expect(createResponse.statusCode).toBe(200);
+
+    expect(createResponse.json()).toMatchObject({
+      commissionAmount: 1.2345,
+      taxAmount: 0.6789,
+    });
+
+    const store = await app.persistence.loadStore("user-1");
+    expect(store.accounting.facts.tradeEvents[0]).toMatchObject({
+      commissionAmount: 1.2345,
+      taxAmount: 0.6789,
+    });
+    expect(store.accounting.facts.cashLedgerEntries[0]).toEqual(
+      expect.objectContaining({
+        amount: -(10 * 100 + 1.2345 + 0.6789),
+      }),
+    );
+  });
+
+  it("rejects create booked charges with more than 4 decimal places", async () => {
+    const createResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-decimal-create-invalid" },
+      payload: transactionPayload({
+        commissionAmount: 1.23456,
+      }),
+    });
+
+    expect(createResponse.statusCode).toBe(400);
+    expect(createResponse.json()).toMatchObject({
+      error: "validation_error",
+    });
+    expect(createResponse.body).toContain("at most 4 decimal places");
+  });
+
   it("creates provisional symbols for unknown tickers and filters transaction history newest first", async () => {
     await app.inject({
       method: "POST",
@@ -1160,7 +1206,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       issues: [
         {
           path: "commissionAmount",
-          message: "Number must be greater than or equal to 0",
+          message: "Commission must be a non-negative finite number with at most 4 decimal places",
         },
       ],
     });

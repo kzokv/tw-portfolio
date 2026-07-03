@@ -380,7 +380,6 @@ function tickerHistoryClientElement(
       dict={dict}
       locale="en"
       ticker="2330"
-      accountId="acc-2"
       accounts={accounts}
       feeProfiles={feeProfiles}
       feeProfileBindings={[]}
@@ -459,6 +458,36 @@ async function changeInput(input: HTMLInputElement, value: string) {
     input.dispatchEvent(new Event("input", { bubbles: true }));
     input.dispatchEvent(new Event("change", { bubbles: true }));
   });
+}
+
+function testAccount(id: string, name: string, defaultCurrency: AccountDefaultCurrency): AccountDto {
+  return {
+    id,
+    userId: "user-1",
+    name,
+    feeProfileId: `fp-${id}`,
+    defaultCurrency,
+    accountType: "broker",
+  };
+}
+
+function feeProfilesFor(testAccounts: AccountDto[]): FeeProfileDto[] {
+  return testAccounts.map((account) => ({
+    id: account.feeProfileId,
+    accountId: account.id,
+    name: `${account.name} Default`,
+    boardCommissionRate: 0,
+    commissionDiscountPercent: 0,
+    minimumCommissionAmount: 0,
+    commissionCurrency: account.defaultCurrency,
+    commissionRoundingMode: "FLOOR",
+    taxRoundingMode: "FLOOR",
+    stockSellTaxRateBps: 0,
+    stockDayTradeTaxRateBps: 0,
+    etfSellTaxRateBps: 0,
+    bondEtfSellTaxRateBps: 0,
+    commissionChargeMode: "CHARGED_UPFRONT",
+  }));
 }
 
 describe("TickerHistoryClient", () => {
@@ -944,7 +973,6 @@ describe("TickerHistoryClient", () => {
       tickerInstrument,
       undefined,
       {
-        accountId: "acc-1",
         transactionAccountFilter: undefined,
         transactionAccountIdsFilter: ["acc-1", "acc-2"],
       },
@@ -962,6 +990,170 @@ describe("TickerHistoryClient", () => {
       "Main Brokerage — Main Brokerage Default",
       "Scope Brokerage — Scope Brokerage Default",
     ]);
+  });
+
+  it("opens record transactions on market-scoped ticker pages with the first compatible account selected", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
+    const mixedCurrencyAccounts: AccountDto[] = [
+      testAccount("acc-aud", "AUD Brokerage", "AUD"),
+      testAccount("acc-twd", "TWD Brokerage", "TWD"),
+    ];
+
+    const element = renderTickerHistoryClient(
+      details,
+      tickerInstrument,
+      undefined,
+      {
+        accounts: mixedCurrencyAccounts,
+        feeProfiles: feeProfilesFor(mixedCurrencyAccounts),
+        transactionAccountFilter: undefined,
+        transactionMarketFilter: "TW",
+      },
+    );
+    await flushEffects();
+
+    await act(async () => {
+      findButtonByText(element, dict.tickerHistory.recordTransaction).click();
+    });
+
+    const dialog = document.body.querySelector('[data-testid="record-transaction-dialog"]');
+    const accountSelect = document.body.querySelector<HTMLSelectElement>('[data-testid="tx-account-select"]');
+    const tickerInput = document.body.querySelector<HTMLInputElement>('[data-testid="tx-ticker-combobox"]');
+    const currencyInput = document.body.querySelector<HTMLInputElement>('[data-testid="tx-price-currency-input"]');
+
+    expect(dialog).not.toBeNull();
+    expect(accountSelect).not.toBeNull();
+    expect(Array.from(accountSelect?.options ?? []).map((option) => option.value)).toEqual(["acc-twd"]);
+    expect(accountSelect?.value).toBe("acc-twd");
+    expect(tickerInput?.value).toBe("2330");
+    expect(currencyInput?.value).toBe("TWD");
+    expect(document.body.textContent).not.toContain("Something went wrong");
+  });
+
+  it("keeps explicit incompatible account filters scoped and shows the no-compatible-account state", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
+    const mixedCurrencyAccounts: AccountDto[] = [
+      testAccount("acc-aud", "AUD Brokerage", "AUD"),
+      testAccount("acc-twd", "TWD Brokerage", "TWD"),
+    ];
+
+    const element = renderTickerHistoryClient(
+      details,
+      tickerInstrument,
+      undefined,
+      {
+        accounts: mixedCurrencyAccounts,
+        feeProfiles: feeProfilesFor(mixedCurrencyAccounts),
+        transactionAccountFilter: "acc-aud",
+        transactionMarketFilter: "TW",
+      },
+    );
+    await flushEffects();
+
+    await act(async () => {
+      findButtonByText(element, dict.tickerHistory.recordTransaction).click();
+    });
+
+    expect(document.body.querySelector('[data-testid="record-transaction-dialog"]')).not.toBeNull();
+    expect(document.body.querySelector('[data-testid="tx-account-select"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="tx-no-account-error"]')?.textContent).toContain("TWD");
+    expect(document.body.querySelector('[data-testid="tx-create-account-link"]')).not.toBeNull();
+  });
+
+  it("intersects explicit multi-account scopes with ticker-market compatible accounts", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
+    const mixedCurrencyAccounts: AccountDto[] = [
+      testAccount("acc-aud", "AUD Brokerage", "AUD"),
+      testAccount("acc-twd", "TWD Brokerage", "TWD"),
+      testAccount("acc-usd", "USD Brokerage", "USD"),
+    ];
+
+    const element = renderTickerHistoryClient(
+      details,
+      tickerInstrument,
+      undefined,
+      {
+        accounts: mixedCurrencyAccounts,
+        feeProfiles: feeProfilesFor(mixedCurrencyAccounts),
+        transactionAccountFilter: undefined,
+        transactionAccountIdsFilter: ["acc-aud", "acc-twd"],
+        transactionMarketFilter: "TW",
+      },
+    );
+    await flushEffects();
+
+    await act(async () => {
+      findButtonByText(element, dict.tickerHistory.recordTransaction).click();
+    });
+
+    const accountSelect = document.body.querySelector<HTMLSelectElement>('[data-testid="tx-account-select"]');
+    expect(accountSelect).not.toBeNull();
+    expect(Array.from(accountSelect?.options ?? []).map((option) => option.value)).toEqual(["acc-twd"]);
+    expect(accountSelect?.value).toBe("acc-twd");
+  });
+
+  it("keeps explicit incompatible multi-account scopes in the no-compatible-account state", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
+    const mixedCurrencyAccounts: AccountDto[] = [
+      testAccount("acc-aud", "AUD Brokerage", "AUD"),
+      testAccount("acc-usd", "USD Brokerage", "USD"),
+      testAccount("acc-twd", "TWD Brokerage", "TWD"),
+    ];
+
+    const element = renderTickerHistoryClient(
+      details,
+      tickerInstrument,
+      undefined,
+      {
+        accounts: mixedCurrencyAccounts,
+        feeProfiles: feeProfilesFor(mixedCurrencyAccounts),
+        transactionAccountFilter: undefined,
+        transactionAccountIdsFilter: ["acc-aud", "acc-usd"],
+        transactionMarketFilter: "TW",
+      },
+    );
+    await flushEffects();
+
+    await act(async () => {
+      findButtonByText(element, dict.tickerHistory.recordTransaction).click();
+    });
+
+    expect(document.body.querySelector('[data-testid="record-transaction-dialog"]')).not.toBeNull();
+    expect(document.body.querySelector('[data-testid="tx-account-select"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="tx-no-account-error"]')?.textContent).toContain("TWD");
+    expect(document.body.querySelector('[data-testid="tx-create-account-link"]')).not.toBeNull();
+  });
+
+  it("preserves the locked ticker and market when switching compatible accounts in the record dialog", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
+
+    const element = renderTickerHistoryClient(
+      details,
+      tickerInstrument,
+      undefined,
+      {
+        transactionAccountFilter: undefined,
+        transactionMarketFilter: "TW",
+      },
+    );
+    await flushEffects();
+
+    await act(async () => {
+      findButtonByText(element, dict.tickerHistory.recordTransaction).click();
+    });
+
+    const accountSelect = document.body.querySelector<HTMLSelectElement>('[data-testid="tx-account-select"]');
+    expect(accountSelect).not.toBeNull();
+    expect(Array.from(accountSelect?.options ?? []).map((option) => option.value)).toEqual(["acc-1", "acc-2"]);
+
+    await act(async () => {
+      accountSelect!.value = "acc-2";
+      accountSelect!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(document.body.querySelector<HTMLInputElement>('[data-testid="tx-ticker-combobox"]')?.value).toBe("2330");
+    expect(document.body.querySelector<HTMLInputElement>('[data-testid="tx-price-currency-input"]')?.value).toBe("TWD");
+    expect(document.body.querySelector<HTMLSelectElement>('[data-testid="tx-account-select"]')?.value).toBe("acc-2");
   });
 
   it("keeps direct ticker visits on Current Price by default", async () => {

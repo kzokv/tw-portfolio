@@ -21,6 +21,7 @@ import {
 } from "./accountingStore.js";
 import { bookCashLedgerEntry, buildTradeSettlementCashEntry } from "./cashLedgerService.js";
 import { routeError } from "../lib/routeError.js";
+import { assertBookedCharge } from "../validation/bookedCharge.js";
 import type {
   BookedTradeEvent,
   CorporateAction,
@@ -118,8 +119,8 @@ export function createTransaction(
 
   const tradeValueAmount = roundToDecimal(input.quantity * input.unitPrice, 2);
   assertTradeTimestampMatchesTradeDate(input.tradeDate, input.tradeTimestamp);
-  assertBookedCharge(input.commissionAmount, "Commission must be a non-negative integer");
-  assertBookedCharge(input.taxAmount, "Tax must be a non-negative integer");
+  assertBookedCharge(input.commissionAmount, "Commission");
+  assertBookedCharge(input.taxAmount, "Tax");
   const bookingSequence = resolveBookingSequence(store, input.accountId, input.tradeDate, input.bookingSequence);
   const suggestedFees =
     input.type === "BUY"
@@ -314,13 +315,6 @@ function assertTradeTimestampMatchesTradeDate(tradeDate: string, tradeTimestamp?
   if (!tradeTimestamp) return;
   if (tradeTimestamp.slice(0, 10) !== tradeDate) {
     throw routeError(400, "timestamp_date_mismatch", "Trade timestamp must match trade date");
-  }
-}
-
-function assertBookedCharge(value: number | undefined, message: string): void {
-  if (value === undefined) return;
-  if (!Number.isInteger(value) || value < 0) {
-    throw routeError(400, "invalid_charge", message);
   }
 }
 

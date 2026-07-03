@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowDownRight, ArrowUpRight, BarChart3, Landmark, Plus, ReceiptText, Wrench } from "lucide-react";
 import { Bar, BarChart, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { TICKER_CHART_RANGES } from "@vakwen/shared-types";
+import { TICKER_CHART_RANGES, currencyFor } from "@vakwen/shared-types";
 import type {
   AccountDefaultCurrency,
   LocaleCode,
@@ -79,7 +79,6 @@ interface TickerHistoryClientProps {
   dict: AppDictionary;
   locale: LocaleCode;
   ticker: string;
-  accountId: string;
   accounts: AccountDto[];
   feeProfiles: FeeProfileDto[];
   feeProfileBindings: FeeProfileBindingDto[];
@@ -131,6 +130,20 @@ function resolveTickerDetailsReportingCurrency(details: TickerDetailsModel): Acc
   return details.holdingGroup?.reportingCurrency
     ?? details.accountBreakdown.find((row) => row.reportingCurrency !== undefined)?.reportingCurrency
     ?? null;
+}
+
+function transactionInputsEqual(left: TransactionInput, right: TransactionInput): boolean {
+  return left.accountId === right.accountId
+    && left.ticker === right.ticker
+    && left.marketCode === right.marketCode
+    && left.quantity === right.quantity
+    && left.unitPrice === right.unitPrice
+    && left.priceCurrency === right.priceCurrency
+    && left.tradeDate === right.tradeDate
+    && left.commissionAmount === right.commissionAmount
+    && left.taxAmount === right.taxAmount
+    && left.type === right.type
+    && left.isDayTrade === right.isDayTrade;
 }
 
 function formatLastRepairTime(locale: LocaleCode, value: Date): string {
@@ -529,7 +542,6 @@ export function TickerHistoryClient({
   dict,
   locale,
   ticker,
-  accountId,
   accounts,
   feeProfiles,
   feeProfileBindings,
@@ -647,15 +659,20 @@ export function TickerHistoryClient({
     }
     return dict.tickerHistory.allAccountsLabel;
   }, [accountNameById, dict.tickerHistory.allAccountsLabel, dict.tickerHistory.analysisAccountsCountLabel, transactionAccountFilter, transactionAccountIdsFilter]);
-  const recordAccountIds = useMemo(() => {
-    const scopedAccountIds = transactionAccountIdsFilter?.filter((candidateAccountId) =>
-      accounts.some((account) => account.id === candidateAccountId),
-    ) ?? [];
-    if (scopedAccountIds.length > 0) return scopedAccountIds;
-    return accountId ? [accountId] : [];
-  }, [accountId, accounts, transactionAccountIdsFilter]);
+  const recordMarketCode = transactionMarketFilter ?? detailsState.identity.marketCode;
+  const recordCurrency = currencyFor(recordMarketCode);
+  const recordAccounts = useMemo(() => {
+    const scopedAccountIds = transactionAccountFilter
+      ? [transactionAccountFilter]
+      : transactionAccountIdsFilter;
+    const candidateAccounts = scopedAccountIds
+      ? accounts.filter((account) => scopedAccountIds.includes(account.id))
+      : accounts;
+    return candidateAccounts.filter((account) => account.defaultCurrency === recordCurrency);
+  }, [accounts, recordCurrency, transactionAccountFilter, transactionAccountIdsFilter]);
+  const recordAccountIds = useMemo(() => recordAccounts.map((account) => account.id), [recordAccounts]);
   const recordAccountIdSet = useMemo(() => new Set(recordAccountIds), [recordAccountIds]);
-  const defaultRecordAccountId = recordAccountIds[0] ?? accountId;
+  const defaultRecordAccountId = recordAccountIds[0] ?? "";
   const effectiveHoldingGroup = detailsState.holdingGroup;
   const accountBreakdownRows = effectiveHoldingGroup?.children.length
     ? effectiveHoldingGroup.children
@@ -829,18 +846,18 @@ export function TickerHistoryClient({
           type: "BUY",
           isDayTrade: false,
         },
-        accounts,
+        recordAccounts,
         feeProfiles,
         feeProfileBindings,
       );
     },
     [
-      accounts,
       defaultRecordAccountId,
       detailsState.identity.marketCode,
       feeProfileBindings,
       feeProfiles,
       initialTradeDate,
+      recordAccounts,
       ticker,
       transactionMarketFilter,
       transactions,
@@ -863,16 +880,17 @@ export function TickerHistoryClient({
       const nextAccountId = next.accountId && recordAccountIdSet.has(next.accountId)
         ? next.accountId
         : defaultRecordAccountId;
-      submission.setDraftTransaction(
-        resolveTransactionDraftAccount(
-          { ...next, ticker, accountId: nextAccountId },
-          accounts,
-          feeProfiles,
-          feeProfileBindings,
-        ),
+      const resolvedDraft = resolveTransactionDraftAccount(
+        { ...next, ticker, accountId: nextAccountId },
+        recordAccounts,
+        feeProfiles,
+        feeProfileBindings,
+      );
+      submission.setDraftTransaction((current) =>
+        transactionInputsEqual(current, resolvedDraft) ? current : resolvedDraft,
       );
     },
-    [accounts, defaultRecordAccountId, feeProfileBindings, feeProfiles, recordAccountIdSet, submission, ticker],
+    [defaultRecordAccountId, feeProfileBindings, feeProfiles, recordAccountIdSet, recordAccounts, submission.setDraftTransaction, ticker],
   );
 
   // KZO-169: include `defaultCurrency` so the chip default + account filter
@@ -880,8 +898,7 @@ export function TickerHistoryClient({
   // history page. `accountType` is optional metadata.
   const lockedAccountOptions = useMemo(
     () =>
-      accounts
-        .filter((account) => recordAccountIdSet.has(account.id))
+      recordAccounts
         .map((account) => ({
           id: account.id,
           name: account.name,
@@ -889,7 +906,7 @@ export function TickerHistoryClient({
           defaultCurrency: account.defaultCurrency,
           accountType: account.accountType,
         })),
-    [accounts, feeProfiles, recordAccountIdSet],
+    [feeProfiles, recordAccounts],
   );
 
   const cooldownRemaining = useMemo(() => getCooldownRemainingMinutes(instrumentState?.repairAvailableAt), [instrumentState]);

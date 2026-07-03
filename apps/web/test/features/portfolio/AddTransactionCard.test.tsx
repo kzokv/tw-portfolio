@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
-import React, { act } from "react";
+import React, { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
@@ -142,6 +142,14 @@ describe("AddTransactionCard — chip + account-filter render contract", () => {
       isDayTrade: false,
       ...overrides,
     };
+  }
+
+  function setInputValue(selector: string, value: string): HTMLInputElement {
+    const input = document.querySelector(selector) as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
+    setter?.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    return input;
   }
 
   it("renders the supported market chip pills, including JP, without the removed ALL chip", () => {
@@ -289,5 +297,89 @@ describe("AddTransactionCard — chip + account-filter render contract", () => {
     const submitButton = container.querySelector('[data-testid="tx-submit-button"]') as HTMLButtonElement | null;
     expect(submitButton).not.toBeNull();
     expect(submitButton!.disabled).toBe(false);
+  });
+
+  it("accepts decimal commission and tax overrides and preserves empty-input semantics on submit", async () => {
+    const submitted: TransactionInput[] = [];
+
+    function Harness() {
+      const [value, setValue] = useState<TransactionInput>(
+        valueWith({
+          accountId: "acc-tw",
+          ticker: "2330",
+          marketCode: "TW",
+          quantity: 10,
+          unitPrice: 100,
+          type: "SELL",
+        }),
+      );
+
+      return (
+        <AddTransactionCard
+          value={value}
+          accountOptions={[TWD_ACCOUNT]}
+          pending={false}
+          onChange={setValue}
+          onSubmit={async () => {
+            submitted.push(value);
+          }}
+          dict={dict}
+          locale="en"
+          framed={false}
+          priceHint={null}
+          showPriceUnavailableHint={false}
+          feeEstimate={{ commissionAmount: 1.2345, taxAmount: 0.6789 }}
+        />
+      );
+    }
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(<Harness />);
+    });
+
+    const commissionInput = document.querySelector('[data-testid="commission-override-input"]') as HTMLInputElement;
+    const taxInput = document.querySelector('[data-testid="tax-override-input"]') as HTMLInputElement;
+    expect(commissionInput.step).toBe("0.0001");
+    expect(commissionInput.inputMode).toBe("decimal");
+    expect(taxInput.step).toBe("0.0001");
+    expect(taxInput.inputMode).toBe("decimal");
+
+    await act(async () => {
+      setInputValue('[data-testid="commission-override-input"]', "1.2345");
+      setInputValue('[data-testid="tax-override-input"]', "0.6789");
+    });
+
+    expect(commissionInput.value).toBe("1.2345");
+    expect(taxInput.value).toBe("0.6789");
+
+    const submitButton = document.querySelector('[data-testid="tx-submit-button"]') as HTMLButtonElement;
+    await act(async () => {
+      submitButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(submitted.at(-1)).toMatchObject({
+      commissionAmount: 1.2345,
+      taxAmount: 0.6789,
+    });
+
+    await act(async () => {
+      setInputValue('[data-testid="commission-override-input"]', "");
+      setInputValue('[data-testid="tax-override-input"]', "");
+    });
+
+    expect(commissionInput.value).toBe("");
+    expect(taxInput.value).toBe("");
+
+    await act(async () => {
+      submitButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(submitted.at(-1)).toMatchObject({
+      commissionAmount: undefined,
+      taxAmount: undefined,
+    });
   });
 });

@@ -218,7 +218,7 @@ export function AddTransactionCard({
   const prevAccountIdRef = useRef<string>(value.accountId);
   useEffect(() => {
     // Branch 1 — user-driven account change → chip auto-sync + ticker clear.
-    if (value.accountId && value.accountId !== prevAccountIdRef.current) {
+    if (!instrumentReadOnly && value.accountId && value.accountId !== prevAccountIdRef.current) {
       prevAccountIdRef.current = value.accountId;
       const account = accountOptions.find((a) => a.id === value.accountId);
       if (account) {
@@ -259,6 +259,7 @@ export function AddTransactionCard({
     }
   }, [
     derivedCurrency,
+    instrumentReadOnly,
     value,
     onChange,
     accountOptions,
@@ -613,7 +614,8 @@ export function AddTransactionCard({
             <input
               type="number"
               min="0"
-              step="1"
+              step="0.0001"
+              inputMode="decimal"
               value={value.commissionAmount ?? ""}
               onChange={(event) => setField("commissionAmount", parseOptionalNumber(event.target.value))}
               className={fieldClassName}
@@ -646,7 +648,8 @@ export function AddTransactionCard({
               <input
                 type="number"
                 min="0"
-                step="1"
+                step="0.0001"
+                inputMode="decimal"
                 value={value.taxAmount ?? ""}
                 onChange={(event) => setField("taxAmount", parseOptionalNumber(event.target.value))}
                 className={fieldClassName}
