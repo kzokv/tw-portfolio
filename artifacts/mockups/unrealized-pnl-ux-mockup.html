@@ -1,0 +1,824 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Unrealized P&L UX Mockup</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --panel: #ffffff;
+      --ink: #0f172a;
+      --muted: #64748b;
+      --border: #dbe4ee;
+      --soft: #eef4f8;
+      --primary: #4f46e5;
+      --primary-2: #2563eb;
+      --gain: #0f9f6e;
+      --loss: #dc2626;
+      --warn: #b45309;
+      --teal: #0f766e;
+      --violet: #7c3aed;
+      --blue: #2563eb;
+      --amber: #d97706;
+      --radius: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+    }
+
+    body {
+      padding: 24px;
+    }
+
+    .page {
+      max-width: 1360px;
+      margin: 0 auto;
+    }
+
+    .mobile-view {
+      display: none;
+    }
+
+    .screen-title {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 24px;
+      line-height: 1.2;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      font-size: 16px;
+      line-height: 1.35;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      font-size: 13px;
+      line-height: 1.25;
+      letter-spacing: 0;
+    }
+
+    .subtle {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+    }
+
+    .filters {
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+
+    .filter-grid {
+      display: grid;
+      grid-template-columns: 170px 180px 1fr 172px 160px;
+      gap: 12px;
+      align-items: end;
+    }
+
+    .field {
+      min-width: 0;
+    }
+
+    .label {
+      display: block;
+      margin-bottom: 6px;
+      color: #475569;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .control,
+    .button,
+    .segmented {
+      min-height: 38px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #fff;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .control {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      width: 100%;
+      padding: 0 10px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    .segmented {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: 1fr;
+      overflow: hidden;
+      padding: 3px;
+      background: #f8fafc;
+    }
+
+    .segment {
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .segment.active {
+      background: var(--primary);
+      color: #fff;
+      box-shadow: 0 4px 10px rgba(79, 70, 229, 0.22);
+    }
+
+    .status-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 26px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: #fff;
+      padding: 0 10px;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+
+    .chip.warn {
+      border-color: #fde68a;
+      background: #fffbeb;
+      color: var(--warn);
+    }
+
+    .chip.info {
+      border-color: #bfdbfe;
+      background: #eff6ff;
+      color: #1d4ed8;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex: 0 0 auto;
+      background: currentColor;
+    }
+
+    .content-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(360px, 0.85fr);
+      gap: 14px;
+      align-items: start;
+    }
+
+    .chart-panel {
+      padding: 14px;
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .chart-shell {
+      position: relative;
+      height: 334px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background:
+        linear-gradient(#eef2f7 1px, transparent 1px) 0 0 / 100% 62px,
+        linear-gradient(90deg, #eef2f7 1px, transparent 1px) 0 0 / 110px 100%,
+        #fff;
+      overflow: hidden;
+    }
+
+    svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .legend {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      gap: 8px;
+      min-height: 34px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0 9px;
+      background: #fff;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .legend-item.muted {
+      color: #94a3b8;
+      background: #f8fafc;
+    }
+
+    .legend-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .dropdown-panel {
+      margin-top: 12px;
+      padding: 12px;
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 12px;
+      border: 1px solid #a5b4fc;
+      border-radius: var(--radius);
+      background: #fbfdff;
+    }
+
+    .search {
+      width: 100%;
+      min-height: 36px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0 10px;
+      color: #334155;
+      font-size: 13px;
+      font-weight: 650;
+    }
+
+    .option-list {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .group {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 10px;
+    }
+
+    .group-title {
+      margin-bottom: 8px;
+      color: #475569;
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 28px;
+      color: #1f2937;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .box {
+      display: grid;
+      place-items: center;
+      width: 16px;
+      height: 16px;
+      border-radius: 4px;
+      border: 1px solid #94a3b8;
+      color: #fff;
+      font-size: 12px;
+      line-height: 1;
+      flex: 0 0 auto;
+    }
+
+    .box.checked {
+      border-color: var(--primary-2);
+      background: var(--primary-2);
+    }
+
+    .box.disabled {
+      border-color: #cbd5e1;
+      background: #e2e8f0;
+    }
+
+    .disabled-text {
+      color: #94a3b8;
+    }
+
+    .detail-panel {
+      padding: 14px;
+    }
+
+    .table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .table th {
+      color: #64748b;
+      font-size: 11px;
+      text-align: left;
+      padding: 9px 8px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    .table td {
+      padding: 10px 8px;
+      border-bottom: 1px solid #edf2f7;
+      vertical-align: top;
+    }
+
+    .table .num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .link {
+      color: #1d4ed8;
+      font-weight: 800;
+      text-decoration: none;
+    }
+
+    .name {
+      display: block;
+      margin-top: 2px;
+      color: #475569;
+      font-size: 11px;
+      font-weight: 650;
+    }
+
+    .gain {
+      color: var(--gain);
+      font-weight: 800;
+    }
+
+    .loss {
+      color: var(--loss);
+      font-weight: 800;
+    }
+
+    .muted-row {
+      opacity: 0.52;
+    }
+
+    .status {
+      display: inline-flex;
+      min-height: 22px;
+      align-items: center;
+      border-radius: 999px;
+      background: #f1f5f9;
+      padding: 0 8px;
+      color: #475569;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .card-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .detail-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 12px;
+    }
+
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .metric {
+      border: 1px solid #e5edf5;
+      border-radius: var(--radius);
+      padding: 8px;
+      background: #fbfdff;
+    }
+
+    .metric span {
+      display: block;
+      color: #64748b;
+      font-size: 10px;
+      font-weight: 750;
+      margin-bottom: 3px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 13px;
+      font-variant-numeric: tabular-nums;
+    }
+
+    @media (max-width: 700px) {
+      body {
+        padding: 12px;
+      }
+
+      .desktop-view {
+        display: none;
+      }
+
+      .mobile-view {
+        display: block;
+      }
+
+      .screen-title {
+        display: block;
+        margin-bottom: 12px;
+      }
+
+      h1 {
+        font-size: 20px;
+        margin-bottom: 4px;
+      }
+
+      .filters {
+        padding: 12px;
+      }
+
+      .filter-grid {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 10px;
+      }
+
+      .content-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .chart-shell {
+        height: 260px;
+      }
+
+      .legend {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .dropdown-panel {
+        grid-template-columns: 1fr;
+        padding: 10px;
+      }
+
+      .option-list {
+        grid-template-columns: 1fr;
+      }
+
+      .table-wrap {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="desktop-view">
+      <div class="screen-title">
+        <div>
+          <h1>Unrealized P&L</h1>
+          <p class="subtle">Top drivers mode ranks tickers inside the current account, date, position, and ticker universe.</p>
+        </div>
+        <span class="chip info">Updating... showing previous result</span>
+      </div>
+
+      <div class="panel filters">
+        <div class="filter-grid">
+          <div class="field">
+            <span class="label">Selection</span>
+            <div class="segmented">
+              <button class="segment active">Top drivers</button>
+              <button class="segment">Manual tickers</button>
+            </div>
+          </div>
+          <div class="field">
+            <span class="label">Position status</span>
+            <div class="segmented">
+              <button class="segment active">Open</button>
+              <button class="segment">Include closed</button>
+            </div>
+          </div>
+          <div class="field">
+            <span class="label">Tickers</span>
+            <div class="control">Ranking 8 selected, 1 unavailable <span>v</span></div>
+          </div>
+          <div class="field">
+            <span class="label">Drivers</span>
+            <div class="segmented">
+              <button class="segment">5</button>
+              <button class="segment active">10</button>
+              <button class="segment">20</button>
+            </div>
+          </div>
+          <div class="field">
+            <span class="label">Detail layout</span>
+            <div class="segmented">
+              <button class="segment">Cards</button>
+              <button class="segment active">Table</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="dropdown-panel">
+          <div>
+            <input class="search" value="semi" aria-label="Search tickers" />
+            <div class="status-row">
+              <span class="chip">Reset to All eligible</span>
+              <span class="chip warn">1 unavailable</span>
+            </div>
+          </div>
+          <div class="option-list">
+            <div class="group">
+              <div class="group-title">US</div>
+              <div class="check-row"><span class="box checked">✓</span>US:NVDA:NVIDIA</div>
+              <div class="check-row"><span class="box checked">✓</span>US:AMD:Advanced Micro Devices</div>
+              <div class="check-row"><span class="box checked">✓</span>US:MSFT:Microsoft</div>
+            </div>
+            <div class="group">
+              <div class="group-title">TW</div>
+              <div class="check-row"><span class="box checked">✓</span>TW:2330:TSMC</div>
+              <div class="check-row"><span class="box checked">✓</span>TW:2454:MediaTek</div>
+              <div class="check-row disabled-text"><span class="box disabled"></span>TW:3711:ASE Tech unavailable</div>
+            </div>
+            <div class="group">
+              <div class="group-title">JP</div>
+              <div class="check-row"><span class="box checked">✓</span>JP:8035:Tokyo Electron</div>
+              <div class="check-row"><span class="box"></span>JP:6857:Advantest</div>
+              <div class="check-row"><span class="box"></span>JP:6920:Lasertec</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="status-row">
+          <span class="chip">Date: 2026-01-01 to 2026-06-30</span>
+          <span class="chip">Accounts: 2 selected</span>
+          <span class="chip info">Drivers rank absolute period P&L change</span>
+        </div>
+      </div>
+
+      <div class="content-grid">
+        <div class="panel chart-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Returned driver candidates</h2>
+              <p class="subtle">Legend toggles mute lines locally. Filter changes reset mutes.</p>
+            </div>
+            <span class="chip info">Stale while updating</span>
+          </div>
+          <div class="chart-shell">
+            <svg viewBox="0 0 760 334" aria-label="Unrealized P&L line chart">
+              <polyline points="40,236 160,210 280,198 400,156 520,122 640,108 720,96" fill="none" stroke="#0f766e" stroke-width="4" />
+              <polyline points="40,250 160,230 280,220 400,184 520,156 640,136 720,128" fill="none" stroke="#7c3aed" stroke-width="4" />
+              <polyline points="40,224 160,216 280,204 400,192 520,178 640,160 720,150" fill="none" stroke="#2563eb" stroke-width="4" />
+              <polyline points="40,162 160,170 280,190 400,214 520,236 640,246 720,260" fill="none" stroke="#dc2626" stroke-width="4" />
+              <polyline points="40,274 160,260 280,248 400,230 520,210 640,202 720,194" fill="none" stroke="#d97706" stroke-width="4" opacity="0.25" />
+              <text x="42" y="48" fill="#64748b" font-size="12">P&L in reporting currency</text>
+              <text x="632" y="306" fill="#64748b" font-size="12">Jun 30</text>
+            </svg>
+          </div>
+          <div class="legend">
+            <div class="legend-item"><span class="dot" style="color: var(--teal)"></span><span class="legend-text">US:NVDA</span></div>
+            <div class="legend-item"><span class="dot" style="color: var(--violet)"></span><span class="legend-text">TW:2330</span></div>
+            <div class="legend-item"><span class="dot" style="color: var(--blue)"></span><span class="legend-text">US:MSFT</span></div>
+            <div class="legend-item"><span class="dot" style="color: var(--loss)"></span><span class="legend-text">US:AMD</span></div>
+            <div class="legend-item muted"><span class="dot" style="color: var(--amber)"></span><span class="legend-text">JP:8035 muted</span></div>
+          </div>
+        </div>
+
+        <div class="panel detail-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Selected ticker detail</h2>
+              <p class="subtle">All candidates stay visible. Muted drivers are dimmed in place.</p>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Ticker</th>
+                  <th>Market</th>
+                  <th class="num">End P&L</th>
+                  <th class="num">Change</th>
+                  <th class="num">Value</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><a class="link" href="#">US:NVDA</a><span class="name">NVIDIA</span></td>
+                  <td>US</td>
+                  <td class="num gain">+$18,420</td>
+                  <td class="num gain">+$6,240</td>
+                  <td class="num">$54,800</td>
+                  <td><span class="status">Open</span></td>
+                </tr>
+                <tr>
+                  <td><a class="link" href="#">TW:2330</a><span class="name">TSMC</span></td>
+                  <td>TW</td>
+                  <td class="num gain">+$12,300</td>
+                  <td class="num gain">+$3,880</td>
+                  <td class="num">$41,100</td>
+                  <td><span class="status">Open</span></td>
+                </tr>
+                <tr>
+                  <td><a class="link" href="#">US:AMD</a><span class="name">Advanced Micro Devices</span></td>
+                  <td>US</td>
+                  <td class="num loss">-$2,180</td>
+                  <td class="num loss">-$2,020</td>
+                  <td class="num">$16,300</td>
+                  <td><span class="status">Open</span></td>
+                </tr>
+                <tr class="muted-row">
+                  <td><a class="link" href="#">JP:8035</a><span class="name">Tokyo Electron</span></td>
+                  <td>JP</td>
+                  <td class="num gain">+$4,100</td>
+                  <td class="num gain">+$1,240</td>
+                  <td class="num">$13,600</td>
+                  <td><span class="status">Muted</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="mobile-view">
+      <div class="screen-title">
+        <h1>Unrealized P&L</h1>
+        <p class="subtle">Manual tickers mode makes chart lines match selected tickers.</p>
+      </div>
+
+      <div class="panel filters">
+        <div class="filter-grid">
+          <div class="field">
+            <span class="label">Selection</span>
+            <div class="segmented">
+              <button class="segment">Top drivers</button>
+              <button class="segment active">Manual tickers</button>
+            </div>
+          </div>
+          <div class="field">
+            <span class="label">Position status</span>
+            <div class="segmented">
+              <button class="segment">Open</button>
+              <button class="segment active">Include closed</button>
+            </div>
+          </div>
+          <div class="field">
+            <span class="label">Tickers</span>
+            <div class="control">Showing all eligible tickers <span>v</span></div>
+          </div>
+          <div class="field">
+            <span class="label">Detail layout</span>
+            <div class="segmented">
+              <button class="segment active">Responsive</button>
+              <button class="segment">Cards</button>
+              <button class="segment">Table</button>
+            </div>
+          </div>
+        </div>
+        <div class="status-row">
+          <span class="chip warn">27 rendered lines may be noisy</span>
+          <span class="chip">Date: Jan 1 to Jun 30</span>
+        </div>
+      </div>
+
+      <div class="panel chart-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Manual ticker lines</h2>
+            <p class="subtle">Legend taps update ticker selection.</p>
+          </div>
+        </div>
+        <div class="chart-shell">
+          <svg viewBox="0 0 360 260" aria-label="Mobile unrealized P&L chart">
+            <polyline points="22,188 88,178 154,154 220,112 292,92 338,84" fill="none" stroke="#0f766e" stroke-width="4" />
+            <polyline points="22,204 88,186 154,174 220,146 292,132 338,124" fill="none" stroke="#7c3aed" stroke-width="4" />
+            <polyline points="22,170 88,174 154,178 220,188 292,196 338,210" fill="none" stroke="#dc2626" stroke-width="4" />
+            <polyline points="22,218 88,210 154,198 220,182 292,172 338,164" fill="none" stroke="#2563eb" stroke-width="4" />
+          </svg>
+        </div>
+        <div class="legend">
+          <div class="legend-item"><span class="dot" style="color: var(--teal)"></span><span class="legend-text">US:NVDA</span></div>
+          <div class="legend-item"><span class="dot" style="color: var(--violet)"></span><span class="legend-text">TW:2330</span></div>
+          <div class="legend-item"><span class="dot" style="color: var(--loss)"></span><span class="legend-text">US:AMD</span></div>
+          <div class="legend-item"><span class="dot" style="color: var(--blue)"></span><span class="legend-text">US:MSFT</span></div>
+        </div>
+      </div>
+
+      <div class="panel detail-panel" style="margin-top: 12px;">
+        <div class="panel-head">
+          <div>
+            <h2>Ticker detail</h2>
+            <p class="subtle">Responsive layout uses cards on mobile.</p>
+          </div>
+        </div>
+        <div class="card-list">
+          <div class="detail-card">
+            <div class="card-top">
+              <div><a class="link" href="#">US:NVDA</a><span class="name">NVIDIA</span></div>
+              <span class="status">Open</span>
+            </div>
+            <div class="metrics">
+              <div class="metric"><span>End P&L</span><strong class="gain">+$18,420</strong></div>
+              <div class="metric"><span>Change</span><strong class="gain">+$6,240</strong></div>
+              <div class="metric"><span>Market value</span><strong>$54,800</strong></div>
+              <div class="metric"><span>Quantity</span><strong>80</strong></div>
+            </div>
+          </div>
+          <div class="detail-card">
+            <div class="card-top">
+              <div><a class="link" href="#">TW:2330</a><span class="name">TSMC</span></div>
+              <span class="status">Open</span>
+            </div>
+            <div class="metrics">
+              <div class="metric"><span>End P&L</span><strong class="gain">+$12,300</strong></div>
+              <div class="metric"><span>Change</span><strong class="gain">+$3,880</strong></div>
+              <div class="metric"><span>Market value</span><strong>$41,100</strong></div>
+              <div class="metric"><span>Quantity</span><strong>220</strong></div>
+            </div>
+          </div>
+          <div class="detail-card">
+            <div class="card-top">
+              <div><a class="link" href="#">US:AMD</a><span class="name">Advanced Micro Devices</span></div>
+              <span class="status">Open</span>
+            </div>
+            <div class="metrics">
+              <div class="metric"><span>End P&L</span><strong class="loss">-$2,180</strong></div>
+              <div class="metric"><span>Change</span><strong class="loss">-$2,020</strong></div>
+              <div class="metric"><span>Market value</span><strong>$16,300</strong></div>
+              <div class="metric"><span>Quantity</span><strong>120</strong></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

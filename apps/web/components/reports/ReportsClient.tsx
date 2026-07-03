@@ -2934,9 +2934,9 @@ function reportHoldingAnalysisHref(row: ReportHoldingRowDto): string {
   return buildUnrealizedPnlRoutePath({
     range: "3M",
     markets: [row.marketCode],
-    tickers: [row.ticker],
-    selectionMode: "manual",
-    selected: [buildSelectedSeriesId(row.marketCode, row.ticker)],
+    selection: "manualTickers",
+    tickerMode: "custom",
+    tickerIds: [buildSelectedSeriesId(row.marketCode, row.ticker)],
     reportingCurrency: row.reportingCurrency,
     view: "ticker-detail",
   });

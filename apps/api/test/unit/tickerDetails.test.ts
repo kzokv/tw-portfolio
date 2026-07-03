@@ -1,5 +1,6 @@
 import type { IntradayPriceOverlay } from "@vakwen/domain";
 import { describe, expect, it } from "vitest";
+import type { HoldingSnapshot } from "../../src/persistence/types.js";
 import { createEmptyTickerFundamentals } from "../../src/services/fundamentals/types.js";
 import { createDefaultFeeProfile, createStore, setStoreInstruments } from "../../src/services/store.js";
 import { buildTickerDetails } from "../../src/services/tickerDetails.js";
@@ -23,6 +24,7 @@ describe("buildTickerDetails", () => {
       latestReads?: Array<{ pairs: ReadonlyArray<{ ticker: string; marketCode: "TW" | "US" | "AU" | "KR" }>; limit: number }>;
     } = {},
     overlays = new Map<string, IntradayPriceOverlay>(),
+    holdingSnapshots: HoldingSnapshot[] = [],
   ) {
     return {
       async getDailyBarsForTickerMarket(ticker: string, marketCode: string, startDate: string, endDate: string) {
@@ -123,6 +125,36 @@ describe("buildTickerDetails", () => {
       async getFxRate() {
         return null;
       },
+      async listHoldingSnapshots(
+        _userId: string,
+        options: {
+          accountIds?: readonly string[];
+          pairs?: ReadonlyArray<{ accountId: string; ticker: string; marketCode: string }>;
+          startDate?: string;
+          endDate?: string;
+          includeProvisional?: boolean;
+          limit: number;
+          offset: number;
+        },
+      ) {
+        const accountIds = new Set(options.accountIds ?? []);
+        const pairs = new Set((options.pairs ?? []).map((pair) => `${pair.accountId}:${pair.marketCode}:${pair.ticker}`));
+        const filteredRows = holdingSnapshots
+          .filter((snapshot) => accountIds.size === 0 || accountIds.has(snapshot.accountId))
+          .filter((snapshot) => pairs.size === 0 || pairs.has(`${snapshot.accountId}:${snapshot.marketCode}:${snapshot.ticker}`))
+          .filter((snapshot) => !options.startDate || snapshot.snapshotDate >= options.startDate)
+          .filter((snapshot) => !options.endDate || snapshot.snapshotDate <= options.endDate)
+          .filter((snapshot) => options.includeProvisional || !snapshot.isProvisional)
+          .sort((left, right) => left.snapshotDate.localeCompare(right.snapshotDate));
+        const rows = filteredRows
+          .slice(options.offset, options.offset + options.limit)
+          .map((snapshot) => ({ ...snapshot, accountName: null }));
+        return {
+          rows,
+          total: filteredRows.length,
+          provisionalCount: filteredRows.filter((row) => row.isProvisional).length,
+        };
+      },
     };
   }
 
@@ -211,6 +243,33 @@ describe("buildTickerDetails", () => {
     return store;
   }
 
+  function makeHoldingSnapshot(overrides: Partial<HoldingSnapshot>): HoldingSnapshot {
+    return {
+      id: overrides.id ?? "snapshot-1",
+      userId: "user-1",
+      accountId: "acc-au",
+      ticker: "BHP",
+      marketCode: "AU",
+      snapshotDate: "2026-02-01",
+      quantity: 3,
+      closePrice: 45,
+      marketValue: 135,
+      costBasis: 120,
+      unrealizedPnl: 15,
+      cumulativeRealizedPnl: 0,
+      cumulativeDividends: 0,
+      isProvisional: false,
+      currency: "AUD",
+      valueNative: 135,
+      costBasisNative: 120,
+      unrealizedPnlNative: 15,
+      providerSource: "test",
+      generatedAt: "2026-02-01T00:00:00.000Z",
+      generationRunId: "run-1",
+      ...overrides,
+    };
+  }
+
   it("requires an explicit market for same ticker across multiple held markets", async () => {
     await expect(buildTickerDetails({
       persistence: createPersistence(),
@@ -222,6 +281,58 @@ describe("buildTickerDetails", () => {
       code: "ticker_market_required",
       statusCode: 400,
     });
+  });
+
+  it("uses requested account ids to infer the market for cross-listed tickers", async () => {
+    const { details, marketCode } = await buildTickerDetails({
+      persistence: createPersistence(),
+      store: buildCrossMarketStore(),
+      userId: "user-1",
+      ticker: "BHP",
+      accountIds: ["acc-au"],
+      loadChart: false,
+      fundamentalsRecord: null,
+    });
+
+    expect(marketCode).toBe("AU");
+    expect(details.position.accountIds).toEqual(["acc-au"]);
+    expect(details.position.quantity).toBe(3);
+    expect(details.transactions).toEqual([
+      expect.objectContaining({ id: "bhp-au-buy", accountId: "acc-au", marketCode: "AU" }),
+    ]);
+  });
+
+  it("uses same-market account ids to infer a cross-listed ticker market without scoped rows", async () => {
+    const store = buildCrossMarketStore();
+    const secondAudFeeProfile = createDefaultFeeProfile("acc-au-2", "AUD", "fp-au-2");
+    store.accounts.push({
+      id: "acc-au-2",
+      userId: "user-1",
+      name: "Second AU Broker",
+      feeProfileId: secondAudFeeProfile.id,
+      defaultCurrency: "AUD",
+      accountType: "broker",
+    });
+    store.feeProfiles.push(secondAudFeeProfile);
+    store.accounting.projections.holdings = store.accounting.projections.holdings
+      .filter((holding) => holding.ticker !== "BHP");
+    store.accounting.facts.tradeEvents = store.accounting.facts.tradeEvents
+      .filter((trade) => trade.ticker !== "BHP");
+
+    const { details, marketCode } = await buildTickerDetails({
+      persistence: createPersistence(),
+      store,
+      userId: "user-1",
+      ticker: "BHP",
+      accountIds: ["acc-au", "acc-au-2"],
+      loadChart: false,
+      fundamentalsRecord: null,
+    });
+
+    expect(marketCode).toBe("AU");
+    expect(details.position.accountIds).toEqual(["acc-au", "acc-au-2"]);
+    expect(details.position.quantity).toBe(0);
+    expect(details.transactions).toEqual([]);
   });
 
   it("uses the requested marketCode for same ticker across multiple markets", async () => {
@@ -368,6 +479,386 @@ describe("buildTickerDetails", () => {
         grossAmount: 6,
       }),
     ]);
+  });
+
+  it("scopes ticker transactions and realized P&L to requested account ids", async () => {
+    const store = buildCrossMarketStore();
+    const secondAuFeeProfile = createDefaultFeeProfile("acc-au-2", "AUD", "fp-au-2");
+    store.accounts.push({
+      id: "acc-au-2",
+      userId: "user-1",
+      name: "Second AU Broker",
+      feeProfileId: secondAuFeeProfile.id,
+      defaultCurrency: "AUD",
+      accountType: "broker",
+    });
+    store.feeProfiles.push(secondAuFeeProfile);
+    store.accounting.projections.holdings.push({
+      accountId: "acc-au-2",
+      ticker: "BHP",
+      quantity: 9,
+      costBasisAmount: 360,
+      currency: "AUD",
+    });
+    store.accounting.facts.tradeEvents.push({
+      id: "bhp-au-2-sell",
+      userId: "user-1",
+      accountId: "acc-au-2",
+      ticker: "BHP",
+      marketCode: "AU",
+      instrumentType: "STOCK",
+      type: "SELL",
+      quantity: 1,
+      unitPrice: 55,
+      priceCurrency: "AUD",
+      tradeDate: "2026-02-03",
+      commissionAmount: 0,
+      taxAmount: 0,
+      realizedPnlAmount: 999,
+      isDayTrade: false,
+      feeSnapshot: secondAuFeeProfile,
+    });
+
+    const { details } = await buildTickerDetails({
+      persistence: createPersistence(),
+      store,
+      userId: "user-1",
+      ticker: "BHP",
+      marketCode: "AU",
+      accountIds: ["acc-au"],
+      fundamentalsRecord: null,
+    });
+
+    expect(details.position.accountIds).toEqual(["acc-au"]);
+    expect(details.position.quantity).toBe(3);
+    expect(details.position.realizedPnlAmount).toBe(0);
+    expect(details.transactions).toHaveLength(1);
+    expect(details.transactions).toEqual([
+      expect.objectContaining({ id: "bhp-au-buy", accountId: "acc-au" }),
+    ]);
+  });
+
+  it("rejects requested account ids from a different market", async () => {
+    await expect(buildTickerDetails({
+      persistence: createPersistence(),
+      store: buildCrossMarketStore(),
+      userId: "user-1",
+      ticker: "BHP",
+      marketCode: "AU",
+      accountIds: ["acc-au", "acc-us"],
+      fundamentalsRecord: null,
+    })).rejects.toMatchObject({
+      code: "account_market_mismatch",
+      statusCode: 400,
+    });
+  });
+
+  it("builds native-currency unrealized P&L history from actual holding snapshots", async () => {
+    const store = buildCrossMarketStore();
+    const bars = [
+      {
+        ticker: "BHP",
+        marketCode: "AU" as const,
+        barDate: "2026-02-01",
+        open: 45,
+        high: 45,
+        low: 45,
+        close: 45,
+        volume: 1000,
+        source: "test",
+      },
+      {
+        ticker: "BHP",
+        marketCode: "AU" as const,
+        barDate: "2026-02-02",
+        open: 48,
+        high: 48,
+        low: 48,
+        close: 48,
+        volume: 1000,
+        source: "test",
+      },
+      {
+        ticker: "BHP",
+        marketCode: "AU" as const,
+        barDate: "2026-02-03",
+        open: 48,
+        high: 48,
+        low: 48,
+        close: 48,
+        volume: 1000,
+        source: "test",
+      },
+    ];
+    const holdingSnapshots = [
+      makeHoldingSnapshot({ id: "bhp-au-2026-02-01", snapshotDate: "2026-02-01", unrealizedPnlNative: 15, quantity: 3 }),
+      makeHoldingSnapshot({ id: "bhp-au-2026-02-02", snapshotDate: "2026-02-02", unrealizedPnlNative: 24, quantity: 3 }),
+      makeHoldingSnapshot({
+        id: "bhp-au-2026-02-03",
+        snapshotDate: "2026-02-03",
+        quantity: 0,
+        marketValue: 0,
+        valueNative: 0,
+        unrealizedPnl: null,
+        unrealizedPnlNative: null,
+      }),
+    ];
+
+    const { details } = await buildTickerDetails({
+      persistence: createPersistence(bars, {}, new Map(), holdingSnapshots),
+      store,
+      userId: "user-1",
+      ticker: "BHP",
+      marketCode: "AU",
+      startDate: "2026-02-01",
+      endDate: "2026-02-03",
+      fundamentalsRecord: {
+        ticker: "BHP",
+        marketCode: "AU",
+        providerId: "test-provider",
+        fundamentals: createEmptyTickerFundamentals(),
+        refreshedAt: "2026-06-01T00:00:00.000Z",
+        nextRefreshAt: "2026-06-15T00:00:00.000Z",
+        lastAttemptedAt: null,
+        lastError: null,
+        createdAt: "2026-06-01T00:00:00.000Z",
+        updatedAt: "2026-06-01T00:00:00.000Z",
+      },
+    });
+
+    expect(details.unrealizedPnlHistory).toEqual([
+      expect.objectContaining({
+        date: "2026-02-01",
+        unrealizedPnlAmount: 15,
+        currency: "AUD",
+        quantity: 3,
+        closePrice: 45,
+        averageCostPerShare: 40,
+        accountIds: ["acc-au"],
+      }),
+      expect.objectContaining({
+        date: "2026-02-02",
+        unrealizedPnlAmount: 24,
+        currency: "AUD",
+        quantity: 3,
+        accountIds: ["acc-au"],
+      }),
+      expect.objectContaining({
+        date: "2026-02-03",
+        unrealizedPnlAmount: 0,
+        currency: "AUD",
+        quantity: 0,
+        accountIds: ["acc-au"],
+      }),
+    ]);
+  });
+
+  it("ignores zero-quantity null close prices when aggregating multi-account unrealized P&L history", async () => {
+    const store = buildCrossMarketStore();
+    const closedFeeProfile = createDefaultFeeProfile("acc-au-closed", "AUD", "fp-au-closed");
+    store.accounts.push({
+      id: "acc-au-closed",
+      userId: "user-1",
+      name: "Closed AU Broker",
+      feeProfileId: closedFeeProfile.id,
+      defaultCurrency: "AUD",
+      accountType: "broker",
+    });
+    store.feeProfiles.push(closedFeeProfile);
+    const holdingSnapshots = [
+      makeHoldingSnapshot({
+        id: "bhp-au-open-2026-02-02",
+        accountId: "acc-au",
+        snapshotDate: "2026-02-02",
+        closePrice: 48,
+        quantity: 3,
+        costBasisNative: 120,
+        marketValue: 144,
+        valueNative: 144,
+        unrealizedPnl: 24,
+        unrealizedPnlNative: 24,
+      }),
+      makeHoldingSnapshot({
+        id: "bhp-au-closed-2026-02-02",
+        accountId: "acc-au-closed",
+        snapshotDate: "2026-02-02",
+        closePrice: null,
+        quantity: 0,
+        costBasis: 0,
+        costBasisNative: 0,
+        marketValue: 0,
+        valueNative: 0,
+        unrealizedPnl: null,
+        unrealizedPnlNative: null,
+      }),
+    ];
+
+    const { details } = await buildTickerDetails({
+      persistence: createPersistence([], {}, new Map(), holdingSnapshots),
+      store,
+      userId: "user-1",
+      ticker: "BHP",
+      marketCode: "AU",
+      startDate: "2026-02-02",
+      endDate: "2026-02-02",
+      fundamentalsRecord: null,
+    });
+
+    expect(details.unrealizedPnlHistory).toEqual([
+      expect.objectContaining({
+        date: "2026-02-02",
+        unrealizedPnlAmount: 24,
+        quantity: 3,
+        closePrice: 48,
+        averageCostPerShare: 40,
+        accountIds: ["acc-au", "acc-au-closed"],
+      }),
+    ]);
+  });
+
+  it("excludes provisional snapshots from analysis-scoped unrealized P&L history", async () => {
+    const bars = [
+      {
+        ticker: "BHP",
+        marketCode: "AU" as const,
+        barDate: "2026-02-01",
+        open: 45,
+        high: 45,
+        low: 45,
+        close: 45,
+        volume: 1000,
+        source: "test",
+      },
+      {
+        ticker: "BHP",
+        marketCode: "AU" as const,
+        barDate: "2026-02-02",
+        open: 48,
+        high: 48,
+        low: 48,
+        close: 48,
+        volume: 1000,
+        source: "test",
+      },
+    ];
+    const holdingSnapshots = [
+      makeHoldingSnapshot({ id: "bhp-au-final", snapshotDate: "2026-02-01", unrealizedPnlNative: 15, quantity: 3 }),
+      makeHoldingSnapshot({ id: "bhp-au-provisional", snapshotDate: "2026-02-02", unrealizedPnlNative: 24, quantity: 3, isProvisional: true }),
+    ];
+
+    const { details } = await buildTickerDetails({
+      persistence: createPersistence(bars, {}, new Map(), holdingSnapshots),
+      store: buildCrossMarketStore(),
+      userId: "user-1",
+      ticker: "BHP",
+      marketCode: "AU",
+      startDate: "2026-02-01",
+      endDate: "2026-02-02",
+      includeProvisional: false,
+      fundamentalsRecord: null,
+    });
+
+    expect(details.unrealizedPnlHistory).toEqual([
+      expect.objectContaining({
+        date: "2026-02-01",
+        unrealizedPnlAmount: 15,
+        isProvisional: false,
+      }),
+    ]);
+  });
+
+  it("pages through all scoped unrealized P&L history snapshots", async () => {
+    const bars = [
+      {
+        ticker: "BHP",
+        marketCode: "AU" as const,
+        barDate: "2026-02-01",
+        open: 45,
+        high: 45,
+        low: 45,
+        close: 45,
+        volume: 1000,
+        source: "test",
+      },
+      {
+        ticker: "BHP",
+        marketCode: "AU" as const,
+        barDate: "2026-02-02",
+        open: 48,
+        high: 48,
+        low: 48,
+        close: 48,
+        volume: 1000,
+        source: "test",
+      },
+    ];
+    const holdingSnapshots = Array.from({ length: 10_001 }, (_, index) => makeHoldingSnapshot({
+      id: `bhp-au-page-${index}`,
+      snapshotDate: index === 10_000 ? "2026-02-02" : "2026-02-01",
+      unrealizedPnlNative: index === 10_000 ? 7 : 1,
+      unrealizedPnl: index === 10_000 ? 7 : 1,
+      quantity: 1,
+      marketValue: index === 10_000 ? 47 : 41,
+      valueNative: index === 10_000 ? 47 : 41,
+    }));
+
+    const { details } = await buildTickerDetails({
+      persistence: createPersistence(bars, {}, new Map(), holdingSnapshots),
+      store: buildCrossMarketStore(),
+      userId: "user-1",
+      ticker: "BHP",
+      marketCode: "AU",
+      startDate: "2026-02-01",
+      endDate: "2026-02-02",
+      fundamentalsRecord: null,
+    });
+
+    expect(details.unrealizedPnlHistory).toEqual([
+      expect.objectContaining({
+        date: "2026-02-01",
+        unrealizedPnlAmount: 10_000,
+        quantity: 10_000,
+      }),
+      expect.objectContaining({
+        date: "2026-02-02",
+        unrealizedPnlAmount: 7,
+        quantity: 1,
+      }),
+    ]);
+  });
+
+  it("returns empty unrealized P&L history when the resolved market has no account scope", async () => {
+    const store = buildCrossMarketStore();
+    const bars = [
+      {
+        ticker: "BHP",
+        marketCode: "KR" as const,
+        barDate: "2026-02-01",
+        open: 45,
+        high: 45,
+        low: 45,
+        close: 45,
+        volume: 1000,
+        source: "test",
+      },
+    ];
+    const holdingSnapshots = [
+      makeHoldingSnapshot({ id: "bhp-au-2026-02-01", snapshotDate: "2026-02-01", unrealizedPnlNative: 15, quantity: 3 }),
+    ];
+
+    const { details } = await buildTickerDetails({
+      persistence: createPersistence(bars, {}, new Map(), holdingSnapshots),
+      store,
+      userId: "user-1",
+      ticker: "BHP",
+      marketCode: "KR",
+      startDate: "2026-02-01",
+      endDate: "2026-02-01",
+      fundamentalsRecord: null,
+    });
+
+    expect(details.position.accountIds).toEqual([]);
+    expect(details.unrealizedPnlHistory).toEqual([]);
   });
 
   it("keeps missing ticker quote state open during an open regular session", async () => {

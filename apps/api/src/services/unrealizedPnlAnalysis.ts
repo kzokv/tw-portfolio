@@ -4,8 +4,9 @@ import {
   ACCOUNT_DEFAULT_CURRENCIES,
   MARKET_CODES,
   UNREALIZED_PNL_GRANULARITIES,
-  UNREALIZED_PNL_HOLDINGS_STATES,
-  UNREALIZED_PNL_SELECTION_MODES,
+  UNREALIZED_PNL_POSITION_STATUS_FILTERS,
+  UNREALIZED_PNL_SELECTIONS,
+  UNREALIZED_PNL_TICKER_MODES,
   type AccountDefaultCurrency,
   type InstrumentType,
   type MarketCode,
@@ -16,6 +17,7 @@ import {
   type UnrealizedPnlAmountSemantics,
   type UnrealizedPnlAnalysisMetadataDto,
   type UnrealizedPnlPositionStatus,
+  type UnrealizedPnlRequestedTickerAvailabilityDto,
   type UnrealizedPnlRankingRowDto,
   type UnrealizedPnlTickerCompositionRowDto,
   type UnrealizedPnlTickerRefDto,
@@ -29,10 +31,9 @@ import { routeError } from "../lib/routeError.js";
 
 const DEFAULT_RANGE = "3M";
 const DEFAULT_GRANULARITY: UnrealizedPnlGranularity = "weekly";
-const DEFAULT_COMPARISON_LINE_COUNT = 5;
-const MAX_COMPARISON_LINE_COUNT = 20;
-const DEFAULT_RANKING_LIMIT = 100;
-const MAX_RANKING_LIMIT = 500;
+const DEFAULT_DRIVER_COUNT = 5;
+const MAX_RENDERED_CANDIDATE_COUNT = 200;
+const NOISY_CHART_LINE_THRESHOLD = 20;
 const MAX_FILTER_ITEMS = 200;
 const MIN_ANALYSIS_DATE = "1900-01-01";
 
@@ -106,8 +107,10 @@ const marketCodeSchema = z.enum(MARKET_CODES);
 const INSTRUMENT_TYPES = ["STOCK", "ETF", "BOND_ETF"] as const satisfies readonly InstrumentType[];
 const instrumentTypeSchema = z.enum(INSTRUMENT_TYPES);
 const granularitySchema = z.enum(UNREALIZED_PNL_GRANULARITIES);
-const holdingsStateSchema = z.enum(UNREALIZED_PNL_HOLDINGS_STATES);
-const selectionModeSchema = z.enum(UNREALIZED_PNL_SELECTION_MODES);
+const positionStatusFilterSchema = z.enum(UNREALIZED_PNL_POSITION_STATUS_FILTERS);
+const selectionSchema = z.enum(UNREALIZED_PNL_SELECTIONS);
+const tickerModeSchema = z.enum(UNREALIZED_PNL_TICKER_MODES);
+const driverCountSchema = z.union([z.literal(5), z.literal(10), z.literal(20)]);
 const reportingCurrencySchema = z.enum(ACCOUNT_DEFAULT_CURRENCIES);
 const PERFORMANCE_RANGE_ELEMENT = /^YTD$|^ALL$|^([1-9]\d*)(M|Y)$/;
 const performanceRangeSchema = z
@@ -159,7 +162,7 @@ function normalizeCsvList(value: unknown): string[] | undefined {
     .filter((item) => item.length > 0);
 }
 
-const routeTickerRefsSchema = z.preprocess((value) => normalizeCsvList(value)?.map((item) => parseTickerRef(item)), z.array(tickerRefSchema).max(MAX_COMPARISON_LINE_COUNT).optional());
+const routeTickerRefsSchema = z.preprocess((value) => normalizeCsvList(value)?.map((item) => parseTickerRef(item)), z.array(tickerRefSchema).max(MAX_FILTER_ITEMS).optional());
 
 export const unrealizedPnlAnalysisRouteQuerySchema = z.object({
   granularity: granularitySchema.optional(),
@@ -168,16 +171,15 @@ export const unrealizedPnlAnalysisRouteQuerySchema = z.object({
   toDate: isoDateSchema.optional(),
   markets: z.preprocess(normalizeCsvList, z.array(marketCodeSchema).max(MARKET_CODES.length).optional()),
   accountIds: z.preprocess(normalizeCsvList, z.array(accountIdSchema).max(MAX_FILTER_ITEMS).optional()),
-  tickers: z.preprocess(normalizeCsvList, z.array(tickerSchema).max(MAX_FILTER_ITEMS).optional()),
+  tickerIds: routeTickerRefsSchema,
   instrumentTypes: z.preprocess(normalizeCsvList, z.array(instrumentTypeSchema).max(3).optional()),
-  selectionMode: selectionModeSchema.optional(),
-  selectedTickers: routeTickerRefsSchema,
-  comparisonLineCount: z.coerce.number().int().min(1).max(MAX_COMPARISON_LINE_COUNT).optional(),
-  rankingLimit: z.coerce.number().int().min(1).max(MAX_RANKING_LIMIT).optional(),
-  holdingsState: holdingsStateSchema.optional(),
+  selection: selectionSchema.optional(),
+  tickerMode: tickerModeSchema.optional(),
+  drivers: z.coerce.number().pipe(driverCountSchema).optional(),
+  positionStatus: positionStatusFilterSchema.optional(),
   reportingCurrency: reportingCurrencySchema.optional(),
   includeProvisional: booleanQuerySchema,
-}).strict();
+}).strip();
 
 export const unrealizedPnlAnalysisMcpInputSchema = z.object({
   granularity: granularitySchema.optional(),
@@ -186,16 +188,15 @@ export const unrealizedPnlAnalysisMcpInputSchema = z.object({
   toDate: isoDateSchema.optional(),
   markets: z.array(marketCodeSchema).max(MARKET_CODES.length).optional(),
   accountIds: z.array(accountIdSchema).max(MAX_FILTER_ITEMS).optional(),
-  tickers: z.array(tickerSchema).max(MAX_FILTER_ITEMS).optional(),
+  tickerIds: z.array(tickerRefSchema).max(MAX_FILTER_ITEMS).optional(),
   instrumentTypes: z.array(instrumentTypeSchema).max(3).optional(),
-  selectionMode: selectionModeSchema.optional(),
-  selectedTickers: z.array(tickerRefSchema).max(MAX_COMPARISON_LINE_COUNT).optional(),
-  comparisonLineCount: z.number().int().min(1).max(MAX_COMPARISON_LINE_COUNT).optional(),
-  rankingLimit: z.number().int().min(1).max(MAX_RANKING_LIMIT).optional(),
-  holdingsState: holdingsStateSchema.optional(),
+  selection: selectionSchema.optional(),
+  tickerMode: tickerModeSchema.optional(),
+  drivers: driverCountSchema.optional(),
+  positionStatus: positionStatusFilterSchema.optional(),
   reportingCurrency: reportingCurrencySchema.optional(),
   includeProvisional: z.boolean().optional(),
-}).strict();
+}).strip();
 
 export type UnrealizedPnlAnalysisInput = z.infer<typeof unrealizedPnlAnalysisMcpInputSchema>;
 
@@ -312,7 +313,8 @@ function resolveInput(
 
   assertAnalysisDateBounds(startDate, endDate, granularity);
 
-  const selectedTickers = [...(input.selectedTickers ?? [])].sort(compareTickerRefs);
+  const requestedTickers = [...(input.tickerIds ?? [])].sort(compareTickerRefs);
+  const tickerMode = requestedTickers.length > 0 ? "custom" : (input.tickerMode ?? "allEligible");
   return {
     granularity,
     range,
@@ -322,13 +324,13 @@ function resolveInput(
     endDate,
     markets: [...(input.markets ?? [])].sort(),
     accountIds: [...(input.accountIds ?? [])].sort(),
-    tickers: [...(input.tickers ?? [])].sort(),
+    tickerIds: requestedTickers.map(tickerKey),
     instrumentTypes: [...(input.instrumentTypes ?? [])].sort() as InstrumentType[],
-    selectionMode: input.selectionMode ?? "auto",
-    selectedTickers,
-    comparisonLineCount: input.comparisonLineCount ?? DEFAULT_COMPARISON_LINE_COUNT,
-    rankingLimit: input.rankingLimit ?? DEFAULT_RANKING_LIMIT,
-    holdingsState: input.holdingsState ?? "open_only",
+    selection: input.selection ?? "topDrivers",
+    tickerMode,
+    requestedTickers,
+    drivers: input.drivers ?? DEFAULT_DRIVER_COUNT,
+    positionStatus: input.positionStatus ?? "openOnly",
     reportingCurrency: input.reportingCurrency ?? defaultReportingCurrency,
     includeProvisional: input.includeProvisional ?? false,
     asOf,
@@ -448,26 +450,76 @@ function padSoldOutSeries(
   return padded.sort((left, right) => left.date.localeCompare(right.date));
 }
 
-function pickSelectedTickers(
+function pickCandidateTickers(
   rankings: readonly UnrealizedPnlRankingRowDto[],
-  selectionMode: typeof UNREALIZED_PNL_SELECTION_MODES[number],
-  selectedTickers: readonly UnrealizedPnlTickerRefDto[],
-  comparisonLineCount: number,
+  query: ResolvedInput,
 ): UnrealizedPnlTickerRefDto[] {
-  if (selectionMode === "manual" && selectedTickers.length > 0) {
-    return [...selectedTickers].slice(0, comparisonLineCount);
+  if (query.selection === "manualTickers") {
+    if (query.tickerMode === "custom") return [...query.requestedTickers];
+    return rankings
+      .map((row) => ({ ticker: row.ticker, marketCode: row.marketCode }));
   }
-  return rankings
-    .slice(0, comparisonLineCount)
+  const universe = query.tickerMode === "custom"
+    ? rankings.filter((row) => query.requestedTickers.some((ticker) => tickerKey(ticker) === `${row.marketCode}:${row.ticker}`))
+    : rankings;
+  return universe
+    .slice(0, query.drivers)
     .map((row) => ({ ticker: row.ticker, marketCode: row.marketCode }));
 }
 
-function periodChangeSortScore(value: number | null): number {
-  return value === null ? -1 : Math.abs(value);
+function manualDisplaySort(left: UnrealizedPnlTickerRefDto, right: UnrealizedPnlTickerRefDto): number {
+  return left.marketCode.localeCompare(right.marketCode) || left.ticker.localeCompare(right.ticker);
 }
 
-function endUnrealizedSortScore(value: number | null): number {
-  return value === null ? Number.NEGATIVE_INFINITY : value;
+function buildRequestedTickerAvailability(input: {
+  requestedTickers: readonly UnrealizedPnlTickerRefDto[];
+  eligibleSeriesByKey: ReadonlyMap<string, TickerSeriesAggregate>;
+  scopedSeriesByKey: ReadonlyMap<string, TickerSeriesAggregate>;
+  instrumentNameByKey: ReadonlyMap<string, string>;
+  instrumentByKey: ReadonlyMap<string, unknown>;
+}): UnrealizedPnlRequestedTickerAvailabilityDto[] {
+  return input.requestedTickers.map((ticker) => {
+    const key = tickerKey(ticker);
+    const eligibleSeries = input.eligibleSeriesByKey.get(key);
+    const scopedSeries = input.scopedSeriesByKey.get(key);
+    const series = eligibleSeries ?? scopedSeries;
+    const instrumentExists = input.instrumentByKey.has(key) || input.instrumentNameByKey.has(key);
+    const hasAnyEligiblePnlPoint = eligibleSeries?.points.some((point) => point.unrealizedPnlAmount !== null) ?? false;
+    const hasAnyScopedPnlPoint = scopedSeries?.points.some((point) => point.unrealizedPnlAmount !== null) ?? false;
+    return {
+      ...ticker,
+      tickerId: key,
+      instrumentName: series?.instrumentName ?? input.instrumentNameByKey.get(key) ?? null,
+      eligible: Boolean(eligibleSeries && hasAnyEligiblePnlPoint),
+      reason: eligibleSeries && hasAnyEligiblePnlPoint
+        ? null
+        : instrumentExists
+          ? scopedSeries
+            ? hasAnyScopedPnlPoint
+              ? "notInScope"
+              : "valuationUnavailable"
+            : "noChartableSnapshots"
+          : "invalidTicker",
+    };
+  });
+}
+
+function filterChartableSeries(series: readonly TickerSeriesAggregate[]): TickerSeriesAggregate[] {
+  return series.filter((item) => item.points.some((point) => point.unrealizedPnlAmount !== null));
+}
+
+function isOpenAtAnalysisEnd(series: TickerSeriesAggregate): boolean {
+  return (series.points[series.points.length - 1]?.quantity ?? 0) > 0;
+}
+
+function rankingSort(left: Pick<UnrealizedPnlRankingRowDto, "periodChangeAmount" | "marketCode" | "ticker">, right: Pick<UnrealizedPnlRankingRowDto, "periodChangeAmount" | "marketCode" | "ticker">): number {
+  const leftHasChange = left.periodChangeAmount !== null;
+  const rightHasChange = right.periodChangeAmount !== null;
+  if (leftHasChange !== rightHasChange) return leftHasChange ? -1 : 1;
+  const leftScore = left.periodChangeAmount === null ? 0 : Math.abs(left.periodChangeAmount);
+  const rightScore = right.periodChangeAmount === null ? 0 : Math.abs(right.periodChangeAmount);
+  if (leftScore !== rightScore) return rightScore - leftScore;
+  return left.marketCode.localeCompare(right.marketCode) || left.ticker.localeCompare(right.ticker);
 }
 
 function buildDeepLink(query: ResolvedInput): string {
@@ -475,21 +527,19 @@ function buildDeepLink(query: ResolvedInput): string {
   params.set("granularity", query.granularity);
   if (query.range) {
     if (query.range !== DEFAULT_RANGE) params.set("range", query.range);
-  } else {
+  } else if (query.fromDate || query.toDate) {
     params.set("range", "CUSTOM");
   }
   if (query.fromDate) params.set("fromDate", query.fromDate);
   if (query.toDate) params.set("toDate", query.toDate);
   if (query.markets.length > 0) params.set("markets", query.markets.join(","));
   if (query.accountIds.length > 0) params.set("accountIds", query.accountIds.join(","));
-  if (query.tickers.length > 0) params.set("tickers", query.tickers.join(","));
+  if (query.tickerIds.length > 0) params.set("tickerIds", query.tickerIds.join(","));
   if (query.instrumentTypes.length > 0) params.set("instrumentTypes", query.instrumentTypes.join(","));
-  if (query.selectionMode !== "auto") params.set("selectionMode", query.selectionMode);
-  if (query.selectedTickers.length > 0) {
-    params.set("selectedTickers", query.selectedTickers.map((item) => `${item.marketCode}:${item.ticker}`).join(","));
-  }
-  params.set("comparisonLineCount", String(query.comparisonLineCount));
-  params.set("holdingsState", query.holdingsState);
+  if (query.selection !== "topDrivers") params.set("selection", query.selection);
+  if (query.tickerMode !== "allEligible") params.set("tickerMode", query.tickerMode);
+  if (query.drivers !== DEFAULT_DRIVER_COUNT) params.set("drivers", String(query.drivers));
+  params.set("positionStatus", query.positionStatus);
   params.set("reportingCurrency", query.reportingCurrency);
   params.set("includeProvisional", query.includeProvisional ? "true" : "false");
   const queryString = params.toString();
@@ -616,69 +666,112 @@ export async function buildUnrealizedPnlAnalysis(
       instrumentNameByKey.set(`${instrument.marketCode}:${instrument.ticker}`, instrument.name);
     }
   }
+  const customTickerScope = query.tickerMode === "custom" ? new Set(query.tickerIds) : null;
+  const requestedTickerMarkets = customTickerScope ? [...new Set(query.requestedTickers.map((item) => item.marketCode))].sort() : [];
+  const snapshotQueryMarkets = query.markets.length > 0 ? query.markets : (requestedTickerMarkets.length > 0 ? requestedTickerMarkets : undefined);
+  const requestedTickerSymbols = customTickerScope
+    ? [...new Set(query.requestedTickers.map((item) => item.ticker))]
+    : undefined;
 
-  const snapshotRows = requestedAccountIds.length === 0
+  const analysisSnapshotRows = requestedAccountIds.length === 0
     ? []
+    : customTickerScope && query.tickerIds.length === 0
+      ? []
     : await app.persistence.listUnrealizedPnlAnalysisSnapshots(userId, {
       accountIds: requestedAccountIds,
-      markets: query.markets.length > 0 ? query.markets : undefined,
-      tickers: query.tickers.length > 0 ? query.tickers : undefined,
+      markets: snapshotQueryMarkets,
+      tickers: requestedTickerSymbols,
       startDate: query.range === "ALL" ? MIN_ANALYSIS_DATE : query.startDate,
       endDate: query.endDate,
       includeProvisional: query.includeProvisional,
       reportingCurrency: query.reportingCurrency,
     });
+  const eligibleSnapshotRows = requestedAccountIds.length === 0
+    ? []
+    : customTickerScope
+      ? await app.persistence.listUnrealizedPnlAnalysisSnapshots(userId, {
+        accountIds: requestedAccountIds,
+        markets: snapshotQueryMarkets,
+        tickers: undefined,
+        startDate: query.range === "ALL" ? MIN_ANALYSIS_DATE : query.startDate,
+        endDate: query.endDate,
+        includeProvisional: query.includeProvisional,
+        reportingCurrency: query.reportingCurrency,
+      })
+      : analysisSnapshotRows;
 
-  const filteredSnapshotRows = snapshotRows.filter((row) => {
+  const scopedSnapshotRows = eligibleSnapshotRows.filter((row) => {
     const instrument = instrumentByKey.get(`${row.marketCode}:${row.ticker}`);
+    if (query.instrumentTypes.length > 0 && (!instrument?.type || !query.instrumentTypes.includes(instrument.type))) return false;
+    if (query.range !== "ALL" && row.snapshotDate < query.startDate) return false;
+    return true;
+  });
+  const filteredSnapshotRows = (customTickerScope ? analysisSnapshotRows : scopedSnapshotRows).filter((row) => {
+    const instrument = instrumentByKey.get(`${row.marketCode}:${row.ticker}`);
+    if (customTickerScope && !customTickerScope.has(`${row.marketCode}:${row.ticker}`)) return false;
     if (query.instrumentTypes.length > 0 && (!instrument?.type || !query.instrumentTypes.includes(instrument.type))) return false;
     if (query.range !== "ALL" && row.snapshotDate < query.startDate) return false;
     return true;
   });
 
   const descriptors = buildBucketDescriptors(filteredSnapshotRows, query.granularity);
+  const eligibleDescriptors = buildBucketDescriptors(scopedSnapshotRows, query.granularity);
   const latestSnapshotDate = filteredSnapshotRows[filteredSnapshotRows.length - 1]?.snapshotDate ?? null;
   const firstSnapshotDate = filteredSnapshotRows[0]?.snapshotDate ?? null;
   const accountNamesById = new Map(store.accounts.map((account) => [account.id, account.name] as const));
 
-  const rowsByTicker = new Map<string, typeof filteredSnapshotRows>();
-  for (const row of filteredSnapshotRows) {
-    const key = `${row.marketCode}:${row.ticker}`;
-    const bucket = rowsByTicker.get(key) ?? [];
-    bucket.push(row);
-    rowsByTicker.set(key, bucket);
+  function buildTickerSeriesFromRows(
+    rows: typeof scopedSnapshotRows,
+    bucketDescriptors: ReturnType<typeof buildBucketDescriptors>,
+  ): TickerSeriesAggregate[] {
+    const rowsByTicker = new Map<string, typeof rows>();
+    for (const row of rows) {
+      const key = `${row.marketCode}:${row.ticker}`;
+      const bucket = rowsByTicker.get(key) ?? [];
+      bucket.push(row);
+      rowsByTicker.set(key, bucket);
+    }
+    return [...rowsByTicker.entries()].map(([key, tickerRows]) => {
+      const [marketCode, ticker] = key.split(":");
+      const instrument = instrumentByKey.get(key);
+      const series = aggregateBucketRows(
+        tickerRows.map((row) => ({
+          ...row,
+          marketCode: row.marketCode,
+        })),
+        bucketDescriptors,
+        query.granularity,
+      );
+      const latestQuantity = series[series.length - 1]?.quantity ?? 0;
+      const paddedSeries = query.positionStatus === "includeClosed" ? padSoldOutSeries(series, bucketDescriptors) : series;
+      const accountIds = [...new Set(tickerRows.map((row) => row.accountId))].sort();
+      return {
+        ticker,
+        marketCode: marketCode as MarketCode,
+        instrumentName: instrumentNameByKey.get(key) ?? null,
+        instrumentType: instrument?.type ?? null,
+        accountIds,
+        accountNames: accountIds.map((accountId) => accountNamesById.get(accountId) ?? accountId),
+        points: paddedSeries,
+        latestQuantity,
+        tradeMarkers: [],
+      };
+    });
   }
 
-  const tickerSeriesAll: TickerSeriesAggregate[] = [...rowsByTicker.entries()].map(([key, rows]) => {
-    const [marketCode, ticker] = key.split(":");
-    const instrument = instrumentByKey.get(key);
-    const series = aggregateBucketRows(
-      rows.map((row) => ({
-        ...row,
-        marketCode: row.marketCode,
-      })),
-      descriptors,
-      query.granularity,
-    );
-    const latestQuantity = series[series.length - 1]?.quantity ?? 0;
-    const paddedSeries = query.holdingsState === "include_sold_out" ? padSoldOutSeries(series, descriptors) : series;
-    const accountIds = [...new Set(rows.map((row) => row.accountId))].sort();
-    return {
-      ticker,
-      marketCode: marketCode as MarketCode,
-      instrumentName: instrumentNameByKey.get(key) ?? null,
-      instrumentType: instrument?.type ?? null,
-      accountIds,
-      accountNames: accountIds.map((accountId) => accountNamesById.get(accountId) ?? accountId),
-      points: paddedSeries,
-      latestQuantity,
-      tradeMarkers: [],
-    };
-  });
+  const tickerSeriesAll = buildTickerSeriesFromRows(scopedSnapshotRows, eligibleDescriptors);
+  const analysisTickerSeriesAll = customTickerScope
+    ? buildTickerSeriesFromRows(filteredSnapshotRows, descriptors)
+    : tickerSeriesAll;
 
-  const includedTickerSeries = tickerSeriesAll.filter((series) =>
-    query.holdingsState === "include_sold_out" || series.latestQuantity > 0,
+  const positionScopedTickerSeries = tickerSeriesAll.filter((series) =>
+    query.positionStatus === "includeClosed" || isOpenAtAnalysisEnd(series),
   );
+  const includedTickerSeries = filterChartableSeries(positionScopedTickerSeries);
+  const analysisPositionScopedTickerSeries = analysisTickerSeriesAll.filter((series) =>
+    query.positionStatus === "includeClosed" || isOpenAtAnalysisEnd(series),
+  );
+  const analysisIncludedTickerSeries = customTickerScope ? filterChartableSeries(analysisPositionScopedTickerSeries) : includedTickerSeries;
 
   const rankings = includedTickerSeries
     .map((series): UnrealizedPnlRankingRowDto => {
@@ -708,20 +801,19 @@ export async function buildUnrealizedPnlAnalysis(
         tradeMarkerCount: 0,
       };
     })
-    .sort((left, right) =>
-      periodChangeSortScore(right.periodChangeAmount) - periodChangeSortScore(left.periodChangeAmount)
-      || left.marketCode.localeCompare(right.marketCode)
-      || left.ticker.localeCompare(right.ticker),
-    )
-    .slice(0, query.rankingLimit);
+    .sort(rankingSort);
 
-  const selectedTickers = pickSelectedTickers(rankings, query.selectionMode, query.selectedTickers, query.comparisonLineCount);
-  const selectedTickerKeySet = new Set(selectedTickers.map((item) => tickerKey(item)));
+  const uncappedCandidateTickers = pickCandidateTickers(rankings, query);
+  const candidateLimitApplied = uncappedCandidateTickers.length > MAX_RENDERED_CANDIDATE_COUNT;
+  const candidateTickers = [...uncappedCandidateTickers]
+    .slice(0, MAX_RENDERED_CANDIDATE_COUNT)
+    .sort(query.selection === "manualTickers" ? manualDisplaySort : () => 0);
+  const candidateTickerKeySet = new Set(candidateTickers.map((item) => tickerKey(item)));
   const rankingTickerKeySet = new Set(rankings.map((item) => `${item.marketCode}:${item.ticker}`));
-  const markerTickerKeySet = new Set([...rankingTickerKeySet, ...selectedTickerKeySet]);
+  const markerTickerKeySet = new Set([...rankingTickerKeySet, ...candidateTickerKeySet]);
   const filteredTrades = listTradeEvents(store).filter((trade) => requestedAccountIds.includes(trade.accountId)).filter((trade) => {
       if (query.markets.length > 0 && !query.markets.includes(trade.marketCode as MarketCode)) return false;
-      if (query.tickers.length > 0 && !query.tickers.includes(trade.ticker.toUpperCase())) return false;
+      if (query.markets.length === 0 && requestedTickerMarkets.length > 0 && !requestedTickerMarkets.includes(trade.marketCode as MarketCode)) return false;
       const instrument = instrumentByKey.get(`${trade.marketCode}:${trade.ticker}`);
       if (query.instrumentTypes.length > 0 && (!instrument?.type || !query.instrumentTypes.includes(instrument.type))) return false;
       return true;
@@ -733,7 +825,7 @@ export async function buildUnrealizedPnlAnalysis(
     startDate: query.startDate,
     endDate: query.endDate,
   });
-  const tradeMarkers = rankingTradeMarkers.filter((marker) => selectedTickerKeySet.has(`${marker.marketCode}:${marker.ticker}`));
+  const tradeMarkers = rankingTradeMarkers.filter((marker) => candidateTickerKeySet.has(`${marker.marketCode}:${marker.ticker}`));
 
   const rankingTradeMarkerCount = new Map<string, number>();
   for (const marker of rankingTradeMarkers) {
@@ -743,15 +835,20 @@ export async function buildUnrealizedPnlAnalysis(
   for (const ranking of rankings) {
     ranking.tradeMarkerCount = rankingTradeMarkerCount.get(`${ranking.marketCode}:${ranking.ticker}`) ?? 0;
   }
-
   const seriesByKey = new Map<string, TickerSeriesAggregate>(
     includedTickerSeries.map((series) => [`${series.marketCode}:${series.ticker}`, series] as const),
   );
-  const returnedSeriesKeys = [
-    ...rankings.map((item) => `${item.marketCode}:${item.ticker}`),
-    ...selectedTickers.map((item) => `${item.marketCode}:${item.ticker}`),
-  ];
-  const returnedTickerSeries = [...new Set(returnedSeriesKeys)]
+  const scopedSeriesByKey = new Map<string, TickerSeriesAggregate>(
+    tickerSeriesAll.map((series) => [`${series.marketCode}:${series.ticker}`, series] as const),
+  );
+  const requestedTickerAvailability = buildRequestedTickerAvailability({
+    requestedTickers: query.requestedTickers,
+    eligibleSeriesByKey: seriesByKey,
+    scopedSeriesByKey,
+    instrumentNameByKey,
+    instrumentByKey,
+  });
+  const returnedTickerSeries = [...candidateTickerKeySet]
     .map((key) => seriesByKey.get(key))
     .filter((series): series is TickerSeriesAggregate => series !== undefined)
     .flatMap((series) => series.points.map((point) => {
@@ -770,14 +867,17 @@ export async function buildUnrealizedPnlAnalysis(
         instrumentType: series.instrumentType,
         accountIds: series.accountIds,
         accountNames: series.accountNames,
-        isSelected: selectedTickerKeySet.has(`${series.marketCode}:${series.ticker}`),
+        isSelected: candidateTickerKeySet.has(`${series.marketCode}:${series.ticker}`),
         isSoldOut: series.latestQuantity <= 0,
         positionStatus: toPositionStatus(series.latestQuantity),
       };
     }));
 
-  const includedTickerKeySet = new Set(includedTickerSeries.map((series) => `${series.marketCode}:${series.ticker}`));
-  const portfolioSnapshotRows = filteredSnapshotRows.filter((row) => includedTickerKeySet.has(`${row.marketCode}:${row.ticker}`));
+  const portfolioTickerKeySet = new Set(analysisPositionScopedTickerSeries.map((series) => `${series.marketCode}:${series.ticker}`));
+  const portfolioSnapshotRows = filteredSnapshotRows.filter((row) => {
+    const key = `${row.marketCode}:${row.ticker}`;
+    return portfolioTickerKeySet.has(key) && (!customTickerScope || customTickerScope.has(key));
+  });
 
   const portfolioSeries = aggregateBucketRows(
     portfolioSnapshotRows.map((row) => ({
@@ -805,7 +905,7 @@ export async function buildUnrealizedPnlAnalysis(
     : null;
   const totalEndUnrealizedPnlAmount = summaryEndPoint?.unrealizedPnlAmount ?? null;
   const summaryEndDate = summaryEndPoint?.date ?? null;
-  const tickerComposition = includedTickerSeries
+  const tickerComposition = analysisPositionScopedTickerSeries
     .map((series): UnrealizedPnlTickerCompositionRowDto => {
       const endPoint = summaryEndDate
         ? series.points.find((point) => point.date === summaryEndDate) ?? null
@@ -835,10 +935,11 @@ export async function buildUnrealizedPnlAnalysis(
       };
     })
     .sort((left, right) => {
-      const leftScore = endUnrealizedSortScore(left.endUnrealizedPnlAmount);
-      const rightScore = endUnrealizedSortScore(right.endUnrealizedPnlAmount);
+      const leftScore = left.endUnrealizedPnlAmount ?? Number.NEGATIVE_INFINITY;
+      const rightScore = right.endUnrealizedPnlAmount ?? Number.NEGATIVE_INFINITY;
       if (leftScore !== rightScore) return rightScore - leftScore;
-      return left.marketCode.localeCompare(right.marketCode)
+      return (left.instrumentName ?? left.ticker).localeCompare(right.instrumentName ?? right.ticker)
+        || left.marketCode.localeCompare(right.marketCode)
         || left.ticker.localeCompare(right.ticker);
     });
   const nonZeroQuantitySnapshotRows = portfolioSnapshotRows.filter((row) => row.quantity !== 0);
@@ -853,14 +954,22 @@ export async function buildUnrealizedPnlAnalysis(
       startUnrealizedPnlAmount: summaryStartPoint?.unrealizedPnlAmount ?? null,
       endUnrealizedPnlAmount: summaryEndPoint?.unrealizedPnlAmount ?? null,
       periodChangeAmount: summaryPeriodChangeAmount,
-      currentOpenTickerCount: tickerSeriesAll.filter((series) => series.latestQuantity > 0).length,
-      includedTickerCount: includedTickerSeries.length,
+      currentOpenTickerCount: analysisTickerSeriesAll.filter((series) => series.latestQuantity > 0).length,
+      includedTickerCount: analysisIncludedTickerSeries.length,
     },
     portfolioSeries,
     tickerSeries: returnedTickerSeries,
     rankings,
     tickerComposition,
-    selectedTickers,
+    candidateTickers,
+    requestedTickerAvailability,
+    warningFacts: {
+      noisyChartLineCount: candidateTickers.length,
+      noisyChartThreshold: NOISY_CHART_LINE_THRESHOLD,
+      candidateLimitApplied,
+      candidateLimit: MAX_RENDERED_CANDIDATE_COUNT,
+      omittedEligibleCount: Math.max(0, uncappedCandidateTickers.length - candidateTickers.length),
+    },
     tradeMarkers,
     dataHealth: {
       snapshotRowCount: portfolioSnapshotRows.length,
@@ -868,14 +977,14 @@ export async function buildUnrealizedPnlAnalysis(
       missingFxRowCount: nonZeroQuantitySnapshotRows.filter((row) => !row.fxAvailable).length,
       nullUnrealizedRowCount: nonZeroQuantitySnapshotRows.filter((row) => row.unrealizedPnlAmount === null).length,
       unavailableRowCount: nonZeroQuantitySnapshotRows.filter((row) => !row.fxAvailable || row.unrealizedPnlAmount === null).length,
-      excludedSoldOutTickerCount: tickerSeriesAll.length - includedTickerSeries.length,
+      excludedSoldOutTickerCount: analysisTickerSeriesAll.length - analysisPositionScopedTickerSeries.length,
     },
     diagnostics: {
       latestSnapshotDate,
       firstSnapshotDate,
       bucketCount: descriptors.length,
       returnedTickerSeriesCount: new Set(returnedTickerSeries.map((point) => `${point.marketCode}:${point.ticker}`)).size,
-      availableTickerSeriesCount: includedTickerSeries.length,
+      availableTickerSeriesCount: analysisIncludedTickerSeries.length,
     },
     deepLink: buildDeepLink(query),
   };

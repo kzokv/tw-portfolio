@@ -1,0 +1,548 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Manual Tickers Mockup</title>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --panel: #ffffff;
+      --ink: #0f172a;
+      --muted: #64748b;
+      --border: #dbe4ee;
+      --primary: #4f46e5;
+      --blue: #2563eb;
+      --teal: #0f766e;
+      --violet: #7c3aed;
+      --red: #dc2626;
+      --amber: #d97706;
+      --green: #059669;
+      --warn: #b45309;
+      --radius: 8px;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+    }
+    body { padding: 24px; }
+    .page { max-width: 1360px; margin: 0 auto; }
+    .mobile-view { display: none; }
+    h1, h2, h3, p { margin: 0; letter-spacing: 0; }
+    h1 { font-size: 24px; line-height: 1.2; }
+    h2 { font-size: 16px; line-height: 1.3; }
+    .subtle { color: var(--muted); font-size: 12px; line-height: 1.4; }
+    .title-row {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+    }
+    .filters { padding: 14px; margin-bottom: 14px; }
+    .filter-grid {
+      display: grid;
+      grid-template-columns: 178px 190px minmax(360px, 1fr) 220px 160px;
+      gap: 12px;
+      align-items: end;
+    }
+    .label {
+      display: block;
+      margin-bottom: 6px;
+      color: #475569;
+      font-size: 11px;
+      font-weight: 800;
+    }
+    .segmented {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: 1fr;
+      min-height: 38px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #f8fafc;
+      padding: 3px;
+      overflow: hidden;
+    }
+    .segment {
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 800;
+    }
+    .segment.active {
+      background: var(--primary);
+      color: #fff;
+      box-shadow: 0 4px 10px rgba(79, 70, 229, 0.22);
+    }
+    .control {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      min-height: 38px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 0 10px;
+      font-size: 13px;
+      font-weight: 750;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .chip-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 26px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: #fff;
+      padding: 0 10px;
+      color: #334155;
+      font-size: 12px;
+      font-weight: 750;
+      white-space: nowrap;
+    }
+    .chip.warn { border-color: #fde68a; background: #fffbeb; color: var(--warn); }
+    .chip.info { border-color: #bfdbfe; background: #eff6ff; color: #1d4ed8; }
+    .manual-note {
+      border: 1px solid #bfdbfe;
+      border-radius: var(--radius);
+      background: #eff6ff;
+      padding: 10px 12px;
+      color: #1e3a8a;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1.4;
+    }
+    .dropdown {
+      margin-top: 12px;
+      display: grid;
+      grid-template-columns: 280px 1fr;
+      gap: 12px;
+      border: 1px solid #a5b4fc;
+      border-radius: var(--radius);
+      background: #fbfdff;
+      padding: 12px;
+    }
+    .search {
+      width: 100%;
+      min-height: 36px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0 10px;
+      color: #334155;
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .group-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .group {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 10px;
+      min-width: 0;
+    }
+    .group-title {
+      color: #475569;
+      font-size: 11px;
+      font-weight: 900;
+      margin-bottom: 8px;
+      text-transform: uppercase;
+    }
+    .check-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 29px;
+      min-width: 0;
+      color: #1f2937;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .check-row span:last-child {
+      min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    .box {
+      display: grid;
+      place-items: center;
+      width: 16px;
+      height: 16px;
+      flex: 0 0 auto;
+      border: 1px solid #94a3b8;
+      border-radius: 4px;
+      color: #fff;
+      font-size: 12px;
+      line-height: 1;
+    }
+    .box.checked { border-color: var(--blue); background: var(--blue); }
+    .box.disabled { border-color: #cbd5e1; background: #e2e8f0; }
+    .disabled { color: #94a3b8; }
+    .remove {
+      margin-left: auto;
+      flex: 0 0 auto;
+      color: #64748b;
+      font-weight: 900;
+    }
+    .content {
+      display: grid;
+      grid-template-columns: minmax(0, 1.28fr) minmax(420px, 0.72fr);
+      gap: 14px;
+      align-items: start;
+    }
+    .chart-panel, .detail-panel { padding: 14px; }
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+    .chart {
+      height: 340px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background:
+        linear-gradient(#edf2f7 1px, transparent 1px) 0 0 / 100% 62px,
+        linear-gradient(90deg, #edf2f7 1px, transparent 1px) 0 0 / 110px 100%,
+        #fff;
+      overflow: hidden;
+    }
+    svg { width: 100%; height: 100%; display: block; }
+    .legend {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      gap: 8px;
+      min-height: 34px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 0 9px;
+      font-size: 12px;
+      font-weight: 850;
+    }
+    .legend-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; background: currentColor; }
+    .table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .table th {
+      color: #64748b;
+      font-size: 11px;
+      text-align: left;
+      padding: 9px 8px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .table td { padding: 10px 8px; border-bottom: 1px solid #edf2f7; vertical-align: top; }
+    .table .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .link { color: #1d4ed8; font-weight: 900; text-decoration: none; }
+    .name { display: block; margin-top: 2px; color: #475569; font-size: 11px; font-weight: 700; }
+    .gain { color: var(--green); font-weight: 900; }
+    .loss { color: var(--red); font-weight: 900; }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      border-radius: 999px;
+      background: #f1f5f9;
+      padding: 0 8px;
+      color: #475569;
+      font-size: 11px;
+      font-weight: 850;
+    }
+    .cards { display: grid; gap: 10px; }
+    .card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 12px;
+    }
+    .card-top { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+    .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .metric { border: 1px solid #e5edf5; border-radius: var(--radius); padding: 8px; background: #fbfdff; }
+    .metric span { display: block; color: #64748b; font-size: 10px; font-weight: 850; margin-bottom: 3px; }
+    .metric strong { display: block; font-size: 13px; font-variant-numeric: tabular-nums; }
+    @media (max-width: 700px) {
+      body { padding: 12px; }
+      .desktop-view { display: none; }
+      .mobile-view { display: block; }
+      h1 { font-size: 20px; margin-bottom: 4px; }
+      .title-row { display: block; margin-bottom: 12px; }
+      .filters { padding: 12px; }
+      .filter-grid { grid-template-columns: 1fr; gap: 10px; }
+      .dropdown { grid-template-columns: 1fr; padding: 10px; }
+      .group-grid { grid-template-columns: 1fr; }
+      .content { grid-template-columns: 1fr; }
+      .chart { height: 260px; }
+      .legend { grid-template-columns: 1fr 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="desktop-view">
+      <div class="title-row">
+        <div>
+          <h1>Unrealized P&L</h1>
+          <p class="subtle">Manual tickers mode: chart lines match the selected ticker set. Drivers is hidden.</p>
+        </div>
+        <span class="chip info">Settings saved after successful refresh</span>
+      </div>
+
+      <div class="panel filters">
+        <div class="filter-grid">
+          <div>
+            <span class="label">Selection</span>
+            <div class="segmented">
+              <button class="segment">Top drivers</button>
+              <button class="segment active">Manual tickers</button>
+            </div>
+          </div>
+          <div>
+            <span class="label">Position status</span>
+            <div class="segmented">
+              <button class="segment">Open positions</button>
+              <button class="segment active">Include sold-out</button>
+            </div>
+          </div>
+          <div>
+            <span class="label">Tickers</span>
+            <div class="control">Showing 6 selected, 1 unavailable <span>v</span></div>
+          </div>
+          <div>
+            <span class="label">Date range</span>
+            <div class="control">2026-01-01 to 2026-06-30</div>
+          </div>
+          <div>
+            <span class="label">Detail layout</span>
+            <div class="segmented">
+              <button class="segment">Cards</button>
+              <button class="segment active">Table</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="dropdown">
+          <div>
+            <input class="search" value="semi" aria-label="Search tickers" />
+            <div class="chip-row">
+              <span class="chip">Reset to All eligible</span>
+              <span class="chip warn">1 unavailable</span>
+            </div>
+            <div class="manual-note" style="margin-top: 10px;">
+              Legend clicks remove or reselect tickers in Manual mode. The selected ticker count is the chart line count.
+            </div>
+          </div>
+          <div class="group-grid">
+            <div class="group">
+              <div class="group-title">US</div>
+              <div class="check-row"><span class="box checked">✓</span><span>US:NVDA:NVIDIA</span></div>
+              <div class="check-row"><span class="box checked">✓</span><span>US:AMD:Advanced Micro Devices</span></div>
+              <div class="check-row"><span class="box checked">✓</span><span>US:MSFT:Microsoft</span></div>
+              <div class="check-row"><span class="box"></span><span>US:AAPL:Apple</span></div>
+            </div>
+            <div class="group">
+              <div class="group-title">TW</div>
+              <div class="check-row"><span class="box checked">✓</span><span>TW:2330:TSMC</span></div>
+              <div class="check-row"><span class="box checked">✓</span><span>TW:2454:MediaTek</span></div>
+              <div class="check-row disabled"><span class="box disabled"></span><span>TW:3711:ASE Tech unavailable</span><span class="remove">x</span></div>
+            </div>
+            <div class="group">
+              <div class="group-title">JP</div>
+              <div class="check-row"><span class="box checked">✓</span><span>JP:8035:Tokyo Electron</span></div>
+              <div class="check-row"><span class="box"></span><span>JP:6857:Advantest</span></div>
+              <div class="check-row"><span class="box"></span><span>JP:6920:Lasertec</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="chip-row">
+          <span class="chip warn">6 rendered lines</span>
+          <span class="chip">Accounts: 2 selected</span>
+          <span class="chip info">Unavailable tickers stay saved until removed</span>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="panel chart-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Manual ticker lines</h2>
+              <p class="subtle">The legend is a selection surface in this mode, not a temporary mute layer.</p>
+            </div>
+            <span class="chip info">Current result</span>
+          </div>
+          <div class="chart">
+            <svg viewBox="0 0 780 340" aria-label="Manual ticker line chart">
+              <polyline points="42,238 164,214 286,178 408,128 530,104 650,88 728,78" fill="none" stroke="#0f766e" stroke-width="4" />
+              <polyline points="42,250 164,230 286,218 408,180 530,152 650,134 728,126" fill="none" stroke="#7c3aed" stroke-width="4" />
+              <polyline points="42,224 164,218 286,204 408,190 530,174 650,158 728,146" fill="none" stroke="#2563eb" stroke-width="4" />
+              <polyline points="42,164 164,172 286,190 408,212 530,236 650,248 728,264" fill="none" stroke="#dc2626" stroke-width="4" />
+              <polyline points="42,282 164,268 286,252 408,230 530,208 650,198 728,188" fill="none" stroke="#d97706" stroke-width="4" />
+              <polyline points="42,274 164,258 286,244 408,224 530,196 650,178 728,166" fill="none" stroke="#0891b2" stroke-width="4" />
+              <text x="44" y="50" fill="#64748b" font-size="12">All selected eligible tickers render as lines</text>
+              <text x="642" y="310" fill="#64748b" font-size="12">Jun 30</text>
+            </svg>
+          </div>
+          <div class="legend">
+            <div class="legend-item"><span class="dot" style="color: var(--teal)"></span><span class="legend-text">US:NVDA</span></div>
+            <div class="legend-item"><span class="dot" style="color: var(--violet)"></span><span class="legend-text">TW:2330</span></div>
+            <div class="legend-item"><span class="dot" style="color: var(--blue)"></span><span class="legend-text">US:MSFT</span></div>
+            <div class="legend-item"><span class="dot" style="color: var(--red)"></span><span class="legend-text">US:AMD</span></div>
+            <div class="legend-item"><span class="dot" style="color: var(--amber)"></span><span class="legend-text">JP:8035</span></div>
+            <div class="legend-item"><span class="dot" style="color: #0891b2"></span><span class="legend-text">TW:2454</span></div>
+          </div>
+        </div>
+
+        <div class="panel detail-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Selected ticker detail</h2>
+              <p class="subtle">Manual mode shows selected eligible tickers only.</p>
+            </div>
+          </div>
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Ticker</th>
+                <th>Market</th>
+                <th class="num">End P&L</th>
+                <th class="num">Change</th>
+                <th class="num">Value</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><a class="link" href="#">US:NVDA</a><span class="name">NVIDIA</span></td><td>US</td><td class="num gain">+$18,420</td><td class="num gain">+$6,240</td><td class="num">$54,800</td><td><span class="status">Open</span></td></tr>
+              <tr><td><a class="link" href="#">TW:2330</a><span class="name">TSMC</span></td><td>TW</td><td class="num gain">+$12,300</td><td class="num gain">+$3,880</td><td class="num">$41,100</td><td><span class="status">Open</span></td></tr>
+              <tr><td><a class="link" href="#">US:AMD</a><span class="name">Advanced Micro Devices</span></td><td>US</td><td class="num loss">-$2,180</td><td class="num loss">-$2,020</td><td class="num">$16,300</td><td><span class="status">Open</span></td></tr>
+              <tr><td><a class="link" href="#">JP:8035</a><span class="name">Tokyo Electron</span></td><td>JP</td><td class="num gain">+$4,100</td><td class="num gain">+$1,240</td><td class="num">$13,600</td><td><span class="status">Closed</span></td></tr>
+              <tr><td><a class="link" href="#">TW:2454</a><span class="name">MediaTek</span></td><td>TW</td><td class="num gain">+$3,420</td><td class="num gain">+$940</td><td class="num">$11,900</td><td><span class="status">Open</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="mobile-view">
+      <div class="title-row">
+        <h1>Unrealized P&L</h1>
+        <p class="subtle">Manual tickers mode with ticker picker open.</p>
+      </div>
+
+      <div class="panel filters">
+        <div class="filter-grid">
+          <div>
+            <span class="label">Selection</span>
+            <div class="segmented"><button class="segment">Top drivers</button><button class="segment active">Manual tickers</button></div>
+          </div>
+          <div>
+            <span class="label">Position status</span>
+            <div class="segmented"><button class="segment">Open</button><button class="segment active">Include sold-out</button></div>
+          </div>
+          <div>
+            <span class="label">Tickers</span>
+            <div class="control">Showing 4 selected, 1 unavailable <span>v</span></div>
+          </div>
+          <div>
+            <span class="label">Detail layout</span>
+            <div class="segmented"><button class="segment active">Responsive</button><button class="segment">Cards</button><button class="segment">Table</button></div>
+          </div>
+        </div>
+        <div class="dropdown">
+          <div>
+            <input class="search" value="ts" aria-label="Search tickers" />
+            <div class="chip-row">
+              <span class="chip">Reset to All eligible</span>
+              <span class="chip warn">1 unavailable</span>
+            </div>
+          </div>
+          <div class="group-grid">
+            <div class="group">
+              <div class="group-title">TW</div>
+              <div class="check-row"><span class="box checked">✓</span><span>TW:2330:TSMC</span></div>
+              <div class="check-row"><span class="box checked">✓</span><span>TW:2454:MediaTek</span></div>
+              <div class="check-row disabled"><span class="box disabled"></span><span>TW:3711 unavailable</span><span class="remove">x</span></div>
+            </div>
+            <div class="group">
+              <div class="group-title">US</div>
+              <div class="check-row"><span class="box checked">✓</span><span>US:NVDA:NVIDIA</span></div>
+              <div class="check-row"><span class="box checked">✓</span><span>US:MSFT:Microsoft</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="chip-row">
+          <span class="chip warn">4 rendered lines</span>
+          <span class="chip">No Drivers control in Manual mode</span>
+        </div>
+      </div>
+
+      <div class="panel chart-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Manual ticker lines</h2>
+            <p class="subtle">Legend taps update selected tickers.</p>
+          </div>
+        </div>
+        <div class="chart">
+          <svg viewBox="0 0 360 260" aria-label="Mobile manual ticker chart">
+            <polyline points="22,188 88,176 154,150 220,108 292,92 338,82" fill="none" stroke="#0f766e" stroke-width="4" />
+            <polyline points="22,204 88,186 154,174 220,146 292,132 338,124" fill="none" stroke="#7c3aed" stroke-width="4" />
+            <polyline points="22,170 88,174 154,178 220,188 292,198 338,214" fill="none" stroke="#dc2626" stroke-width="4" />
+            <polyline points="22,220 88,208 154,196 220,176 292,164 338,154" fill="none" stroke="#2563eb" stroke-width="4" />
+          </svg>
+        </div>
+        <div class="legend">
+          <div class="legend-item"><span class="dot" style="color: var(--teal)"></span><span class="legend-text">US:NVDA</span></div>
+          <div class="legend-item"><span class="dot" style="color: var(--violet)"></span><span class="legend-text">TW:2330</span></div>
+          <div class="legend-item"><span class="dot" style="color: var(--red)"></span><span class="legend-text">US:AMD</span></div>
+          <div class="legend-item"><span class="dot" style="color: var(--blue)"></span><span class="legend-text">US:MSFT</span></div>
+        </div>
+      </div>
+
+      <div class="panel detail-panel" style="margin-top: 12px;">
+        <div class="panel-head">
+          <div>
+            <h2>Selected ticker detail</h2>
+            <p class="subtle">Responsive layout renders cards on mobile.</p>
+          </div>
+        </div>
+        <div class="cards">
+          <div class="card">
+            <div class="card-top"><div><a class="link" href="#">US:NVDA</a><span class="name">NVIDIA</span></div><span class="status">Open</span></div>
+            <div class="metrics"><div class="metric"><span>End P&L</span><strong class="gain">+$18,420</strong></div><div class="metric"><span>Change</span><strong class="gain">+$6,240</strong></div><div class="metric"><span>Market value</span><strong>$54,800</strong></div><div class="metric"><span>Quantity</span><strong>80</strong></div></div>
+          </div>
+          <div class="card">
+            <div class="card-top"><div><a class="link" href="#">TW:2330</a><span class="name">TSMC</span></div><span class="status">Open</span></div>
+            <div class="metrics"><div class="metric"><span>End P&L</span><strong class="gain">+$12,300</strong></div><div class="metric"><span>Change</span><strong class="gain">+$3,880</strong></div><div class="metric"><span>Market value</span><strong>$41,100</strong></div><div class="metric"><span>Quantity</span><strong>220</strong></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

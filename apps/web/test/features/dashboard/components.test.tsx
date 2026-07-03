@@ -1810,7 +1810,9 @@ describe("dashboard components", () => {
     expect(html).toContain("$2.50");
     expect(html).not.toContain("NT$2.50");
     expect(html).toContain('data-testid="dashboard-mover-analysis-link-AAPL-TW"');
-    expect(html).toContain("selectedTickers=TW%3AAAPL");
+    expect(html).toContain("selection=manualTickers");
+    expect(html).toContain("tickerMode=custom");
+    expect(html).toContain("tickerIds=TW%3AAAPL");
     expect(html).toContain("view=ticker-detail");
     expect(html).toContain("reportingCurrency=AUD");
   });

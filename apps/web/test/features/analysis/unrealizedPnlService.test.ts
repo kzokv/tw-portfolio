@@ -24,11 +24,11 @@ describe("fetchUnrealizedPnlAnalysis", () => {
         granularity: "daily",
         markets: [],
         accountIds: [],
-        tickers: [],
-        selectionMode: "manual",
-        selectedTickers: [{ ticker: "NVDA", marketCode: "US" }],
-        comparisonLineCount: 5,
-        holdingsState: "open_only",
+        tickerIds: ["US:NVDA", "US:BOGUS"],
+        selection: "manualTickers",
+        tickerMode: "custom",
+        drivers: 5,
+        positionStatus: "openOnly",
         reportingCurrency: "TWD",
         includeProvisional: false,
         instrumentTypes: [],
@@ -211,7 +211,29 @@ describe("fetchUnrealizedPnlAnalysis", () => {
         latestQuantity: 1,
         contributionSharePercent: 20,
       }],
-      selectedTickers: [{ ticker: "NVDA", marketCode: "US" }],
+      candidateTickers: [{ ticker: "NVDA", marketCode: "US" }],
+      requestedTickerAvailability: [{
+        tickerId: "US:NVDA",
+        ticker: "NVDA",
+        marketCode: "US",
+        instrumentName: "NVIDIA",
+        eligible: true,
+        reason: null,
+      }, {
+        tickerId: "US:BOGUS",
+        ticker: "BOGUS",
+        marketCode: "US",
+        instrumentName: null,
+        eligible: false,
+        reason: "not_held",
+      }],
+      warningFacts: {
+        noisyChartLineCount: 1,
+        noisyChartThreshold: 20,
+        candidateLimitApplied: false,
+        candidateLimit: 200,
+        omittedEligibleCount: 0,
+      },
       tradeMarkers: [],
       dataHealth: {
         snapshotRowCount: 1,
@@ -228,21 +250,22 @@ describe("fetchUnrealizedPnlAnalysis", () => {
         returnedTickerSeriesCount: 1,
         availableTickerSeriesCount: 1,
       },
-      deepLink: "/analysis/unrealized-pnl?range=1M&selectionMode=manual&selectedTickers=US%3ANVDA",
+      deepLink: "/analysis/unrealized-pnl?range=1M&selection=manualTickers&tickerMode=custom&tickerIds=US%3ANVDA",
     } as never);
 
     const controller = new AbortController();
     const model = await fetchUnrealizedPnlAnalysis({
       ...ANALYSIS_DEFAULT_STATE,
       range: "1M",
-      selectionMode: "manual",
-      selected: [buildSelectedSeriesId("US", "NVDA")],
+      selection: "manualTickers",
+      tickerMode: "custom",
+      tickerIds: [buildSelectedSeriesId("US", "NVDA")],
       focusDate: "2026-06-26",
       view: "compare",
     }, { signal: controller.signal });
 
     expect(getJsonMock).toHaveBeenCalledWith(
-      "/analysis/unrealized-pnl?range=1M&selectionMode=manual&selectedTickers=US%3ANVDA&reportingCurrency=TWD",
+      "/analysis/unrealized-pnl?range=1M&selection=manualTickers&tickerMode=custom&tickerIds=US%3ANVDA&reportingCurrency=TWD",
       { contextScope: "portfolio", signal: controller.signal },
     );
     expect(model.availableFilters.markets).toEqual([{ value: "US", label: "US" }]);
@@ -251,13 +274,21 @@ describe("fetchUnrealizedPnlAnalysis", () => {
       { value: "acc-us-spec", label: "US Speculative" },
     ]);
     expect(model.availableFilters.tickers).toEqual([
-      { value: "AAPL", label: "AAPL US" },
-      { value: "MSFT", label: "MSFT US" },
-      { value: "NVDA", label: "NVDA US" },
-      { value: "TSLA", label: "TSLA US" },
+      { value: "US:AAPL", label: "US:AAPL:Apple" },
+      { value: "US:MSFT", label: "US:MSFT:Microsoft" },
+      { value: "US:NVDA", label: "US:NVDA:NVIDIA" },
+      { value: "US:TSLA", label: "US:TSLA:Tesla" },
     ]);
+    expect(model.requestedTickerAvailability).toContainEqual({
+      tickerId: "US:BOGUS",
+      ticker: "BOGUS",
+      marketCode: "US",
+      displayName: null,
+      available: false,
+      reason: "not_held",
+    });
     expect(model.summary.bestDriver).toEqual(expect.objectContaining({ ticker: "NVDA", periodChange: 15 }));
-    expect(model.summary.worstDriver).toEqual(expect.objectContaining({ ticker: "AAPL", periodChange: -100 }));
+    expect(model.summary.worstDriver).toBeNull();
     expect(model.summary.endDate).toBe("2026-06-26");
     expect(model.portfolioSeries).toEqual([{ date: "2026-06-26", unrealizedPnl: null }]);
     expect(model.tickerSeries.find((series) => series.ticker === "NVDA")?.points[0]?.closePrice).toBe(500);
@@ -273,9 +304,8 @@ describe("fetchUnrealizedPnlAnalysis", () => {
       ["MSFT", null, null],
     ]);
     expect(model.tickerSelection.map((row) => [row.ticker, row.rankLabel, row.colorToken, row.isManual])).toEqual([
-      ["AAPL", "#1", expect.any(String), false],
       ["NVDA", "#2", expect.any(String), false],
-      ["MSFT", "#3", expect.any(String), false],
     ]);
+    expect(model.selectedSeriesIds).toEqual(["US:NVDA"]);
   });
 });

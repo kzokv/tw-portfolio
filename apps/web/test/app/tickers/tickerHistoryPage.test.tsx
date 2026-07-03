@@ -37,6 +37,7 @@ vi.mock("recharts", () => ({}));
 
 vi.mock("../../../app/tickers/[ticker]/TickerHistoryClient", () => ({
   TickerHistoryClient: ({
+    accountId,
     details,
     initialChartQuery,
     initialTradeDate,
@@ -46,8 +47,10 @@ vi.mock("../../../app/tickers/[ticker]/TickerHistoryClient", () => ({
     tickerPriceIntradayEnabled,
     tickerPriceIntradayRefreshIntervalMinutes,
     transactionAccountFilter,
+    transactionAccountIdsFilter,
     transactionMarketFilter,
   }: {
+    accountId: string;
     details: {
       position?: { accountScope?: string };
       quote?: {
@@ -66,10 +69,12 @@ vi.mock("../../../app/tickers/[ticker]/TickerHistoryClient", () => ({
     tickerPriceIntradayEnabled?: boolean | null;
     tickerPriceIntradayRefreshIntervalMinutes?: number | null;
     transactionAccountFilter?: string;
+    transactionAccountIdsFilter?: string[];
     transactionMarketFilter?: string;
   }) => (
     <section
       data-testid="ticker-history-client"
+      data-account-id={accountId}
       data-instrument-ticker={instrument?.ticker ?? ""}
       data-primary-account-scope={details.position?.accountScope ?? ""}
       data-chart-range={initialChartQuery?.chartRange ?? ""}
@@ -77,6 +82,7 @@ vi.mock("../../../app/tickers/[ticker]/TickerHistoryClient", () => ({
       data-chart-end={initialChartQuery?.chartEnd ?? ""}
       data-initial-trade-date={initialTradeDate ?? ""}
       data-transaction-account-filter={transactionAccountFilter ?? ""}
+      data-transaction-account-ids-filter={transactionAccountIdsFilter?.join(",") ?? ""}
       data-transaction-market-filter={transactionMarketFilter ?? ""}
       data-ticker={ticker}
       data-quote-poll-seconds={quotePollIntervalSeconds ?? ""}
@@ -155,6 +161,7 @@ describe("TickerHistoryPage", () => {
             accountIds: ["acc-2"],
             lastTradeDate: "2026-01-02",
           },
+          unrealizedPnlHistory: [],
           transactions: [],
           dividends: { upcoming: [], recent: [] },
           holdingGroup: null,
@@ -209,8 +216,183 @@ describe("TickerHistoryPage", () => {
     expect(html).toContain('data-chart-start="2024-01-01"');
     expect(html).toContain('data-chart-end="2024-06-30"');
     expect(fetchDashboardPrimaryDataMock).toHaveBeenCalledTimes(1);
-    expect(fetchTransactionHistoryMock).toHaveBeenCalledWith({ ticker: "2330", accountId: "acc-2", marketCode: "TW" });
-    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/primary?accountId=acc-2&marketCode=TW");
+    expect(fetchTransactionHistoryMock).toHaveBeenCalledWith({ ticker: "2330", accountId: "acc-2", accountIds: undefined, marketCode: "TW" });
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/primary?accountId=acc-2&marketCode=TW&startDate=2024-01-01&endDate=2024-06-30");
+  });
+
+  it("maps unrealized P&L analysis date scope into the ticker chart custom range", async () => {
+    fetchDashboardPrimaryDataMock.mockResolvedValue({
+      settings: { locale: "en" },
+      holdings: [],
+      holdingGroups: [],
+      instruments: [],
+      accounts: [{ id: "acc-2", name: "Brokerage 2" }],
+      dividends: { upcoming: [], recent: [] },
+      actions: { integrityIssue: null },
+      feeProfiles: [],
+      feeProfileBindings: [],
+    } as never);
+
+    const element = await TickerHistoryPage({
+      params: Promise.resolve({ ticker: "2330" }),
+      searchParams: Promise.resolve({
+        accountId: "acc-2",
+        fromDate: "2026-04-10",
+        marketCode: "tw",
+        source: "unrealized-pnl-analysis",
+        toDate: "2026-06-26",
+      }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain('data-testid="ticker-history-client"');
+    expect(html).toContain('data-chart-range="CUSTOM"');
+    expect(html).toContain('data-chart-start="2026-04-10"');
+    expect(html).toContain('data-chart-end="2026-06-26"');
+    expect(fetchTransactionHistoryMock).toHaveBeenCalledWith({ ticker: "2330", accountId: "acc-2", accountIds: undefined, marketCode: "TW" });
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/primary?accountId=acc-2&marketCode=TW&startDate=2026-04-10&endDate=2026-06-26&includeProvisional=false");
+  });
+
+  it("keeps explicit chart range ahead of stale analysis date aliases", async () => {
+    fetchDashboardPrimaryDataMock.mockResolvedValue({
+      settings: { locale: "en" },
+      holdings: [],
+      holdingGroups: [],
+      instruments: [],
+      accounts: [{ id: "acc-2", name: "Brokerage 2" }],
+      dividends: { upcoming: [], recent: [] },
+      actions: { integrityIssue: null },
+      feeProfiles: [],
+      feeProfileBindings: [],
+    } as never);
+
+    const element = await TickerHistoryPage({
+      params: Promise.resolve({ ticker: "2330" }),
+      searchParams: Promise.resolve({
+        accountId: "acc-2",
+        chartRange: "1Y",
+        fromDate: "2026-04-10",
+        marketCode: "tw",
+        source: "unrealized-pnl-analysis",
+        toDate: "2026-06-26",
+      }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain('data-chart-range="1Y"');
+    expect(html).toContain('data-chart-start=""');
+    expect(html).toContain('data-chart-end=""');
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/primary?accountId=acc-2&marketCode=TW&range=1Y&includeProvisional=false");
+  });
+
+  it("keeps explicit custom chart bounds ahead of stale analysis date aliases", async () => {
+    fetchDashboardPrimaryDataMock.mockResolvedValue({
+      settings: { locale: "en" },
+      holdings: [],
+      holdingGroups: [],
+      instruments: [],
+      accounts: [{ id: "acc-2", name: "Brokerage 2" }],
+      dividends: { upcoming: [], recent: [] },
+      actions: { integrityIssue: null },
+      feeProfiles: [],
+      feeProfileBindings: [],
+    } as never);
+
+    const element = await TickerHistoryPage({
+      params: Promise.resolve({ ticker: "2330" }),
+      searchParams: Promise.resolve({
+        accountId: "acc-2",
+        chartEnd: "2026-05-31",
+        chartRange: "CUSTOM",
+        chartStart: "2026-05-01",
+        fromDate: "2026-04-10",
+        marketCode: "tw",
+        source: "unrealized-pnl-analysis",
+        toDate: "2026-06-26",
+      }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain('data-chart-range="CUSTOM"');
+    expect(html).toContain('data-chart-start="2026-05-01"');
+    expect(html).toContain('data-chart-end="2026-05-31"');
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/primary?accountId=acc-2&marketCode=TW&startDate=2026-05-01&endDate=2026-05-31&includeProvisional=false");
+  });
+
+  it("passes multi-account analysis scope into initial ticker transactions", async () => {
+    fetchDashboardPrimaryDataMock.mockResolvedValue({
+      settings: { locale: "en" },
+      holdings: [],
+      holdingGroups: [],
+      instruments: [],
+      accounts: [
+        { id: "acc-outside", name: "Outside Brokerage" },
+        { id: "acc-1", name: "Brokerage 1" },
+        { id: "acc-2", name: "Brokerage 2" },
+      ],
+      dividends: { upcoming: [], recent: [] },
+      actions: { integrityIssue: null },
+      feeProfiles: [],
+      feeProfileBindings: [],
+    } as never);
+
+    const element = await TickerHistoryPage({
+      params: Promise.resolve({ ticker: "2330" }),
+      searchParams: Promise.resolve({
+        accountIds: "acc-1,acc-2",
+        fromDate: "2026-04-10",
+        marketCode: "tw",
+        source: "unrealized-pnl-analysis",
+        toDate: "2026-06-26",
+      }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain('data-transaction-account-filter=""');
+    expect(html).toContain('data-transaction-account-ids-filter="acc-1,acc-2"');
+    expect(html).toContain('data-account-id="acc-1"');
+    expect(fetchTransactionHistoryMock).toHaveBeenCalledWith({
+      ticker: "2330",
+      accountId: undefined,
+      accountIds: ["acc-1", "acc-2"],
+      marketCode: "TW",
+    });
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/primary?accountIds=acc-1%2Cacc-2&marketCode=TW&startDate=2026-04-10&endDate=2026-06-26&includeProvisional=false");
+  });
+
+  it("normalizes repeated accountIds query params into initial ticker transactions", async () => {
+    fetchDashboardPrimaryDataMock.mockResolvedValue({
+      settings: { locale: "en" },
+      holdings: [],
+      holdingGroups: [],
+      instruments: [],
+      accounts: [
+        { id: "acc-1", name: "Brokerage 1" },
+        { id: "acc-2", name: "Brokerage 2" },
+      ],
+      dividends: { upcoming: [], recent: [] },
+      actions: { integrityIssue: null },
+      feeProfiles: [],
+      feeProfileBindings: [],
+    } as never);
+
+    const element = await TickerHistoryPage({
+      params: Promise.resolve({ ticker: "2330" }),
+      searchParams: Promise.resolve({
+        accountIds: ["acc-1", "acc-2"],
+        marketCode: "tw",
+      }),
+    });
+    const html = renderToStaticMarkup(element);
+
+    expect(html).toContain('data-transaction-account-ids-filter="acc-1,acc-2"');
+    expect(fetchTransactionHistoryMock).toHaveBeenCalledWith({
+      ticker: "2330",
+      accountId: undefined,
+      accountIds: ["acc-1", "acc-2"],
+      marketCode: "TW",
+    });
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/primary?accountIds=acc-1%2Cacc-2&marketCode=TW");
   });
 
   it("passes effective ticker intraday settings into the ticker client", async () => {

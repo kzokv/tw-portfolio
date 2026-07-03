@@ -33,6 +33,13 @@ export class TickerDetailActions extends AppBaseActions {
     await this.uiActions.click.perform(this.el.fundamentalsTab);
   }
 
+  @Step()
+  async selectChartMetric(metricLabel: "Current Price" | "Unrealized P&L"): Promise<void> {
+    const button = this.el.chartMetricButton(metricLabel);
+    await this.uiActions.click.perform(button);
+    await expect(button).toHaveAttribute("data-state", "on");
+  }
+
   private async ensureTransactionsTabVisible(): Promise<void> {
     if (await this.el.transactionRows.first().isVisible().catch(() => false)) {
       return;

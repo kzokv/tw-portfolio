@@ -17,6 +17,10 @@ export interface TTickerDetailElements {
   overviewTab: Locator;
   fundamentalsTab: Locator;
   chartPanel: Locator;
+  chartMetricControls: Locator;
+  chartLineCurves: Locator;
+  chartYAxisTickLabels: Locator;
+  chartMetricButton: (metricLabel: string) => Locator;
   fundamentalsPanel: Locator;
   repairButton: Locator;
   repairStatusBadge: Locator;
@@ -49,6 +53,22 @@ export class TickerDetailPage extends BasePage<TTickerDetailElements> {
       overviewTab: this.locate("ticker-tab-overview", "Ticker Overview Tab"),
       fundamentalsTab: this.locate("ticker-tab-fundamentals", "Ticker Fundamentals Tab"),
       chartPanel: this.locate("ticker-detail-chart", "Ticker Chart Panel"),
+      chartMetricControls: this.locate("ticker-chart-metric-controls", "Ticker Chart Metric Controls"),
+      chartLineCurves: this.withinByCss(
+        this.locate("ticker-detail-chart"),
+        ".recharts-line-curve",
+        "Ticker Chart Line Curves",
+      ),
+      chartYAxisTickLabels: this.withinByCss(
+        this.locate("ticker-detail-chart"),
+        ".recharts-yAxis .recharts-cartesian-axis-tick-value",
+        "Ticker Chart Y Axis Tick Labels",
+      ),
+      chartMetricButton: (metricLabel: string) =>
+        this.withDescription(
+          this.locate("ticker-chart-metric-controls").getByRole("button", { name: metricLabel, exact: true }),
+          `Ticker Chart Metric Button ${metricLabel}`,
+        ),
       fundamentalsPanel: this.locate("ticker-detail-fundamentals", "Ticker Fundamentals Panel"),
       repairButton: this.withDescription(
         this.page.getByTestId("repair-button"),
