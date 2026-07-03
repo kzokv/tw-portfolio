@@ -653,6 +653,69 @@ describe("buildTickerDetails", () => {
     ]);
   });
 
+  it("ignores zero-quantity null close prices when aggregating multi-account unrealized P&L history", async () => {
+    const store = buildCrossMarketStore();
+    const closedFeeProfile = createDefaultFeeProfile("acc-au-closed", "AUD", "fp-au-closed");
+    store.accounts.push({
+      id: "acc-au-closed",
+      userId: "user-1",
+      name: "Closed AU Broker",
+      feeProfileId: closedFeeProfile.id,
+      defaultCurrency: "AUD",
+      accountType: "broker",
+    });
+    store.feeProfiles.push(closedFeeProfile);
+    const holdingSnapshots = [
+      makeHoldingSnapshot({
+        id: "bhp-au-open-2026-02-02",
+        accountId: "acc-au",
+        snapshotDate: "2026-02-02",
+        closePrice: 48,
+        quantity: 3,
+        costBasisNative: 120,
+        marketValue: 144,
+        valueNative: 144,
+        unrealizedPnl: 24,
+        unrealizedPnlNative: 24,
+      }),
+      makeHoldingSnapshot({
+        id: "bhp-au-closed-2026-02-02",
+        accountId: "acc-au-closed",
+        snapshotDate: "2026-02-02",
+        closePrice: null,
+        quantity: 0,
+        costBasis: 0,
+        costBasisNative: 0,
+        marketValue: 0,
+        valueNative: 0,
+        unrealizedPnl: null,
+        unrealizedPnlNative: null,
+      }),
+    ];
+
+    const { details } = await buildTickerDetails({
+      persistence: createPersistence([], {}, new Map(), holdingSnapshots),
+      store,
+      userId: "user-1",
+      ticker: "BHP",
+      marketCode: "AU",
+      startDate: "2026-02-02",
+      endDate: "2026-02-02",
+      fundamentalsRecord: null,
+    });
+
+    expect(details.unrealizedPnlHistory).toEqual([
+      expect.objectContaining({
+        date: "2026-02-02",
+        unrealizedPnlAmount: 24,
+        quantity: 3,
+        closePrice: 48,
+        averageCostPerShare: 40,
+        accountIds: ["acc-au", "acc-au-closed"],
+      }),
+    ]);
+  });
+
   it("excludes provisional snapshots from analysis-scoped unrealized P&L history", async () => {
     const bars = [
       {

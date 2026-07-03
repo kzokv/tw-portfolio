@@ -504,6 +504,47 @@ describe("buildUnrealizedPnlAnalysis", () => {
     expect(report.dataHealth.snapshotRowCount).toBe(0);
   });
 
+  it("keeps an empty top-driver custom ticker scope empty while preserving eligible rankings", async () => {
+    await seedInstrument({ ticker: "2330", marketCode: "TW", instrumentType: "STOCK", name: "TSMC" });
+    await seedInstrument({ ticker: "0050", marketCode: "TW", instrumentType: "ETF", name: "Taiwan 50" });
+    await seedSnapshots([
+      makeSnapshot({ ticker: "2330", marketCode: "TW", snapshotDate: "2026-01-01", unrealizedPnl: 0, unrealizedPnlNative: 0 }),
+      makeSnapshot({ ticker: "2330", marketCode: "TW", snapshotDate: "2026-01-31", unrealizedPnl: 500, unrealizedPnlNative: 500, marketValue: 1500, valueNative: 1500 }),
+      makeSnapshot({ ticker: "0050", marketCode: "TW", snapshotDate: "2026-01-01", unrealizedPnl: 0, unrealizedPnlNative: 0 }),
+      makeSnapshot({ ticker: "0050", marketCode: "TW", snapshotDate: "2026-01-31", unrealizedPnl: 10, unrealizedPnlNative: 10, marketValue: 1010, valueNative: 1010 }),
+    ]);
+
+    const report = await buildUnrealizedPnlAnalysis(app, "user-1", {
+      granularity: "daily",
+      fromDate: "2026-01-01",
+      toDate: "2026-01-31",
+      selection: "topDrivers",
+      tickerMode: "custom",
+      tickerIds: [],
+    });
+
+    expect(report.query).toEqual(expect.objectContaining({
+      selection: "topDrivers",
+      tickerMode: "custom",
+      tickerIds: [],
+    }));
+    expect(report.rankings.map((row) => `${row.marketCode}:${row.ticker}`)).toEqual(["TW:2330", "TW:0050"]);
+    expect(report.summary).toEqual(expect.objectContaining({
+      startDate: null,
+      endDate: null,
+      startUnrealizedPnlAmount: null,
+      endUnrealizedPnlAmount: null,
+      periodChangeAmount: null,
+      currentOpenTickerCount: 0,
+      includedTickerCount: 0,
+    }));
+    expect(report.portfolioSeries).toEqual([]);
+    expect(report.tickerSeries).toEqual([]);
+    expect(report.tickerComposition).toEqual([]);
+    expect(report.candidateTickers).toEqual([]);
+    expect(report.dataHealth.snapshotRowCount).toBe(0);
+  });
+
   it.each([
     ["omitted ticker mode", undefined],
     ["explicit all-eligible ticker mode", "allEligible" as const],

@@ -385,9 +385,11 @@ async function buildUnrealizedPnlHistory(input: {
     };
     current.accountIds.add(row.accountId);
     current.isProvisional = current.isProvisional || row.isProvisional;
-    current.closePriceNumerator = current.closePriceNumerator === null || row.closePrice === null
-      ? null
-      : roundToDecimal(current.closePriceNumerator + (row.closePrice * row.quantity), 4);
+    if (row.quantity > 0) {
+      current.closePriceNumerator = current.closePriceNumerator === null || row.closePrice === null
+        ? null
+        : roundToDecimal(current.closePriceNumerator + (row.closePrice * row.quantity), 4);
+    }
     current.costBasisAmount = roundToDecimal(current.costBasisAmount + row.costBasisNative, 2);
     current.quantity = roundToDecimal(current.quantity + row.quantity, 4);
     const unrealizedPnlAmount = row.unrealizedPnlNative ?? (row.quantity === 0 ? 0 : null);

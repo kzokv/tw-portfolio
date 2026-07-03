@@ -459,7 +459,7 @@ function pickCandidateTickers(
     return rankings
       .map((row) => ({ ticker: row.ticker, marketCode: row.marketCode }));
   }
-  const universe = query.tickerMode === "custom" && query.requestedTickers.length > 0
+  const universe = query.tickerMode === "custom"
     ? rankings.filter((row) => query.requestedTickers.some((ticker) => tickerKey(ticker) === `${row.marketCode}:${row.ticker}`))
     : rankings;
   return universe
