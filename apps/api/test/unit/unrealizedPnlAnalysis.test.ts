@@ -452,6 +452,58 @@ describe("buildUnrealizedPnlAnalysis", () => {
     ]);
   });
 
+  it("keeps an empty manual custom ticker scope empty while preserving eligible picker options", async () => {
+    await seedInstrument({ ticker: "2330", marketCode: "TW", instrumentType: "STOCK", name: "TSMC" });
+    await seedInstrument({ ticker: "0050", marketCode: "TW", instrumentType: "ETF", name: "Taiwan 50" });
+    await seedSnapshots([
+      makeSnapshot({ ticker: "2330", marketCode: "TW", snapshotDate: "2026-01-01", unrealizedPnl: 0, unrealizedPnlNative: 0 }),
+      makeSnapshot({ ticker: "2330", marketCode: "TW", snapshotDate: "2026-01-31", unrealizedPnl: 500, unrealizedPnlNative: 500, marketValue: 1500, valueNative: 1500 }),
+      makeSnapshot({ ticker: "0050", marketCode: "TW", snapshotDate: "2026-01-01", unrealizedPnl: 0, unrealizedPnlNative: 0 }),
+      makeSnapshot({ ticker: "0050", marketCode: "TW", snapshotDate: "2026-01-31", unrealizedPnl: 10, unrealizedPnlNative: 10, marketValue: 1010, valueNative: 1010 }),
+    ]);
+
+    const snapshotSpy = vi.spyOn(persistence, "listUnrealizedPnlAnalysisSnapshots");
+
+    const report = await buildUnrealizedPnlAnalysis(app, "user-1", {
+      granularity: "daily",
+      fromDate: "2026-01-01",
+      toDate: "2026-01-31",
+      selection: "manualTickers",
+      tickerMode: "custom",
+      tickerIds: [],
+    });
+
+    expect(snapshotSpy).toHaveBeenCalledTimes(1);
+    expect(snapshotSpy).toHaveBeenCalledWith("user-1", expect.objectContaining({
+      tickers: undefined,
+      startDate: "2026-01-01",
+      endDate: "2026-01-31",
+    }));
+    expect(report.query).toEqual(expect.objectContaining({
+      selection: "manualTickers",
+      tickerMode: "custom",
+      tickerIds: [],
+    }));
+    expect(report.deepLink).toContain("tickerMode=custom");
+    expect(report.deepLink).not.toContain("tickerIds=");
+    expect(report.rankings.map((row) => `${row.marketCode}:${row.ticker}`)).toEqual(["TW:2330", "TW:0050"]);
+    expect(report.summary).toEqual(expect.objectContaining({
+      startDate: null,
+      endDate: null,
+      startUnrealizedPnlAmount: null,
+      endUnrealizedPnlAmount: null,
+      periodChangeAmount: null,
+      currentOpenTickerCount: 0,
+      includedTickerCount: 0,
+    }));
+    expect(report.portfolioSeries).toEqual([]);
+    expect(report.tickerSeries).toEqual([]);
+    expect(report.tickerComposition).toEqual([]);
+    expect(report.candidateTickers).toEqual([]);
+    expect(report.requestedTickerAvailability).toEqual([]);
+    expect(report.dataHealth.snapshotRowCount).toBe(0);
+  });
+
   it.each([
     ["omitted ticker mode", undefined],
     ["explicit all-eligible ticker mode", "allEligible" as const],

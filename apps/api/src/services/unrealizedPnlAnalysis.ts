@@ -666,7 +666,7 @@ export async function buildUnrealizedPnlAnalysis(
       instrumentNameByKey.set(`${instrument.marketCode}:${instrument.ticker}`, instrument.name);
     }
   }
-  const customTickerScope = query.tickerMode === "custom" && query.tickerIds.length > 0 ? new Set(query.tickerIds) : null;
+  const customTickerScope = query.tickerMode === "custom" ? new Set(query.tickerIds) : null;
   const requestedTickerMarkets = customTickerScope ? [...new Set(query.requestedTickers.map((item) => item.marketCode))].sort() : [];
   const snapshotQueryMarkets = query.markets.length > 0 ? query.markets : (requestedTickerMarkets.length > 0 ? requestedTickerMarkets : undefined);
   const requestedTickerSymbols = customTickerScope
@@ -675,6 +675,8 @@ export async function buildUnrealizedPnlAnalysis(
 
   const analysisSnapshotRows = requestedAccountIds.length === 0
     ? []
+    : customTickerScope && query.tickerIds.length === 0
+      ? []
     : await app.persistence.listUnrealizedPnlAnalysisSnapshots(userId, {
       accountIds: requestedAccountIds,
       markets: snapshotQueryMarkets,
