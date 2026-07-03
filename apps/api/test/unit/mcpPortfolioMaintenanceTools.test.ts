@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { listMcpToolDefinitions } from "../../src/mcp/tools.js";
+import { getMcpToolDefinition, listMcpToolDefinitions } from "../../src/mcp/tools.js";
 
 describe("MCP portfolio maintenance tools", () => {
   it("registers the locked tool family with read/write scopes", () => {
@@ -40,5 +40,42 @@ describe("MCP portfolio maintenance tools", () => {
       portfolio: { label: "Self" },
       accountNames: ["Main"],
     }).success).toBe(true);
+  });
+
+  it("accepts decimal source-provided booked charges up to 4 decimal places for draft candidates", () => {
+    const createDraft = getMcpToolDefinition("create_transaction_draft_batch");
+
+    expect(createDraft.inputSchema.safeParse({
+      candidates: [{
+        rowNumber: 1,
+        recordType: "trade",
+        accountId: "acc-1",
+        type: "BUY",
+        ticker: "2330",
+        marketCode: "TW",
+        quantity: 1,
+        unitPrice: 100,
+        priceCurrency: "TWD",
+        tradeDate: "2026-01-03",
+        commissionAmount: 1.2345,
+        taxAmount: 0.4321,
+      }],
+    }).success).toBe(true);
+
+    expect(createDraft.inputSchema.safeParse({
+      candidates: [{
+        rowNumber: 1,
+        recordType: "trade",
+        accountId: "acc-1",
+        type: "BUY",
+        ticker: "2330",
+        marketCode: "TW",
+        quantity: 1,
+        unitPrice: 100,
+        priceCurrency: "TWD",
+        tradeDate: "2026-01-03",
+        commissionAmount: 1.23456,
+      }],
+    }).success).toBe(false);
   });
 });

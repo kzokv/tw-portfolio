@@ -396,4 +396,71 @@ describe("ui-enhancement — Live-DOM chip + ticker clear on market change (Item
     expect(latest.ticker).toBe("");
     expect(latest.priceCurrency).toBe("USD");
   });
+
+  it("preserves the locked ticker and market when changing accounts in instrument read-only mode", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+
+    const secondTwdAccount: TransactionAccountOption = {
+      ...TWD_ACCOUNT,
+      id: "acc-tw-2",
+      name: "Fubon",
+      feeProfileName: "Second TW Broker",
+    };
+    let latest: TransactionInput = valueWith({
+      accountId: "acc-tw",
+      ticker: "2330",
+      marketCode: "TW",
+      priceCurrency: "TWD",
+      quantity: 10,
+      unitPrice: 100,
+    });
+
+    function Harness() {
+      const [value, setValue] = React.useState<TransactionInput>(latest);
+      latest = value;
+      return (
+        <AddTransactionCard
+          value={value}
+          accountOptions={[TWD_ACCOUNT, secondTwdAccount]}
+          pending={false}
+          onChange={(next) => setValue(next as TransactionInput)}
+          onSubmit={async () => undefined}
+          dict={dict}
+          locale="en"
+          framed={false}
+          instrumentReadOnly
+          priceHint={null}
+          showPriceUnavailableHint={false}
+          feeEstimate={null}
+        />
+      );
+    }
+
+    act(() => {
+      root = createRoot(container!);
+      root.render(<Harness />);
+    });
+
+    const accountSelect = container.querySelector(
+      '[data-testid="tx-account-select"]',
+    ) as HTMLSelectElement | null;
+    if (!accountSelect) {
+      throw new Error("Expected tx-account-select to be present for compatible locked accounts");
+    }
+    expect(Array.from(accountSelect.options).map((option) => option.value)).toEqual([
+      "acc-tw",
+      "acc-tw-2",
+    ]);
+
+    act(() => {
+      accountSelect.value = "acc-tw-2";
+      accountSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(latest.accountId).toBe("acc-tw-2");
+    expect(latest.marketCode).toBe("TW");
+    expect(latest.ticker).toBe("2330");
+    expect(latest.priceCurrency).toBe("TWD");
+  });
 });

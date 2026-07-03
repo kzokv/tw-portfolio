@@ -150,9 +150,6 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
     integrityIssue: dashboard.actions.integrityIssue,
   };
   const initialTradeDate = new Date().toISOString().slice(0, 10);
-  const scopedRecordAccountId = scopedAccountIds?.find((accountId) => dashboard.accounts.some((account) => account.id === accountId));
-  const recordAccountId = scopedAccountId ?? scopedRecordAccountId ?? dashboard.accounts[0]?.id ?? "";
-
   return (
     <Suspense fallback={<DashboardLoading standalone locale={resolvedLocale} loadingCopy={getRouteLoadingLabels(resolvedLocale).tickerDetail} />}>
       <AppShell
@@ -181,7 +178,6 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
           quotePollIntervalSeconds={settings?.quotePollIntervalSeconds ?? dashboard.settings?.quotePollIntervalSeconds}
           tickerPriceIntradayEnabled={settings?.effectiveTickerPriceIntradayEnabled ?? dashboard.settings?.effectiveTickerPriceIntradayEnabled}
           tickerPriceIntradayRefreshIntervalMinutes={settings?.effectiveTickerPriceIntradayRefreshIntervalMinutes ?? dashboard.settings?.effectiveTickerPriceIntradayRefreshIntervalMinutes}
-          accountId={recordAccountId}
           accounts={dashboard.accounts}
           feeProfiles={dashboard.feeProfiles}
           feeProfileBindings={dashboard.feeProfileBindings}
