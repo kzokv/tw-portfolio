@@ -132,6 +132,23 @@ export class TickerDetailAssert extends BaseAssert {
   }
 
   @Step()
+  async chartMetricIsSelected(metricLabel: "Current Price" | "Unrealized P&L"): Promise<void> {
+    await expect(this.el.chartMetricButton(metricLabel)).toHaveAttribute("data-state", "on");
+  }
+
+  @Step()
+  async chartLineCurvesCountIsAtLeast(count: number): Promise<void> {
+    await expect.poll(async () => this.el.chartLineCurves.count()).toBeGreaterThanOrEqual(count);
+    await expect(this.el.chartLineCurves.first()).toBeVisible();
+  }
+
+  @Step()
+  async chartYAxisTickLabelsCountIsAtLeast(count: number): Promise<void> {
+    await expect.poll(async () => this.el.chartYAxisTickLabels.count()).toBeGreaterThanOrEqual(count);
+    await expect(this.el.chartYAxisTickLabels.first()).toBeVisible();
+  }
+
+  @Step()
   async fundamentalsPanelIsVisible(): Promise<void> {
     await this.uiActions.click.perform(this.el.fundamentalsTab);
     await expect(this.el.fundamentalsPanel).toBeVisible();

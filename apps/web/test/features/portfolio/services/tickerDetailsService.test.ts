@@ -225,11 +225,11 @@ describe("fetchTickerDetails", () => {
         date: "2026-05-20",
         label: "2026-05-20",
         unrealizedPnl: 4120,
-        price: 912,
-        averageCost: 500,
         quantity: 10,
       }),
     ]);
+    expect(details.unrealizedPnlHistory[0]).not.toHaveProperty("price");
+    expect(details.unrealizedPnlHistory[0]).not.toHaveProperty("averageCost");
   });
 
   it("maps the ticker details API DTO into the ticker page model", async () => {
@@ -824,10 +824,10 @@ describe("fetchTickerDetails", () => {
     expect(details.unrealizedPnlHistory[0]).toMatchObject({
       date: "2026-05-20",
       unrealizedPnl: 4120,
-      price: 912,
-      averageCost: 500,
       quantity: 10,
     });
+    expect(details.unrealizedPnlHistory[0]).not.toHaveProperty("price");
+    expect(details.unrealizedPnlHistory[0]).not.toHaveProperty("averageCost");
     expect(details.fundamentals.panels[0]?.items).toEqual(
       expect.arrayContaining([
         expect.objectContaining({

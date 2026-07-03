@@ -37,8 +37,6 @@ export interface TickerDetailUnrealizedPnlPoint {
   unrealizedPnl: number | null;
   currency: string;
   quantity: number;
-  price?: number | null;
-  averageCost?: number | null;
 }
 
 export interface TickerFundamentalField {
@@ -481,11 +479,6 @@ function mapApiUnrealizedPnlHistory(
         ?? finiteNumber(point.unrealizedPnlAmount),
       currency: stringOrFallback(point.currency, "TWD"),
       quantity: finiteNumber(point.quantity) ?? 0,
-      price: finiteNumber(point.price)
-        ?? finiteNumber(point.closePrice)
-        ?? finiteNumber(point.close),
-      averageCost: finiteNumber(point.averageCost)
-        ?? finiteNumber(point.averageCostPerShare),
     }];
   });
 }

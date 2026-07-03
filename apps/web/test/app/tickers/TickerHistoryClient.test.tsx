@@ -1107,7 +1107,7 @@ describe("TickerHistoryClient", () => {
     ]);
   });
 
-  it("renders snapshot-derived price history when enrichment falls back without chart points", async () => {
+  it("does not use unrealized P&L history as current-price fallback without chart points", async () => {
     vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
     const element = renderTickerHistoryClient({
       ...details,
@@ -1122,8 +1122,6 @@ describe("TickerHistoryClient", () => {
           unrealizedPnl: 80,
           currency: "TWD",
           quantity: 10,
-          price: 108,
-          averageCost: 100,
         },
         {
           date: "2026-06-12",
@@ -1131,33 +1129,17 @@ describe("TickerHistoryClient", () => {
           unrealizedPnl: 100,
           currency: "TWD",
           quantity: 10,
-          price: 110,
-          averageCost: 100,
         },
       ],
     });
     await flushEffects();
     await flushEffects();
 
-    expect(element.textContent).not.toContain(dict.tickerHistory.priceChartEmptyState);
-    const latestChartData = rechartsMocks.lineChartData.at(-1);
-    expect(latestChartData).toEqual([
-      expect.objectContaining({
-        date: "2026-06-11",
-        price: 108,
-        averageCost: 100,
-        quantity: 10,
-      }),
-      expect.objectContaining({
-        date: "2026-06-12",
-        price: 110,
-        averageCost: 100,
-        quantity: 10,
-      }),
-    ]);
+    expect(element.textContent).toContain(dict.tickerHistory.priceChartEmptyState);
+    expect(rechartsMocks.lineChartData).toEqual([]);
   });
 
-  it("uses snapshot-derived price history when chart points have dates but no numeric prices", async () => {
+  it("keeps the current-price chart empty when chart points have no numeric prices", async () => {
     vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
     const element = renderTickerHistoryClient({
       ...details,
@@ -1175,8 +1157,6 @@ describe("TickerHistoryClient", () => {
           unrealizedPnl: 80,
           currency: "TWD",
           quantity: 10,
-          price: 108,
-          averageCost: 100,
         },
         {
           date: "2026-06-12",
@@ -1184,84 +1164,55 @@ describe("TickerHistoryClient", () => {
           unrealizedPnl: 100,
           currency: "TWD",
           quantity: 10,
-          price: 110,
-          averageCost: 100,
         },
       ],
     });
     await flushEffects();
 
-    expect(element.textContent).not.toContain(dict.tickerHistory.priceChartEmptyState);
-    const latestChartData = rechartsMocks.lineChartData.at(-1);
-    expect(latestChartData).toEqual([
-      expect.objectContaining({
-        date: "2026-06-11",
-        price: 108,
-        averageCost: 100,
-        quantity: 10,
-      }),
-      expect.objectContaining({
-        date: "2026-06-12",
-        price: 110,
-        averageCost: 100,
-        quantity: 10,
-      }),
-    ]);
+    expect(element.textContent).toContain(dict.tickerHistory.priceChartEmptyState);
+    expect(rechartsMocks.lineChartData).toEqual([]);
   });
 
-  it("uses raw API-shaped snapshot history when chart points are not usable finite prices", async () => {
+  it("renders unrealized P&L history independently when price chart points are absent", async () => {
+    navigationMocks.searchParams = "source=unrealized-pnl-analysis";
     vi.mocked(fetchTickerDetailsHydration).mockImplementation(async (input) => input.primaryDetails);
     const element = renderTickerHistoryClient({
       ...details,
       chart: {
         ...details.chart,
-        points: [
-          {
-            date: "2026-06-11",
-            label: "2026-06-11",
-            price: Number.NaN,
-          },
-          {
-            date: "2026-06-12",
-            label: "2026-06-12",
-            price: Number.NaN,
-          },
-        ] as unknown as TickerDetailsModel["chart"]["points"],
+        points: [],
       },
       unrealizedPnlHistory: [
         {
           date: "2026-06-11",
-          unrealizedPnlAmount: 80,
+          label: "2026-06-11",
+          unrealizedPnl: 80,
           currency: "TWD",
           quantity: 10,
-          closePrice: 108,
-          averageCostPerShare: 100,
         },
         {
           date: "2026-06-12",
-          unrealizedPnlAmount: 100,
+          label: "2026-06-12",
+          unrealizedPnl: 100,
           currency: "TWD",
           quantity: 10,
-          closePrice: 110,
-          averageCostPerShare: 100,
         },
-      ] as unknown as TickerDetailsModel["unrealizedPnlHistory"],
+      ],
     });
     await flushEffects();
 
-    expect(element.textContent).not.toContain(dict.tickerHistory.priceChartEmptyState);
+    expect(findButtonByText(element, dict.tickerHistory.unrealizedPnlLabel).getAttribute("aria-pressed")).toBe("true");
+    expect(element.textContent).not.toContain(dict.tickerHistory.unrealizedPnlEmptyState);
     const latestChartData = rechartsMocks.lineChartData.at(-1);
     expect(latestChartData).toEqual([
       expect.objectContaining({
         date: "2026-06-11",
-        price: 108,
-        averageCost: 100,
+        unrealizedPnl: 80,
         quantity: 10,
       }),
       expect.objectContaining({
         date: "2026-06-12",
-        price: 110,
-        averageCost: 100,
+        unrealizedPnl: 100,
         quantity: 10,
       }),
     ]);
