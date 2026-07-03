@@ -1744,6 +1744,92 @@ describe("mcp routes", () => {
     });
   });
 
+  it("accepts AI draft-row decimal booked charges with up to 4 decimal places", async () => {
+    const created = await createTransactionDraftBatch(
+      { app, requestContext: createRequestContext() },
+      {
+        sourceLabel: "chatgpt import",
+        candidates: [
+          {
+            rowNumber: 1,
+            recordType: "trade",
+            accountId: "acc-1",
+            type: "BUY",
+            ticker: "2330",
+            marketCode: "TW",
+            quantity: 1,
+            unitPrice: 100,
+            tradeDate: "2026-01-03",
+          },
+        ],
+      },
+    );
+    const aggregate = await app.persistence.getAiTransactionDraftBatch(created.batch.id);
+    const row = aggregate?.rows[0];
+    expect(row).toBeDefined();
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/ai/transaction-drafts/${created.batch.id}/rows/${row!.id}`,
+      payload: {
+        expectedVersion: row!.version,
+        patch: {
+          commissionAmount: 1.2345,
+          taxAmount: 0.4321,
+        },
+      },
+    });
+
+    expect(patched.statusCode).toBe(200);
+    const patchedBody = patched.json();
+    expect(patchedBody.rows[0]).toMatchObject({
+      commissionAmount: 1.2345,
+      taxAmount: 0.4321,
+    });
+  });
+
+  it("rejects AI draft-row decimal booked charges with more than 4 decimal places", async () => {
+    const created = await createTransactionDraftBatch(
+      { app, requestContext: createRequestContext() },
+      {
+        sourceLabel: "chatgpt import",
+        candidates: [
+          {
+            rowNumber: 1,
+            recordType: "trade",
+            accountId: "acc-1",
+            type: "BUY",
+            ticker: "2330",
+            marketCode: "TW",
+            quantity: 1,
+            unitPrice: 100,
+            tradeDate: "2026-01-03",
+          },
+        ],
+      },
+    );
+    const aggregate = await app.persistence.getAiTransactionDraftBatch(created.batch.id);
+    const row = aggregate?.rows[0];
+    expect(row).toBeDefined();
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/ai/transaction-drafts/${created.batch.id}/rows/${row!.id}`,
+      payload: {
+        expectedVersion: row!.version,
+        patch: {
+          commissionAmount: 1.23456,
+        },
+      },
+    });
+
+    expect(patched.statusCode).toBe(400);
+    expect(patched.json()).toMatchObject({
+      error: "validation_error",
+    });
+    expect(patched.body).toContain("at most 4 decimal places");
+  });
+
   it("attributes shared-context MCP access logs to the owner context and share record", async () => {
     const { userId: sharedUserId } = await app.persistence.resolveOrCreateUser("google", "shared-mcp-user", {
       email: "shared-mcp@example.com",

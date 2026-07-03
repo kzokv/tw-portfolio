@@ -2212,8 +2212,8 @@ describePostgres("postgres migrations", () => {
       source: string;
       source_reference: string | null;
       booking_sequence: number;
-      commission_amount: number;
-      tax_amount: number;
+      commission_amount: string;
+      tax_amount: string;
     }>(
       `SELECT id, source, source_reference, booking_sequence, commission_amount, tax_amount
        FROM trade_events
@@ -2226,8 +2226,8 @@ describePostgres("postgres migrations", () => {
         source: "portfolio_transaction_api",
         source_reference: createdTrade.id,
         booking_sequence: 1,
-        commission_amount: 7,
-        tax_amount: 3,
+        commission_amount: "7.0000",
+        tax_amount: "3.0000",
       },
     ]);
 
@@ -2290,8 +2290,8 @@ describePostgres("postgres migrations", () => {
       priceCurrency: "TWD",
       tradeDate: "2026-03-01",
       tradeTimestamp: "2026-03-01T09:00:00.000Z",
-      commissionAmount: 7,
-      taxAmount: 3,
+      commissionAmount: 7.1234,
+      taxAmount: 3.4321,
       type: "BUY",
       isDayTrade: false,
     });
@@ -2307,8 +2307,8 @@ describePostgres("postgres migrations", () => {
       priceCurrency: "TWD",
       tradeDate: "2026-03-02",
       tradeTimestamp: "2026-03-02T09:00:00.000Z",
-      commissionAmount: 11,
-      taxAmount: 13,
+      commissionAmount: 11.1111,
+      taxAmount: 13.2222,
       type: "SELL",
       isDayTrade: false,
     });
@@ -2316,8 +2316,8 @@ describePostgres("postgres migrations", () => {
 
     const tradeEvents = await pool.query<{
       id: string;
-      commission_amount: number;
-      tax_amount: number;
+      commission_amount: string;
+      tax_amount: string;
     }>(
       `SELECT id, commission_amount, tax_amount
        FROM trade_events
@@ -2327,13 +2327,13 @@ describePostgres("postgres migrations", () => {
     expect(tradeEvents.rows).toEqual([
       {
         id: buyTrade.id,
-        commission_amount: 7,
-        tax_amount: 3,
+        commission_amount: "7.1234",
+        tax_amount: "3.4321",
       },
       {
         id: sellTrade.id,
-        commission_amount: 11,
-        tax_amount: 13,
+        commission_amount: "11.1111",
+        tax_amount: "13.2222",
       },
     ]);
 
@@ -2352,7 +2352,7 @@ describePostgres("postgres migrations", () => {
       {
         trade_event_id: sellTrade.id,
         allocated_quantity: 5,
-        allocated_cost_amount: 505,
+        allocated_cost_amount: 505.3,
         lot_opened_sequence: 1,
       },
     ]);
@@ -2360,9 +2360,9 @@ describePostgres("postgres migrations", () => {
     const cashEntries = await pool.query<{
       related_trade_event_id: string | null;
       entry_type: string;
-      amount: number;
+      amount: string;
     }>(
-      `SELECT related_trade_event_id, entry_type, amount::float AS amount
+      `SELECT related_trade_event_id, entry_type, amount::text AS amount
        FROM cash_ledger_entries
        WHERE user_id = 'user-1'
        ORDER BY entry_date, id`,
@@ -2371,12 +2371,12 @@ describePostgres("postgres migrations", () => {
       {
         related_trade_event_id: buyTrade.id,
         entry_type: "TRADE_SETTLEMENT_OUT",
-        amount: -1010,
+        amount: "-1010.5555",
       },
       {
         related_trade_event_id: sellTrade.id,
         entry_type: "TRADE_SETTLEMENT_IN",
-        amount: 626,
+        amount: "625.6667",
       },
     ]);
 
@@ -2386,7 +2386,7 @@ describePostgres("postgres migrations", () => {
       instrument_type: string;
       day_trade_scope: string;
       rate_bps: number;
-      booked_tax_amount: number;
+      booked_tax_amount: string;
     }>(
       `SELECT snapshot_id, market_code, instrument_type, day_trade_scope, rate_bps, booked_tax_amount
        FROM trade_fee_policy_snapshot_tax_components
@@ -2401,7 +2401,7 @@ describePostgres("postgres migrations", () => {
         instrument_type: "STOCK",
         day_trade_scope: "NON_DAY_TRADE_ONLY",
         rate_bps: 30,
-        booked_tax_amount: 13,
+        booked_tax_amount: "13.2222",
       },
     ]);
 
@@ -2411,11 +2411,11 @@ describePostgres("postgres migrations", () => {
         accountId: "user-1-acc-1",
         ticker: "2330",
         quantity: 5,
-        costBasisAmount: 505,
+        costBasisAmount: 505.26,
       }),
     ]);
     const reloadedSell = reloaded.accounting.facts.tradeEvents.find((tx) => tx.id === sellTrade.id);
-    expect(reloadedSell?.realizedPnlAmount).toBe(121);
+    expect(reloadedSell?.realizedPnlAmount).toBe(120.37);
   });
 
   it("persists a posted dividend with typed deductions and linked cash effects", async () => {
@@ -4028,6 +4028,51 @@ describePostgres("postgres migrations", () => {
        WHERE id = TRUE`,
     );
     expect(policy.rows[0]?.allow_claude_ai_connector).toBe(false);
+  });
+
+  it("migration 100 converts booked charge and dependent amount columns to NUMERIC(20,4)", async () => {
+    const before100 = await getNumberedMigrationsBefore("100_decimal_booked_charges.sql");
+    await applyMigrationFiles(before100);
+    await applyMigrationFiles(["100_decimal_booked_charges.sql"]);
+
+    const columns = await pool.query<{
+      table_name: string;
+      column_name: string;
+      data_type: string;
+      numeric_precision: number | null;
+      numeric_scale: number | null;
+    }>(
+      `SELECT table_name, column_name, data_type, numeric_precision, numeric_scale
+         FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND (
+            (table_name = 'trade_events' AND column_name IN ('commission_amount', 'tax_amount'))
+            OR (table_name = 'lots' AND column_name = 'total_cost_amount')
+            OR (table_name = 'lot_allocations' AND column_name = 'allocated_cost_amount')
+            OR (table_name = 'cash_ledger_entries' AND column_name = 'amount')
+            OR (table_name = 'recompute_job_items' AND column_name IN (
+              'previous_commission_amount',
+              'previous_tax_amount',
+              'next_commission_amount',
+              'next_tax_amount'
+            ))
+            OR (table_name = 'trade_fee_policy_snapshot_tax_components' AND column_name = 'booked_tax_amount')
+          )
+        ORDER BY table_name, column_name`,
+    );
+
+    expect(columns.rows).toEqual([
+      { table_name: "cash_ledger_entries", column_name: "amount", data_type: "numeric", numeric_precision: 20, numeric_scale: 4 },
+      { table_name: "lot_allocations", column_name: "allocated_cost_amount", data_type: "numeric", numeric_precision: 20, numeric_scale: 4 },
+      { table_name: "lots", column_name: "total_cost_amount", data_type: "numeric", numeric_precision: 20, numeric_scale: 4 },
+      { table_name: "recompute_job_items", column_name: "next_commission_amount", data_type: "numeric", numeric_precision: 20, numeric_scale: 4 },
+      { table_name: "recompute_job_items", column_name: "next_tax_amount", data_type: "numeric", numeric_precision: 20, numeric_scale: 4 },
+      { table_name: "recompute_job_items", column_name: "previous_commission_amount", data_type: "numeric", numeric_precision: 20, numeric_scale: 4 },
+      { table_name: "recompute_job_items", column_name: "previous_tax_amount", data_type: "numeric", numeric_precision: 20, numeric_scale: 4 },
+      { table_name: "trade_events", column_name: "commission_amount", data_type: "numeric", numeric_precision: 20, numeric_scale: 4 },
+      { table_name: "trade_events", column_name: "tax_amount", data_type: "numeric", numeric_precision: 20, numeric_scale: 4 },
+      { table_name: "trade_fee_policy_snapshot_tax_components", column_name: "booked_tax_amount", data_type: "numeric", numeric_precision: 20, numeric_scale: 4 },
+    ]);
   });
 
   it("KZO-197: migration 070 backfills provider incidents idempotently from error trail", async () => {

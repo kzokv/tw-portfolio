@@ -26,6 +26,7 @@ import type {
 } from "../persistence/types.js";
 import { routeError } from "../lib/routeError.js";
 import type { McpDraftServiceDeps, McpMutationBatchResult } from "../mcp/types.js";
+import { bookedChargeMessage, isValidBookedCharge } from "../validation/bookedCharge.js";
 import { connectorGroupForScope } from "./mcpConnectorLifecycle.js";
 import { resolveAccountDisplayName, toMcpAccountDisplayDto } from "./mcpAccountHelpers.js";
 import { syncAccountingPolicy } from "./accountingStore.js";
@@ -358,6 +359,12 @@ async function runPreflight(
 
     if (candidate.tradeTimestamp && !candidate.tradeDate) {
       issues.push({ code: "missing_trade_date", message: "tradeDate is required when tradeTimestamp is provided" });
+    }
+    if (candidate.commissionAmount !== null && candidate.commissionAmount !== undefined && !isValidBookedCharge(candidate.commissionAmount)) {
+      issues.push({ code: "invalid_commission_amount", message: bookedChargeMessage("Commission") });
+    }
+    if (candidate.taxAmount !== null && candidate.taxAmount !== undefined && !isValidBookedCharge(candidate.taxAmount)) {
+      issues.push({ code: "invalid_tax_amount", message: bookedChargeMessage("Tax") });
     }
 
     const storeInstrument = ticker && marketCode
