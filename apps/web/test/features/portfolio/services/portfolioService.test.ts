@@ -10,6 +10,7 @@ import {
   fetchPortfolioEnrichmentData,
   fetchPortfolioPageData,
   fetchPortfolioPrimaryData,
+  fetchTransactionHistory,
   fetchTransactionHistoryPage,
   refreshPortfolioCloses,
   fetchTransactionsPrimaryData,
@@ -148,5 +149,25 @@ describe("fetchTransactionHistoryPage", () => {
     });
 
     expect(getJson).toHaveBeenCalledWith("/transactions/history?type=SELL&pnl=realized&marketCode=US&accountId=acc-1&ticker=MSFT&from=2026-05-01&to=2026-06-01&limit=25&offset=50&sortBy=realizedPnl&sortOrder=asc");
+  });
+});
+
+describe("fetchTransactionHistory", () => {
+  beforeEach(() => {
+    vi.mocked(getJson).mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    vi.mocked(getJson).mockReset();
+  });
+
+  it("serializes multi-account ticker filters when no singular account is selected", async () => {
+    await fetchTransactionHistory({
+      ticker: " 2330 ",
+      accountIds: ["acc-1", "acc-2"],
+      marketCode: "TW",
+    });
+
+    expect(getJson).toHaveBeenCalledWith("/portfolio/transactions?ticker=2330&accountIds=acc-1%2Cacc-2&marketCode=TW");
   });
 });

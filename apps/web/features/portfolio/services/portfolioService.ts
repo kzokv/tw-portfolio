@@ -101,6 +101,7 @@ export async function submitTransaction(input: TransactionInput): Promise<void> 
 export async function fetchTransactionHistory(filters: {
   ticker?: string;
   accountId?: string;
+  accountIds?: string[];
   marketCode?: MarketCode;
   limit?: number;
 }): Promise<TransactionHistoryItemDto[]> {
@@ -112,6 +113,8 @@ export async function fetchTransactionHistory(filters: {
 
   if (filters.accountId) {
     params.set("accountId", filters.accountId);
+  } else if (filters.accountIds && filters.accountIds.length > 0) {
+    params.set("accountIds", filters.accountIds.join(","));
   }
 
   if (filters.marketCode) {

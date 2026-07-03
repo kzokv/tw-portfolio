@@ -46,6 +46,7 @@ describe("fetchTickerDetails", () => {
 
   it("returns fallback unavailable states when the ticker details API fails", async () => {
     getJsonMock.mockRejectedValue(new Error("unavailable"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     const details = await fetchTickerDetails({
       ticker: "2330",
@@ -87,6 +88,15 @@ describe("fetchTickerDetails", () => {
       asOf: null,
     });
     expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/details?accountId=acc-2");
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[ticker-details] falling back to primary details after request failure",
+      expect.objectContaining({
+        endpoint: "details",
+        path: "/tickers/2330/details?accountId=acc-2",
+        error: expect.any(Error),
+      }),
+    );
+    warnSpy.mockRestore();
   });
 
   it("merges partial API payloads over fallback data without fabricating missing fields", async () => {
@@ -97,6 +107,20 @@ describe("fetchTickerDetails", () => {
       },
       position: {
         quantity: 12,
+      },
+      chart: {
+        range: "1Y",
+        points: [
+          {
+            date: "2026-05-20",
+            open: 900,
+            high: 920,
+            low: 895,
+            close: 912,
+            volume: 1000,
+            source: "test",
+          },
+        ],
       },
       fundamentals: {
         panels: [
@@ -144,6 +168,14 @@ describe("fetchTickerDetails", () => {
       quantity: 12,
       averageCost: null,
     });
+    expect(details.chart.points).toEqual([
+      expect.objectContaining({
+        date: "2026-05-20",
+        price: 912,
+        averageCost: null,
+      }),
+    ]);
+    expect(details.chart.points[0]).not.toHaveProperty("close");
     expect(details.fundamentals.panels).toEqual([
       {
         key: "profitability",
@@ -160,6 +192,44 @@ describe("fetchTickerDetails", () => {
       },
     ]);
     expect(getJsonMock).toHaveBeenCalledWith("/tickers/NVDA/details?marketCode=US");
+  });
+
+  it("normalizes raw unrealized P&L history when merging partial API payloads", async () => {
+    getJsonMock.mockResolvedValue({
+      unrealizedPnlHistory: [
+        {
+          date: "2026-05-20",
+          unrealizedPnlAmount: 4120,
+          currency: "USD",
+          quantity: 10,
+          closePrice: 912,
+          averageCostPerShare: 500,
+        },
+      ],
+    } as never);
+
+    const details = await fetchTickerDetails({
+      ticker: "NVDA",
+      dashboard: buildDashboard(),
+      transactions: [],
+      instrument: {
+        ticker: "NVDA",
+        name: "NVIDIA",
+        marketCode: "US",
+        instrumentType: "STOCK",
+      } as never,
+    });
+
+    expect(details.unrealizedPnlHistory).toEqual([
+      expect.objectContaining({
+        date: "2026-05-20",
+        label: "2026-05-20",
+        unrealizedPnl: 4120,
+        quantity: 10,
+      }),
+    ]);
+    expect(details.unrealizedPnlHistory[0]).not.toHaveProperty("price");
+    expect(details.unrealizedPnlHistory[0]).not.toHaveProperty("averageCost");
   });
 
   it("maps the ticker details API DTO into the ticker page model", async () => {
@@ -670,6 +740,18 @@ describe("fetchTickerDetails", () => {
           },
         ],
       },
+      unrealizedPnlHistory: [
+        {
+          date: "2026-05-20",
+          unrealizedPnlAmount: 4120,
+          currency: "USD",
+          quantity: 10,
+          closePrice: 912,
+          averageCostPerShare: 500,
+          accountIds: ["acc-1"],
+          isProvisional: false,
+        },
+      ],
       fundamentals: {
         marketCap: { value: 2_000_000_000_000, source: "provider", asOf: "2026-05-20" },
         enterpriseValue: { value: null, source: null, asOf: null },
@@ -739,6 +821,13 @@ describe("fetchTickerDetails", () => {
       averageCost: 500,
       quantity: 10,
     });
+    expect(details.unrealizedPnlHistory[0]).toMatchObject({
+      date: "2026-05-20",
+      unrealizedPnl: 4120,
+      quantity: 10,
+    });
+    expect(details.unrealizedPnlHistory[0]).not.toHaveProperty("price");
+    expect(details.unrealizedPnlHistory[0]).not.toHaveProperty("averageCost");
     expect(details.fundamentals.panels[0]?.items).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1259,6 +1348,7 @@ describe("fetchTickerDetails", () => {
 
   it("hydrates ticker details from the enrichment endpoint after primary data is seeded", async () => {
     getJsonMock.mockRejectedValue(new Error("unavailable"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const dashboard = buildDashboard({
       holdings: [{
         ticker: "NVDA",
@@ -1353,17 +1443,28 @@ describe("fetchTickerDetails", () => {
       ticker: "NVDA",
       accountId: "acc-1",
       marketCode: "US",
+      includeProvisional: false,
       transactions: [],
       instrument,
       primaryDetails,
     });
 
     expect(details).toBe(primaryDetails);
-    expect(getJsonMock).toHaveBeenCalledWith("/tickers/NVDA/enrichment?accountId=acc-1&marketCode=US");
+    expect(getJsonMock).toHaveBeenCalledWith("/tickers/NVDA/enrichment?accountId=acc-1&marketCode=US&includeProvisional=false");
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[ticker-details] falling back to primary details after request failure",
+      expect.objectContaining({
+        endpoint: "enrichment",
+        path: "/tickers/NVDA/enrichment?accountId=acc-1&marketCode=US&includeProvisional=false",
+        error: expect.any(Error),
+      }),
+    );
+    warnSpy.mockRestore();
   });
 
   it("refreshes ticker details from the full details endpoint after mutations", async () => {
     getJsonMock.mockRejectedValue(new Error("unavailable"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const dashboard = buildDashboard({
       holdings: [{
         ticker: "NVDA",
@@ -1404,5 +1505,14 @@ describe("fetchTickerDetails", () => {
 
     expect(details).toBe(primaryDetails);
     expect(getJsonMock).toHaveBeenCalledWith("/tickers/NVDA/details?accountId=acc-1&marketCode=US");
+    expect(warnSpy).toHaveBeenCalledWith(
+      "[ticker-details] falling back to primary details after request failure",
+      expect.objectContaining({
+        endpoint: "details",
+        path: "/tickers/NVDA/details?accountId=acc-1&marketCode=US",
+        error: expect.any(Error),
+      }),
+    );
+    warnSpy.mockRestore();
   });
 });

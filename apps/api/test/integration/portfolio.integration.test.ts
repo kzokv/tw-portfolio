@@ -181,6 +181,61 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     ]);
   });
 
+  it("filters ticker transaction history by multiple account ids", async () => {
+    const accountResponse = await app.inject({
+      method: "POST",
+      url: "/accounts",
+      payload: {
+        name: "Second Brokerage",
+        defaultCurrency: "TWD",
+        accountType: "broker",
+      },
+    });
+    expect(accountResponse.statusCode).toBe(200);
+    const secondAccount = accountResponse.json() as { id: string };
+
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-account-filter-1" },
+      payload: transactionPayload({
+        accountId: "acc-1",
+        ticker: "MULTI",
+        tradeDate: "2026-01-01",
+      }),
+    });
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-account-filter-2" },
+      payload: transactionPayload({
+        accountId: secondAccount.id,
+        ticker: "MULTI",
+        tradeDate: "2026-01-02",
+      }),
+    });
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-account-filter-other" },
+      payload: transactionPayload({
+        accountId: "acc-1",
+        ticker: "OTHER",
+        tradeDate: "2026-01-03",
+      }),
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/portfolio/transactions?ticker=multi&accountIds=acc-1,${secondAccount.id}`,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual([
+      expect.objectContaining({ ticker: "MULTI", accountId: secondAccount.id }),
+      expect.objectContaining({ ticker: "MULTI", accountId: "acc-1" }),
+    ]);
+  });
+
   it("supports limiting transaction history without changing newest-first ordering", async () => {
     await app.inject({
       method: "POST",

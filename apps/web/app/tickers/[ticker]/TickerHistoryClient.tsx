@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowDownRight, ArrowUpRight, BarChart3, Landmark, Plus, ReceiptText, Wrench } from "lucide-react";
@@ -69,7 +69,7 @@ import {
   readRouteDtoCache,
   writeRouteDtoCache,
 } from "../../../lib/routeDtoCache";
-import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../../lib/utils";
+import { cn, formatCompactCurrencyAmount, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../../lib/utils";
 import { getNativeUnitPnl } from "../../../lib/holdingsMetrics";
 import { buildTimelineAxis, type TimelineMode } from "../../../lib/timelineAxis";
 import { buildPriceStateActivityPath, getPriceState, shouldPollForOpenMarket } from "../../../features/price-state/priceState";
@@ -87,6 +87,7 @@ interface TickerHistoryClientProps {
   details: TickerDetailsModel;
   isDemo: boolean;
   transactionAccountFilter?: string;
+  transactionAccountIdsFilter?: string[];
   transactionMarketFilter?: MarketCode;
   initialChartQuery?: {
     chartEnd?: string;
@@ -106,6 +107,7 @@ const MAX_TICKER_CHART_POINTS = 900;
 const TICKER_CHART_EMPTY_FALLBACK_DATE = "1970-01-01";
 
 type TickerRangeControl = TickerChartRange | "CUSTOM";
+type TickerChartMetric = "price" | "unrealizedPnl";
 
 interface TickerChartRequest {
   range?: TickerChartRange;
@@ -218,9 +220,11 @@ function resolveInitialTickerChartState(
   request: TickerChartRequest;
   selection: TickerRangeControl;
 } {
-  const queryRange = searchParams.get("chartRange")?.trim().toUpperCase();
-  const queryStart = searchParams.get("chartStart")?.trim() ?? "";
-  const queryEnd = searchParams.get("chartEnd")?.trim() ?? "";
+  const analysisDateAlias = searchParams.get("source") === "unrealized-pnl-analysis";
+  const queryStart = searchParams.get("chartStart")?.trim() || (analysisDateAlias ? searchParams.get("fromDate")?.trim() : undefined) || "";
+  const queryEnd = searchParams.get("chartEnd")?.trim() || (analysisDateAlias ? searchParams.get("toDate")?.trim() : undefined) || "";
+  const queryRange = searchParams.get("chartRange")?.trim().toUpperCase()
+    ?? (analysisDateAlias && queryStart && queryEnd ? "CUSTOM" : undefined);
 
   if (queryRange === "CUSTOM" && isValidCustomTickerChartRange(queryStart, queryEnd)) {
     return {
@@ -261,9 +265,17 @@ function buildInitialTickerChartSearchParams(
       if (key === "chartRange") return query?.chartRange ?? null;
       if (key === "chartStart") return query?.chartStart ?? null;
       if (key === "chartEnd") return query?.chartEnd ?? null;
+      if (key === "source") return null;
+      if (key === "fromDate") return null;
+      if (key === "toDate") return null;
       return null;
     },
   };
+}
+
+function resolveAnalysisIncludeProvisional(searchParams: Pick<URLSearchParams, "get">): boolean | undefined {
+  if (searchParams.get("source") !== "unrealized-pnl-analysis") return undefined;
+  return searchParams.get("includeProvisional")?.trim().toLowerCase() === "true";
 }
 
 function isValidCustomTickerChartRange(startDate: string, endDate: string): boolean {
@@ -361,6 +373,157 @@ function thinTickerChartPoints(
     .filter((point, index, arr) => index === 0 || point !== arr[index - 1]);
 }
 
+function finiteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function resolveTickerChartPrice(point: TickerDetailsModel["chart"]["points"][number]): number | null {
+  const rawPoint = point as typeof point & { close?: unknown; closePrice?: unknown };
+  return finiteNumber(point.price)
+    ?? finiteNumber(rawPoint.close)
+    ?? finiteNumber(rawPoint.closePrice);
+}
+
+function resolveTickerChartAverageCost(
+  point: TickerDetailsModel["chart"]["points"][number],
+  fallbackAverageCost: number | null,
+): number | null {
+  const rawPoint = point as typeof point & { averageCostPerShare?: unknown };
+  return finiteNumber(point.averageCost)
+    ?? finiteNumber(rawPoint.averageCostPerShare)
+    ?? finiteNumber(fallbackAverageCost);
+}
+
+function resolveTickerChartQuantity(
+  point: TickerDetailsModel["chart"]["points"][number],
+  fallbackQuantity: number,
+): number {
+  return finiteNumber(point.quantity) ?? finiteNumber(fallbackQuantity) ?? 0;
+}
+
+type TickerTimelineAxis = ReturnType<typeof buildTimelineAxis>;
+
+interface PriceChartDataPoint {
+  averageCost: number | null;
+  axisLabel: string;
+  date: string;
+  dateMs: number;
+  label: string;
+  price: number | null;
+  quantity: number;
+}
+
+interface UnrealizedPnlChartDataPoint {
+  axisLabel: string;
+  currency: string;
+  date: string;
+  dateMs: number;
+  label: string;
+  quantity: number;
+  unrealizedPnl: number | null;
+}
+
+function ChartEmptyState({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex h-full items-center justify-center rounded-md border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500">
+      {children}
+    </div>
+  );
+}
+
+function PriceVsAverageCostChart({
+  axis,
+  currency,
+  data,
+  dict,
+  locale,
+}: {
+  axis: TickerTimelineAxis;
+  currency: string;
+  data: PriceChartDataPoint[];
+  dict: AppDictionary;
+  locale: LocaleCode;
+}) {
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <LineChart data={data} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
+        <XAxis
+          dataKey="dateMs"
+          type="number"
+          scale="time"
+          domain={axis.domain}
+          ticks={axis.ticks}
+          tickFormatter={axis.tickFormatter}
+          tickLine={false}
+          axisLine={false}
+          minTickGap={32}
+        />
+        <YAxis tickLine={false} axisLine={false} width={76} tickFormatter={(value: number) => formatCompactCurrencyAmount(value, currency, locale)} />
+        <Tooltip
+          labelFormatter={(value) => (
+            typeof value === "number"
+              ? formatDateLabel(new Date(value).toISOString().slice(0, 10), locale)
+              : String(value)
+          )}
+          formatter={(value, name) => {
+            if (typeof value !== "number") return Array.isArray(value) ? value.join(" / ") : value;
+            if (name === "quantity") return formatNumber(value, locale);
+            return formatCurrencyAmount(value, currency, locale);
+          }}
+        />
+        <Line type="monotone" dataKey="price" stroke="#0f766e" strokeWidth={2.5} dot={false} name={dict.tickerHistory.currentPriceLabel} />
+        <Line type="monotone" dataKey="averageCost" stroke="#334155" strokeWidth={2} strokeDasharray="6 4" dot={false} name={dict.tickerHistory.avgCostLabel} />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+function UnrealizedPnlChart({
+  axis,
+  currency,
+  data,
+  dict,
+  locale,
+}: {
+  axis: TickerTimelineAxis;
+  currency: string;
+  data: UnrealizedPnlChartDataPoint[];
+  dict: AppDictionary;
+  locale: LocaleCode;
+}) {
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <LineChart data={data} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
+        <XAxis
+          dataKey="dateMs"
+          type="number"
+          scale="time"
+          domain={axis.domain}
+          ticks={axis.ticks}
+          tickFormatter={axis.tickFormatter}
+          tickLine={false}
+          axisLine={false}
+          minTickGap={32}
+        />
+        <YAxis tickLine={false} axisLine={false} width={76} tickFormatter={(value: number) => formatCompactCurrencyAmount(value, currency, locale)} />
+        <Tooltip
+          labelFormatter={(value) => (
+            typeof value === "number"
+              ? formatDateLabel(new Date(value).toISOString().slice(0, 10), locale)
+              : String(value)
+          )}
+          formatter={(value, name) => {
+            if (typeof value !== "number") return Array.isArray(value) ? value.join(" / ") : value;
+            if (name === "quantity") return formatNumber(value, locale);
+            return formatCurrencyAmount(value, currency, locale);
+          }}
+        />
+        <Line type="monotone" dataKey="unrealizedPnl" stroke="#215dc6" strokeWidth={2.5} dot={false} connectNulls={false} name={dict.tickerHistory.unrealizedPnlLabel} />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
 export function TickerHistoryClient({
   transactions,
   dict,
@@ -374,6 +537,7 @@ export function TickerHistoryClient({
   details,
   isDemo,
   transactionAccountFilter,
+  transactionAccountIdsFilter,
   transactionMarketFilter,
   initialChartQuery,
   initialTradeDate,
@@ -385,6 +549,8 @@ export function TickerHistoryClient({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const searchParamKey = searchParams.toString();
+  const openedFromAnalysis = searchParams.get("source") === "unrealized-pnl-analysis";
+  const liveAnalysisIncludeProvisional = resolveAnalysisIncludeProvisional(searchParams);
   const tickerOpenMarketPollMs = resolveTickerPricePollMs(
     quotePollIntervalSeconds,
     tickerPriceIntradayRefreshIntervalMinutes,
@@ -397,17 +563,6 @@ export function TickerHistoryClient({
     initialChartMetadata.resolved.startDate,
     initialChartMetadata.resolved.endDate,
   );
-  // Per-page breadcrumb override (spec amendment #21). Display label uses the
-  // instrument name + ticker symbol when available, otherwise the ticker itself.
-  // The Portfolio parent segment keeps the breadcrumb actionable.
-  useBreadcrumb([
-    { label: dict.navigation.portfolioLabel, href: "/portfolio" },
-    {
-      label: instrument?.name
-        ? `${instrument.name} (${ticker})`
-        : ticker,
-    },
-  ]);
   const [isClientReady, setIsClientReady] = useState(false);
   const [isRecordDialogOpen, setIsRecordDialogOpen] = useState(false);
   const [isRepairDialogOpen, setIsRepairDialogOpen] = useState(false);
@@ -421,7 +576,12 @@ export function TickerHistoryClient({
   const detailsStateRef = useRef(details);
   const [isDetailsLoading, setIsDetailsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
+  const [analysisContextCleared, setAnalysisContextCleared] = useState(false);
   const [tickerChartSelection, setTickerChartSelection] = useState<TickerRangeControl>(() => initialTickerChartState.selection);
+  const [tickerChartMetric, setTickerChartMetric] = useState<TickerChartMetric>(() => openedFromAnalysis ? "unrealizedPnl" : "price");
+  const analysisContextActive = openedFromAnalysis && !analysisContextCleared;
+  const analysisIncludeProvisional = analysisContextActive ? liveAnalysisIncludeProvisional : undefined;
+  const previousOpenedFromAnalysisRef = useRef(analysisContextActive);
   const [tickerTimelineMode, setTickerTimelineMode] = useState<TimelineMode>("auto");
   const [tickerChartRequest, setTickerChartRequest] = useState<TickerChartRequest>(() => initialTickerChartState.request);
   const [customStartDate, setCustomStartDate] = useState(initialTickerChartState.customStartDate);
@@ -441,6 +601,9 @@ export function TickerHistoryClient({
     reportingCurrency,
     sharedContextPermissions,
   } = useAppShellData();
+  const tickerDetailsProvisionalCacheScope = analysisContextActive
+    ? `analysis-provisional:${analysisIncludeProvisional ? "include" : "exclude"}`
+    : "default-provisional";
   const tickerDetailsCacheKey = useMemo(
     () => buildRouteDtoCacheKey(
       "ticker-details",
@@ -449,21 +612,50 @@ export function TickerHistoryClient({
       ticker,
       transactionMarketFilter ?? details.identity.marketCode,
       transactionAccountFilter ?? "all",
+      transactionAccountIdsFilter?.join(",") ?? "",
       tickerChartRequest.range ?? "CUSTOM",
       tickerChartRequest.startDate ?? "",
       tickerChartRequest.endDate ?? "",
       reportingCurrency,
+      tickerDetailsProvisionalCacheScope,
     ),
-    [details.identity.marketCode, locale, reportingCurrency, sessionUserId, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, transactionAccountFilter, transactionMarketFilter],
+    [details.identity.marketCode, locale, reportingCurrency, sessionUserId, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, tickerDetailsProvisionalCacheScope, transactionAccountFilter, transactionAccountIdsFilter, transactionMarketFilter],
   );
   const isSharedContext = sharedContextOwnerId !== null;
   const canWriteTransactions = !isSharedContext || sharedContextPermissions.canWriteTransactions;
   const { targetRef: statsRef, isVisible: statsVisible } = useElementVisibility();
   const currency = detailsState.identity.currency;
+  const identityDisplayName = detailsState.identity.name?.trim();
+  const tickerTitle = identityDisplayName ? `${identityDisplayName} (${ticker})` : ticker;
+  // Per-page breadcrumb override (spec amendment #21). Display label uses the
+  // market-scoped details identity so duplicate ticker codes in other markets
+  // cannot leak a broad catalog name into the ticker page.
+  useBreadcrumb([
+    { label: dict.navigation.portfolioLabel, href: "/portfolio" },
+    { label: tickerTitle },
+  ]);
   const accountNameById = useMemo(() => new Map(accounts.map((account) => [account.id, account.name])), [accounts]);
-  const accountScopeDisplayName = transactionAccountFilter
-    ? accountNameById.get(transactionAccountFilter) ?? transactionAccountFilter
-    : dict.tickerHistory.allAccountsLabel;
+  const accountScopeDisplayName = useMemo(() => {
+    if (transactionAccountFilter) return accountNameById.get(transactionAccountFilter) ?? transactionAccountFilter;
+    if (transactionAccountIdsFilter?.length) {
+      if (transactionAccountIdsFilter.length <= 2) {
+        return transactionAccountIdsFilter.map((accountId) => accountNameById.get(accountId) ?? accountId).join(", ");
+      }
+      return formatTickerChartMessage(dict.tickerHistory.analysisAccountsCountLabel, {
+        count: String(transactionAccountIdsFilter.length),
+      });
+    }
+    return dict.tickerHistory.allAccountsLabel;
+  }, [accountNameById, dict.tickerHistory.allAccountsLabel, dict.tickerHistory.analysisAccountsCountLabel, transactionAccountFilter, transactionAccountIdsFilter]);
+  const recordAccountIds = useMemo(() => {
+    const scopedAccountIds = transactionAccountIdsFilter?.filter((candidateAccountId) =>
+      accounts.some((account) => account.id === candidateAccountId),
+    ) ?? [];
+    if (scopedAccountIds.length > 0) return scopedAccountIds;
+    return accountId ? [accountId] : [];
+  }, [accountId, accounts, transactionAccountIdsFilter]);
+  const recordAccountIdSet = useMemo(() => new Set(recordAccountIds), [recordAccountIds]);
+  const defaultRecordAccountId = recordAccountIds[0] ?? accountId;
   const effectiveHoldingGroup = detailsState.holdingGroup;
   const accountBreakdownRows = effectiveHoldingGroup?.children.length
     ? effectiveHoldingGroup.children
@@ -475,6 +667,10 @@ export function TickerHistoryClient({
   useEffect(() => {
     setIsClientReady(true);
   }, []);
+
+  useEffect(() => {
+    if (openedFromAnalysis) setAnalysisContextCleared(false);
+  }, [openedFromAnalysis, searchParamKey]);
 
   useEffect(() => {
     const queryParams = new URLSearchParams(searchParamKey);
@@ -489,6 +685,12 @@ export function TickerHistoryClient({
     setCustomStartDate((current) => current === next.customStartDate ? current : next.customStartDate);
     setCustomEndDate((current) => current === next.customEndDate ? current : next.customEndDate);
   }, [details.chart.range, initialChartMetadata.resolved.endDate, initialChartMetadata.resolved.startDate, searchParamKey]);
+
+  useEffect(() => {
+    if (previousOpenedFromAnalysisRef.current === analysisContextActive) return;
+    previousOpenedFromAnalysisRef.current = analysisContextActive;
+    setTickerChartMetric(analysisContextActive ? "unrealizedPnl" : "price");
+  }, [analysisContextActive]);
 
   useEffect(() => {
     setInstrumentState(instrument);
@@ -535,10 +737,12 @@ export function TickerHistoryClient({
       const next = await refreshTickerDetails({
         ticker,
         accountId: transactionAccountFilter,
+        accountIds: transactionAccountIdsFilter,
         marketCode: transactionMarketFilter,
         range: tickerChartRequest.range,
         startDate: tickerChartRequest.startDate,
         endDate: tickerChartRequest.endDate,
+        includeProvisional: analysisIncludeProvisional,
         instrument,
         transactions,
         primaryDetails,
@@ -549,7 +753,7 @@ export function TickerHistoryClient({
     } finally {
       setIsDetailsLoading(false);
     }
-  }, [instrument, isTickerPriceIntradayEnabled, reportingCurrency, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, tickerDetailsCacheKey, tickerOpenMarketPollMs, transactionAccountFilter, transactionMarketFilter, transactions]);
+  }, [analysisIncludeProvisional, instrument, isTickerPriceIntradayEnabled, reportingCurrency, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, tickerDetailsCacheKey, tickerOpenMarketPollMs, transactionAccountFilter, transactionAccountIdsFilter, transactionMarketFilter, transactions]);
 
   useEffect(() => {
     void refreshDetails();
@@ -569,16 +773,19 @@ export function TickerHistoryClient({
     const nextTransactions = await fetchTransactionHistory({
       ticker,
       accountId: transactionAccountFilter,
+      accountIds: transactionAccountIdsFilter,
       marketCode: transactionMarketFilter,
     });
     setDisplayTransactions(nextTransactions);
     const nextDetails = await fetchTickerDetailsFullRefresh({
       ticker,
       accountId: transactionAccountFilter,
+      accountIds: transactionAccountIdsFilter,
       marketCode: transactionMarketFilter,
       range: tickerChartRequest.range,
       startDate: tickerChartRequest.startDate,
       endDate: tickerChartRequest.endDate,
+      includeProvisional: analysisIncludeProvisional,
       instrument,
       transactions: nextTransactions,
       primaryDetails: detailsStateRef.current,
@@ -587,7 +794,7 @@ export function TickerHistoryClient({
     setDetailsState(nextDetails);
     writeRouteDtoCache(tickerDetailsCacheKey, nextDetails, TICKER_DETAILS_CACHE_TTL_MS);
     router.refresh();
-  }, [instrument, router, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, tickerDetailsCacheKey, transactionAccountFilter, transactionMarketFilter]);
+  }, [analysisIncludeProvisional, instrument, router, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, tickerDetailsCacheKey, transactionAccountFilter, transactionAccountIdsFilter, transactionMarketFilter]);
 
   const handleDeleteAccepted = useCallback((transactionId: string) => {
     setDisplayTransactions((current) => current.filter((transaction) => transaction.id !== transactionId));
@@ -604,7 +811,7 @@ export function TickerHistoryClient({
     () => {
       return resolveTransactionDraftAccount(
         {
-          accountId,
+          accountId: defaultRecordAccountId,
           ticker,
           // KZO-169: pre-populate marketCode from the most-recent trade event
           // for this ticker. Edit-mode locks both chip + ticker (D9a) so the
@@ -628,8 +835,8 @@ export function TickerHistoryClient({
       );
     },
     [
-      accountId,
       accounts,
+      defaultRecordAccountId,
       detailsState.identity.marketCode,
       feeProfileBindings,
       feeProfiles,
@@ -653,16 +860,19 @@ export function TickerHistoryClient({
 
   const handleDraftChange = useCallback(
     (next: TransactionInput) => {
+      const nextAccountId = next.accountId && recordAccountIdSet.has(next.accountId)
+        ? next.accountId
+        : defaultRecordAccountId;
       submission.setDraftTransaction(
         resolveTransactionDraftAccount(
-          { ...next, ticker, accountId },
+          { ...next, ticker, accountId: nextAccountId },
           accounts,
           feeProfiles,
           feeProfileBindings,
         ),
       );
     },
-    [accountId, accounts, feeProfileBindings, feeProfiles, submission, ticker],
+    [accounts, defaultRecordAccountId, feeProfileBindings, feeProfiles, recordAccountIdSet, submission, ticker],
   );
 
   // KZO-169: include `defaultCurrency` so the chip default + account filter
@@ -671,7 +881,7 @@ export function TickerHistoryClient({
   const lockedAccountOptions = useMemo(
     () =>
       accounts
-        .filter((account) => account.id === accountId)
+        .filter((account) => recordAccountIdSet.has(account.id))
         .map((account) => ({
           id: account.id,
           name: account.name,
@@ -679,7 +889,7 @@ export function TickerHistoryClient({
           defaultCurrency: account.defaultCurrency,
           accountType: account.accountType,
         })),
-    [accountId, accounts, feeProfiles],
+    [accounts, feeProfiles, recordAccountIdSet],
   );
 
   const cooldownRemaining = useMemo(() => getCooldownRemainingMinutes(instrumentState?.repairAvailableAt), [instrumentState]);
@@ -778,19 +988,64 @@ export function TickerHistoryClient({
     ?? currentChartMetadata.requested.endDate
     ?? currentChartMetadata.requested.startDate
     ?? chartStartDate;
-  const chartAxis = buildTimelineAxis({
+  const priceChartAxis = buildTimelineAxis({
     endDate: chartEndDate,
     locale,
     mode: tickerTimelineMode,
     pointDates: detailsState.chart.points.map((point) => point.date),
     startDate: chartStartDate,
   });
-  const downsampledChart = downsampleTickerChartPoints(detailsState.chart.points, MAX_TICKER_CHART_POINTS);
-  const chartData = downsampledChart.points.map((point) => ({
-    ...point,
+  const downsampledPriceChart = downsampleTickerChartPoints(detailsState.chart.points, MAX_TICKER_CHART_POINTS);
+  const priceChartData: PriceChartDataPoint[] = downsampledPriceChart.points.map((point) => ({
+    date: point.date,
+    label: point.label,
+    price: resolveTickerChartPrice(point),
+    averageCost: resolveTickerChartAverageCost(point, detailsState.position.averageCost),
+    quantity: resolveTickerChartQuantity(point, detailsState.position.quantity),
     dateMs: new Date(`${point.date}T00:00:00.000Z`).getTime(),
     axisLabel: point.label === "Now" ? dict.tickerHistory.nowLabel : formatDateLabel(point.date, locale),
   }));
+  const pnlChartResolvedStartDate = detailsState.unrealizedPnlHistory[0]?.date ?? null;
+  const pnlChartResolvedEndDate = detailsState.unrealizedPnlHistory.at(-1)?.date ?? null;
+  const pnlChartStartDate = pnlChartResolvedStartDate
+    ?? currentChartMetadata.requested.startDate
+    ?? currentChartMetadata.requested.endDate
+    ?? TICKER_CHART_EMPTY_FALLBACK_DATE;
+  const pnlChartEndDate = pnlChartResolvedEndDate
+    ?? currentChartMetadata.requested.endDate
+    ?? currentChartMetadata.requested.startDate
+    ?? pnlChartStartDate;
+  const pnlChartAxis = buildTimelineAxis({
+    endDate: pnlChartEndDate,
+    locale,
+    mode: tickerTimelineMode,
+    pointDates: detailsState.unrealizedPnlHistory.map((point) => point.date),
+    startDate: pnlChartStartDate,
+  });
+  const pnlChartData: UnrealizedPnlChartDataPoint[] = detailsState.unrealizedPnlHistory.map((point) => ({
+    date: point.date,
+    label: point.label,
+    unrealizedPnl: finiteNumber(point.unrealizedPnl),
+    currency: point.currency,
+    quantity: finiteNumber(point.quantity) ?? 0,
+    dateMs: new Date(`${point.date}T00:00:00.000Z`).getTime(),
+    axisLabel: formatDateLabel(point.date, locale),
+  }));
+  const unrealizedPnlChartCurrency = detailsState.unrealizedPnlHistory[0]?.currency ?? currency;
+  const activeChartResolvedStartDate = tickerChartMetric === "unrealizedPnl"
+    ? pnlChartResolvedStartDate
+    : currentChartMetadata.resolved.startDate;
+  const activeChartResolvedEndDate = tickerChartMetric === "unrealizedPnl"
+    ? pnlChartResolvedEndDate
+    : currentChartMetadata.resolved.endDate;
+  const chartTitle = tickerChartMetric === "unrealizedPnl" ? dict.tickerHistory.unrealizedPnlChartTitle : dict.tickerHistory.chartTitle;
+  const chartSubtitle = tickerChartMetric === "unrealizedPnl" ? dict.tickerHistory.unrealizedPnlChartSubtitle : dict.tickerHistory.chartSubtitle;
+  const hasPriceChartValues = priceChartData.some((point) => point.price !== null);
+  const hasUnrealizedPnlChartValues = pnlChartData.some((point) => point.unrealizedPnl !== null);
+  const isPriceChartEmpty = !hasPriceChartValues;
+  const isPriceChartLoading = isPriceChartEmpty && isDetailsLoading;
+  const isUnrealizedPnlChartEmpty = !hasUnrealizedPnlChartValues;
+  const isUnrealizedPnlChartLoading = isUnrealizedPnlChartEmpty && isDetailsLoading;
   const accountContributionData = useMemo(
     () => accountBreakdownRows.map((child) => {
       const reportingCurrency = child.reportingCurrency ?? null;
@@ -901,6 +1156,28 @@ export function TickerHistoryClient({
     setTickerChartRequest(request);
     syncTickerChartUrl("CUSTOM", request);
   }, [customEndDate, customStartDate, dict.tickerHistory.chartCustomRangeError, syncTickerChartUrl]);
+
+  const clearAnalysisContext = useCallback(() => {
+    const nextRequest = buildTickerChartRequest("1Y");
+    setAnalysisContextCleared(true);
+    setTickerChartMetric("price");
+    setTickerChartError("");
+    setTickerChartSelection("1Y");
+    setTickerChartRequest(nextRequest);
+    setCustomStartDate("");
+    setCustomEndDate("");
+
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.delete("source");
+    nextParams.delete("fromDate");
+    nextParams.delete("toDate");
+    nextParams.delete("includeProvisional");
+    nextParams.delete("chartStart");
+    nextParams.delete("chartEnd");
+    nextParams.set("chartRange", "1Y");
+    const query = nextParams.toString();
+    window.history.replaceState(null, "", `${pathname}${query ? `?${query}` : ""}`);
+  }, [pathname, searchParams]);
 
   async function handleRepairSubmit(): Promise<void> {
     setIsRepairSubmitting(true);
@@ -1013,7 +1290,7 @@ export function TickerHistoryClient({
               </div>
               <div className="mt-4 flex flex-wrap items-end gap-3">
                 <h1 className="text-balance text-3xl font-semibold leading-tight text-foreground sm:text-4xl" data-testid="ticker-history-title">
-                  {detailsState.identity.name ? `${detailsState.identity.name} (${ticker})` : ticker}
+                  {tickerTitle}
                 </h1>
                 <span className="rounded-full border border-border bg-background px-3 py-1 text-xs font-medium text-muted-foreground">
                   {detailsState.identity.marketCode} · {detailsState.identity.instrumentType ?? dict.tickerHistory.instrumentFallbackLabel}
@@ -1202,8 +1479,8 @@ export function TickerHistoryClient({
             <Card className="rounded-[28px] border-slate-200 bg-white/94 p-5 shadow-[0_18px_34px_rgba(148,163,184,0.12)]" data-testid="ticker-detail-chart">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.chartTitle}</p>
-                  <h2 className="mt-2 text-xl font-semibold text-slate-950">{dict.tickerHistory.chartSubtitle}</h2>
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{chartTitle}</p>
+                  <h2 className="mt-2 text-xl font-semibold text-slate-950">{chartSubtitle}</h2>
                 </div>
                 <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600">
                   {detailsState.identity.currency}
@@ -1251,6 +1528,39 @@ export function TickerHistoryClient({
                       </ToggleGroupItem>
                     ))}
                   </ToggleGroup>
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+                  <span className="text-xs font-medium text-slate-500">{dict.tickerHistory.chartMetricLabel}</span>
+                  <ToggleGroup
+                    type="single"
+                    aria-label={dict.tickerHistory.chartMetricLabel}
+                    value={tickerChartMetric}
+                    onValueChange={(value) => {
+                      if (value === "price" || value === "unrealizedPnl") setTickerChartMetric(value);
+                    }}
+                    className="flex flex-wrap justify-start"
+                    data-testid="ticker-chart-metric-controls"
+                  >
+                    <ToggleGroupItem value="price">{dict.tickerHistory.currentPriceLabel}</ToggleGroupItem>
+                    <ToggleGroupItem value="unrealizedPnl">{dict.tickerHistory.unrealizedPnlLabel}</ToggleGroupItem>
+                  </ToggleGroup>
+                  {analysisContextActive ? (
+                    <div className="flex flex-wrap gap-1 text-xs text-slate-600">
+                      <Badge variant="secondary">{dict.tickerHistory.analysisSourceLabel}</Badge>
+                      {activeChartResolvedStartDate && activeChartResolvedEndDate ? (
+                        <Badge variant="secondary">{activeChartResolvedStartDate} - {activeChartResolvedEndDate}</Badge>
+                      ) : null}
+                      {transactionAccountFilter ? <Badge variant="secondary">{dict.tickerHistory.analysisAccountCountLabel}</Badge> : null}
+                      {!transactionAccountFilter && transactionAccountIdsFilter?.length ? (
+                        <Badge variant="secondary">
+                          {formatTickerChartMessage(dict.tickerHistory.analysisAccountsCountLabel, { count: String(transactionAccountIdsFilter.length) })}
+                        </Badge>
+                      ) : null}
+                      <Button type="button" variant="ghost" size="sm" onClick={clearAnalysisContext}>
+                        {dict.tickerHistory.clearAnalysisRangeLabel}
+                      </Button>
+                    </div>
+                  ) : null}
                 </div>
                 {tickerChartSelection === "CUSTOM" ? (
                   <div className="flex flex-wrap items-end gap-2" data-testid="ticker-chart-custom-range">
@@ -1314,7 +1624,7 @@ export function TickerHistoryClient({
                     <ToggleGroupItem value="year">{dict.reports.timelineYear}</ToggleGroupItem>
                   </ToggleGroup>
                 </div>
-                {currentChartMetadata.truncated.startDate || currentChartMetadata.truncated.endDate ? (
+                {tickerChartMetric === "price" && (currentChartMetadata.truncated.startDate || currentChartMetadata.truncated.endDate) ? (
                   <p className="text-sm text-warning">
                     {formatTickerChartMessage(dict.tickerHistory.chartTruncatedNote, {
                       start: currentChartMetadata.resolved.startDate ?? "-",
@@ -1322,46 +1632,43 @@ export function TickerHistoryClient({
                     })}
                   </p>
                 ) : null}
-                {downsampledChart.downsampled ? (
+                {tickerChartMetric === "price" && downsampledPriceChart.downsampled ? (
                   <p className="text-sm text-slate-500">
                     {formatTickerChartMessage(dict.tickerHistory.chartDownsampledNote, {
-                      shown: String(downsampledChart.points.length),
-                      total: String(downsampledChart.total),
+                      shown: String(downsampledPriceChart.points.length),
+                      total: String(downsampledPriceChart.total),
                     })}
                   </p>
                 ) : null}
               </div>
               <div className="mt-6 h-[320px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={chartData} margin={{ top: 12, right: 12, left: 0, bottom: 4 }}>
-                    <XAxis
-                      dataKey="dateMs"
-                      type="number"
-                      scale="time"
-                      domain={chartAxis.domain}
-                      ticks={chartAxis.ticks}
-                      tickFormatter={chartAxis.tickFormatter}
-                      tickLine={false}
-                      axisLine={false}
-                      minTickGap={32}
+                {tickerChartMetric === "unrealizedPnl" ? (
+                  isUnrealizedPnlChartLoading ? (
+                    <ChartEmptyState>{dict.tickerHistory.priceChartLoadingState}</ChartEmptyState>
+                  ) : isUnrealizedPnlChartEmpty ? (
+                    <ChartEmptyState>{dict.tickerHistory.unrealizedPnlEmptyState}</ChartEmptyState>
+                  ) : (
+                    <UnrealizedPnlChart
+                      axis={pnlChartAxis}
+                      currency={unrealizedPnlChartCurrency}
+                      data={pnlChartData}
+                      dict={dict}
+                      locale={locale}
                     />
-                    <YAxis tickLine={false} axisLine={false} width={90} tickFormatter={(value) => formatCompactNumber(locale, value)} />
-                    <Tooltip
-                      labelFormatter={(value) => (
-                        typeof value === "number"
-                          ? formatDateLabel(new Date(value).toISOString().slice(0, 10), locale)
-                          : String(value)
-                      )}
-                      formatter={(value, name) => {
-                        if (typeof value !== "number") return Array.isArray(value) ? value.join(" / ") : value;
-                        if (name === "quantity") return formatNumber(value, locale);
-                        return formatCurrencyAmount(value, currency, locale);
-                      }}
-                    />
-                    <Line type="monotone" dataKey="price" stroke="#0f766e" strokeWidth={2.5} dot={false} name={dict.tickerHistory.currentPriceLabel} />
-                    <Line type="monotone" dataKey="averageCost" stroke="#334155" strokeWidth={2} strokeDasharray="6 4" dot={false} name={dict.tickerHistory.avgCostLabel} />
-                  </LineChart>
-                </ResponsiveContainer>
+                  )
+                ) : isPriceChartLoading ? (
+                  <ChartEmptyState>{dict.tickerHistory.priceChartLoadingState}</ChartEmptyState>
+                ) : isPriceChartEmpty ? (
+                  <ChartEmptyState>{dict.tickerHistory.priceChartEmptyState}</ChartEmptyState>
+                ) : (
+                  <PriceVsAverageCostChart
+                    axis={priceChartAxis}
+                    currency={currency}
+                    data={priceChartData}
+                    dict={dict}
+                    locale={locale}
+                  />
+                )}
               </div>
             </Card>
 

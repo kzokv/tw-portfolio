@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Info } from "lucide-react";
+import { ChevronDown, Info, Search, X } from "lucide-react";
 import type { LocaleCode } from "@vakwen/shared-types";
 import { Button } from "../ui/Button";
 import { Drawer } from "../ui/Drawer";
@@ -20,23 +20,29 @@ import {
   ANALYSIS_DEFAULT_STATE,
   ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY,
   EMPTY_ANALYSIS_EXPLICIT_PREFERENCE_KEYS,
-  applyAnalysisPresentationDefaults,
-  extractAnalysisPresentationDefaults,
-  parseAnalysisPresentationDefaultsFromPreferences,
+  LEGACY_ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY,
+  applyAnalysisSettings,
+  applySelectionModeSettings,
+  mergeSettingsWithState,
+  parseAnalysisSettingsFromPreferences,
+  settingsFromState,
   unrealizedPnlRouteStateToSearchParams,
-  updateAnalysisSelection,
 } from "../../features/analysis/unrealizedPnlRouteState";
-import type { UnrealizedPnlAnalysisExplicitPreferenceKeys } from "../../features/analysis/unrealizedPnlRouteState";
+import type { UnrealizedPnlAnalysisExplicitPreferenceKeys, UnrealizedPnlAnalysisSettings } from "../../features/analysis/unrealizedPnlRouteState";
 import type {
   AnalysisFilterOption,
+  AnalysisDetailLayout,
+  AnalysisDriverCount,
   AnalysisGranularity,
-  AnalysisHoldingsState,
+  AnalysisPositionStatus,
   AnalysisInstrumentType,
   AnalysisMarketCode,
   AnalysisRangeOption,
-  AnalysisSelectionMode,
+  AnalysisSelection,
+  AnalysisTickerMode,
   UnrealizedPnlAnalysisDto,
   UnrealizedPnlAnalysisRouteState,
+  UnrealizedPnlRequestedTickerAvailability,
   UnrealizedPnlSeries,
   UnrealizedPnlTickerCompositionRow,
   UnrealizedPnlTickerSelectionRow,
@@ -58,10 +64,14 @@ type AnalysisDict = ReturnType<typeof getDictionary>["analysis"];
 const RANGE_OPTIONS: AnalysisRangeOption[] = ["1M", "3M", "YTD", "1Y", "3Y", "5Y", "ALL"];
 const EXTENDED_RANGE_OPTIONS: AnalysisRangeOption[] = [...RANGE_OPTIONS, "CUSTOM"];
 const GRANULARITY_OPTIONS: AnalysisGranularity[] = ["daily", "weekly", "monthly", "yearly"];
-const SELECTION_OPTIONS: AnalysisSelectionMode[] = ["top-drivers", "manual"];
-const HOLDINGS_OPTIONS: AnalysisHoldingsState[] = ["current-only", "include-sold"];
+const SELECTION_OPTIONS: AnalysisSelection[] = ["topDrivers", "manualTickers"];
+const HOLDINGS_OPTIONS: AnalysisPositionStatus[] = ["openOnly", "includeClosed"];
+const DRIVER_OPTIONS: AnalysisDriverCount[] = [5, 10, 20];
 const DETAIL_SORT_OPTIONS = ["ranking", "name", "end-pnl"] as const;
 type DetailSortOption = typeof DETAIL_SORT_OPTIONS[number];
+const DETAIL_LAYOUT_OPTIONS: AnalysisDetailLayout[] = ["responsive", "cards", "table"];
+const CUSTOM_TICKER_ID_LIMIT = 200;
+const TICKER_DETAIL_ACCOUNT_IDS_QUERY_LIMIT = 50;
 
 export function UnrealizedPnlAnalysisClient({
   explicitPreferenceKeys = EMPTY_ANALYSIS_EXPLICIT_PREFERENCE_KEYS,
@@ -78,8 +88,12 @@ export function UnrealizedPnlAnalysisClient({
   const [showFilters, setShowFilters] = useState(false);
   const [mobileTotalDetailOpen, setMobileTotalDetailOpen] = useState(false);
   const [detailSort, setDetailSort] = useState<DetailSortOption>("ranking");
+  const [mutedSeriesIds, setMutedSeriesIds] = useState<Set<string>>(() => new Set());
   const [, startTransition] = useTransition();
+  const stateRef = useRef(initialState);
   const didHydratePreferencesRef = useRef(false);
+  const hasLocalStateEditRef = useRef(false);
+  const settingsRef = useRef<UnrealizedPnlAnalysisSettings>(settingsFromState(initialState));
   const lastPersistedPreferencesRef = useRef<string | null>(null);
   const cacheScope = useMemo(() => getRouteDtoContextScope(shellData.sessionUserId), [shellData.sessionUserId]);
   const reducedMotion = useReducedMotion();
@@ -91,6 +105,10 @@ export function UnrealizedPnlAnalysisClient({
     locale: resolvedLocale,
     state,
   });
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   useEffect(() => {
     if (!mobileTotalDetailOpen || typeof window.matchMedia !== "function") return undefined;
@@ -111,19 +129,39 @@ export function UnrealizedPnlAnalysisClient({
     void getJson<UserPreferencesResponse>("/user-preferences", { contextScope: "session" })
       .then((response) => {
         if (cancelled) return;
-        const defaults = parseAnalysisPresentationDefaultsFromPreferences(response.preferences);
+        const defaults = parseAnalysisSettingsFromPreferences(response.preferences);
+        const shouldMigrateLegacySettings = response.preferences?.[ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY] === undefined
+          && response.preferences?.[LEGACY_ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY] !== undefined;
+        const legacySettings = response.preferences?.[LEGACY_ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY];
+        const migratedSettings = buildMigratedAnalysisSettings(defaults, legacySettings);
         didHydratePreferencesRef.current = true;
-        if (!defaults) return;
         setState((current) => {
-          const next = applyAnalysisPresentationDefaults(current, defaults, explicitPreferenceKeys);
-          lastPersistedPreferencesRef.current = JSON.stringify(extractAnalysisPresentationDefaults(next));
+          if (hasLocalStateEditRef.current) {
+            settingsRef.current = mergeSettingsWithState(defaults, current);
+            lastPersistedPreferencesRef.current = JSON.stringify(defaults);
+            return current;
+          }
+          settingsRef.current = defaults;
+          const next = applyAnalysisSettings(current, defaults, explicitPreferenceKeys);
+          lastPersistedPreferencesRef.current = JSON.stringify(defaults);
           if (JSON.stringify(next) === JSON.stringify(current)) return current;
+          stateRef.current = next;
           const params = unrealizedPnlRouteStateToSearchParams(next);
           startTransition(() => {
             router.replace(`/analysis/unrealized-pnl${params.size > 0 ? `?${params.toString()}` : ""}`, { scroll: false });
           });
           return next;
         });
+        if (shouldMigrateLegacySettings && !hasLocalStateEditRef.current) {
+          void patchJson(
+            "/user-preferences",
+            {
+              [ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY]: migratedSettings,
+              [LEGACY_ANALYSIS_UNREALIZED_PNL_PREFERENCE_KEY]: null,
+            },
+            { contextScope: "session" },
+          ).catch(() => undefined);
+        }
       })
       .catch(() => {
         didHydratePreferencesRef.current = true;
@@ -133,7 +171,14 @@ export function UnrealizedPnlAnalysisClient({
     };
   }, [explicitPreferenceKeys, router, startTransition]);
 
-  const selectedSet = useMemo(() => new Set(data?.selectedSeriesIds ?? state.selected), [data?.selectedSeriesIds, state.selected]);
+  const candidateSeriesIds = useMemo(() => {
+    if (state.selection === "manualTickers" && state.tickerMode === "custom") return state.tickerIds;
+    return data?.selectedSeriesIds ?? state.tickerIds;
+  }, [data?.selectedSeriesIds, state.selection, state.tickerIds, state.tickerMode]);
+  const selectedSet = useMemo(() => {
+    return new Set(candidateSeriesIds.filter((seriesId) => !mutedSeriesIds.has(seriesId)));
+  }, [candidateSeriesIds, mutedSeriesIds]);
+  const hasZeroSelectedManualTickers = state.selection === "manualTickers" && state.tickerMode === "custom" && candidateSeriesIds.length === 0;
   const chartDates = useMemo(() => collectChartDates(data?.tickerSeries ?? []), [data?.tickerSeries]);
   const maxFocusIndex = Math.max(0, chartDates.length - 1);
   const stateFocusIndex = state.focusDate ? chartDates.indexOf(state.focusDate) : -1;
@@ -181,20 +226,51 @@ export function UnrealizedPnlAnalysisClient({
     [focusDate, selectedSeries],
   );
 
+  useEffect(() => {
+    setMutedSeriesIds(new Set());
+  }, [
+    candidateSeriesIds,
+    data?.selectedSeriesIds,
+    state.accounts,
+    state.from,
+    state.granularity,
+    state.positionStatus,
+    state.includeProvisional,
+    state.instrumentTypes,
+    state.drivers,
+    state.markets,
+    state.range,
+    state.reportingCurrency,
+    state.selection,
+    state.tickerIds,
+    state.tickerMode,
+    state.to,
+  ]);
+
   function replaceState(next: UnrealizedPnlAnalysisRouteState): void {
+    const previousState = stateRef.current;
+    hasLocalStateEditRef.current = true;
+    stateRef.current = next;
     setState(next);
-    persistPresentationDefaults(next);
+    settingsRef.current = mergeSettingsWithState(settingsRef.current, next);
+    if (next.detailLayout !== previousState.detailLayout) persistSettings(next);
     const params = unrealizedPnlRouteStateToSearchParams(next);
     startTransition(() => {
       router.replace(`/analysis/unrealized-pnl${params.size > 0 ? `?${params.toString()}` : ""}`, { scroll: false });
     });
   }
 
-  function persistPresentationDefaults(next: UnrealizedPnlAnalysisRouteState): void {
+  useEffect(() => {
+    if (!data || !analysisDataMatchesState(data, state)) return;
+    persistSettings(state);
+  }, [data, state]);
+
+  function persistSettings(next: UnrealizedPnlAnalysisRouteState): void {
     if (!didHydratePreferencesRef.current) return;
-    const payload = extractAnalysisPresentationDefaults(next);
+    const payload = mergeSettingsWithState(settingsRef.current, next);
     const serialized = JSON.stringify(payload);
     if (serialized === lastPersistedPreferencesRef.current) return;
+    settingsRef.current = payload;
     lastPersistedPreferencesRef.current = serialized;
     void patchJson(
       "/user-preferences",
@@ -206,15 +282,14 @@ export function UnrealizedPnlAnalysisClient({
   }
 
   function toggleSeries(seriesId: string): void {
-    const current = new Set(state.selectionMode === "manual" ? state.selected : data?.selectedSeriesIds ?? state.selected);
-    if (current.has(seriesId)) {
-      current.delete(seriesId);
-    } else if (current.size < state.lineCount) {
-      current.add(seriesId);
-    }
-    replaceState({
-      ...updateAnalysisSelection(state, [...current], "manual"),
-      view: "compare",
+    setMutedSeriesIds((current) => {
+      const next = new Set(current);
+      if (next.has(seriesId)) {
+        next.delete(seriesId);
+      } else {
+        next.add(seriesId);
+      }
+      return next;
     });
   }
 
@@ -314,31 +389,30 @@ export function UnrealizedPnlAnalysisClient({
             onChange={(granularity) => replaceState({ ...state, granularity, range: state.range === "ALL" && granularity !== "yearly" ? "5Y" : state.range })}
           />
         </ControlGroup>
-        <ControlGroup label={dict.linesLabel}>
-          <input
-            aria-label={dict.linesLabel}
-            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-            max={20}
-            min={1}
-            type="number"
-            value={state.lineCount}
-            onChange={(event) => replaceState({ ...state, lineCount: Math.max(1, Math.min(20, Number(event.currentTarget.value) || 5)) })}
-          />
-        </ControlGroup>
+        {state.selection === "topDrivers" ? (
+          <ControlGroup label={dict.linesLabel}>
+            <Segmented
+              labelFor={(option) => String(option)}
+              options={DRIVER_OPTIONS}
+              value={state.drivers}
+              onChange={(drivers) => replaceState({ ...state, drivers })}
+            />
+          </ControlGroup>
+        ) : null}
         <ControlGroup label={dict.selectionLabel}>
           <Segmented
-            labelFor={(option) => option === "manual" ? dict.manualSelection : dict.topDrivers}
+            labelFor={(option) => option === "manualTickers" ? dict.manualSelection : dict.topDrivers}
             options={SELECTION_OPTIONS}
-            value={state.selectionMode}
-            onChange={(selectionMode) => replaceState({ ...state, selectionMode })}
+            value={state.selection}
+            onChange={(selection) => replaceState(applySelectionModeSettings(stateRef.current, settingsRef.current, selection))}
           />
         </ControlGroup>
         <ControlGroup label={dict.holdingsLabel}>
           <Segmented
-            labelFor={(option) => option === "include-sold" ? dict.includeSold : dict.currentOnly}
+            labelFor={(option) => option === "includeClosed" ? dict.includeSold : dict.currentOnly}
             options={HOLDINGS_OPTIONS}
-            value={state.holdingsState}
-            onChange={(holdingsState) => replaceState({ ...state, holdingsState })}
+            value={state.positionStatus}
+            onChange={(positionStatus) => replaceState({ ...state, positionStatus })}
           />
         </ControlGroup>
         <OptionChecklist
@@ -353,11 +427,15 @@ export function UnrealizedPnlAnalysisClient({
           selected={state.accounts}
           onChange={(accounts) => replaceState({ ...state, accounts })}
         />
-        <OptionChecklist
-          label={dict.tickersLabel}
+        <TickerPicker
+          label={state.selection === "topDrivers" ? dict.tickerUniverseLabel : dict.tickerMembershipLabel}
           options={data?.availableFilters.tickers ?? []}
-          selected={state.tickers}
-          onChange={(tickers) => replaceState({ ...state, tickers })}
+          requestedTickerAvailability={data?.requestedTickerAvailability ?? []}
+          selection={state.selection}
+          tickerIds={state.tickerIds}
+          tickerMode={state.tickerMode}
+          onChange={(tickerMode, tickerIds) => replaceState({ ...state, tickerMode, tickerIds })}
+          dict={dict}
         />
         <OptionChecklist
           label={dict.instrumentTypeLabel}
@@ -386,6 +464,18 @@ export function UnrealizedPnlAnalysisClient({
           {dict.provisionalLabel}
         </label>
       </section>
+
+      {data?.warningFacts.candidateLimitApplied ? (
+        <div className="rounded-md border border-amber-300/60 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {dict.hardLimitWarning
+            .replace("{shown}", String(data.warningFacts.candidateLimit))
+            .replace("{total}", String(data.warningFacts.candidateLimit + data.warningFacts.omittedEligibleCount))}
+        </div>
+      ) : data?.warningFacts.noisyChart ? (
+        <div className="rounded-md border border-amber-300/60 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          {dict.noisyChartWarning}
+        </div>
+      ) : null}
 
       <section className={cn("grid gap-3 md:grid-cols-4", isCurrencyStale && "opacity-45")} aria-busy={isCurrencyStale}>
         <div>
@@ -440,24 +530,39 @@ export function UnrealizedPnlAnalysisClient({
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,0.42fr)]">
+            <div className="grid gap-4">
               <div className="min-w-0">
-                <AnalysisSvgChart ariaLabel={dict.chartAriaLabel} dates={chartDates} focusDate={focusDate} locale={resolvedLocale} reducedMotion={reducedMotion} selectedSet={selectedSet} series={data?.tickerSeries ?? []} />
-                <label className="mt-4 block text-xs font-medium text-muted-foreground" htmlFor="analysis-focus">{dict.focusLabel}</label>
-                <input
-                  data-testid="analysis-focus-scrub"
-                  id="analysis-focus"
-                  className="mt-2 w-full"
-                  max={maxFocusIndex}
-                  min={0}
-                  type="range"
-                  value={activeFocusIndex}
-                  onChange={(event) => updateFocus(Number(event.currentTarget.value))}
-                />
-                <div className="mt-2 text-sm text-muted-foreground">
-                  {focusDate ? formatDateLabel(focusDate, resolvedLocale) : dict.emptyBody}
-                </div>
-                {focusedSelectedValues.length > 0 ? (
+                {hasZeroSelectedManualTickers ? (
+                  <AnalysisEmptyState title={dict.manualEmptyTitle} body={dict.manualEmptyBody} />
+                ) : (
+                  <>
+                    <AnalysisSvgChart
+                      ariaLabel={dict.chartAriaLabel}
+                      dates={chartDates}
+                      focusDate={focusDate}
+                      locale={resolvedLocale}
+                      onToggleSeries={toggleSeries}
+                      reducedMotion={reducedMotion}
+                      selectedSet={selectedSet}
+                      series={data?.tickerSeries ?? []}
+                    />
+                    <label className="mt-4 block text-xs font-medium text-muted-foreground" htmlFor="analysis-focus">{dict.focusLabel}</label>
+                    <input
+                      data-testid="analysis-focus-scrub"
+                      id="analysis-focus"
+                      className="mt-2 w-full"
+                      max={maxFocusIndex}
+                      min={0}
+                      type="range"
+                      value={activeFocusIndex}
+                      onChange={(event) => updateFocus(Number(event.currentTarget.value))}
+                    />
+                    <div className="mt-2 text-sm text-muted-foreground">
+                      {focusDate ? formatDateLabel(focusDate, resolvedLocale) : dict.emptyBody}
+                    </div>
+                  </>
+                )}
+                {!hasZeroSelectedManualTickers && focusedSelectedValues.length > 0 ? (
                   <div className="mt-3 rounded-md border border-border/70 bg-muted/30 p-2" data-testid="analysis-focus-values">
                     <p className="text-[11px] font-semibold uppercase text-muted-foreground">{dict.focusValuesLabel}</p>
                     <div className="mt-2 grid gap-1 sm:grid-cols-2">
@@ -477,42 +582,6 @@ export function UnrealizedPnlAnalysisClient({
                 ) : null}
               </div>
 
-              <div className="rounded-md border border-border/70 bg-muted/20 p-3" data-testid="analysis-ticker-selection">
-                <div>
-                  <h3 className="text-base font-semibold text-foreground">{dict.rankingTitle}</h3>
-                  <p className="mt-1 text-xs text-muted-foreground">{dict.rankingDescription}</p>
-                </div>
-                <div className="mt-3 grid max-h-[26rem] gap-2 overflow-y-auto pr-1">
-                  {(data?.tickerSelection ?? []).map((row) => {
-                    const isChecked = selectedSet.has(row.seriesId);
-                    return (
-                      <button
-                        key={row.seriesId}
-                        aria-checked={isChecked}
-                        className={cn(
-                          "grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-2 rounded-md border bg-background p-2 text-left text-sm transition",
-                          isChecked ? "border-primary/50" : "border-border/70 opacity-55",
-                        )}
-                        role="checkbox"
-                        type="button"
-                        onClick={() => toggleSeries(row.seriesId)}
-                      >
-                        <span className={cn("mt-0.5 grid h-5 w-5 place-items-center rounded border text-xs", isChecked ? "border-primary bg-primary text-primary-foreground" : "border-border")} aria-hidden="true">
-                          {isChecked ? "✓" : ""}
-                        </span>
-                        <span className="min-w-0">
-                          <span className="flex min-w-0 items-center gap-2">
-                            <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", row.isManual ? "bg-violet-100 text-violet-700" : "bg-muted text-muted-foreground")}>{row.isManual ? dict.manualBadge : row.rankLabel}</span>
-                            <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: row.colorToken }} />
-                            <span className="truncate font-medium text-foreground">{row.displayName}</span>
-                          </span>
-                          <span className="mt-1 block truncate text-xs text-muted-foreground">{row.ticker} {row.marketCode} · {positionLabel(row.positionStatus)}</span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
             </div>
 
             <div className="border-t border-border/70 pt-4" data-testid="analysis-selected-detail">
@@ -527,11 +596,23 @@ export function UnrealizedPnlAnalysisClient({
                   value={detailSort}
                   onChange={setDetailSort}
                 />
+                <Segmented
+                  labelFor={(option) => option === "responsive" ? "Auto" : option === "cards" ? "Cards" : "Table"}
+                  options={DETAIL_LAYOUT_OPTIONS}
+                  value={state.detailLayout}
+                  onChange={(detailLayout) => replaceState({ ...state, detailLayout })}
+                />
               </div>
-              <div className="mt-3 grid gap-3 lg:grid-cols-2">
-                {detailRows.map((row) => {
+              <div
+                className={cn("mt-3 grid gap-3 lg:grid-cols-2", state.detailLayout === "table" && "hidden", state.detailLayout === "responsive" && "lg:hidden")}
+                data-testid="analysis-detail-cards"
+              >
+                {hasZeroSelectedManualTickers ? (
+                  <AnalysisEmptyState compact title={dict.manualEmptyTitle} body={dict.manualEmptyBody} />
+                ) : detailRows.map((row) => {
                   const series = seriesById.get(row.seriesId);
                   const isChecked = selectedSet.has(row.seriesId);
+                  const href = buildTickerDetailHref(row, state, data);
                   const point = series ? (focusDate ? series.points.find((candidate) => candidate.date === focusDate) : series.points.at(-1)) : undefined;
                   const focusedMarkers = series?.markers.filter((marker) => marker.date === point?.date) ?? [];
                   const healthLabel = !point
@@ -540,47 +621,89 @@ export function UnrealizedPnlAnalysisClient({
                     ? dict.healthPartial
                     : dict.healthComplete;
                   return (
-                    <div key={row.seriesId} className={cn("rounded-md border border-border p-3", !isChecked && "bg-muted/30 opacity-60")} data-testid={isChecked ? "analysis-detail-expanded" : "analysis-detail-collapsed"}>
+                    <div key={row.seriesId} className={cn("rounded-md border border-border p-3", !isChecked && "bg-muted/30 opacity-60")} data-testid={isChecked ? "analysis-detail-expanded" : "analysis-detail-muted"}>
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <p className="flex min-w-0 items-center gap-2 font-medium">
-                            <span className={cn("rounded-full px-2 py-0.5 text-[11px] font-semibold", row.isManual ? "bg-violet-100 text-violet-700" : "bg-muted text-muted-foreground")}>{row.isManual ? dict.manualBadge : row.rankLabel}</span>
+                          <p className="flex min-w-0 flex-wrap items-center gap-2 font-medium">
+                            <SelectionBadge label={row.isManual ? dict.manualBadge : row.rankLabel} tone={row.isManual ? "manual" : "default"} />
                             <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: row.colorToken }} />
-                            <span className="truncate">{row.displayName}</span>
+                            <a className="min-w-0 flex-1 basis-40 break-words text-primary hover:underline" href={href}>{row.displayName}</a>
+                            {!isChecked ? <SelectionBadge label={dict.mutedLineLabel} tone="muted" /> : null}
                           </p>
-                          <p className="mt-1 text-xs text-muted-foreground">{row.ticker} {row.marketCode} · {positionLabel(row.positionStatus)}</p>
+                          <p className="mt-1 text-xs text-muted-foreground"><a className="text-primary hover:underline" href={href}>{row.marketCode}:{row.ticker}</a> · {positionLabel(row.positionStatus)}</p>
                         </div>
-                        {!isChecked ? (
-                          <button className="shrink-0 rounded-md border border-border bg-background px-2 py-1 text-xs font-medium" type="button" onClick={() => toggleSeries(row.seriesId)}>
-                            {dict.showLine}
-                          </button>
-                        ) : null}
                       </div>
-                      {isChecked ? (
-                        <>
-                          <dl className="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-3">
-                            <DetailTerm label={focusDate ? dict.detailFocusedPnl : dict.detailEndPnl} value={formatNullableCurrency(point?.unrealizedPnl ?? null, series?.currency ?? responseCurrency, resolvedLocale)} />
-                            <DetailTerm label={dict.detailQuantity} value={point ? formatNumber(point.quantity, resolvedLocale, 4) : "-"} />
-                            <DetailTerm label={dict.detailMarketValue} value={formatNullableCurrency(point?.marketValue ?? null, series?.currency ?? responseCurrency, resolvedLocale)} />
-                            <DetailTerm label={dict.detailCostBasis} value={formatNullableCurrency(point?.costBasis ?? null, series?.currency ?? responseCurrency, resolvedLocale)} />
-                            <DetailTerm label={dict.detailClosePrice} value={point?.closePrice === null || point?.closePrice === undefined ? "-" : formatNumber(point.closePrice, resolvedLocale, 4)} />
-                            <DetailTerm label={dict.detailState} value={healthLabel} />
-                          </dl>
-                          <p className="mt-3 text-xs text-muted-foreground">{point?.transactionContext ?? "-"}</p>
-                          {focusedMarkers.length > 0 ? (
-                            <div className="mt-2 flex flex-wrap gap-1">
-                              {focusedMarkers.map((marker) => (
-                                <span key={`${marker.date}-${marker.type}-${marker.label}`} className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground">
-                                  {marker.label}
-                                </span>
-                              ))}
-                            </div>
-                          ) : null}
-                        </>
+                      <dl className="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-3">
+                        <DetailTerm label={focusDate ? dict.detailFocusedPnl : dict.detailEndPnl} value={formatNullableCurrency(point?.unrealizedPnl ?? null, series?.currency ?? responseCurrency, resolvedLocale)} />
+                        <DetailTerm label={dict.detailQuantity} value={point ? formatNumber(point.quantity, resolvedLocale, 4) : "-"} />
+                        <DetailTerm label={dict.detailMarketValue} value={formatNullableCurrency(point?.marketValue ?? null, series?.currency ?? responseCurrency, resolvedLocale)} />
+                        <DetailTerm label={dict.detailCostBasis} value={formatNullableCurrency(point?.costBasis ?? null, series?.currency ?? responseCurrency, resolvedLocale)} />
+                        <DetailTerm label={dict.detailClosePrice} value={point?.closePrice === null || point?.closePrice === undefined ? "-" : formatNumber(point.closePrice, resolvedLocale, 4)} />
+                        <DetailTerm label={dict.detailState} value={healthLabel} />
+                      </dl>
+                      <p className="mt-3 text-xs text-muted-foreground">{point?.transactionContext ?? "-"}</p>
+                      {focusedMarkers.length > 0 ? (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {focusedMarkers.map((marker) => (
+                            <span key={`${marker.date}-${marker.type}-${marker.label}`} className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground">
+                              {marker.label}
+                            </span>
+                          ))}
+                        </div>
                       ) : null}
                     </div>
                   );
                 })}
+              </div>
+              <div
+                className={cn("mt-3 overflow-x-auto rounded-md border border-border", state.detailLayout === "cards" && "hidden", state.detailLayout === "responsive" && "hidden lg:block")}
+                data-testid="analysis-detail-table"
+              >
+                {hasZeroSelectedManualTickers ? (
+                  <AnalysisEmptyState compact title={dict.manualEmptyTitle} body={dict.manualEmptyBody} />
+                ) : (
+                <table className="min-w-full text-left text-sm">
+                  <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
+                    <tr>
+                      <th className="px-3 py-2">{dict.tableTicker}</th>
+                      <th className="px-3 py-2">Market</th>
+                      <th className="px-3 py-2">{dict.detailEndPnl}</th>
+                      <th className="px-3 py-2">{dict.tableChange}</th>
+                      <th className="px-3 py-2">{dict.detailMarketValue}</th>
+                      <th className="px-3 py-2">{dict.detailCostBasis}</th>
+                      <th className="px-3 py-2">{dict.detailQuantity}</th>
+                      <th className="px-3 py-2">{dict.tableState}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detailRows.map((row) => {
+                      const series = seriesById.get(row.seriesId);
+                      const point = series ? (focusDate ? series.points.find((candidate) => candidate.date === focusDate) : series.points.at(-1)) : undefined;
+                      const isChecked = selectedSet.has(row.seriesId);
+                      const href = buildTickerDetailHref(row, state, data);
+                      return (
+                        <tr key={row.seriesId} className={cn("border-t border-border", !isChecked && "bg-muted/30 opacity-60")}>
+                          <td className="min-w-56 px-3 py-2">
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <SelectionBadge label={row.isManual ? dict.manualBadge : row.rankLabel} tone={row.isManual ? "manual" : "default"} />
+                              {!isChecked ? <SelectionBadge label={dict.mutedLineLabel} tone="muted" /> : null}
+                            </div>
+                            <a className="font-medium text-primary hover:underline" href={href}>{row.marketCode}:{row.ticker}</a>
+                            <a className="mt-0.5 block max-w-64 truncate text-xs text-primary/80 hover:underline" href={href}>{row.displayName}</a>
+                          </td>
+                          <td className="px-3 py-2">{row.marketCode}</td>
+                          <td className="px-3 py-2 font-mono tabular-nums">{formatNullableCurrency(row.endUnrealizedPnl, series?.currency ?? responseCurrency, resolvedLocale)}</td>
+                          <td className="px-3 py-2 font-mono tabular-nums">{formatNullableCurrency(row.periodChange, series?.currency ?? responseCurrency, resolvedLocale)}</td>
+                          <td className="px-3 py-2 font-mono tabular-nums">{formatNullableCurrency(point?.marketValue ?? null, series?.currency ?? responseCurrency, resolvedLocale)}</td>
+                          <td className="px-3 py-2 font-mono tabular-nums">{formatNullableCurrency(point?.costBasis ?? null, series?.currency ?? responseCurrency, resolvedLocale)}</td>
+                          <td className="px-3 py-2 font-mono tabular-nums">{point ? formatNumber(point.quantity, resolvedLocale, 4) : "-"}</td>
+                          <td className="px-3 py-2">{positionLabel(row.positionStatus)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+                )}
               </div>
             </div>
           </CardContent>
@@ -588,6 +711,22 @@ export function UnrealizedPnlAnalysisClient({
       </section>
     </main>
   );
+}
+
+function buildMigratedAnalysisSettings(
+  settings: UnrealizedPnlAnalysisSettings,
+  legacySettings: unknown,
+): Partial<UnrealizedPnlAnalysisSettings> {
+  const legacyHasReportingCurrency = Boolean(
+    legacySettings
+      && typeof legacySettings === "object"
+      && !Array.isArray(legacySettings)
+      && Object.prototype.hasOwnProperty.call(legacySettings, "reportingCurrency"),
+  );
+  if (legacyHasReportingCurrency) return settings;
+  const settingsWithoutCurrency: Partial<UnrealizedPnlAnalysisSettings> = { ...settings };
+  delete settingsWithoutCurrency.reportingCurrency;
+  return settingsWithoutCurrency;
 }
 
 function collectChartDates(series: UnrealizedPnlSeries[]): string[] {
@@ -662,6 +801,7 @@ function AnalysisSvgChart({
   dates,
   focusDate,
   locale,
+  onToggleSeries,
   reducedMotion,
   selectedSet,
   series,
@@ -670,6 +810,7 @@ function AnalysisSvgChart({
   dates: string[];
   focusDate: string | null;
   locale: LocaleCode;
+  onToggleSeries: (seriesId: string) => void;
   reducedMotion: boolean;
   selectedSet: ReadonlySet<string>;
   series: UnrealizedPnlSeries[];
@@ -704,12 +845,24 @@ function AnalysisSvgChart({
   return (
     <div className="w-full overflow-hidden rounded-md border border-border bg-background">
       <div className="grid max-h-[5.75rem] grid-cols-2 gap-x-4 gap-y-1 overflow-y-auto border-b border-border/70 bg-muted/20 px-3 py-2 text-[11px] lg:grid-cols-3 xl:grid-cols-2" data-testid="analysis-chart-legend">
-        {series.map((item) => (
-          <div key={item.seriesId} className={cn("flex min-w-0 items-center gap-1.5", !selectedSet.has(item.seriesId) && "opacity-50")}>
+        {series.map((item) => {
+          const isActive = selectedSet.has(item.seriesId);
+          return (
+          <button
+            key={item.seriesId}
+            aria-pressed={isActive}
+            className={cn(
+              "flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-left transition hover:bg-background",
+              !isActive && "opacity-50",
+            )}
+            type="button"
+            onClick={() => onToggleSeries(item.seriesId)}
+          >
             <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: item.colorToken }} />
             <span className="min-w-0 truncate leading-tight" title={item.displayName}>{item.displayName}</span>
-          </div>
-        ))}
+          </button>
+          );
+        })}
       </div>
       <svg aria-label={ariaLabel} className="h-[280px] w-full" preserveAspectRatio="none" viewBox={`0 0 ${width} ${height}`}>
         <line stroke="hsl(var(--border))" x1={pad} x2={width - pad} y1={yForValue(0)} y2={yForValue(0)} />
@@ -754,6 +907,26 @@ function AnalysisSvgChart({
   );
 }
 
+function AnalysisEmptyState({
+  body,
+  compact = false,
+  title,
+}: {
+  body: string;
+  compact?: boolean;
+  title: string;
+}) {
+  return (
+    <div className={cn(
+      "flex flex-col items-center justify-center rounded-md border border-dashed border-border bg-muted/20 text-center",
+      compact ? "min-h-28 p-4" : "min-h-[280px] p-6",
+    )}>
+      <p className="text-sm font-semibold text-foreground">{title}</p>
+      <p className="mt-1 max-w-md text-sm text-muted-foreground">{body}</p>
+    </div>
+  );
+}
+
 function ControlGroup({ children, label }: { children: ReactNode; label: string }) {
   return (
     <label className="flex flex-col gap-1 text-sm">
@@ -763,8 +936,8 @@ function ControlGroup({ children, label }: { children: ReactNode; label: string 
   );
 }
 
-function Segmented<T extends string>({
-  labelFor = (option) => option,
+function Segmented<T extends string | number>({
+  labelFor = (option) => String(option),
   onChange,
   options,
   value,
@@ -788,6 +961,210 @@ function Segmented<T extends string>({
       ))}
     </div>
   );
+}
+
+function TickerPicker({
+  dict,
+  label,
+  onChange,
+  options,
+  requestedTickerAvailability,
+  selection,
+  tickerIds,
+  tickerMode,
+}: {
+  dict: AnalysisDict;
+  label: string;
+  onChange: (tickerMode: AnalysisTickerMode, tickerIds: string[]) => void;
+  options: AnalysisFilterOption[];
+  requestedTickerAvailability: UnrealizedPnlRequestedTickerAvailability[];
+  selection: AnalysisSelection;
+  tickerIds: string[];
+  tickerMode: AnalysisTickerMode;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const selectedSet = new Set(tickerIds);
+  const availableRows = options.map((option) => buildTickerPickerRow(option.value, option.label, true, null));
+  const availableIds = new Set(availableRows.map((row) => row.tickerId));
+  const unavailableRows = requestedTickerAvailability
+    .filter((row) => !row.available && selectedSet.has(row.tickerId) && !availableIds.has(row.tickerId))
+    .map((row) => ({
+      tickerId: row.tickerId,
+      marketCode: row.marketCode,
+      ticker: row.ticker,
+      label: row.displayName ? `${row.tickerId}:${row.displayName}` : row.tickerId,
+      searchText: `${row.tickerId} ${row.displayName ?? ""}`.toLowerCase(),
+      available: false,
+      reason: row.reason,
+    }));
+  const rows = [...availableRows, ...unavailableRows];
+  const filteredRows = rows.filter((row) => row.searchText.includes(search.trim().toLowerCase()));
+  const groups = groupTickerRows(filteredRows);
+  const selectedCount = tickerMode === "allEligible" ? 0 : tickerIds.length;
+  const isZeroSelectedManualState = selection === "manualTickers" && tickerMode === "custom" && selectedCount === 0;
+  const triggerText = tickerMode === "allEligible"
+    ? dict.tickerPickerAllEligible
+    : isZeroSelectedManualState
+      ? dict.tickerPickerZeroSelected
+      : dict.tickerPickerCustomCount.replace("{count}", String(selectedCount));
+  const helperText = selection === "topDrivers"
+    ? dict.driversHint
+    : isZeroSelectedManualState
+      ? dict.manualEmptyBody
+      : dict.tickerMembershipLabel;
+
+  function close(nextOpen: boolean): void {
+    setOpen(nextOpen);
+    if (!nextOpen) setSearch("");
+  }
+
+  function toggle(row: TickerPickerRow): void {
+    if (!row.available && selectedSet.has(row.tickerId)) return;
+    const next = tickerMode === "allEligible"
+      ? new Set(seedCustomTickerIdsFromAllEligible(availableRows.map((candidate) => candidate.tickerId), row.tickerId))
+      : new Set(selectedSet);
+    if (tickerMode === "allEligible") {
+      next.delete(row.tickerId);
+    } else if (next.has(row.tickerId)) {
+      next.delete(row.tickerId);
+    } else {
+      if (next.size >= CUSTOM_TICKER_ID_LIMIT) return;
+      next.add(row.tickerId);
+    }
+    onChange("custom", [...next].sort((left, right) => left.localeCompare(right)));
+  }
+
+  function removeUnavailable(row: TickerPickerRow): void {
+    const next = tickerIds.filter((tickerId) => tickerId !== row.tickerId);
+    onChange("custom", next);
+  }
+
+  function reset(): void {
+    onChange("allEligible", []);
+    close(false);
+  }
+
+  function checkAll(): void {
+    reset();
+  }
+
+  function uncheckAll(): void {
+    onChange("custom", []);
+    close(false);
+  }
+
+  return (
+    <div className="min-w-0">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="text-xs font-medium text-muted-foreground">{label}</span>
+        <span className="truncate text-[11px] text-muted-foreground">{helperText}</span>
+      </div>
+      <Popover open={open} onOpenChange={close}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="flex h-9 w-full items-center justify-between gap-2 rounded-md border border-input bg-background px-3 text-left text-sm"
+            aria-expanded={open}
+            data-testid="analysis-ticker-picker-trigger"
+          >
+            <span className="min-w-0 truncate">{triggerText}</span>
+            <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-[min(28rem,calc(100vw-2rem))] p-0" data-testid="analysis-ticker-picker">
+          <div className="border-b border-border p-3">
+            <div className="flex items-center gap-2 rounded-md border border-input bg-background px-2">
+              <Search className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              <input
+                aria-label={dict.tickerPickerSearch}
+                className="h-9 min-w-0 flex-1 bg-transparent text-sm outline-none"
+                placeholder={dict.tickerPickerSearch}
+                value={search}
+                onChange={(event) => setSearch(event.currentTarget.value)}
+              />
+            </div>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {selection === "manualTickers" ? (
+                <>
+                  <Button className="h-8 w-full" variant="secondary" onClick={checkAll}>{dict.tickerPickerCheckAll}</Button>
+                  <Button className="h-8 w-full" variant="secondary" onClick={uncheckAll}>{dict.tickerPickerUncheckAll}</Button>
+                </>
+              ) : null}
+              {selection !== "manualTickers" && tickerMode === "custom" ? (
+                <Button className="h-8 w-full" variant="secondary" onClick={reset}>{dict.tickerPickerReset}</Button>
+              ) : null}
+            </div>
+          </div>
+          <div className="max-h-80 overflow-y-auto p-2" role="listbox" aria-multiselectable="true">
+            {groups.length > 0 ? groups.map((group) => (
+              <div key={group.marketCode} className="py-1">
+                <div className="px-2 py-1 text-[11px] font-semibold uppercase text-muted-foreground">{group.marketCode}</div>
+                <div className="grid gap-1">
+                  {group.rows.map((row) => {
+                    const checked = tickerMode === "allEligible" || selectedSet.has(row.tickerId);
+                    const unavailable = !row.available;
+                    const wouldExceedCustomLimit = tickerMode === "custom"
+                      && !selectedSet.has(row.tickerId)
+                      && selectedSet.size >= CUSTOM_TICKER_ID_LIMIT;
+                    const disabled = unavailable || wouldExceedCustomLimit;
+                    return (
+                      <label
+                        key={row.tickerId}
+                        className={cn(
+                          "flex min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-muted",
+                          disabled && "opacity-65",
+                        )}
+                      >
+                        <input
+                          checked={checked}
+                          disabled={disabled && !selectedSet.has(row.tickerId)}
+                          type="checkbox"
+                          onChange={() => toggle(row)}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate">{row.label}</span>
+                          {unavailable ? <span className="block text-xs text-amber-700">{dict.tickerPickerUnavailable}</span> : null}
+                        </span>
+                        {unavailable && selectedSet.has(row.tickerId) ? (
+                          <button
+                            type="button"
+                            className="rounded p-1 text-muted-foreground hover:bg-background hover:text-foreground"
+                            aria-label={`${dict.tickerPickerReset} ${row.tickerId}`}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              removeUnavailable(row);
+                            }}
+                          >
+                            <X className="h-3.5 w-3.5" aria-hidden="true" />
+                          </button>
+                        ) : null}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )) : (
+              <div className="px-2 py-6 text-center text-sm text-muted-foreground">{dict.tickerPickerNoMatches}</div>
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
+}
+
+function seedCustomTickerIdsFromAllEligible(tickerIds: string[], toggledTickerId: string): string[] {
+  const uniqueTickerIds = [...new Set(tickerIds)];
+  if (uniqueTickerIds.length <= CUSTOM_TICKER_ID_LIMIT) return uniqueTickerIds;
+  const cappedTickerIds = uniqueTickerIds.slice(0, CUSTOM_TICKER_ID_LIMIT);
+  if (cappedTickerIds.includes(toggledTickerId)) return cappedTickerIds;
+  return [
+    toggledTickerId,
+    ...uniqueTickerIds
+      .filter((tickerId) => tickerId !== toggledTickerId)
+      .slice(0, CUSTOM_TICKER_ID_LIMIT - 1),
+  ];
 }
 
 function OptionChecklist({
@@ -838,6 +1215,102 @@ function OptionChecklist({
       </div>
     </fieldset>
   );
+}
+
+interface TickerPickerRow {
+  tickerId: string;
+  marketCode: string;
+  ticker: string;
+  label: string;
+  searchText: string;
+  available: boolean;
+  reason: string | null;
+}
+
+function buildTickerPickerRow(tickerId: string, label: string, available: boolean, reason: string | null): TickerPickerRow {
+  const [marketCode = "", ticker = ""] = tickerId.split(":");
+  return {
+    tickerId,
+    marketCode,
+    ticker,
+    label,
+    searchText: `${tickerId} ${label}`.toLowerCase(),
+    available,
+    reason,
+  };
+}
+
+function groupTickerRows(rows: TickerPickerRow[]): Array<{ marketCode: string; rows: TickerPickerRow[] }> {
+  const groups = new Map<string, TickerPickerRow[]>();
+  for (const row of rows) {
+    const marketRows = groups.get(row.marketCode) ?? [];
+    marketRows.push(row);
+    groups.set(row.marketCode, marketRows);
+  }
+  return [...groups.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([marketCode, marketRows]) => ({
+      marketCode,
+      rows: marketRows.sort((left, right) => left.ticker.localeCompare(right.ticker)),
+    }));
+}
+
+function buildTickerDetailHref(
+  row: Pick<UnrealizedPnlTickerSelectionRow, "seriesId" | "ticker" | "marketCode">,
+  state: UnrealizedPnlAnalysisRouteState,
+  data: UnrealizedPnlAnalysisDto | null,
+): string {
+  const params = new URLSearchParams({
+    marketCode: row.marketCode,
+    source: "unrealized-pnl-analysis",
+  });
+  params.set("includeProvisional", (data?.query.includeProvisional ?? state.includeProvisional) ? "true" : "false");
+  const fromDate = data?.query.startDate ?? (state.range === "CUSTOM" ? state.from : null);
+  const toDate = data?.query.endDate ?? (state.range === "CUSTOM" ? state.to : null);
+  if (state.range === "ALL" || customTickerChartRangeExceedsLimit(fromDate, toDate)) {
+    params.set("chartRange", "ALL");
+  } else {
+    if (fromDate) params.set("fromDate", fromDate);
+    if (toDate) params.set("toDate", toDate);
+  }
+  const matchingSeries = data?.tickerSeries.find((series) => series.seriesId === row.seriesId);
+  const scopedAccountIds = matchingSeries
+    ? matchingSeries.accountIds.filter((accountId) => state.accounts.includes(accountId))
+    : state.accounts.length === 1
+      ? state.accounts
+      : [];
+  if (scopedAccountIds.length === 1) {
+    params.set("accountId", scopedAccountIds[0]!);
+  } else if (scopedAccountIds.length > 1 && scopedAccountIds.length <= TICKER_DETAIL_ACCOUNT_IDS_QUERY_LIMIT) {
+    params.set("accountIds", scopedAccountIds.join(","));
+  }
+  return `/tickers/${encodeURIComponent(row.ticker)}?${params.toString()}`;
+}
+
+function customTickerChartRangeExceedsLimit(fromDate: string | null, toDate: string | null): boolean {
+  if (!fromDate || !toDate) return false;
+  const maxEnd = new Date(`${fromDate}T00:00:00.000Z`);
+  maxEnd.setUTCFullYear(maxEnd.getUTCFullYear() + 10);
+  return new Date(`${toDate}T00:00:00.000Z`).getTime() > maxEnd.getTime();
+}
+
+function analysisDataMatchesState(data: UnrealizedPnlAnalysisDto, state: UnrealizedPnlAnalysisRouteState): boolean {
+  return data.query.granularity === state.granularity
+    && data.query.selection === state.selection
+    && data.query.tickerMode === state.tickerMode
+    && data.query.drivers === state.drivers
+    && data.query.positionStatus === state.positionStatus
+    && data.query.reportingCurrency === state.reportingCurrency
+    && data.query.includeProvisional === state.includeProvisional
+    && sameStringArray(data.query.markets, state.markets)
+    && sameStringArray(data.query.accounts, state.accounts)
+    && sameStringArray(data.query.tickerIds, state.tickerMode === "custom" ? state.tickerIds : [])
+    && sameStringArray(data.query.instrumentTypes, state.instrumentTypes);
+}
+
+function sameStringArray(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
 }
 
 function formatNullableCurrency(value: number | null, currency: string, locale: LocaleCode): string {
@@ -893,6 +1366,27 @@ function DetailTerm({ label, value }: { label: string; value: string }) {
       <dt className="text-xs text-muted-foreground">{label}</dt>
       <dd className="font-medium text-foreground">{value}</dd>
     </div>
+  );
+}
+
+function SelectionBadge({
+  label,
+  tone,
+}: {
+  label: string;
+  tone: "default" | "manual" | "muted";
+}) {
+  return (
+    <span className={cn(
+      "rounded-full px-2 py-0.5 text-[11px] font-semibold",
+      tone === "manual"
+        ? "bg-violet-100 text-violet-700"
+        : tone === "muted"
+          ? "bg-muted text-muted-foreground"
+          : "bg-muted text-muted-foreground",
+    )}>
+      {label}
+    </span>
   );
 }
 

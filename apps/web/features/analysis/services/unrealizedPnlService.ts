@@ -43,7 +43,7 @@ function mapApiAnalysis(
   response: ApiUnrealizedPnlAnalysisDto,
   state: UnrealizedPnlAnalysisRouteState,
 ): UnrealizedPnlAnalysisDto {
-  const selectedIds = response.selectedTickers.map((item) => buildSelectedSeriesId(item.marketCode, item.ticker));
+  const selectedIds = response.candidateTickers.map((item) => buildSelectedSeriesId(item.marketCode, item.ticker));
   const selectedSet = new Set(selectedIds);
   const markersBySeriesId = new Map<string, UnrealizedPnlPointMarker[]>();
   for (const marker of response.tradeMarkers) {
@@ -76,6 +76,7 @@ function mapApiAnalysis(
     };
   });
   const tickerSelection = buildTickerSelection(ranking, selectedIds, seriesById);
+  const selectedRanking = ranking.filter((row) => selectedSet.has(row.seriesId));
   const tickerComposition = response.tickerComposition.map((row) => {
     const seriesId = buildSelectedSeriesId(row.marketCode, row.ticker);
     const positionStatus = resolvePositionStatus(row);
@@ -94,10 +95,10 @@ function mapApiAnalysis(
       contributionSharePercent: row.contributionSharePercent,
     };
   }).sort(compareCompositionRows);
-  const bestDriver = [...ranking]
+  const bestDriver = [...selectedRanking]
     .filter((row) => row.periodChange !== null && row.periodChange > 0)
     .sort((left, right) => (right.periodChange ?? 0) - (left.periodChange ?? 0))[0] ?? null;
-  const worstDriver = [...ranking]
+  const worstDriver = [...selectedRanking]
     .filter((row) => row.periodChange !== null && row.periodChange < 0)
     .sort((left, right) => (left.periodChange ?? 0) - (right.periodChange ?? 0))[0] ?? null;
   const unavailableRows = response.dataHealth.unavailableRowCount;
@@ -108,19 +109,37 @@ function mapApiAnalysis(
       range: state.range,
       from: response.query.fromDate,
       to: response.query.toDate,
+      startDate: response.query.startDate,
+      endDate: response.query.endDate,
       granularity: response.query.granularity,
       markets: response.query.markets,
       accounts: response.query.accountIds,
-      tickers: response.query.tickers,
-      selectionMode: response.query.selectionMode === "manual" ? "manual" : "top-drivers",
-      selected: selectedIds,
-      lineCount: response.query.comparisonLineCount,
-      holdingsState: response.query.holdingsState === "include_sold_out" ? "include-sold" : "current-only",
+      tickerIds: response.query.tickerIds,
+      selection: response.query.selection === "manualTickers" ? "manualTickers" : "topDrivers",
+      tickerMode: response.query.tickerMode,
+      drivers: response.query.drivers,
+      positionStatus: response.query.positionStatus === "includeClosed" ? "includeClosed" : "openOnly",
       reportingCurrency: response.query.reportingCurrency,
       includeProvisional: response.query.includeProvisional,
       instrumentTypes: response.query.instrumentTypes,
     },
     availableFilters: buildAvailableFilters(response),
+    requestedTickerAvailability: response.requestedTickerAvailability.map((row) => ({
+      tickerId: row.tickerId,
+      marketCode: row.marketCode,
+      ticker: row.ticker,
+      displayName: row.instrumentName,
+      available: row.eligible,
+      reason: row.reason,
+    })),
+    warningFacts: {
+      candidateLimitApplied: response.warningFacts.candidateLimitApplied,
+      candidateLimit: response.warningFacts.candidateLimit,
+      omittedEligibleCount: response.warningFacts.omittedEligibleCount,
+      noisyChart: response.warningFacts.noisyChartLineCount > response.warningFacts.noisyChartThreshold,
+      renderedCandidateCount: response.warningFacts.noisyChartLineCount,
+      noisyChartLineThreshold: response.warningFacts.noisyChartThreshold,
+    },
     summary: {
       totalUnrealized: {
         label: "Total unrealized",
@@ -187,10 +206,13 @@ function buildTickerSelection(
   selectedIds: string[],
   seriesById: ReadonlyMap<string, UnrealizedPnlSeries>,
 ): UnrealizedPnlTickerSelectionRow[] {
-  const rows: UnrealizedPnlTickerSelectionRow[] = ranking.map((row, index) => ({
+  const selectedIdSet = new Set(selectedIds);
+  const rankBySeriesId = new Map(ranking.map((row, index) => [row.seriesId, index + 1] as const));
+  const selectionRows = ranking.filter((row) => selectedIdSet.has(row.seriesId));
+  const rows: UnrealizedPnlTickerSelectionRow[] = selectionRows.map((row) => ({
     ...row,
-    rankLabel: `#${index + 1}`,
-    rankSort: index + 1,
+    rankLabel: `#${rankBySeriesId.get(row.seriesId) ?? 0}`,
+    rankSort: rankBySeriesId.get(row.seriesId) ?? Number.MAX_SAFE_INTEGER,
     colorToken: seriesById.get(row.seriesId)?.colorToken ?? "#64748b",
     isManual: false,
   }));
@@ -233,12 +255,15 @@ function compareCompositionRows(
 
 function buildAvailableFilters(response: ApiUnrealizedPnlAnalysisDto): UnrealizedPnlAnalysisDto["availableFilters"] {
   const marketValues = new Set<string>(response.query.markets);
-  const tickerLabels = new Map<string, Set<string>>();
+  const tickerLabels = new Map<string, string>();
   const accountLabels = new Map<string, string>();
+  const requestedAvailabilityByTickerId = new Map(
+    response.requestedTickerAvailability.map((row) => [row.tickerId, row] as const),
+  );
 
   for (const row of response.rankings) {
     marketValues.add(row.marketCode);
-    addTickerLabel(tickerLabels, row.ticker, row.marketCode);
+    addTickerLabel(tickerLabels, row.ticker, row.marketCode, row.instrumentName);
     row.accountIds.forEach((accountId, index) => {
       accountLabels.set(accountId, row.accountNames[index] ?? accountId);
     });
@@ -246,7 +271,7 @@ function buildAvailableFilters(response: ApiUnrealizedPnlAnalysisDto): Unrealize
 
   for (const point of response.tickerSeries) {
     marketValues.add(point.marketCode);
-    addTickerLabel(tickerLabels, point.ticker, point.marketCode);
+    addTickerLabel(tickerLabels, point.ticker, point.marketCode, point.instrumentName);
     point.accountIds.forEach((accountId, index) => {
       accountLabels.set(accountId, point.accountNames[index] ?? accountId);
     });
@@ -254,7 +279,7 @@ function buildAvailableFilters(response: ApiUnrealizedPnlAnalysisDto): Unrealize
 
   for (const row of response.tickerComposition) {
     marketValues.add(row.marketCode);
-    addTickerLabel(tickerLabels, row.ticker, row.marketCode);
+    addTickerLabel(tickerLabels, row.ticker, row.marketCode, row.instrumentName);
     row.accountIds.forEach((accountId, index) => {
       accountLabels.set(accountId, row.accountNames[index] ?? accountId);
     });
@@ -263,8 +288,11 @@ function buildAvailableFilters(response: ApiUnrealizedPnlAnalysisDto): Unrealize
   for (const accountId of response.query.accountIds) {
     accountLabels.set(accountId, accountLabels.get(accountId) ?? accountId);
   }
-  for (const ticker of response.query.tickers) {
-    if (!tickerLabels.has(ticker)) tickerLabels.set(ticker, new Set());
+  for (const tickerId of response.query.tickerIds) {
+    const [marketCode, ticker] = tickerId.split(":");
+    const requestedAvailability = requestedAvailabilityByTickerId.get(tickerId);
+    if (requestedAvailability?.eligible === false) continue;
+    if (ticker && marketCode) addTickerLabel(tickerLabels, ticker, marketCode, requestedAvailability?.instrumentName ?? null);
   }
 
   return {
@@ -276,19 +304,19 @@ function buildAvailableFilters(response: ApiUnrealizedPnlAnalysisDto): Unrealize
       .map(([value, label]) => ({ value, label })),
     tickers: [...tickerLabels.entries()]
       .sort(([left], [right]) => left.localeCompare(right))
-      .map(([value, labels]) => ({
+      .map(([value, label]) => ({
         value,
-        label: labels.size > 0 ? `${value} ${[...labels].sort().join("/")}` : value,
+        label,
       })),
     reportingCurrencies: ["TWD", "USD", "AUD", "KRW", "JPY"].map((currency) => ({ value: currency, label: currency })),
     instrumentTypes: ["STOCK", "ETF", "BOND_ETF"].map((instrumentType) => ({ value: instrumentType, label: instrumentType })),
   };
 }
 
-function addTickerLabel(target: Map<string, Set<string>>, ticker: string, marketCode: string): void {
-  const labels = target.get(ticker) ?? new Set<string>();
-  labels.add(marketCode);
-  target.set(ticker, labels);
+function addTickerLabel(target: Map<string, string>, ticker: string, marketCode: string, instrumentName: string | null | undefined): void {
+  const key = `${marketCode}:${ticker.toUpperCase()}`;
+  if (target.has(key) && !instrumentName) return;
+  target.set(key, instrumentName ? `${key}:${instrumentName}` : key);
 }
 
 function groupSeries(

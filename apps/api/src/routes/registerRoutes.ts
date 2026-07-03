@@ -67,7 +67,7 @@ import {
   holdingsTableSettingsPreferenceSchema,
   priceColorConventionSchema,
   themeAccentSchema,
-  unrealizedPnlAnalysisPresentationPreferenceSchema,
+  unrealizedPnlAnalysisSettingsPreferenceSchema,
   currencyFor,
   marketCodeFor,
 } from "@vakwen/shared-types";
@@ -278,16 +278,27 @@ const queryBooleanSchema = z.preprocess((rawValue) => {
   return value;
 }, z.boolean());
 
+function normalizeAccountIdsQueryValue(value: unknown): string[] | undefined {
+  const rawValues = Array.isArray(value) ? value : [value];
+  const accountIds = rawValues
+    .flatMap((item) => typeof item === "string" ? item.split(",") : [])
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return accountIds.length > 0 ? accountIds : undefined;
+}
+
 // KZO-169: closed-set MarketCode chip ("ALL" not allowed at the route layer —
 // transactions must commit to a specific market).
 const marketCodeSchema = z.enum(MARKET_CODES);
 const accountDefaultCurrencySchema = z.enum(ACCOUNT_DEFAULT_CURRENCIES);
 const tickerChartQuerySchema = z.object({
   accountId: userScopedIdSchema.optional(),
+  accountIds: z.preprocess(normalizeAccountIdsQueryValue, z.array(userScopedIdSchema).max(50).optional()),
   marketCode: marketCodeSchema.optional(),
   range: tickerChartRangeSchema.optional(),
   startDate: isoDateSchema.optional(),
   endDate: isoDateSchema.optional(),
+  includeProvisional: queryBooleanSchema.optional(),
 }).superRefine((value, ctx) => {
   const hasCustomStart = Boolean(value.startDate);
   const hasCustomEnd = Boolean(value.endDate);
@@ -2061,15 +2072,17 @@ function buildTransactionHistoryItems(
   query: {
     ticker?: string;
     accountId?: string;
+    accountIds?: string[];
     marketCode?: string;
     limit?: number;
   } = {},
 ): TransactionHistoryItemDto[] {
   const accountById = new Map(store.accounts.map((account) => [account.id, account]));
   const buildRealizedPnlBreakdown = createRealizedPnlBreakdownResolver(store.accounting);
+  const accountIds = query.accountId ? new Set([query.accountId]) : new Set(query.accountIds ?? []);
   const sortedTrades = listTradeEvents(store)
     .filter((trade) => (query.ticker ? trade.ticker === query.ticker : true))
-    .filter((trade) => (query.accountId ? trade.accountId === query.accountId : true))
+    .filter((trade) => (accountIds.size > 0 ? accountIds.has(trade.accountId) : true))
     .filter((trade) => (query.marketCode ? trade.marketCode === query.marketCode : true))
     .sort(compareTransactionsForHistory);
   const visibleTrades = query.limit ? sortedTrades.slice(0, query.limit) : sortedTrades;
@@ -3924,9 +3937,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       dashboardHoldingFocus: z
         .union([dashboardHoldingFocusPreferenceSchema, z.null()])
         .optional(),
-      analysisUnrealizedPnlDefaults: z
-        .union([unrealizedPnlAnalysisPresentationPreferenceSchema, z.null()])
+      analysisUnrealizedPnlSettings: z
+        .union([unrealizedPnlAnalysisSettingsPreferenceSchema, z.null()])
         .optional(),
+      analysisUnrealizedPnlDefaults: z.null().optional(),
       holdingsTableSettings: z
         .union([holdingsTableSettingsPreferenceSchema, z.null()])
         .optional(),
@@ -5159,6 +5173,21 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     // `currencyFor()`. The previous `profile.commissionCurrency ?? "TWD"`
     // was a provider-stamping audit (G1) target.
     const tradeCurrency = currencyFor(marketCode);
+    if (account.defaultCurrency !== tradeCurrency) {
+      throw routeError(
+        400,
+        "currency_mismatch",
+        `Trade currency ${tradeCurrency} does not match account currency ${account.defaultCurrency}`,
+      );
+    }
+    const commissionCurrency = profile.commissionCurrency ?? "TWD";
+    if (commissionCurrency !== tradeCurrency) {
+      throw routeError(
+        400,
+        "currency_mismatch",
+        `Trade currency ${tradeCurrency} does not match fee profile commission currency ${commissionCurrency}`,
+      );
+    }
     const tradeValueAmount = roundToDecimal(body.quantity * body.unitPrice, 2);
 
     const fees = body.type === "BUY"
@@ -5432,6 +5461,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const query = z.object({
       ticker: tickerSchema.optional(),
       accountId: userScopedIdSchema.optional(),
+      accountIds: z.preprocess(normalizeAccountIdsQueryValue, z.array(userScopedIdSchema).max(50).optional()),
       marketCode: marketCodeSchema.optional(),
       limit: z.coerce.number().int().positive().max(100).optional(),
     }).parse(req.query);
@@ -5761,10 +5791,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/tickers/:ticker/primary", async (req): Promise<TickerPrimaryDto> => {
     const params = z.object({ ticker: tickerSchema }).parse(req.params);
-    const query = z.object({
-      accountId: userScopedIdSchema.optional(),
-      marketCode: marketCodeSchema.optional(),
-    }).parse(req.query);
+    const query = tickerChartQuerySchema.parse(req.query);
     const { store, userId } = await loadUserStore(app, req);
     const reportingCurrency = resolveReportingCurrency(await app.persistence.getUserPreferences(userId));
     const resolvedTicker = params.ticker.trim().toUpperCase();
@@ -5774,8 +5801,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       userId,
       ticker: resolvedTicker,
       accountId: query.accountId,
+      accountIds: query.accountIds,
       marketCode: query.marketCode,
       reportingCurrency,
+      includeProvisional: query.includeProvisional,
+      range: query.range,
+      startDate: query.startDate,
+      endDate: query.endDate,
       loadChart: false,
       fundamentalsRecord: null,
       getSettledTradingDay: async (resolvedMarket) => app.tradingCalendarCache.latestSettledTradingDay(resolvedMarket, new Date()),
@@ -5786,6 +5818,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       identity: details.identity,
       quote: details.quote,
       position: details.position,
+      unrealizedPnlHistory: details.unrealizedPnlHistory,
       transactions: details.transactions,
       dividends: details.dividends,
       holdingGroup: details.holdingGroup,
@@ -5815,8 +5848,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       userId,
       ticker: resolvedTicker,
       accountId: query.accountId,
+      accountIds: query.accountIds,
       marketCode: query.marketCode,
       reportingCurrency,
+      includeProvisional: query.includeProvisional,
       range: query.range,
       startDate: query.startDate,
       endDate: query.endDate,
@@ -5831,6 +5866,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const response = {
       identity: details.identity,
       chart: details.chart,
+      unrealizedPnlHistory: details.unrealizedPnlHistory,
       fundamentals: latestFundamentals?.fundamentals ?? details.fundamentals,
       fundamentalsRefresh: latestFundamentals
         ? {
@@ -5888,8 +5924,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       userId,
       ticker: resolvedTicker,
       accountId: query.accountId,
+      accountIds: query.accountIds,
       marketCode: query.marketCode,
       reportingCurrency,
+      includeProvisional: query.includeProvisional,
       range: query.range,
       startDate: query.startDate,
       endDate: query.endDate,

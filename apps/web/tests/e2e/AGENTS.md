@@ -11,6 +11,7 @@
 - Run CI reporter mode: `npm run test:e2e:ci:bypass:mem`.
 - Open Playwright report: `npm run test:e2e:show-report`.
 - Run single spec when iterating: `npx playwright test tests/e2e/specs/<spec>.spec.ts --config=apps/web/tests/e2e/playwright.config.ts`.
+- When running `npx playwright` directly after app, test-helper, or client bundle changes, rebuild the standalone web output first with the same env expected by the suite. The npm e2e scripts already rebuild; direct Playwright runs can otherwise serve stale `.next/standalone` output and create false UI failures.
 
 ## Code style guidelines
 - TypeScript policy: keep `compilerOptions.strict` enabled for test TypeScript configs.

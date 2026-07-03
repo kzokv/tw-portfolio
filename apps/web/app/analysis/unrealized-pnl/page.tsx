@@ -5,9 +5,9 @@ import { AppShell } from "../../../components/layout/AppShell";
 import { getRouteLoadingLabels } from "../../../components/layout/i18n";
 import { UnrealizedPnlAnalysisClient } from "../../../components/analysis/UnrealizedPnlAnalysisClient";
 import {
-  applyAnalysisPresentationDefaults,
+  applyAnalysisSettings,
   getExplicitAnalysisPreferenceKeys,
-  parseAnalysisPresentationDefaultsFromPreferences,
+  parseAnalysisSettingsFromPreferences,
   parseUnrealizedPnlRouteState,
 } from "../../../features/analysis/unrealizedPnlRouteState";
 import { requireSession } from "../../../lib/auth";
@@ -34,10 +34,8 @@ export default async function UnrealizedPnlPage({ searchParams }: UnrealizedPnlP
     getJson<UserSettings>("/settings", { contextScope: "session" }).catch(() => null),
     getJson<UserPreferencesResponse>("/user-preferences", { contextScope: "session" }).catch(() => null),
   ]);
-  const initialDefaults = parseAnalysisPresentationDefaultsFromPreferences(preferences?.preferences);
-  const initialState = initialDefaults
-    ? applyAnalysisPresentationDefaults(parsedState, initialDefaults, explicitPreferenceKeys)
-    : parsedState;
+  const initialSettings = parseAnalysisSettingsFromPreferences(preferences?.preferences);
+  const initialState = applyAnalysisSettings(parsedState, initialSettings, explicitPreferenceKeys);
   const locale = settings?.locale ?? "en";
   const loadingCopy = getRouteLoadingLabels(locale).analysis;
 
