@@ -187,8 +187,7 @@ function applyToLots(store: Store, tx: Transaction): void {
     return;
   }
 
-  const lots = relevantLots.filter((lot) => lot.openQuantity > 0);
-  const allocation = allocateSellLots(lots, tx.quantity);
+  const allocation = allocateSellLots(relevantLots, tx.quantity);
 
   replaceLots(store, tx.accountId, tx.ticker, allocation.updatedLots);
   replaceLotAllocationsForTrade(store, tx.id, buildLotAllocationProjections(tx, allocation.matchedAllocations));
