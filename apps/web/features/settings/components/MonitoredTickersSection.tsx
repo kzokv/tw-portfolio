@@ -243,6 +243,9 @@ export function MonitoredTickersSection({
   }, [selectedRepairKeys]);
 
   const selectedCountLabel = `${selectedRepairKeys.length} ${dict.settings.repairModeSelectedCount}`;
+  const hasMarketScopedSuggestions = suggestedRepairKeys.size > 0;
+  const isSuggestedRepair = (key: string, ticker: string): boolean =>
+    suggestedRepairKeys.has(key) || (!hasMarketScopedSuggestions && suggestedRepairTickers.has(ticker));
 
   function handleToggleRepairTicker(item: RepairCapableItem): void {
     const key = monitoredTickerKey(item);
@@ -382,64 +385,67 @@ export function MonitoredTickersSection({
 	            </div>
           ) : (
             <div className="max-h-48 space-y-1 overflow-y-auto">
-              {filteredManual.map((s) => (
-                <label
-                  key={s.key}
-                  className={`flex cursor-pointer items-center gap-2 rounded-md px-3 py-1.5 text-sm hover:bg-muted/50 ${
-                    suggestedRepairKeys.has(s.key) || suggestedRepairTickers.has(s.ticker) ? "ring-1 ring-warning/50 bg-warning/10" : ""
-                  }`}
-                  data-testid={`manual-ticker-${s.ticker}`}
-                >
-                  <input
-                    type="checkbox"
-                    checked
-                    onChange={() => onToggleTicker(s.key)}
-                    className="h-4 w-4 rounded border-input"
-                  />
-                  <span className="font-mono font-medium text-foreground">
-                    {s.ticker} · {s.marketCode}
-                  </span>
-                  {s.name && <span className="min-w-0 truncate text-muted-foreground">— {s.name}</span>}
-                  {suggestedRepairKeys.has(s.key) || suggestedRepairTickers.has(s.ticker) ? (
-                    <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-warning/20 text-warning" data-testid={`repair-suggested-${s.ticker}`}>
-                      {dict.settings.repairSuggestedTickerHint}
+              {filteredManual.map((s) => {
+                const suggested = isSuggestedRepair(s.key, s.ticker);
+                return (
+                  <label
+                    key={s.key}
+                    className={`flex cursor-pointer items-center gap-2 rounded-md px-3 py-1.5 text-sm hover:bg-muted/50 ${
+                      suggested ? "ring-1 ring-warning/50 bg-warning/10" : ""
+                    }`}
+                    data-testid={`manual-ticker-${s.ticker}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked
+                      onChange={() => onToggleTicker(s.key)}
+                      className="h-4 w-4 rounded border-input"
+                    />
+                    <span className="font-mono font-medium text-foreground">
+                      {s.ticker} · {s.marketCode}
                     </span>
-                  ) : null}
-                  {s.barsBackfillStatus && (
-                    <span className="ml-auto flex items-center gap-1">
-                      <span
-                        className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                          s.barsBackfillStatus === "ready"
-                            ? "bg-green-50 text-green-700"
-                            : s.barsBackfillStatus === "failed"
-                              ? "bg-red-50 text-red-700"
-                              : s.barsBackfillStatus === "backfilling"
-                                ? "bg-primary/10 text-primary"
-                                : "bg-muted text-muted-foreground"
-                        }`}
-                        data-testid={`backfill-badge-${s.ticker}`}
-                      >
-                        {s.barsBackfillStatus}
+                    {s.name && <span className="min-w-0 truncate text-muted-foreground">— {s.name}</span>}
+                    {suggested ? (
+                      <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-warning/20 text-warning" data-testid={`repair-suggested-${s.ticker}`}>
+                        {dict.settings.repairSuggestedTickerHint}
                       </span>
-                      {s.barsBackfillStatus === "failed" && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            onRetryBackfill(s.key);
-                          }}
-                          className="rounded p-0.5 text-red-500 hover:bg-red-50 hover:text-red-700"
-                          title="Retry backfill"
-                          data-testid={`retry-backfill-${s.ticker}`}
+                    ) : null}
+                    {s.barsBackfillStatus && (
+                      <span className="ml-auto flex items-center gap-1">
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                            s.barsBackfillStatus === "ready"
+                              ? "bg-green-50 text-green-700"
+                              : s.barsBackfillStatus === "failed"
+                                ? "bg-red-50 text-red-700"
+                                : s.barsBackfillStatus === "backfilling"
+                                  ? "bg-primary/10 text-primary"
+                                  : "bg-muted text-muted-foreground"
+                          }`}
+                          data-testid={`backfill-badge-${s.ticker}`}
                         >
-                          <RefreshCw className="h-3 w-3" />
-                        </button>
-                      )}
-                    </span>
-                  )}
-                </label>
-              ))}
+                          {s.barsBackfillStatus}
+                        </span>
+                        {s.barsBackfillStatus === "failed" && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              onRetryBackfill(s.key);
+                            }}
+                            className="rounded p-0.5 text-red-500 hover:bg-red-50 hover:text-red-700"
+                            title="Retry backfill"
+                            data-testid={`retry-backfill-${s.ticker}`}
+                          >
+                            <RefreshCw className="h-3 w-3" />
+                          </button>
+                        )}
+                      </span>
+                    )}
+                  </label>
+                );
+              })}
             </div>
           )
         ) : (
@@ -455,7 +461,7 @@ export function MonitoredTickersSection({
               const key = monitoredTickerKey(item);
               const selected = repairSelection.has(key);
               const disabled = !selected && disabledReason.length > 0;
-              const suggested = suggestedRepairKeys.has(key) || suggestedRepairTickers.has(item.ticker);
+              const suggested = isSuggestedRepair(key, item.ticker);
 
               return (
                 <label

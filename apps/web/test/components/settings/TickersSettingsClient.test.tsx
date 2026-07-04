@@ -29,9 +29,11 @@ vi.mock("../../../features/settings/hooks/useMonitoredTickers", () => ({
       { key: "2330|TW", ticker: "2330", name: "Taiwan Semiconductor", marketCode: "TW", source: "manual", barsBackfillStatus: "ready" },
       { key: "2317|TW", ticker: "2317", name: "Hon Hai", marketCode: "TW", source: "manual", barsBackfillStatus: "ready" },
       { key: "0050|TW", ticker: "0050", name: "Taiwan 50 ETF", marketCode: "TW", source: "manual", barsBackfillStatus: "ready" },
+      { key: "BHP|AU", ticker: "BHP", name: "BHP Group AU", marketCode: "AU", source: "manual", barsBackfillStatus: "ready" },
+      { key: "BHP|US", ticker: "BHP", name: "BHP Group US", marketCode: "US", source: "manual", barsBackfillStatus: "ready" },
     ],
     instruments: [],
-    selectedTickers: new Set(["2330|TW", "2317|TW", "0050|TW"]),
+    selectedTickers: new Set(["2330|TW", "2317|TW", "0050|TW", "BHP|AU", "BHP|US"]),
     showCatalog: false,
     setShowCatalog: setShowCatalogMock,
     toggleTicker: vi.fn(),
@@ -95,6 +97,21 @@ describe("TickersSettingsClient", () => {
     expect(container.querySelector("[data-testid='repair-row-2330']")?.textContent).toContain("Suggested by Data Health");
     expect(container.querySelector("[data-testid='repair-row-2317']")?.textContent).toContain("Suggested by Data Health");
     expect(container.querySelector("[data-testid='repair-row-0050']")?.textContent).not.toContain("Suggested by Data Health");
+  });
+
+  it("scopes Data Health repair suggestions to the linked market", async () => {
+    searchParamsMock.value = "repair=1&origin=data-health&market=AU&tickers=BHP";
+
+    act(() => {
+      root.render(<TickersSettingsClient />);
+    });
+
+    await act(async () => {});
+
+    const bhpRows = Array.from(container.querySelectorAll("[data-testid='repair-row-BHP']"));
+    expect(bhpRows).toHaveLength(2);
+    expect(bhpRows.find((row) => row.textContent?.includes("BHP · AU"))?.textContent).toContain("Suggested by Data Health");
+    expect(bhpRows.find((row) => row.textContent?.includes("BHP · US"))?.textContent).not.toContain("Suggested by Data Health");
   });
 
   it("does not show the Data Health origin banner for generic repair links", async () => {
