@@ -806,11 +806,18 @@ function buildReportHealthCauses({
 }): ReportHealthCause[] {
   const holdings = collectReportHoldingRows(data);
   const diagnostics = data.diagnostics;
+  const valuationHealth = reportValuationHealth(data);
   const reasons = new Set<ReportHealthReason>();
-  diagnostics.knownGapReasons.forEach((reason) => reasons.add(reportHealthReasonFromDiagnostics(reason)));
+  diagnostics.knownGapReasons.forEach((reason) => {
+    const mappedReason = reportHealthReasonFromDiagnostics(reason);
+    if (isSnapshotReportHealthReason(mappedReason) && !canSurfaceSnapshotReportHealthReason(mappedReason, data, diagnostics, valuationHealth)) return;
+    reasons.add(mappedReason);
+  });
   diagnostics.snapshotGapHoldings?.forEach((holding) => {
     holding.knownGapReasons.forEach((reason) => reasons.add(reason));
   });
+  if (affectedValuationHealthSnapshotTickers("missing_snapshot", valuationHealth).length > 0) reasons.add("missing_snapshot");
+  if (affectedValuationHealthSnapshotTickers("stale_snapshot", valuationHealth).length > 0) reasons.add("stale_snapshot");
   if (data.dataHealth.missingQuoteCount > 0) reasons.add("missing_quote");
   if (data.dataHealth.provisionalQuoteCount > 0) reasons.add("provisional_quote");
   if (data.dataHealth.nonCurrentPriceCount > 0) reasons.add("non_current_price");
@@ -819,19 +826,27 @@ function buildReportHealthCauses({
     const reportHasStaleSnapshot = hasReportStaleSnapshotDiagnostic(diagnostics);
     data.performance.diagnostics?.knownGapReasons.forEach((reason) => {
       const mappedReason = reportHealthReasonFromPerformanceGap(reason);
+      if (isSnapshotReportHealthReason(mappedReason) && !canSurfaceSnapshotReportHealthReason(mappedReason, data, diagnostics, valuationHealth)) return;
       if (mappedReason === "stale_snapshot" && !reportHasStaleSnapshot) return;
       reasons.add(mappedReason);
     });
-    if (data.performance.marketDataStaleSince && reportHasStaleSnapshot) reasons.add("stale_snapshot");
-    if (data.performance.points.length === 0) reasons.add("missing_snapshot");
+    if (
+      data.performance.marketDataStaleSince
+      && reportHasStaleSnapshot
+      && canSurfaceSnapshotReportHealthReason("stale_snapshot", data, diagnostics, valuationHealth)
+    ) reasons.add("stale_snapshot");
+    if (
+      data.performance.points.length === 0
+      && canSurfaceSnapshotReportHealthReason("missing_snapshot", data, diagnostics, valuationHealth)
+    ) reasons.add("missing_snapshot");
   }
   const requestedReasons = new Set(healthQuery.reasons);
   requestedReasons.forEach((reason) => reasons.add(reason));
 
   return [...reasons].sort((left, right) => reportHealthReasonRank(left) - reportHealthReasonRank(right)).map((reason) => {
     const copy = reportHealthReasonCopy(dict, reason);
-    const active = isReportHealthReasonActive(reason, data, holdings, diagnostics);
-    const tickers = affectedReportTickers(reason, holdings, diagnostics);
+    const active = isReportHealthReasonActive(reason, data, holdings, diagnostics, valuationHealth);
+    const tickers = affectedReportTickers(reason, holdings, diagnostics, valuationHealth);
     const markets = affectedReportMarkets(reason, data, holdings, diagnostics);
     const fxPairs = reason === "missing_fx"
       ? data.fxStatus.missingRatePairs.map((pair) => `${pair.from}->${pair.to}`)
@@ -880,8 +895,9 @@ function isReportHealthReasonActive(
   data: AnyReportDto,
   holdings: ReportHoldingRowDto[],
   diagnostics: ReportDiagnosticsDto,
+  valuationHealth = reportValuationHealth(data),
 ): boolean {
-  return reportHealthReasonCount(reason, data, holdings, diagnostics) > 0;
+  return reportHealthReasonCount(reason, data, holdings, diagnostics, valuationHealth) > 0;
 }
 
 function reportHealthReasonCount(
@@ -889,6 +905,7 @@ function reportHealthReasonCount(
   data: AnyReportDto,
   holdings: ReportHoldingRowDto[],
   diagnostics: ReportDiagnosticsDto,
+  valuationHealth = reportValuationHealth(data),
 ): number {
   switch (reason) {
     case "missing_quote":
@@ -899,15 +916,45 @@ function reportHealthReasonCount(
       return Math.max(data.dataHealth.nonCurrentPriceCount, holdings.filter((row) => isNonCurrentPrice(row)).length);
     case "missing_fx":
       return Math.max(data.dataHealth.currentMissingFxCount ?? data.dataHealth.missingFxCount, data.fxStatus.missingRatePairs.length);
-    case "missing_snapshot":
-      return diagnostics.snapshotGapHoldings?.filter((holding) => holding.knownGapReasons.includes("missing_snapshot")).length
-        || (diagnostics.knownGapReasons.includes("missing_snapshot") || ("performance" in data && data.performance.points.length === 0) ? 1 : 0);
-    case "stale_snapshot":
-      return diagnostics.snapshotGapHoldings?.filter((holding) => holding.knownGapReasons.includes("stale_snapshot")).length
-        || (hasReportStaleSnapshotDiagnostic(diagnostics) ? 1 : 0);
+    case "missing_snapshot": {
+      const snapshotGapCount = snapshotGapHoldingCountForReason("missing_snapshot", diagnostics, valuationHealth);
+      if (snapshotGapCount > 0) return snapshotGapCount;
+      if (!canSurfaceSnapshotReportHealthReason("missing_snapshot", data, diagnostics, valuationHealth)) return 0;
+      return diagnostics.knownGapReasons.includes("missing_snapshot") || ("performance" in data && data.performance.points.length === 0) ? 1 : 0;
+    }
+    case "stale_snapshot": {
+      const snapshotGapCount = snapshotGapHoldingCountForReason("stale_snapshot", diagnostics, valuationHealth);
+      if (snapshotGapCount > 0) return snapshotGapCount;
+      if (!canSurfaceSnapshotReportHealthReason("stale_snapshot", data, diagnostics, valuationHealth)) return 0;
+      return hasReportStaleSnapshotDiagnostic(diagnostics) ? 1 : 0;
+    }
     case "missing_provider_source":
       return diagnostics.missingProviderSourceCount;
   }
+}
+
+function isSnapshotReportHealthReason(reason: ReportHealthReason): reason is "missing_snapshot" | "stale_snapshot" {
+  return reason === "missing_snapshot" || reason === "stale_snapshot";
+}
+
+function snapshotGapHoldingCountForReason(
+  reason: "missing_snapshot" | "stale_snapshot",
+  diagnostics: ReportDiagnosticsDto,
+  valuationHealth?: DashboardPerformanceDto["valuationHealth"],
+): number {
+  return Math.max(
+    diagnostics.snapshotGapHoldings?.filter((holding) => holding.knownGapReasons.includes(reason)).length ?? 0,
+    affectedValuationHealthSnapshotTickers(reason, valuationHealth).length,
+  );
+}
+
+function canSurfaceSnapshotReportHealthReason(
+  reason: "missing_snapshot" | "stale_snapshot",
+  data: AnyReportDto,
+  diagnostics: ReportDiagnosticsDto,
+  valuationHealth?: DashboardPerformanceDto["valuationHealth"],
+): boolean {
+  return data.dataHealth.holdingCount > 0 || snapshotGapHoldingCountForReason(reason, diagnostics, valuationHealth) > 0;
 }
 
 function hasReportStaleSnapshotDiagnostic(diagnostics: ReportDiagnosticsDto): boolean {
@@ -921,12 +968,16 @@ function affectedReportTickers(
   reason: ReportHealthReason,
   holdings: ReportHoldingRowDto[],
   diagnostics: ReportDiagnosticsDto,
+  valuationHealth?: DashboardPerformanceDto["valuationHealth"],
 ): string[] {
   if (reason === "missing_snapshot" || reason === "stale_snapshot") {
     const fromSnapshotGaps = diagnostics.snapshotGapHoldings
       ?.filter((holding) => holding.knownGapReasons.includes(reason))
       .map((holding) => `${holding.ticker} · ${holding.marketCode}`) ?? [];
-    if (fromSnapshotGaps.length > 0) return uniqueLimited(fromSnapshotGaps, 12);
+    const fromValuationHealth = affectedValuationHealthSnapshotTickers(reason, valuationHealth);
+    if (fromSnapshotGaps.length > 0 || fromValuationHealth.length > 0) {
+      return uniqueLimited([...fromSnapshotGaps, ...fromValuationHealth], 12);
+    }
 
     const affectedMarkets = new Set(diagnostics.markets
       .filter((market) => market.knownGapReasons.map(reportHealthReasonFromDiagnostics).includes(reason))
@@ -946,6 +997,19 @@ function affectedReportTickers(
   return uniqueLimited(filtered.map((row) => `${row.ticker} · ${row.marketCode}`), 12);
 }
 
+function reportValuationHealth(data: AnyReportDto): DashboardPerformanceDto["valuationHealth"] | undefined {
+  return "performance" in data ? data.valuationHealth ?? data.performance.valuationHealth : undefined;
+}
+
+function affectedValuationHealthSnapshotTickers(
+  reason: "missing_snapshot" | "stale_snapshot",
+  valuationHealth?: DashboardPerformanceDto["valuationHealth"],
+): string[] {
+  return valuationHealth?.affectedHoldings
+    .filter((holding) => holding.status === reason)
+    .map((holding) => `${holding.ticker} · ${holding.marketCode}`) ?? [];
+}
+
 function affectedReportMarkets(
   reason: ReportHealthReason,
   data: AnyReportDto,
@@ -955,7 +1019,7 @@ function affectedReportMarkets(
   const fromDiagnostics = data.diagnostics.markets
     .filter((market) => market.knownGapReasons.map(reportHealthReasonFromDiagnostics).includes(reason))
     .map((market) => market.marketCode);
-  const fromHoldings = affectedReportTickers(reason, holdings, diagnostics)
+  const fromHoldings = affectedReportTickers(reason, holdings, diagnostics, reportValuationHealth(data))
     .map((label) => label.split(" · ")[1])
     .filter((market): market is string => Boolean(market));
   const scopedMarket = data.query.scope === "all" ? [] : [data.query.scope];

@@ -1578,6 +1578,89 @@ describe("ReportsClient", () => {
     expect(settingsHref).toContain("tickers=BHP");
   });
 
+  it("uses valuation health affected holdings when stale snapshot diagnostics are aggregate-only", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=all&currencyMode=specified&currency=AUD&range=1Y";
+    const staleFixture: PortfolioReportDto = {
+      ...portfolioFixture,
+      diagnostics: {
+        ...portfolioFixture.diagnostics,
+        lastValuationDate: "2026-06-03",
+        latestSnapshotDate: "2026-06-03",
+        latestReliableValuationDate: "2026-06-03",
+        staleSinceDate: "2026-06-03",
+        marketDataStaleSince: "2026-06-03",
+        knownGapReasons: ["stale_snapshot"],
+        markets: [{
+          marketCode: "US",
+          expectedLatestValuationDate: "2026-06-08",
+          latestSnapshotDate: "2026-06-03",
+          missingProviderSourceCount: 0,
+          providerSources: [],
+          knownGapReasons: ["stale_snapshot"],
+        }],
+        snapshotGapHoldings: [],
+      },
+      performance: {
+        ...portfolioFixture.performance,
+        valuationHealth: {
+          status: "material",
+          reason: "absolute_threshold_exceeded",
+          reportingCurrency: "AUD",
+          currentValueAmount: 2600,
+          snapshotValueAmount: 2400,
+          deltaAmount: 200,
+          relativeDeltaBps: 770,
+          minorUnitTolerance: 1,
+          thresholds: {
+            relativeBps: 50,
+            absoluteAud: 10,
+            absoluteUsd: 10,
+            absoluteTwd: 300,
+            absoluteKrw: 10_000,
+          },
+          latestBarAsOf: "2026-06-08",
+          latestSnapshotDate: "2026-06-03",
+          latestUsableSnapshotDate: "2026-06-03",
+          latestComparableSnapshotDate: "2026-06-03",
+          latestPartialSnapshotDate: null,
+          expectedLatestValuationDate: "2026-06-08",
+          affectedHoldings: [{
+            ticker: "VRT",
+            marketCode: "US",
+            currentReportingValueAmount: 2600,
+            latestBarDate: "2026-06-08",
+            latestSnapshotDate: "2026-06-03",
+            backfillStatus: "ready",
+            status: "stale_snapshot",
+            recommendedAction: "run_snapshot_repair",
+          }],
+          recommendedActions: ["run_snapshot_repair"],
+        },
+      },
+    };
+
+    act(() => {
+      root.render(<ReportsClient initialReport={staleFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "all",
+        range: "1Y",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    const staleSnapshotCause = document.querySelector("[data-testid='reports-data-health-cause-stale_snapshot']");
+    expect(staleSnapshotCause?.textContent).toContain("Stale daily snapshots");
+    expect(staleSnapshotCause?.textContent).toContain("Active");
+    expect(staleSnapshotCause?.textContent).toContain("VRT");
+    expect(staleSnapshotCause?.textContent).toContain("US");
+
+    const settingsHref = document.querySelector<HTMLAnchorElement>("[data-testid='reports-data-health-settings-stale_snapshot']")?.getAttribute("href");
+    expect(settingsHref).toContain("/settings/tickers?repair=1&origin=data-health&healthReason=stale_snapshot");
+    expect(settingsHref).toContain("market=US");
+    expect(settingsHref).toContain("tickers=VRT");
+  });
+
   it("does not hide current valuation totals for historical-only missing FX gaps", async () => {
     const historicalFxFixture = {
       ...fixture,
@@ -1724,6 +1807,83 @@ describe("ReportsClient", () => {
 
     expect(document.querySelector("[data-testid='reports-performance-stale-warning']")).not.toBeNull();
     expect(document.querySelector("[data-testid='reports-data-health-cause-stale_snapshot']")).toBeNull();
+  });
+
+  it("does not create snapshot repair causes for empty report scopes", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=US&currencyMode=specified&currency=AUD&range=1Y";
+    const emptyScopeFixture: PortfolioReportDto = {
+      ...portfolioFixture,
+      query: {
+        ...portfolioFixture.query,
+        scope: "US",
+      },
+      dataHealth: {
+        holdingCount: 0,
+        missingQuoteCount: 0,
+        provisionalQuoteCount: 0,
+        missingFxCount: 0,
+        nonCurrentPriceCount: 0,
+      },
+      diagnostics: {
+        ...portfolioFixture.diagnostics,
+        scope: "US",
+        lastValuationDate: null,
+        latestSnapshotDate: null,
+        latestReliableValuationDate: null,
+        knownGapReasons: ["missing_snapshot"],
+        rowCounts: {
+          holdingsTotal: 0,
+          holdingsReturned: 0,
+          topHoldings: 0,
+          marketBuckets: 0,
+          accountBuckets: 0,
+        },
+      },
+      performance: {
+        ...portfolioFixture.performance,
+        points: [],
+        lastReliableDate: null,
+        marketDataStaleSince: null,
+        diagnostics: {
+          latestSnapshotDate: null,
+          latestReliableValuationDate: null,
+          latestComparableSnapshotDate: null,
+          latestPartialSnapshotDate: null,
+          hasPartialMarketData: false,
+          expectedLatestValuationDate: "2026-06-08",
+          staleSinceDate: null,
+          knownGapReasons: ["missing_snapshot"],
+        },
+      },
+      allocation: {
+        byMarket: [],
+        byAccount: [],
+        byTicker: [],
+      },
+      concentration: {
+        topHoldings: [],
+      },
+      holdings: {
+        rows: [],
+        total: 0,
+        limit: 50,
+        offset: 0,
+      },
+    };
+
+    act(() => {
+      root.render(<ReportsClient initialReport={emptyScopeFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "US",
+        range: "1Y",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    expect(document.querySelector("[data-testid='reports-data-health-cause-missing_snapshot']")).toBeNull();
+    expect(document.querySelector("[data-testid='reports-data-health-settings-missing_snapshot']")).toBeNull();
+    expect(document.querySelector("[data-testid='reports-data-health-admin-missing_snapshot']")).toBeNull();
   });
 
   it("does not show strict totals notice for healthy valuation health with suppressed affected holdings", async () => {
