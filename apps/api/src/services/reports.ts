@@ -410,6 +410,8 @@ function scopeStore(store: Store, scope: ReportScope): Store {
   const tradeMarketsByHoldingKey = buildTradeMarketsByHoldingKey(store);
   const scopedHoldings = store.accounting.projections.holdings.filter((holding) =>
     resolveHoldingMarketCode(holding, tradeMarketsByHoldingKey, instrumentMarketsByTicker) === scope);
+  const scopedLots = store.accounting.projections.lots.filter((lot) =>
+    resolveLotMarketCode(lot, tradeMarketsByHoldingKey, instrumentMarketsByTicker) === scope);
   const scopedTrades = store.accounting.facts.tradeEvents.filter((trade) =>
     trade.marketCode === scope);
   const marketDividendEventIds = new Set(
@@ -450,6 +452,7 @@ function scopeStore(store: Store, scope: ReportScope): Store {
       projections: {
         ...store.accounting.projections,
         holdings: scopedHoldings,
+        lots: scopedLots,
       },
     },
     marketData: {
@@ -467,6 +470,16 @@ function resolveHoldingMarketCode(
   const tradeMarkets = tradeMarketsByHoldingKey.get(`${holding.accountId}\0${holding.ticker}`) ?? [];
   if (tradeMarkets.length === 1) return tradeMarkets[0]!;
   return resolveTickerMarketCode(holding.ticker, holding.currency, instrumentMarketsByTicker);
+}
+
+function resolveLotMarketCode(
+  lot: Store["accounting"]["projections"]["lots"][number],
+  tradeMarketsByHoldingKey: ReadonlyMap<string, readonly MarketCode[]>,
+  instrumentMarketsByTicker: ReadonlyMap<string, readonly MarketCode[]>,
+): MarketCode {
+  const tradeMarkets = tradeMarketsByHoldingKey.get(`${lot.accountId}\0${lot.ticker}`) ?? [];
+  if (tradeMarkets.length === 1) return tradeMarkets[0]!;
+  return resolveTickerMarketCode(lot.ticker, lot.costCurrency, instrumentMarketsByTicker);
 }
 
 function resolveTickerMarketCode(

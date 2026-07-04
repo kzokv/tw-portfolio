@@ -2073,6 +2073,110 @@ describe("report routes", () => {
     );
   });
 
+  it("does not let cross-market lots create scoped snapshot gap repair targets", async () => {
+    const store = await app.persistence.loadStore(userId);
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    store.instruments.push(
+      {
+        ticker: "BHP",
+        type: "STOCK",
+        marketCode: "AU",
+        isProvisional: false,
+      },
+      {
+        ticker: "BHP",
+        type: "STOCK",
+        marketCode: "US",
+        isProvisional: false,
+      },
+    );
+    store.accounting.projections.holdings.push({
+      accountId: "acc-1",
+      ticker: "BHP",
+      quantity: 2,
+      costBasisAmount: 100,
+      currency: "AUD",
+    });
+    store.accounting.projections.lots.push(
+      {
+        id: "report-bhp-old-us-lot",
+        accountId: "acc-1",
+        ticker: "BHP",
+        openQuantity: 1,
+        totalCostAmount: 70,
+        costCurrency: "USD",
+        openedAt: "2020-01-01",
+      },
+      {
+        id: "report-bhp-future-au-lot",
+        accountId: "acc-1",
+        ticker: "BHP",
+        openQuantity: 2,
+        totalCostAmount: 100,
+        costCurrency: "AUD",
+        openedAt: "2999-01-01",
+      },
+    );
+    store.accounting.facts.tradeEvents.push(
+      {
+        id: "report-bhp-old-us-trade",
+        userId,
+        accountId: "acc-1",
+        ticker: "BHP",
+        marketCode: "US",
+        instrumentType: "STOCK",
+        type: "BUY",
+        quantity: 1,
+        unitPrice: 70,
+        priceCurrency: "USD",
+        tradeDate: "2020-01-01",
+        commissionAmount: 0,
+        taxAmount: 0,
+        isDayTrade: false,
+        feeSnapshot: feeProfile,
+        tradeTimestamp: "2020-01-01T09:00:00.000Z",
+        bookingSequence: 1,
+        bookedAt: "2020-01-01T09:00:00.000Z",
+      },
+      {
+        id: "report-bhp-future-au-trade",
+        userId,
+        accountId: "acc-1",
+        ticker: "BHP",
+        marketCode: "AU",
+        instrumentType: "STOCK",
+        type: "BUY",
+        quantity: 2,
+        unitPrice: 50,
+        priceCurrency: "AUD",
+        tradeDate: "2999-01-01",
+        commissionAmount: 0,
+        taxAmount: 0,
+        isDayTrade: false,
+        feeSnapshot: feeProfile,
+        tradeTimestamp: "2999-01-01T09:00:00.000Z",
+        bookingSequence: 2,
+        bookedAt: "2999-01-01T09:00:00.000Z",
+      },
+    );
+    await app.persistence.saveStore(store);
+
+    const report = await app.inject({
+      method: "GET",
+      url: "/reports/market?scope=AU&limit=5",
+      headers: { cookie: cookieHeader },
+    });
+    const body = report.json() as {
+      diagnostics: {
+        snapshotGapHoldings?: Array<{ ticker: string; marketCode: string; knownGapReasons: string[] }>;
+      };
+    };
+
+    expect(report.statusCode).toBe(200);
+    expect(body.diagnostics.snapshotGapHoldings ?? []).toEqual([]);
+  });
+
   it("preserves scoped upcoming dividend events that do not have ledger rows", async () => {
     const store = await app.persistence.loadStore(userId);
     const feeProfile = store.feeProfiles[0];
