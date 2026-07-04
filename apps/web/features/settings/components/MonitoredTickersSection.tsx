@@ -80,7 +80,6 @@ function groupRepairRequests(drafts: PerTickerRepairDraft[]): RepairTargetReques
     const key = `${draft.startDate}|${draft.endDate}|${String(draft.includeBars)}|${String(draft.includeDividends)}`;
     const existing = groups.get(key);
     if (existing) {
-      existing.tickers.push(draft.ticker);
       existing.targets = [...(existing.targets ?? []), { ticker: draft.ticker, marketCode: draft.marketCode }];
     } else {
       groups.set(key, {

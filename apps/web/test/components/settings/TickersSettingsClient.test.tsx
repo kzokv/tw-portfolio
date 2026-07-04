@@ -142,6 +142,33 @@ describe("TickersSettingsClient", () => {
     ]);
   });
 
+  it("keeps grouped market-aware repair targets out of the legacy ticker list", async () => {
+    searchParamsMock.value = "repair=1&origin=data-health&market=AU&tickers=BHP";
+    repairSelectionMock.value = new Set(["BHP|AU", "BHP|US"]);
+
+    act(() => {
+      root.render(<TickersSettingsClient />);
+    });
+
+    await act(async () => {});
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("[data-testid='repair-continue-btn']")?.click();
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>("[data-testid='repair-submit']")?.click();
+    });
+
+    expect(submitRepairRequestsMock).toHaveBeenCalledWith([
+      expect.objectContaining({
+        tickers: [],
+        targets: [
+          { ticker: "BHP", marketCode: "AU" },
+          { ticker: "BHP", marketCode: "US" },
+        ],
+      }),
+    ]);
+  });
+
   it("does not show the Data Health origin banner for generic repair links", async () => {
     searchParamsMock.value = "repair=1&tickers=NVDA&returnTo=https%3A%2F%2Fevil.example";
 

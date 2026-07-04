@@ -1709,6 +1709,23 @@ describe("ReportsClient", () => {
     expect(document.querySelector("[data-testid='reports-performance-as-of-tooltip-trigger']")).not.toBeNull();
   });
 
+  it("does not create a stale snapshot checklist cause from performance metadata alone", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=all&currencyMode=specified&currency=AUD&range=1Y";
+
+    act(() => {
+      root.render(<ReportsClient initialReport={portfolioFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "all",
+        range: "1Y",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    expect(document.querySelector("[data-testid='reports-performance-stale-warning']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='reports-data-health-cause-stale_snapshot']")).toBeNull();
+  });
+
   it("does not show strict totals notice for healthy valuation health with suppressed affected holdings", async () => {
     searchParamsMock.value = "tab=portfolio&scope=all&currencyMode=specified&currency=AUD&range=1Y";
     const healthyFixture: PortfolioReportDto = {

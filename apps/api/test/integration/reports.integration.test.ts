@@ -387,6 +387,143 @@ describe("report routes", () => {
     }));
   });
 
+  it("does not mark current settled snapshots stale on non-trading report dates", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-07-04T12:00:00.000Z"));
+
+    const store = await app.persistence.loadStore(userId);
+    const feeProfile = store.feeProfiles[0];
+    if (!feeProfile) throw new Error("expected default fee profile");
+    store.accounting.projections.holdings.push({
+      accountId: "acc-1",
+      ticker: "2330",
+      quantity: 10,
+      costBasisAmount: 1000,
+      currency: "TWD",
+    });
+    store.accounting.projections.lots.push({
+      id: "lot-weekend-current-2330",
+      accountId: "acc-1",
+      ticker: "2330",
+      openQuantity: 10,
+      totalCostAmount: 1000,
+      costCurrency: "TWD",
+      openedAt: "2026-07-01",
+      openedSequence: 1,
+    });
+    store.accounting.facts.tradeEvents.push({
+      id: "weekend-current-trade-1",
+      userId,
+      accountId: "acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      instrumentType: "STOCK",
+      type: "BUY",
+      quantity: 10,
+      unitPrice: 100,
+      priceCurrency: "TWD",
+      tradeDate: "2026-07-01",
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: feeProfile,
+      tradeTimestamp: "2026-07-01T09:00:00.000Z",
+      bookingSequence: 1,
+      bookedAt: "2026-07-01T09:00:00.000Z",
+    });
+    await app.persistence.saveStore(store);
+
+    const memoryPersistence = app.persistence as typeof app.persistence & {
+      _seedInstrument?: (instrument: {
+        ticker: string;
+        name: string;
+        instrumentType: "STOCK" | "ETF" | "BOND_ETF";
+        marketCode: "TW" | "US" | "AU";
+        barsBackfillStatus: "pending" | "backfilling" | "ready" | "failed";
+      }) => void;
+      _seedDailyBars?: (bars: Array<{
+        ticker: string;
+        marketCode: "TW" | "US" | "AU";
+        barDate: string;
+        open: number;
+        high: number;
+        low: number;
+        close: number;
+        volume: number;
+        source: string;
+        ingestedAt: string;
+      }>) => void;
+    };
+    memoryPersistence._seedInstrument?.({
+      ticker: "2330",
+      name: "台積電",
+      instrumentType: "STOCK",
+      marketCode: "TW",
+      barsBackfillStatus: "ready",
+    });
+    memoryPersistence._seedDailyBars?.([
+      {
+        ticker: "2330",
+        marketCode: "TW",
+        barDate: "2026-07-03",
+        open: 100,
+        high: 106,
+        low: 99,
+        close: 105,
+        volume: 12_000,
+        source: "test",
+        ingestedAt: "2026-07-03T10:00:00.000Z",
+      },
+    ]);
+    await app.persistence.bulkUpsertHoldingSnapshots(userId, [
+      {
+        id: "weekend-current-snapshot-2330",
+        userId,
+        accountId: "acc-1",
+        ticker: "2330",
+        marketCode: "TW",
+        snapshotDate: "2026-07-03",
+        quantity: 10,
+        closePrice: 105,
+        marketValue: 1050,
+        costBasis: 1000,
+        unrealizedPnl: 50,
+        cumulativeRealizedPnl: 0,
+        cumulativeDividends: 0,
+        isProvisional: false,
+        currency: "TWD",
+        valueNative: 1050,
+        costBasisNative: 1000,
+        unrealizedPnlNative: 50,
+        providerSource: "test",
+        generatedAt: "2026-07-03T10:05:00.000Z",
+        generationRunId: "weekend-current-gen",
+      },
+    ]);
+
+    const dailyReview = await app.inject({
+      method: "GET",
+      url: "/reports/daily-review?scope=TW&limit=5",
+      headers: { cookie: cookieHeader },
+    });
+    const body = dailyReview.json() as {
+      diagnostics: {
+        knownGapReasons: string[];
+        marketDataStaleSince: string | null;
+        staleSinceDate: string | null;
+        expectedLatestValuationDate: string;
+        snapshotGapHoldings?: Array<{ ticker: string; knownGapReasons: string[] }>;
+      };
+    };
+
+    expect(dailyReview.statusCode).toBe(200);
+    expect(body.diagnostics.expectedLatestValuationDate).toBe("2026-07-03");
+    expect(body.diagnostics.knownGapReasons).not.toContain("stale_snapshot");
+    expect(body.diagnostics.marketDataStaleSince).toBeNull();
+    expect(body.diagnostics.staleSinceDate).toBeNull();
+    expect(body.diagnostics.snapshotGapHoldings ?? []).toEqual([]);
+  });
+
   it("enqueues displayed intraday refreshes before resolving report price states", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-06-18T02:00:00.000Z"));

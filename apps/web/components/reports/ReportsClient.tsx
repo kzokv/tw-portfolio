@@ -816,8 +816,13 @@ function buildReportHealthCauses({
   if (data.dataHealth.nonCurrentPriceCount > 0) reasons.add("non_current_price");
   if ((data.dataHealth.currentMissingFxCount ?? data.dataHealth.missingFxCount) > 0 || data.fxStatus.status !== "complete") reasons.add("missing_fx");
   if ("performance" in data) {
-    data.performance.diagnostics?.knownGapReasons.forEach((reason) => reasons.add(reportHealthReasonFromPerformanceGap(reason)));
-    if (data.performance.marketDataStaleSince) reasons.add("stale_snapshot");
+    const reportHasStaleSnapshot = hasReportStaleSnapshotDiagnostic(diagnostics);
+    data.performance.diagnostics?.knownGapReasons.forEach((reason) => {
+      const mappedReason = reportHealthReasonFromPerformanceGap(reason);
+      if (mappedReason === "stale_snapshot" && !reportHasStaleSnapshot) return;
+      reasons.add(mappedReason);
+    });
+    if (data.performance.marketDataStaleSince && reportHasStaleSnapshot) reasons.add("stale_snapshot");
     if (data.performance.points.length === 0) reasons.add("missing_snapshot");
   }
   const requestedReasons = new Set(healthQuery.reasons);
@@ -899,10 +904,17 @@ function reportHealthReasonCount(
         || (diagnostics.knownGapReasons.includes("missing_snapshot") || ("performance" in data && data.performance.points.length === 0) ? 1 : 0);
     case "stale_snapshot":
       return diagnostics.snapshotGapHoldings?.filter((holding) => holding.knownGapReasons.includes("stale_snapshot")).length
-        || (diagnostics.knownGapReasons.includes("stale_snapshot") || Boolean(diagnostics.staleSinceDate || ("performance" in data && data.performance.marketDataStaleSince)) ? 1 : 0);
+        || (hasReportStaleSnapshotDiagnostic(diagnostics) ? 1 : 0);
     case "missing_provider_source":
       return diagnostics.missingProviderSourceCount;
   }
+}
+
+function hasReportStaleSnapshotDiagnostic(diagnostics: ReportDiagnosticsDto): boolean {
+  return diagnostics.knownGapReasons.includes("stale_snapshot")
+    || Boolean(diagnostics.staleSinceDate)
+    || Boolean(diagnostics.snapshotGapHoldings?.some((holding) => holding.knownGapReasons.includes("stale_snapshot")))
+    || diagnostics.markets.some((market) => market.knownGapReasons.map(reportHealthReasonFromDiagnostics).includes("stale_snapshot"));
 }
 
 function affectedReportTickers(
