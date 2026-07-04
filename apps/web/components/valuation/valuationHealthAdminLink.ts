@@ -69,15 +69,19 @@ export function getValuationHealthTickerRepairLinks(
     .flatMap(([marketCode, holdings]) => buildTickerRepairLinks(marketCode, holdings, returnTo ?? null));
 }
 
+function resolveTickerRepairReason(holdings: ValuationHealthDto["affectedHoldings"]): "missing_quote" | "missing_snapshot" | "stale_snapshot" {
+  if (holdings.some((holding) => holding.status === "missing_snapshot")) return "missing_snapshot";
+  if (holdings.some((holding) => holding.status === "stale_snapshot")) return "stale_snapshot";
+  return "missing_quote";
+}
+
 function buildTickerRepairLinks(
   marketCode: string,
   holdings: ValuationHealthDto["affectedHoldings"],
   returnTo: string | null,
 ): ValuationHealthTickerRepairLink[] {
   const tickers = [...new Set(holdings.map((holding) => holding.ticker))].sort();
-  const reason = holdings.some((holding) => holding.status === "missing_snapshot" || holding.status === "stale_snapshot")
-    ? "missing_snapshot"
-    : "missing_quote";
+  const reason = resolveTickerRepairReason(holdings);
   const links: ValuationHealthTickerRepairLink[] = [];
   for (let index = 0; index < tickers.length; index += SNAPSHOT_REPAIR_DEEP_LINK_TICKER_LIMIT) {
     const batch = tickers.slice(index, index + SNAPSHOT_REPAIR_DEEP_LINK_TICKER_LIMIT);

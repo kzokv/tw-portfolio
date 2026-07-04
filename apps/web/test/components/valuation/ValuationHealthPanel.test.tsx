@@ -235,7 +235,7 @@ describe("ValuationHealthPanel", () => {
 
     const repairLink = document.querySelector<HTMLAnchorElement>("[data-testid='valuation-health-settings-repair-US']");
     expect(repairLink?.getAttribute("href")).toBe(
-      "/settings/tickers?repair=1&origin=data-health&market=US&healthReason=missing_snapshot&tickers=VRT",
+      "/settings/tickers?repair=1&origin=data-health&market=US&healthReason=stale_snapshot&tickers=VRT",
     );
   });
 
@@ -258,7 +258,7 @@ describe("ValuationHealthPanel", () => {
 
     const repairLink = document.querySelector<HTMLAnchorElement>("[data-testid='valuation-health-settings-repair-US']");
     expect(repairLink?.getAttribute("href")).toBe(
-      "/settings/tickers?repair=1&origin=data-health&market=US&healthReason=missing_snapshot&tickers=VRT&returnTo=%2Fdashboard",
+      "/settings/tickers?repair=1&origin=data-health&market=US&healthReason=stale_snapshot&tickers=VRT&returnTo=%2Fdashboard",
     );
   });
 
