@@ -7548,7 +7548,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const { userId, isDemo } = resolveUserId(req, app.oauthConfig?.sessionSecret);
     const body = z
       .object({
-        tickers: z.array(tickerSchema).min(1).max(20),
+        tickers: z.array(tickerSchema).max(20).default([]),
+        targets: z.array(z.object({
+          ticker: tickerSchema,
+          marketCode: marketCodeSchema.optional(),
+        })).max(20).default([]),
         startDate: isoDateSchema.optional(),
         endDate: isoDateSchema.optional(),
         includeBars: z.boolean().default(true),
@@ -7560,6 +7564,23 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
             code: z.ZodIssueCode.custom,
             message: "includeBars and includeDividends cannot both be false",
             path: ["includeBars"],
+          });
+        }
+        if (value.tickers.length === 0 && value.targets.length === 0) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "tickers or targets is required",
+            path: ["tickers"],
+          });
+        }
+        if (value.tickers.length + value.targets.length > 20) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.too_big,
+            maximum: 20,
+            type: "array",
+            inclusive: true,
+            message: "At most 20 repair targets are allowed",
+            path: ["targets"],
           });
         }
         if (value.startDate && value.endDate && value.startDate > value.endDate) {
@@ -7583,24 +7604,30 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const effectiveCooldown = getEffectiveRepairCooldownMinutes();
     const queued: string[] = [];
     const rejected: Array<{ ticker: string; reason: string }> = [];
+    const repairTargets = [
+      ...body.tickers.map((ticker) => ({ ticker, marketCode: undefined })),
+      ...body.targets,
+    ];
 
-    for (const ticker of body.tickers) {
+    for (const target of repairTargets) {
+      const { ticker, marketCode } = target;
+      const responseTicker = marketCode ? `${ticker}|${marketCode}` : ticker;
       // KZO-169: same as retry — resolve market from persisted instrument.
-      const instrument = await app.persistence.getInstrument(ticker);
+      const instrument = await app.persistence.getInstrument(ticker, marketCode);
       if (!instrument) {
-        rejected.push({ ticker, reason: "instrument_not_found" });
+        rejected.push({ ticker: responseTicker, reason: "instrument_not_found" });
         continue;
       }
 
       if (instrument.barsBackfillStatus === "pending" || instrument.barsBackfillStatus === "backfilling") {
-        rejected.push({ ticker, reason: `status_${instrument.barsBackfillStatus}` });
+        rejected.push({ ticker: responseTicker, reason: `status_${instrument.barsBackfillStatus}` });
         continue;
       }
 
       if (instrument.lastRepairAt) {
         const minutes = remainingCooldownMinutes(instrument.lastRepairAt, effectiveCooldown, nowMs);
         if (minutes > 0) {
-          rejected.push({ ticker, reason: `cooldown_active:${minutes}` });
+          rejected.push({ ticker: responseTicker, reason: `cooldown_active:${minutes}` });
           continue;
         }
       }
@@ -7622,7 +7649,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           priority: 5,
         },
       );
-      queued.push(ticker);
+      queued.push(responseTicker);
     }
 
     return { queued, rejected };

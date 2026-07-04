@@ -81,9 +81,11 @@ function groupRepairRequests(drafts: PerTickerRepairDraft[]): RepairTargetReques
     const existing = groups.get(key);
     if (existing) {
       existing.tickers.push(draft.ticker);
+      existing.targets = [...(existing.targets ?? []), { ticker: draft.ticker, marketCode: draft.marketCode }];
     } else {
       groups.set(key, {
-        tickers: [draft.ticker],
+        tickers: [],
+        targets: [{ ticker: draft.ticker, marketCode: draft.marketCode }],
         startDate: draft.startDate || undefined,
         endDate: draft.endDate || undefined,
         includeBars: draft.includeBars,
@@ -276,7 +278,8 @@ export function MonitoredTickersSection({
           repairApplyMode === "all"
         ? [
             {
-              tickers: selectedRepairKeys.map((key) => parseMonitoredTickerKey(key).ticker),
+              tickers: [],
+              targets: selectedRepairKeys.map((key) => parseMonitoredTickerKey(key)),
               startDate: repairDefaults.startDate || undefined,
               endDate: repairDefaults.endDate || undefined,
               includeBars: repairDefaults.includeBars,

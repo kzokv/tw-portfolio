@@ -113,7 +113,7 @@ export async function buildDailyReviewReport(
   const prepared = await prepareReportData(app, userId, input);
   const allRows = mapHoldingRows(prepared.translatedHoldingGroups);
   const holdings = pageRows(allRows, input.limit, input.offset);
-  const snapshotGapHoldings = await buildSnapshotGapHoldings(app, userId, allRows, prepared.expectedValuationDatesByMarket);
+  const snapshotGapHoldings = await buildSnapshotGapHoldings(app, userId, allRows, prepared.expectedValuationDatesByMarket, prepared.scopedStore);
   const suggestions = buildDailyReviewSuggestions(prepared, allRows);
   const topMovers = [...allRows]
     .sort((left, right) => Math.abs(right.dailyChangeAmount ?? 0) - Math.abs(left.dailyChangeAmount ?? 0))
@@ -168,7 +168,7 @@ export async function buildPortfolioReport(
   const byAccount = buildAccountAllocations(prepared.scopedStore, prepared.translatedHoldingGroups, prepared.reportQuery.reportingCurrency);
   const byTicker = buildTickerAllocations(prepared.translatedHoldingGroups);
   const holdings = pageRows(allRows, input.limit, input.offset);
-  const snapshotGapHoldings = await buildSnapshotGapHoldings(app, userId, allRows, prepared.expectedValuationDatesByMarket);
+  const snapshotGapHoldings = await buildSnapshotGapHoldings(app, userId, allRows, prepared.expectedValuationDatesByMarket, prepared.scopedStore);
 
   return {
     query: prepared.reportQuery,
@@ -232,7 +232,7 @@ export async function buildMarketReport(
     .sort((left, right) => (right.reportingMarketValueAmount ?? 0) - (left.reportingMarketValueAmount ?? 0))
     .slice(0, 10);
   const detail = pageRows(allRows, input.limit, input.offset);
-  const snapshotGapHoldings = await buildSnapshotGapHoldings(app, userId, allRows, prepared.expectedValuationDatesByMarket);
+  const snapshotGapHoldings = await buildSnapshotGapHoldings(app, userId, allRows, prepared.expectedValuationDatesByMarket, prepared.scopedStore);
 
   return {
     query: prepared.reportQuery,
@@ -775,15 +775,19 @@ async function buildSnapshotGapHoldings(
   userId: string,
   rows: ReportHoldingRowDto[],
   expectedValuationDatesByMarket: ReadonlyMap<MarketCode, string | null>,
+  store: Store,
 ): Promise<ReportSnapshotGapHolding[]> {
   const pairs: Array<{ accountId: string; ticker: string; marketCode: MarketCode }> = [];
   const rowByTickerMarket = new Map<string, ReportHoldingRowDto>();
+  const openedAtByScope = buildEarliestOpenDateBySnapshotScope(store);
 
   for (const row of rows) {
     const expectedLatestValuationDate = expectedValuationDatesByMarket.get(row.marketCode) ?? null;
     if (expectedLatestValuationDate === null) continue;
     rowByTickerMarket.set(snapshotGapTickerMarketKey(row.ticker, row.marketCode), row);
     for (const account of row.accounts ?? []) {
+      const openedAt = openedAtByScope.get(snapshotGapAccountScopeKey(account.id, row.ticker, row.marketCode)) ?? null;
+      if (openedAt !== null && openedAt > expectedLatestValuationDate) continue;
       pairs.push({
         accountId: account.id,
         ticker: row.ticker,
@@ -848,6 +852,26 @@ async function buildSnapshotGapHoldings(
 
 function snapshotGapTickerMarketKey(ticker: string, marketCode: MarketCode): string {
   return `${ticker}\0${marketCode}`;
+}
+
+function snapshotGapAccountScopeKey(accountId: string, ticker: string, marketCode: MarketCode): string {
+  return `${accountId}\0${ticker}\0${marketCode}`;
+}
+
+function buildEarliestOpenDateBySnapshotScope(store: Store): ReadonlyMap<string, string> {
+  const accountMarketById = new Map(store.accounts.map((account) => [account.id, marketCodeFor(account.defaultCurrency)]));
+  const openedAtByScope = new Map<string, string>();
+  for (const lot of store.accounting.projections.lots) {
+    if (lot.openQuantity <= 0) continue;
+    const marketCode = accountMarketById.get(lot.accountId);
+    if (!marketCode) continue;
+    const key = snapshotGapAccountScopeKey(lot.accountId, lot.ticker, marketCode);
+    const current = openedAtByScope.get(key);
+    if (current === undefined || lot.openedAt < current) {
+      openedAtByScope.set(key, lot.openedAt);
+    }
+  }
+  return openedAtByScope;
 }
 
 function maxNullableDate(left: string | null, right: string | null): string | null {

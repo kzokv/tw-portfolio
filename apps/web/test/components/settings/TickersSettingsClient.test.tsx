@@ -8,6 +8,8 @@ const searchParamsMock = vi.hoisted(() => ({
 }));
 const setRepairModeMock = vi.hoisted(() => vi.fn());
 const setShowCatalogMock = vi.hoisted(() => vi.fn());
+const submitRepairRequestsMock = vi.hoisted(() => vi.fn(async () => undefined));
+const repairSelectionMock = vi.hoisted(() => ({ value: new Set<string>() }));
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(searchParamsMock.value),
@@ -48,10 +50,10 @@ vi.mock("../../../features/settings/hooks/useMonitoredTickers", () => ({
     retryTicker: vi.fn(async () => undefined),
     repairMode: true,
     setRepairMode: setRepairModeMock,
-    repairSelection: new Set(),
+    repairSelection: repairSelectionMock.value,
     toggleRepairSelection: vi.fn(),
     clearRepairSelection: vi.fn(),
-    submitRepairRequests: vi.fn(async () => undefined),
+    submitRepairRequests: submitRepairRequestsMock,
     isRepairSubmitting: false,
     repairMessage: "",
     repairError: "",
@@ -69,6 +71,8 @@ describe("TickersSettingsClient", () => {
   beforeEach(() => {
     setRepairModeMock.mockReset();
     setShowCatalogMock.mockReset();
+    submitRepairRequestsMock.mockClear();
+    repairSelectionMock.value = new Set();
     searchParamsMock.value = "repair=1&origin=data-health&market=TW&tickers=2330%2C2317&returnTo=%2Freports%3Ftab%3Dportfolio%26scope%3Dall%26health%3D1";
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -112,6 +116,30 @@ describe("TickersSettingsClient", () => {
     expect(bhpRows).toHaveLength(2);
     expect(bhpRows.find((row) => row.textContent?.includes("BHP · AU"))?.textContent).toContain("Suggested by Data Health");
     expect(bhpRows.find((row) => row.textContent?.includes("BHP · US"))?.textContent).not.toContain("Suggested by Data Health");
+  });
+
+  it("submits market-aware repair targets from selected keys", async () => {
+    searchParamsMock.value = "repair=1&origin=data-health&market=AU&tickers=BHP";
+    repairSelectionMock.value = new Set(["BHP|AU"]);
+
+    act(() => {
+      root.render(<TickersSettingsClient />);
+    });
+
+    await act(async () => {});
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("[data-testid='repair-continue-btn']")?.click();
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>("[data-testid='repair-submit']")?.click();
+    });
+
+    expect(submitRepairRequestsMock).toHaveBeenCalledWith([
+      expect.objectContaining({
+        tickers: [],
+        targets: [{ ticker: "BHP", marketCode: "AU" }],
+      }),
+    ]);
   });
 
   it("does not show the Data Health origin banner for generic repair links", async () => {
