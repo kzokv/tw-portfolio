@@ -12,7 +12,11 @@ const useReportDataMock = vi.hoisted(() => vi.fn());
 const openQuickActionsMock = vi.hoisted(() => vi.fn());
 const searchParamsMock = vi.hoisted(() => ({ value: "tab=daily-review&scope=all&currencyMode=specified&currency=AUD&range=1Y" }));
 const effectiveRangesMock = vi.hoisted(() => ({ value: ["1M", "1Y"] }));
-const reportHookOverride = vi.hoisted(() => ({ errorMessage: "" }));
+const reportHookOverride = vi.hoisted(() => ({
+  data: undefined as DailyReviewReportDto | PortfolioReportDto | null | undefined,
+  errorMessage: "",
+  isBootstrapping: false,
+}));
 const fetchMock = vi.hoisted(() => vi.fn());
 const userPreferencesMock = vi.hoisted(() => ({ value: {} as Record<string, unknown> }));
 
@@ -324,9 +328,9 @@ vi.mock("../../../features/reports/hooks/useReportData", () => ({
   useReportData: (args: { initialReport: DailyReviewReportDto | PortfolioReportDto; state: ReportRouteState }) => {
     useReportDataMock(args);
     return {
-      data: args.initialReport,
+      data: reportHookOverride.data === undefined ? args.initialReport : reportHookOverride.data,
       errorMessage: reportHookOverride.errorMessage,
-      isBootstrapping: false,
+      isBootstrapping: reportHookOverride.isBootstrapping,
       isRefreshing: false,
       refresh: refreshMock,
       restoredFromCache: false,
@@ -513,7 +517,9 @@ describe("ReportsClient", () => {
     openQuickActionsMock.mockReset();
     useReportDataMock.mockReset();
     fetchMock.mockReset();
+    reportHookOverride.data = undefined;
     reportHookOverride.errorMessage = "";
+    reportHookOverride.isBootstrapping = false;
     searchParamsMock.value = "tab=daily-review&scope=all&currencyMode=specified&currency=AUD&range=1Y";
     effectiveRangesMock.value = ["1M", "1Y"];
     userPreferencesMock.value = {};
@@ -1464,6 +1470,69 @@ describe("ReportsClient", () => {
       await Promise.resolve();
     });
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining("/admin/market-data"));
+
+    const copyFxAdminLinkButton = document.querySelector<HTMLButtonElement>("[data-testid='reports-data-health-copy-admin-missing_fx']");
+    expect(copyFxAdminLinkButton).not.toBeNull();
+    await act(async () => {
+      copyFxAdminLinkButton?.click();
+      await Promise.resolve();
+    });
+    expect(writeText).toHaveBeenLastCalledWith(expect.stringContaining("/admin/market-data/FX/overview"));
+  });
+
+  it("focuses the Data Health card after a health deep link cold load finishes", async () => {
+    searchParamsMock.value = "tab=daily-review&scope=all&range=1Y&health=1&healthReason=missing_quote";
+    const scrollIntoView = vi.fn();
+    const focus = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    const originalFocus = HTMLElement.prototype.focus;
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    Object.defineProperty(HTMLElement.prototype, "focus", {
+      configurable: true,
+      value: focus,
+    });
+    const requestAnimationFrameSpy = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation((callback: FrameRequestCallback) => {
+        callback(0);
+        return 1;
+      });
+
+    try {
+      reportHookOverride.data = null;
+      reportHookOverride.isBootstrapping = true;
+      act(() => {
+        root.render(<ReportsClient initialReport={fixture} initialState={parseReportRouteState({})} />);
+      });
+      await act(async () => {});
+      expect(scrollIntoView).not.toHaveBeenCalled();
+      expect(focus).not.toHaveBeenCalled();
+
+      reportHookOverride.data = fixture;
+      reportHookOverride.isBootstrapping = false;
+      act(() => {
+        root.render(<ReportsClient initialReport={fixture} initialState={parseReportRouteState({})} />);
+      });
+      await act(async () => {});
+
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: "start", behavior: "smooth" });
+      expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    } finally {
+      requestAnimationFrameSpy.mockRestore();
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+        configurable: true,
+        value: originalScrollIntoView,
+      });
+      Object.defineProperty(HTMLElement.prototype, "focus", {
+        configurable: true,
+        value: originalFocus,
+      });
+      reportHookOverride.data = undefined;
+      reportHookOverride.isBootstrapping = false;
+    }
   });
 
   it("names affected tickers for active stale daily snapshot causes", async () => {

@@ -632,12 +632,14 @@ function ReportBody({
       return;
     }
     if (focusedHealthKeyRef.current === healthFocusKey) return;
+    const node = dataHealthRef.current;
+    if (!node) return;
     focusedHealthKeyRef.current = healthFocusKey;
     window.requestAnimationFrame(() => {
-      dataHealthRef.current?.scrollIntoView?.({ block: "start", behavior: "smooth" });
-      dataHealthRef.current?.focus?.({ preventScroll: true });
+      node.scrollIntoView?.({ block: "start", behavior: "smooth" });
+      node.focus?.({ preventScroll: true });
     });
-  }, [healthFocusKey, healthQuery.open]);
+  }, [data, healthFocusKey, healthQuery.open]);
 
   if (isBootstrapping) return <ReportSkeleton />;
   if (errorMessage && !data) {
@@ -827,7 +829,7 @@ function buildReportHealthCauses({
     const fxPairs = reason === "missing_fx"
       ? data.fxStatus.missingRatePairs.map((pair) => `${pair.from}->${pair.to}`)
       : [];
-    const repairMarket = markets.length === 1 ? markets[0] : data.query.scope === "all" ? null : data.query.scope;
+    const repairMarket = reason === "missing_fx" ? "FX" : markets.length === 1 ? markets[0] : data.query.scope === "all" ? null : data.query.scope;
     const repairTickers = tickers.map((value) => value.split(" · ")[0]).filter(Boolean);
     return {
       reason,
