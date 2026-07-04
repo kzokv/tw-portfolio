@@ -394,6 +394,7 @@ export function DashboardClient({
                   onOpenCustomize={() => setCustomizeRangesOpen(true)}
                   valuationHealth={performance.data?.valuationHealth ?? dashboard.valuationHealth}
                   dataHealthHref={dashboardHealthHref}
+                  tickerRepairReturnTo="/dashboard"
                 />
               );
             case "allocation-snapshot":

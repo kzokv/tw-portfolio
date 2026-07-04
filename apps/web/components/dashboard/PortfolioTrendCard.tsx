@@ -50,6 +50,7 @@ interface PortfolioTrendCardProps {
   errorMessage: string;
   onRangeChange: (range: DashboardPerformanceRange) => void;
   showAdminActions?: boolean;
+  tickerRepairReturnTo?: string | null;
   timelineMode: TimelineMode;
   onTimelineModeChange: (mode: TimelineMode) => void;
   valuationHealth?: ValuationHealthDto | null;
@@ -100,6 +101,7 @@ export function PortfolioTrendCard({
   errorMessage,
   onRangeChange,
   showAdminActions = false,
+  tickerRepairReturnTo = null,
   timelineMode,
   onTimelineModeChange,
   valuationHealth,
@@ -305,6 +307,7 @@ export function PortfolioTrendCard({
           copy={dict.valuationHealth}
           locale={locale}
           showAdminActions={showAdminActions}
+          tickerRepairReturnTo={tickerRepairReturnTo}
           valuationHealth={valuationHealth}
         />
       ) : null}

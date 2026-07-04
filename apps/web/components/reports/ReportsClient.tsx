@@ -708,6 +708,7 @@ function ReportBody({
           locale={locale}
           onRefresh={onRefresh}
           showAdminActions={showAdminActions}
+          tickerRepairReturnTo={reportHealthReturnPath}
           timelineMode={timelineMode}
           onTimelineModeChange={onTimelineModeChange}
         />
@@ -721,6 +722,7 @@ function ReportBody({
           locale={locale}
           onRefresh={onRefresh}
           showAdminActions={showAdminActions}
+          tickerRepairReturnTo={reportHealthReturnPath}
           timelineMode={timelineMode}
           onTimelineModeChange={onTimelineModeChange}
         />
@@ -1423,6 +1425,7 @@ function PortfolioReportView({
   locale,
   onRefresh,
   showAdminActions,
+  tickerRepairReturnTo,
   timelineMode,
   onTimelineModeChange,
 }: {
@@ -1433,6 +1436,7 @@ function PortfolioReportView({
   locale: LocaleCode;
   onRefresh: () => void;
   showAdminActions: boolean;
+  tickerRepairReturnTo: string;
   timelineMode: TimelineMode;
   onTimelineModeChange: (mode: TimelineMode) => void;
 }) {
@@ -1445,6 +1449,7 @@ function PortfolioReportView({
         onRefresh={onRefresh}
         performance={data.performance}
         showAdminActions={showAdminActions}
+        tickerRepairReturnTo={tickerRepairReturnTo}
         timelineMode={timelineMode}
         onTimelineModeChange={onTimelineModeChange}
         valuationHealth={data.valuationHealth ?? data.performance.valuationHealth}
@@ -1474,6 +1479,7 @@ function MarketReportView({
   locale,
   onRefresh,
   showAdminActions,
+  tickerRepairReturnTo,
   timelineMode,
   onTimelineModeChange,
 }: {
@@ -1484,6 +1490,7 @@ function MarketReportView({
   locale: LocaleCode;
   onRefresh: () => void;
   showAdminActions: boolean;
+  tickerRepairReturnTo: string;
   timelineMode: TimelineMode;
   onTimelineModeChange: (mode: TimelineMode) => void;
 }) {
@@ -1496,6 +1503,7 @@ function MarketReportView({
         onRefresh={onRefresh}
         performance={data.performance}
         showAdminActions={showAdminActions}
+        tickerRepairReturnTo={tickerRepairReturnTo}
         timelineMode={timelineMode}
         onTimelineModeChange={onTimelineModeChange}
         valuationHealth={data.valuationHealth ?? data.performance.valuationHealth}
@@ -1526,6 +1534,7 @@ function PerformanceChart({
   onRefresh,
   performance,
   showAdminActions,
+  tickerRepairReturnTo,
   timelineMode,
   onTimelineModeChange,
   valuationHealth,
@@ -1536,6 +1545,7 @@ function PerformanceChart({
   onRefresh: () => void;
   performance: DashboardPerformanceDto;
   showAdminActions: boolean;
+  tickerRepairReturnTo: string | null;
   timelineMode: TimelineMode;
   onTimelineModeChange: (mode: TimelineMode) => void;
   valuationHealth?: DashboardPerformanceDto["valuationHealth"];
@@ -1639,6 +1649,7 @@ function PerformanceChart({
             locale={locale}
             showAdminActions={showAdminActions}
             strictTotalsNotice={hasIncompleteReportValuationFromHealth(valuationHealth) ? dict.valuationHealth.strictTotalsNotice : null}
+            tickerRepairReturnTo={tickerRepairReturnTo}
             valuationHealth={valuationHealth}
           />
         ) : null}

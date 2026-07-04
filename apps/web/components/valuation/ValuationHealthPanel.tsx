@@ -46,9 +46,7 @@ export function ValuationHealthPanel({
   const hasRepairRecommendation = hasBackfillAction || hasSnapshotRepairAction;
   const hasMaterialNoRepair = valuationHealth.status === "material" && !hasRepairRecommendation;
   const adminRepairLinks = getValuationHealthAdminRepairLinks(valuationHealth);
-  const resolvedTickerRepairReturnTo = tickerRepairReturnTo
-    ?? (typeof window === "undefined" ? null : `${window.location.pathname}${window.location.search}`);
-  const tickerRepairLinks = getValuationHealthTickerRepairLinks(valuationHealth, resolvedTickerRepairReturnTo);
+  const tickerRepairLinks = getValuationHealthTickerRepairLinks(valuationHealth, tickerRepairReturnTo);
   const repairLinks = adminRepairLinks.length > 0
     ? adminRepairLinks
     : adminRepairHref
