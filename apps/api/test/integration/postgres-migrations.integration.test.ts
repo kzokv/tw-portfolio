@@ -2418,6 +2418,123 @@ describePostgres("postgres migrations", () => {
     expect(reloadedSell?.realizedPnlAmount).toBe(120.37);
   });
 
+  it("[posted trades]: selling after a fully allocated lot closes → keeps historical allocation references valid", async () => {
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    let store = await persistence.loadStore("user-1");
+    const firstBuy = createTransaction(store, "user-1", {
+      id: "trade-closed-lot-buy-1",
+      accountId: "user-1-acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      quantity: 35,
+      unitPrice: 575,
+      priceCurrency: "TWD",
+      tradeDate: "2026-06-01",
+      tradeTimestamp: "2026-06-01T09:00:00.000Z",
+      commissionAmount: 0,
+      taxAmount: 0,
+      type: "BUY",
+      isDayTrade: false,
+    });
+    await persistence.savePostedTrade("user-1", store.accounting, firstBuy.id);
+
+    const secondBuy = createTransaction(store, "user-1", {
+      id: "trade-closed-lot-buy-2",
+      accountId: "user-1-acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      quantity: 50,
+      unitPrice: 582,
+      priceCurrency: "TWD",
+      tradeDate: "2026-06-02",
+      tradeTimestamp: "2026-06-02T09:00:00.000Z",
+      commissionAmount: 0,
+      taxAmount: 0,
+      type: "BUY",
+      isDayTrade: false,
+    });
+    await persistence.savePostedTrade("user-1", store.accounting, secondBuy.id);
+
+    const firstSell = createTransaction(store, "user-1", {
+      id: "trade-closed-lot-sell-1",
+      accountId: "user-1-acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      quantity: 45,
+      unitPrice: 590,
+      priceCurrency: "TWD",
+      tradeDate: "2026-06-11",
+      tradeTimestamp: "2026-06-11T09:00:00.000Z",
+      commissionAmount: 0,
+      taxAmount: 0,
+      type: "SELL",
+      isDayTrade: false,
+    });
+    await persistence.savePostedTrade("user-1", store.accounting, firstSell.id);
+
+    store = await persistence.loadStore("user-1");
+    const secondSell = createTransaction(store, "user-1", {
+      id: "trade-closed-lot-sell-2",
+      accountId: "user-1-acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      quantity: 30,
+      unitPrice: 610,
+      priceCurrency: "TWD",
+      tradeDate: "2026-07-02",
+      tradeTimestamp: "2026-07-02T09:00:00.000Z",
+      commissionAmount: 0,
+      taxAmount: 0,
+      type: "SELL",
+      isDayTrade: false,
+    });
+    await persistence.savePostedTrade("user-1", store.accounting, secondSell.id);
+
+    const lots = await pool.query<{
+      id: string;
+      open_quantity: number;
+    }>(
+      `SELECT id, open_quantity
+       FROM lots
+       WHERE account_id = 'user-1-acc-1' AND ticker = '2330'
+       ORDER BY opened_at, opened_sequence, id`,
+    );
+    expect(lots.rows).toEqual([
+      { id: `lot-${firstBuy.id}`, open_quantity: 0 },
+      { id: `lot-${secondBuy.id}`, open_quantity: 10 },
+    ]);
+
+    const allocations = await pool.query<{
+      trade_event_id: string;
+      lot_id: string;
+      allocated_quantity: number;
+    }>(
+      `SELECT trade_event_id, lot_id, allocated_quantity
+       FROM lot_allocations
+       WHERE user_id = 'user-1' AND account_id = 'user-1-acc-1' AND ticker = '2330'
+       ORDER BY trade_event_id, lot_id`,
+    );
+    expect(allocations.rows).toEqual(
+      expect.arrayContaining([
+        {
+          trade_event_id: firstSell.id,
+          lot_id: `lot-${firstBuy.id}`,
+          allocated_quantity: 35,
+        },
+        {
+          trade_event_id: secondSell.id,
+          lot_id: `lot-${secondBuy.id}`,
+          allocated_quantity: 30,
+        },
+      ]),
+    );
+  });
+
   it("persists a posted dividend with typed deductions and linked cash effects", async () => {
     persistence = new PostgresPersistence({
       databaseUrl: databaseUrl!,

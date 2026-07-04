@@ -669,6 +669,94 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     );
   });
 
+  it("[transactions]: selling after closing an earlier lot → preserves historical lot allocation references", async () => {
+    const firstBuyResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-closed-lot-buy-1" },
+      payload: transactionPayload({
+        quantity: 35,
+        unitPrice: 575,
+        tradeDate: "2026-06-01",
+        tradeTimestamp: "2026-06-01T09:00:01.000Z",
+        bookingSequence: 1,
+      }),
+    });
+    expect(firstBuyResponse.statusCode).toBe(200);
+
+    const secondBuyResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-closed-lot-buy-2" },
+      payload: transactionPayload({
+        quantity: 50,
+        unitPrice: 582,
+        tradeDate: "2026-06-02",
+        tradeTimestamp: "2026-06-02T09:00:01.000Z",
+        bookingSequence: 1,
+      }),
+    });
+    expect(secondBuyResponse.statusCode).toBe(200);
+
+    const firstSellResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-closed-lot-sell-1" },
+      payload: transactionPayload({
+        quantity: 45,
+        unitPrice: 590,
+        tradeDate: "2026-06-11",
+        tradeTimestamp: "2026-06-11T09:00:01.000Z",
+        bookingSequence: 1,
+        type: "SELL" as TransactionType,
+      }),
+    });
+    expect(firstSellResponse.statusCode).toBe(200);
+
+    const secondSellResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-closed-lot-sell-2" },
+      payload: transactionPayload({
+        quantity: 30,
+        unitPrice: 610,
+        tradeDate: "2026-07-02",
+        tradeTimestamp: "2026-07-02T09:00:01.000Z",
+        bookingSequence: 1,
+        type: "SELL" as TransactionType,
+      }),
+    });
+    expect(secondSellResponse.statusCode).toBe(200);
+
+    const firstBuy = firstBuyResponse.json();
+    const secondBuy = secondBuyResponse.json();
+    const firstSell = firstSellResponse.json();
+    const secondSell = secondSellResponse.json();
+    const store = await app.persistence.loadStore("user-1");
+    const lots = store.accounting.projections.lots
+      .filter((lot) => lot.ticker === "2330")
+      .sort((a, b) => (a.openedSequence ?? 0) - (b.openedSequence ?? 0));
+
+    expect(lots).toEqual([
+      expect.objectContaining({ id: `lot-${firstBuy.id}`, openQuantity: 0 }),
+      expect.objectContaining({ id: `lot-${secondBuy.id}`, openQuantity: 10 }),
+    ]);
+    expect(store.accounting.projections.lotAllocations).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tradeEventId: firstSell.id,
+          lotId: `lot-${firstBuy.id}`,
+          allocatedQuantity: 35,
+        }),
+        expect.objectContaining({
+          tradeEventId: secondSell.id,
+          lotId: `lot-${secondBuy.id}`,
+          allocatedQuantity: 30,
+        }),
+      ]),
+    );
+  });
+
   it("rejects duplicate same-day booking sequence for the same account", async () => {
     const firstResponse = await app.inject({
       method: "POST",
