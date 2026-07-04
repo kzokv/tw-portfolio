@@ -102,6 +102,9 @@ type ReportMarketDiagnostics = Array<{
   knownGapReasons: ReportKnownGapReason[];
 }>;
 
+type ReportSnapshotGapHolding = NonNullable<ReportDiagnosticsDto["snapshotGapHoldings"]>[number];
+type ReportSnapshotGapReason = ReportSnapshotGapHolding["knownGapReasons"][number];
+
 export async function buildDailyReviewReport(
   app: FastifyInstance,
   userId: string,
@@ -110,6 +113,7 @@ export async function buildDailyReviewReport(
   const prepared = await prepareReportData(app, userId, input);
   const allRows = mapHoldingRows(prepared.translatedHoldingGroups);
   const holdings = pageRows(allRows, input.limit, input.offset);
+  const snapshotGapHoldings = await buildSnapshotGapHoldings(app, userId, allRows, prepared.expectedValuationDatesByMarket, prepared.scopedStore);
   const suggestions = buildDailyReviewSuggestions(prepared, allRows);
   const topMovers = [...allRows]
     .sort((left, right) => Math.abs(right.dailyChangeAmount ?? 0) - Math.abs(left.dailyChangeAmount ?? 0))
@@ -127,6 +131,7 @@ export async function buildDailyReviewReport(
     fxRates: prepared.fxRates,
     dataHealth: prepared.dataHealth,
     diagnostics: buildReportDiagnostics(prepared, holdings, {
+      snapshotGapHoldings,
       topMovers: topMovers.length,
       suggestions: suggestions.length,
     }),
@@ -163,6 +168,7 @@ export async function buildPortfolioReport(
   const byAccount = buildAccountAllocations(prepared.scopedStore, prepared.translatedHoldingGroups, prepared.reportQuery.reportingCurrency);
   const byTicker = buildTickerAllocations(prepared.translatedHoldingGroups);
   const holdings = pageRows(allRows, input.limit, input.offset);
+  const snapshotGapHoldings = await buildSnapshotGapHoldings(app, userId, allRows, prepared.expectedValuationDatesByMarket, prepared.scopedStore);
 
   return {
     query: prepared.reportQuery,
@@ -176,6 +182,7 @@ export async function buildPortfolioReport(
     fxRates: prepared.fxRates,
     dataHealth: prepared.dataHealth,
     diagnostics: buildReportDiagnostics(prepared, holdings, {
+      snapshotGapHoldings,
       performance,
       topHoldings: topHoldings.length,
       marketBuckets: byMarket.length,
@@ -225,6 +232,7 @@ export async function buildMarketReport(
     .sort((left, right) => (right.reportingMarketValueAmount ?? 0) - (left.reportingMarketValueAmount ?? 0))
     .slice(0, 10);
   const detail = pageRows(allRows, input.limit, input.offset);
+  const snapshotGapHoldings = await buildSnapshotGapHoldings(app, userId, allRows, prepared.expectedValuationDatesByMarket, prepared.scopedStore);
 
   return {
     query: prepared.reportQuery,
@@ -238,6 +246,7 @@ export async function buildMarketReport(
     fxRates: prepared.fxRates,
     dataHealth: prepared.dataHealth,
     diagnostics: buildReportDiagnostics(prepared, detail, {
+      snapshotGapHoldings,
       performance,
       topHoldings: topHoldings.length,
       marketBuckets: marketSummary.length,
@@ -401,6 +410,8 @@ function scopeStore(store: Store, scope: ReportScope): Store {
   const tradeMarketsByHoldingKey = buildTradeMarketsByHoldingKey(store);
   const scopedHoldings = store.accounting.projections.holdings.filter((holding) =>
     resolveHoldingMarketCode(holding, tradeMarketsByHoldingKey, instrumentMarketsByTicker) === scope);
+  const scopedLots = store.accounting.projections.lots.filter((lot) =>
+    resolveLotMarketCode(lot, tradeMarketsByHoldingKey, instrumentMarketsByTicker) === scope);
   const scopedTrades = store.accounting.facts.tradeEvents.filter((trade) =>
     trade.marketCode === scope);
   const marketDividendEventIds = new Set(
@@ -441,6 +452,7 @@ function scopeStore(store: Store, scope: ReportScope): Store {
       projections: {
         ...store.accounting.projections,
         holdings: scopedHoldings,
+        lots: scopedLots,
       },
     },
     marketData: {
@@ -458,6 +470,16 @@ function resolveHoldingMarketCode(
   const tradeMarkets = tradeMarketsByHoldingKey.get(`${holding.accountId}\0${holding.ticker}`) ?? [];
   if (tradeMarkets.length === 1) return tradeMarkets[0]!;
   return resolveTickerMarketCode(holding.ticker, holding.currency, instrumentMarketsByTicker);
+}
+
+function resolveLotMarketCode(
+  lot: Store["accounting"]["projections"]["lots"][number],
+  tradeMarketsByHoldingKey: ReadonlyMap<string, readonly MarketCode[]>,
+  instrumentMarketsByTicker: ReadonlyMap<string, readonly MarketCode[]>,
+): MarketCode {
+  const tradeMarkets = tradeMarketsByHoldingKey.get(`${lot.accountId}\0${lot.ticker}`) ?? [];
+  if (tradeMarkets.length === 1) return tradeMarkets[0]!;
+  return resolveTickerMarketCode(lot.ticker, lot.costCurrency, instrumentMarketsByTicker);
 }
 
 function resolveTickerMarketCode(
@@ -703,6 +725,7 @@ function buildReportDiagnostics(
   rowsPage: ReturnType<typeof pageRows>,
   options: {
     performance?: DashboardPerformanceDto;
+    snapshotGapHoldings?: ReportSnapshotGapHolding[];
     topMovers?: number;
     topHoldings?: number;
     marketBuckets?: number;
@@ -711,24 +734,37 @@ function buildReportDiagnostics(
     suggestions?: number;
   } = {},
 ): ReportDiagnosticsDto {
+  const markets = resolveReportMarketDiagnostics(prepared);
   const performanceLastDate = options.performance?.lastReliableDate ?? findLastPerformancePointDate(options.performance);
   const latestReliableValuationDate = performanceLastDate ?? prepared.snapshotDiagnostics.latestSnapshotDate ?? null;
   const requestedAsOfDate = prepared.reportQuery.asOf.slice(0, 10);
-  const staleSinceDate = options.performance?.marketDataStaleSince
-    ?? (
-      latestReliableValuationDate !== null && latestReliableValuationDate < requestedAsOfDate
-        ? latestReliableValuationDate
-        : null
-    );
+  const expectedLatestValuationDate = maxExpectedValuationDate(prepared.expectedValuationDatesByMarket) ?? requestedAsOfDate;
+  const marketStaleSinceDate = latestStaleMarketSnapshotDate(markets);
+  const performanceStaleSinceDate = options.performance?.marketDataStaleSince
+    && options.performance.marketDataStaleSince < expectedLatestValuationDate
+    ? options.performance.marketDataStaleSince
+    : null;
+  const aggregateStaleSinceDate = latestReliableValuationDate !== null && latestReliableValuationDate < expectedLatestValuationDate
+    ? latestReliableValuationDate
+    : null;
+  const staleSinceDate = minNullableDate(
+    minNullableDate(performanceStaleSinceDate, aggregateStaleSinceDate),
+    marketStaleSinceDate,
+  );
   const knownGapReasons: ReportKnownGapReason[] = [];
   if (prepared.snapshotDiagnostics.latestSnapshotDate === null) knownGapReasons.push("missing_snapshot");
   if (staleSinceDate !== null) knownGapReasons.push("stale_snapshot");
+  if (options.snapshotGapHoldings?.some((holding) => holding.knownGapReasons.includes("missing_snapshot"))) {
+    addKnownGapReason(knownGapReasons, "missing_snapshot");
+  }
+  if (options.snapshotGapHoldings?.some((holding) => holding.knownGapReasons.includes("stale_snapshot"))) {
+    addKnownGapReason(knownGapReasons, "stale_snapshot");
+  }
   if (prepared.dataHealth.missingQuoteCount > 0) knownGapReasons.push("missing_quote");
   if (prepared.dataHealth.provisionalQuoteCount > 0) knownGapReasons.push("provisional_quote");
   if (prepared.dataHealth.nonCurrentPriceCount > 0) knownGapReasons.push("non_current_price");
   if (prepared.dataHealth.missingFxCount > 0) knownGapReasons.push("missing_fx");
   if (prepared.snapshotDiagnostics.missingProviderSourceCount > 0) knownGapReasons.push("missing_provider_source");
-  const markets = resolveReportMarketDiagnostics(prepared);
   return {
     scope: prepared.reportQuery.scope,
     reportingCurrency: prepared.reportQuery.reportingCurrency,
@@ -737,7 +773,7 @@ function buildReportDiagnostics(
     marketDataStaleSince: staleSinceDate,
     latestSnapshotDate: prepared.snapshotDiagnostics.latestSnapshotDate,
     latestReliableValuationDate,
-    expectedLatestValuationDate: requestedAsOfDate,
+    expectedLatestValuationDate,
     staleSinceDate,
     missingQuoteCount: prepared.dataHealth.missingQuoteCount,
     provisionalQuoteCount: prepared.dataHealth.provisionalQuoteCount,
@@ -746,6 +782,7 @@ function buildReportDiagnostics(
     missingProviderSourceCount: prepared.snapshotDiagnostics.missingProviderSourceCount,
     knownGapReasons,
     markets,
+    ...(options.snapshotGapHoldings ? { snapshotGapHoldings: options.snapshotGapHoldings } : {}),
     rowCounts: {
       holdingsTotal: rowsPage.total,
       holdingsReturned: rowsPage.rows.length,
@@ -757,6 +794,142 @@ function buildReportDiagnostics(
       ...(options.suggestions !== undefined ? { suggestions: options.suggestions } : {}),
     },
   } as ReportDiagnosticsDto;
+}
+
+async function buildSnapshotGapHoldings(
+  app: FastifyInstance,
+  userId: string,
+  rows: ReportHoldingRowDto[],
+  expectedValuationDatesByMarket: ReadonlyMap<MarketCode, string | null>,
+  store: Store,
+): Promise<ReportSnapshotGapHolding[]> {
+  const pairs: Array<{ accountId: string; ticker: string; marketCode: MarketCode }> = [];
+  const rowByTickerMarket = new Map<string, ReportHoldingRowDto>();
+  const openedAtByScope = buildEarliestOpenDateBySnapshotScope(store);
+
+  for (const row of rows) {
+    const expectedLatestValuationDate = expectedValuationDatesByMarket.get(row.marketCode) ?? null;
+    if (expectedLatestValuationDate === null) continue;
+    rowByTickerMarket.set(snapshotGapTickerMarketKey(row.ticker, row.marketCode), row);
+    for (const account of row.accounts ?? []) {
+      const openedAt = openedAtByScope.get(snapshotGapAccountScopeKey(account.id, row.ticker, row.marketCode)) ?? null;
+      if (openedAt !== null && openedAt > expectedLatestValuationDate) continue;
+      pairs.push({
+        accountId: account.id,
+        ticker: row.ticker,
+        marketCode: row.marketCode,
+      });
+    }
+  }
+
+  if (pairs.length === 0) return [];
+
+  const latestDatesByScope = await app.persistence.getLatestHoldingSnapshotDatesByScope(userId, pairs);
+  const gapsByTickerMarket = new Map<string, {
+    affectedAccountCount: number;
+    latestSnapshotDate: string | null;
+    knownGapReasons: Set<ReportSnapshotGapReason>;
+  }>();
+
+  for (const pair of pairs) {
+    const expectedLatestValuationDate = expectedValuationDatesByMarket.get(pair.marketCode) ?? null;
+    if (expectedLatestValuationDate === null) continue;
+    const latestSnapshotDate = latestDatesByScope.get(`${pair.accountId}\0${pair.ticker}\0${pair.marketCode}`) ?? null;
+    const reason: ReportSnapshotGapReason | null = latestSnapshotDate === null
+      ? "missing_snapshot"
+      : latestSnapshotDate < expectedLatestValuationDate
+        ? "stale_snapshot"
+        : null;
+    if (reason === null) continue;
+
+    const key = snapshotGapTickerMarketKey(pair.ticker, pair.marketCode);
+    const current = gapsByTickerMarket.get(key) ?? {
+      affectedAccountCount: 0,
+      latestSnapshotDate: null,
+      knownGapReasons: new Set<ReportSnapshotGapReason>(),
+    };
+    current.affectedAccountCount += 1;
+    current.latestSnapshotDate = maxNullableDate(current.latestSnapshotDate, latestSnapshotDate);
+    current.knownGapReasons.add(reason);
+    gapsByTickerMarket.set(key, current);
+  }
+
+  return [...gapsByTickerMarket.entries()]
+    .map(([key, gap]) => {
+      const row = rowByTickerMarket.get(key);
+      if (!row) return null;
+      const expectedLatestValuationDate = expectedValuationDatesByMarket.get(row.marketCode);
+      if (expectedLatestValuationDate === null || expectedLatestValuationDate === undefined) return null;
+      return {
+        ticker: row.ticker,
+        marketCode: row.marketCode,
+        accountCount: row.accountCount,
+        affectedAccountCount: gap.affectedAccountCount,
+        latestSnapshotDate: gap.latestSnapshotDate,
+        expectedLatestValuationDate,
+        knownGapReasons: [...gap.knownGapReasons].sort(),
+      };
+    })
+    .filter((gap): gap is ReportSnapshotGapHolding => gap !== null)
+    .sort((left, right) =>
+      left.marketCode.localeCompare(right.marketCode)
+      || left.ticker.localeCompare(right.ticker));
+}
+
+function snapshotGapTickerMarketKey(ticker: string, marketCode: MarketCode): string {
+  return `${ticker}\0${marketCode}`;
+}
+
+function snapshotGapAccountScopeKey(accountId: string, ticker: string, marketCode: MarketCode): string {
+  return `${accountId}\0${ticker}\0${marketCode}`;
+}
+
+function buildEarliestOpenDateBySnapshotScope(store: Store): ReadonlyMap<string, string> {
+  const tradeMarketsByHoldingKey = buildTradeMarketsByHoldingKey(store);
+  const instrumentMarketsByTicker = buildInstrumentMarketsByTicker(store);
+  const openedAtByScope = new Map<string, string>();
+  for (const lot of store.accounting.projections.lots) {
+    if (lot.openQuantity <= 0) continue;
+    const tradeMarkets = tradeMarketsByHoldingKey.get(`${lot.accountId}\0${lot.ticker}`) ?? [];
+    const marketCode = tradeMarkets.length === 1
+      ? tradeMarkets[0]!
+      : resolveTickerMarketCode(lot.ticker, lot.costCurrency, instrumentMarketsByTicker);
+    const key = snapshotGapAccountScopeKey(lot.accountId, lot.ticker, marketCode);
+    const current = openedAtByScope.get(key);
+    if (current === undefined || lot.openedAt < current) {
+      openedAtByScope.set(key, lot.openedAt);
+    }
+  }
+  return openedAtByScope;
+}
+
+function maxNullableDate(left: string | null, right: string | null): string | null {
+  if (left === null) return right;
+  if (right === null) return left;
+  return left > right ? left : right;
+}
+
+function minNullableDate(left: string | null, right: string | null): string | null {
+  if (left === null) return right;
+  if (right === null) return left;
+  return left < right ? left : right;
+}
+
+function maxExpectedValuationDate(datesByMarket: ReadonlyMap<MarketCode, string | null>): string | null {
+  let latest: string | null = null;
+  for (const date of datesByMarket.values()) {
+    latest = maxNullableDate(latest, date);
+  }
+  return latest;
+}
+
+function latestStaleMarketSnapshotDate(markets: ReportMarketDiagnostics): string | null {
+  let date: string | null = null;
+  for (const market of markets) {
+    if (!market.knownGapReasons.includes("stale_snapshot")) continue;
+    date = minNullableDate(date, market.latestSnapshotDate);
+  }
+  return date;
 }
 
 function resolveReportMarketDiagnostics(prepared: PreparedReportData): ReportMarketDiagnostics {

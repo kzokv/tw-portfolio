@@ -69,7 +69,7 @@ export function AddTransactionDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         data-testid="add-transaction-dialog"
-        className="max-w-xl"
+        className="max-h-[calc(100dvh_-_2rem)] max-w-[calc(100%_-_2rem)] overflow-y-auto sm:max-w-xl"
       >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>

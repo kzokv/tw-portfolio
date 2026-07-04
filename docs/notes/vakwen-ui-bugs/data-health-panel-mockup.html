@@ -1,0 +1,465 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vakwen Data Health Panel Mockup</title>
+  <style>
+    :root {
+      --bg: #f7f8fb;
+      --card: #ffffff;
+      --border: #d8dee9;
+      --muted: #667085;
+      --text: #101828;
+      --primary: #215dc6;
+      --warning-bg: #fff8e6;
+      --warning-border: #f4c84b;
+      --warning-text: #7a4e00;
+      --danger-bg: #fff1f0;
+      --danger-border: #ffb4ad;
+      --danger-text: #9f1f18;
+      --success-bg: #ecfdf3;
+      --success-text: #067647;
+      --chip: #eef2f7;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .page {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 36px 28px 44px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .crumb {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    h1 {
+      margin: 4px 0 0;
+      font-size: 28px;
+      letter-spacing: 0;
+      line-height: 1.15;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .pill, .button {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 600;
+      padding: 8px 10px;
+    }
+
+    .button.primary {
+      border-color: var(--primary);
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .metric, .card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--card);
+      box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    }
+
+    .metric {
+      padding: 16px;
+    }
+
+    .label {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .value {
+      margin-top: 10px;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 26px;
+      font-weight: 750;
+    }
+
+    .health-link {
+      display: inline-flex;
+      margin-top: 10px;
+      border-radius: 6px;
+      color: var(--primary);
+      font-size: 13px;
+      font-weight: 700;
+      text-decoration: underline;
+      text-decoration-color: rgba(33, 93, 198, 0.32);
+      text-underline-offset: 3px;
+    }
+
+    .muted { color: var(--muted); }
+    .gain { color: #067647; }
+    .loss { color: #b42318; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1.12fr) minmax(330px, 0.88fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .card-header {
+      padding: 18px 18px 12px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .card-title-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .card h2 {
+      margin: 0;
+      font-size: 19px;
+      letter-spacing: 0;
+    }
+
+    .description {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .card-body {
+      padding: 14px 18px 18px;
+    }
+
+    .callout {
+      border: 1px solid var(--warning-border);
+      border-radius: 8px;
+      background: var(--warning-bg);
+      color: var(--warning-text);
+      padding: 12px 13px;
+      font-size: 13px;
+      line-height: 1.45;
+      margin-bottom: 14px;
+    }
+
+    .cause-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .cause {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      padding: 13px;
+    }
+
+    .cause.active-target {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(33, 93, 198, 0.12);
+    }
+
+    .cause.inactive {
+      background: #fbfcfe;
+      opacity: 0.82;
+    }
+
+    .cause-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .cause-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 14px;
+      font-weight: 750;
+    }
+
+    .status-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 99px;
+      background: var(--warning-border);
+    }
+
+    .status-dot.danger { background: var(--danger-text); }
+    .status-dot.success { background: var(--success-text); }
+
+    .count {
+      border-radius: 999px;
+      background: var(--chip);
+      color: #344054;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 4px 8px;
+      white-space: nowrap;
+    }
+
+    .cause p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .chip {
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: #f8fafc;
+      color: #344054;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 12px;
+      padding: 5px 8px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .action {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      color: var(--primary);
+      font-size: 13px;
+      font-weight: 700;
+      padding: 8px 10px;
+    }
+
+    .action.primary {
+      border-color: var(--primary);
+      background: #eef4ff;
+    }
+
+    .side-card {
+      display: grid;
+      gap: 12px;
+    }
+
+    .mini {
+      padding: 16px;
+    }
+
+    .mini h3 {
+      margin: 0 0 8px;
+      font-size: 15px;
+    }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      border-top: 1px solid var(--border);
+      padding-top: 9px;
+      margin-top: 9px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .settings-banner {
+      border: 1px solid var(--primary);
+      border-radius: 8px;
+      background: #eef4ff;
+      padding: 14px;
+    }
+
+    .settings-banner strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 14px;
+    }
+
+    @media (max-width: 780px) {
+      .page { padding: 22px 14px; }
+      .topbar { align-items: flex-start; flex-direction: column; }
+      .summary, .layout { grid-template-columns: 1fr; }
+      .value { font-size: 23px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="topbar">
+      <div>
+        <div class="crumb">Reports / Daily Review / Data Health</div>
+        <h1>Portfolio data health</h1>
+      </div>
+      <div class="toolbar">
+        <span class="pill">scope: all</span>
+        <span class="pill">AUD</span>
+        <button class="button primary">Refresh report</button>
+      </div>
+    </div>
+
+    <section class="summary" aria-label="Summary KPIs">
+      <div class="metric">
+        <div class="label"><span>Market Value</span><span>AUD</span></div>
+        <div class="value muted">-</div>
+        <a class="health-link" href="#data-health">View data health</a>
+      </div>
+      <div class="metric">
+        <div class="label"><span>Unrealized P&amp;L</span><span>AUD</span></div>
+        <div class="value muted">-</div>
+        <a class="health-link" href="#data-health">Why hidden?</a>
+      </div>
+      <div class="metric">
+        <div class="label"><span>Daily Change</span><span>AUD</span></div>
+        <div class="value muted">-</div>
+        <a class="health-link" href="#data-health">View data health</a>
+      </div>
+    </section>
+
+    <section class="layout">
+      <article class="card" aria-label="Data Health guided checklist" id="data-health">
+        <div class="card-header">
+          <div class="card-title-row">
+            <div>
+              <h2>Data health</h2>
+              <p class="description">Quote status, FX conversion, price freshness, and valuation snapshot coverage.</p>
+            </div>
+            <span class="pill">3 active causes</span>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="callout">
+            Market value, unrealized P&amp;L, and daily change are hidden because one or more holdings do not have reportable valuation data.
+          </div>
+
+          <div class="cause-list">
+            <section class="cause active-target">
+              <div class="cause-head">
+                <div class="cause-title"><span class="status-dot danger"></span>Missing quote prices</div>
+                <span class="count">2 tickers</span>
+              </div>
+              <p>These tickers have no current reportable quote, so valuation totals stay unavailable.</p>
+              <div class="chips">
+                <span class="chip">AAPL · US</span>
+                <span class="chip">2330 · TW</span>
+              </div>
+              <div class="actions">
+                <button class="action primary">Open Settings &gt; Tickers repair mode</button>
+                <button class="action">Copy admin market-data link</button>
+              </div>
+            </section>
+
+            <section class="cause">
+              <div class="cause-head">
+                <div class="cause-title"><span class="status-dot"></span>Missing FX rate</div>
+                <span class="count">1 pair</span>
+              </div>
+              <p>Reporting-currency conversion is incomplete for one or more visible holdings.</p>
+              <div class="chips">
+                <span class="chip">USD -> AUD</span>
+              </div>
+              <div class="actions">
+                <button class="action primary">Focus FX status</button>
+                <button class="action">Copy admin help</button>
+              </div>
+            </section>
+
+            <section class="cause">
+              <div class="cause-head">
+                <div class="cause-title"><span class="status-dot"></span>Stale valuation snapshot</div>
+                <span class="count">TW market</span>
+              </div>
+              <p>The latest reliable snapshot is older than the requested report date. Ticker-level detail is not available for this cause in the current payload.</p>
+              <div class="chips">
+                <span class="chip">expected 2026-07-04</span>
+                <span class="chip">latest TW 2026-07-02</span>
+              </div>
+              <div class="actions">
+                <button class="action primary">Open Settings &gt; Tickers repair mode</button>
+                <button class="action">Copy admin market-data link</button>
+              </div>
+            </section>
+
+            <section class="cause inactive">
+              <div class="cause-head">
+                <div class="cause-title"><span class="status-dot success"></span>Non-current price</div>
+                <span class="count">not active</span>
+              </div>
+              <p>No active issue for this cause in the current report scope.</p>
+            </section>
+          </div>
+        </div>
+      </article>
+
+      <aside class="side-card" aria-label="Action preview">
+        <section class="card mini">
+          <h3>FX status</h3>
+          <p class="description">Missing pairs stay visible beside Data Health so users can see currency-specific gaps.</p>
+          <div class="row"><span>USD -> AUD</span><strong>missing</strong></div>
+          <div class="row"><span>TWD -> AUD</span><strong>complete</strong></div>
+        </section>
+
+        <section class="settings-banner">
+          <strong>Settings > Tickers repair mode</strong>
+          <p class="description">Opened from Data Health. Suggested tickers: AAPL US, 2330 TW. Select the matching tickers, then continue to configure repair options.</p>
+          <div class="actions">
+            <button class="action primary">Start guided repair</button>
+            <button class="action">Back to report</button>
+          </div>
+        </section>
+
+        <section class="card mini">
+          <h3>Admin action behavior</h3>
+          <p class="description">Admins get a direct Admin Market Data link. Regular users get a copyable link and help text for an admin.</p>
+        </section>
+      </aside>
+    </section>
+  </main>
+</body>
+</html>

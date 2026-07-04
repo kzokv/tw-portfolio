@@ -3,6 +3,10 @@ import type { InstrumentCatalogItemDto } from "@vakwen/shared-types";
 
 export interface RepairTargetRequest {
   tickers: string[];
+  targets?: Array<{
+    ticker: string;
+    marketCode: string;
+  }>;
   startDate?: string;
   endDate?: string;
   includeBars: boolean;

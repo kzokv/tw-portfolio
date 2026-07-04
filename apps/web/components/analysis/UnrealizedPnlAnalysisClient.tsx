@@ -15,6 +15,7 @@ import { getJson, patchJson } from "../../lib/api";
 import { getRouteDtoContextScope } from "../../lib/routeDtoCache";
 import { useReducedMotion } from "../../lib/hooks/use-reduced-motion";
 import { useAppShellData } from "../layout/AppShellDataContext";
+import { holdingsFinanceToneClass } from "../holdings/holdingsStyle";
 import { useUnrealizedPnlData } from "../../features/analysis/hooks/useUnrealizedPnlData";
 import {
   ANALYSIS_DEFAULT_STATE,
@@ -572,7 +573,10 @@ export function UnrealizedPnlAnalysisClient({
                             <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: item.colorToken }} />
                             <span className="truncate">{item.displayName}</span>
                           </span>
-                          <span className="max-w-[44vw] truncate text-right font-mono tabular-nums sm:max-w-none" title={formatNullableCurrency(item.value, responseCurrency, resolvedLocale)}>
+                          <span
+                            className={cn("max-w-[44vw] truncate text-right font-mono tabular-nums sm:max-w-none", holdingsFinanceToneClass(item.value, "text-foreground"))}
+                            title={formatNullableCurrency(item.value, responseCurrency, resolvedLocale)}
+                          >
                             {formatNullableCompactCurrency(item.value, responseCurrency, resolvedLocale)}
                           </span>
                         </div>
@@ -634,7 +638,16 @@ export function UnrealizedPnlAnalysisClient({
                         </div>
                       </div>
                       <dl className="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-3">
-                        <DetailTerm label={focusDate ? dict.detailFocusedPnl : dict.detailEndPnl} value={formatNullableCurrency(point?.unrealizedPnl ?? null, series?.currency ?? responseCurrency, resolvedLocale)} />
+                        <DetailTerm
+                          label={focusDate ? dict.detailFocusedPnl : dict.detailEndPnl}
+                          toneValue={point?.unrealizedPnl ?? null}
+                          value={formatNullableCurrency(point?.unrealizedPnl ?? null, series?.currency ?? responseCurrency, resolvedLocale)}
+                        />
+                        <DetailTerm
+                          label={dict.tableChange}
+                          toneValue={row.periodChange}
+                          value={formatNullableCurrency(row.periodChange, series?.currency ?? responseCurrency, resolvedLocale)}
+                        />
                         <DetailTerm label={dict.detailQuantity} value={point ? formatNumber(point.quantity, resolvedLocale, 4) : "-"} />
                         <DetailTerm label={dict.detailMarketValue} value={formatNullableCurrency(point?.marketValue ?? null, series?.currency ?? responseCurrency, resolvedLocale)} />
                         <DetailTerm label={dict.detailCostBasis} value={formatNullableCurrency(point?.costBasis ?? null, series?.currency ?? responseCurrency, resolvedLocale)} />
@@ -692,8 +705,8 @@ export function UnrealizedPnlAnalysisClient({
                             <a className="mt-0.5 block max-w-64 truncate text-xs text-primary/80 hover:underline" href={href}>{row.displayName}</a>
                           </td>
                           <td className="px-3 py-2">{row.marketCode}</td>
-                          <td className="px-3 py-2 font-mono tabular-nums">{formatNullableCurrency(row.endUnrealizedPnl, series?.currency ?? responseCurrency, resolvedLocale)}</td>
-                          <td className="px-3 py-2 font-mono tabular-nums">{formatNullableCurrency(row.periodChange, series?.currency ?? responseCurrency, resolvedLocale)}</td>
+                          <td className={cn("px-3 py-2 font-mono tabular-nums", holdingsFinanceToneClass(row.endUnrealizedPnl, "text-foreground"))}>{formatNullableCurrency(row.endUnrealizedPnl, series?.currency ?? responseCurrency, resolvedLocale)}</td>
+                          <td className={cn("px-3 py-2 font-mono tabular-nums", holdingsFinanceToneClass(row.periodChange, "text-foreground"))}>{formatNullableCurrency(row.periodChange, series?.currency ?? responseCurrency, resolvedLocale)}</td>
                           <td className="px-3 py-2 font-mono tabular-nums">{formatNullableCurrency(point?.marketValue ?? null, series?.currency ?? responseCurrency, resolvedLocale)}</td>
                           <td className="px-3 py-2 font-mono tabular-nums">{formatNullableCurrency(point?.costBasis ?? null, series?.currency ?? responseCurrency, resolvedLocale)}</td>
                           <td className="px-3 py-2 font-mono tabular-nums">{point ? formatNumber(point.quantity, resolvedLocale, 4) : "-"}</td>
@@ -1360,11 +1373,11 @@ function DriverCard({ label, text }: { label: string; text: string }) {
   );
 }
 
-function DetailTerm({ label, value }: { label: string; value: string }) {
+function DetailTerm({ label, toneValue, value }: { label: string; toneValue?: number | null; value: string }) {
   return (
     <div>
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="font-medium text-foreground">{value}</dd>
+      <dd className={cn("font-medium", toneValue === undefined ? "text-foreground" : holdingsFinanceToneClass(toneValue, "text-foreground"))}>{value}</dd>
     </div>
   );
 }

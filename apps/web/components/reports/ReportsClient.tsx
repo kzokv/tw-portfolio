@@ -16,6 +16,7 @@ import {
   type MarketReportDto,
   type PortfolioReportDto,
   type ReportDataHealthDto,
+  type ReportDiagnosticsDto,
   type ReportFxStatusDto,
   type ReportHoldingRowDto,
   type ReportHoldingRowsPageDto,
@@ -106,6 +107,15 @@ import {
   type ReportRouteState,
   type ReportTab,
 } from "../../features/reports/reportState";
+import {
+  buildReportsHealthHref,
+  buildTickerRepairHref,
+  parseReportHealthQuery,
+  reportHealthReasonFromDiagnostics,
+  reportHealthReasonFromPerformanceGap,
+  type ReportHealthQuery,
+  type ReportHealthReason,
+} from "../../features/reports/reportHealthDeepLinks";
 import type { AnyReportDto } from "../../features/reports/services/reportService";
 import { getJson, patchJson } from "../../lib/api";
 import type { AppDictionary } from "../../lib/i18n";
@@ -243,6 +253,10 @@ export function ReportsClient({
     uiDict,
   } = useAppShellData();
   const searchParamsKey = searchParams?.toString() ?? "";
+  const healthQuery = useMemo(
+    () => parseReportHealthQuery(new URLSearchParams(searchParamsKey)),
+    [searchParamsKey],
+  );
   const routeState = useMemo(
     () => searchParamsKey === ""
       ? { ...initialState, useServerDefaultRange: true }
@@ -358,6 +372,8 @@ export function ReportsClient({
               returnTo: `/reports?${reportRouteStateToSearchParams(state).toString()}`,
             })}
             unrealizedPnlHref={unrealizedPnlHref}
+            healthQuery={healthQuery}
+            reportState={state}
             showAdminActions={sessionUserRole === "admin"}
             tab="daily-review"
             timelineMode={timelineMode}
@@ -382,6 +398,8 @@ export function ReportsClient({
               returnTo: `/reports?${reportRouteStateToSearchParams(state).toString()}`,
             })}
             unrealizedPnlHref={unrealizedPnlHref}
+            healthQuery={healthQuery}
+            reportState={state}
             showAdminActions={sessionUserRole === "admin"}
             tab="portfolio"
             timelineMode={timelineMode}
@@ -406,6 +424,8 @@ export function ReportsClient({
               returnTo: `/reports?${reportRouteStateToSearchParams(state).toString()}`,
             })}
             unrealizedPnlHref={unrealizedPnlHref}
+            healthQuery={healthQuery}
+            reportState={state}
             showAdminActions={sessionUserRole === "admin"}
             tab="market"
             timelineMode={timelineMode}
@@ -554,6 +574,8 @@ function ReportBody({
   onRefresh,
   realizedPnlHref,
   unrealizedPnlHref,
+  healthQuery,
+  reportState,
   showAdminActions,
   tab,
   timelineMode,
@@ -568,6 +590,8 @@ function ReportBody({
   onRefresh: () => void;
   realizedPnlHref: string;
   unrealizedPnlHref: string;
+  healthQuery: ReportHealthQuery;
+  reportState: ReportRouteState;
   showAdminActions: boolean;
   tab: ReportTab;
   timelineMode: TimelineMode;
@@ -599,6 +623,23 @@ function ReportBody({
     defaultLayoutStyle: "portfolio",
     mobileSummaryColumnIds: REPORT_MOBILE_FIELD_COLUMNS,
   });
+  const dataHealthRef = useRef<HTMLDivElement | null>(null);
+  const focusedHealthKeyRef = useRef<string | null>(null);
+  const healthFocusKey = healthQuery.open ? healthQuery.reasons.join(",") || "open" : "";
+  useEffect(() => {
+    if (!healthQuery.open) {
+      focusedHealthKeyRef.current = null;
+      return;
+    }
+    if (focusedHealthKeyRef.current === healthFocusKey) return;
+    const node = dataHealthRef.current;
+    if (!node) return;
+    focusedHealthKeyRef.current = healthFocusKey;
+    window.requestAnimationFrame(() => {
+      node.scrollIntoView?.({ block: "start", behavior: "smooth" });
+      node.focus?.({ preventScroll: true });
+    });
+  }, [data, healthFocusKey, healthQuery.open]);
 
   if (isBootstrapping) return <ReportSkeleton />;
   if (errorMessage && !data) {
@@ -622,6 +663,8 @@ function ReportBody({
     );
   }
   if (!reportDataMatchesTab(data, tab)) return <ReportSkeleton />;
+  const reportHealthHref = buildReportsHealthHref({ state: reportState, reasons: collectActiveReportHealthReasons(data) });
+  const reportHealthReturnPath = buildReportsHealthHref({ state: reportState, reasons: healthQuery.reasons });
 
   return (
     <div className="flex flex-col gap-6" data-testid={`reports-${tab}-content`}>
@@ -640,10 +683,20 @@ function ReportBody({
         locale={locale}
         realizedPnlHref={realizedPnlHref}
         unrealizedPnlHref={unrealizedPnlHref}
+        healthHref={reportHealthHref}
       />
       <div className="grid gap-4 lg:grid-cols-2">
         <FxStatusCard dict={uiDict} fxRates={data.fxRates} fxStatus={data.fxStatus} locale={locale} />
-        <DataHealthCard dataHealth={data.dataHealth} dict={uiDict} />
+        <DataHealthCard
+          data={data}
+          dataHealth={data.dataHealth}
+          dict={uiDict}
+          healthQuery={healthQuery}
+          locale={locale}
+          returnTo={reportHealthReturnPath}
+          sectionRef={dataHealthRef}
+          showAdminActions={showAdminActions}
+        />
       </div>
       {tab === "daily-review" ? <DailyReviewView data={data as DailyReviewReportDto} dict={uiDict} holdingsSettings={reportHoldingsSettings} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} showAdminActions={showAdminActions} /> : null}
       {tab === "portfolio" ? (
@@ -655,6 +708,7 @@ function ReportBody({
           locale={locale}
           onRefresh={onRefresh}
           showAdminActions={showAdminActions}
+          tickerRepairReturnTo={reportHealthReturnPath}
           timelineMode={timelineMode}
           onTimelineModeChange={onTimelineModeChange}
         />
@@ -668,6 +722,7 @@ function ReportBody({
           locale={locale}
           onRefresh={onRefresh}
           showAdminActions={showAdminActions}
+          tickerRepairReturnTo={reportHealthReturnPath}
           timelineMode={timelineMode}
           onTimelineModeChange={onTimelineModeChange}
         />
@@ -696,6 +751,293 @@ function hasIncompleteReportValuationFromHealth(
   return valuationHealth != null && valuationHealth.status !== "healthy";
 }
 
+function collectActiveReportHealthReasons(data: AnyReportDto): ReportHealthReason[] {
+  const holdings = collectReportHoldingRows(data);
+  const diagnostics = data.diagnostics;
+  return REPORT_HEALTH_REASON_ORDER.filter((reason) => isReportHealthReasonActive(reason, data, holdings, diagnostics));
+}
+
+interface ReportHealthCause {
+  reason: ReportHealthReason;
+  active: boolean;
+  count: number;
+  title: string;
+  description: string;
+  tickers: string[];
+  markets: string[];
+  fxPairs: string[];
+  settingsRepairHref: string | null;
+  adminHref: string | null;
+}
+
+function isBackfillRelatedReportHealthReason(reason: ReportHealthReason): boolean {
+  return reason !== "missing_fx";
+}
+
+function reportHealthReasonCopy(dict: AppDictionary, reason: ReportHealthReason): { title: string; description: string } {
+  switch (reason) {
+    case "missing_quote":
+      return { title: dict.reports.dataHealthMissingQuoteTitle, description: dict.reports.dataHealthMissingQuoteDescription };
+    case "provisional_quote":
+      return { title: dict.reports.dataHealthProvisionalQuoteTitle, description: dict.reports.dataHealthProvisionalQuoteDescription };
+    case "non_current_price":
+      return { title: dict.reports.dataHealthNonCurrentPriceTitle, description: dict.reports.dataHealthNonCurrentPriceDescription };
+    case "missing_fx":
+      return { title: dict.reports.dataHealthMissingFxTitle, description: dict.reports.dataHealthMissingFxDescription };
+    case "missing_snapshot":
+      return { title: dict.reports.dataHealthMissingSnapshotTitle, description: dict.reports.dataHealthMissingSnapshotDescription };
+    case "stale_snapshot":
+      return { title: dict.reports.dataHealthStaleSnapshotTitle, description: dict.reports.dataHealthStaleSnapshotDescription };
+    case "missing_provider_source":
+      return { title: dict.reports.dataHealthMissingProviderSourceTitle, description: dict.reports.dataHealthMissingProviderSourceDescription };
+  }
+}
+
+function buildReportHealthCauses({
+  data,
+  dict,
+  healthQuery,
+  returnTo,
+}: {
+  data: AnyReportDto;
+  dict: AppDictionary;
+  healthQuery: ReportHealthQuery;
+  returnTo: string;
+}): ReportHealthCause[] {
+  const holdings = collectReportHoldingRows(data);
+  const diagnostics = data.diagnostics;
+  const valuationHealth = reportValuationHealth(data);
+  const reasons = new Set<ReportHealthReason>();
+  diagnostics.knownGapReasons.forEach((reason) => {
+    const mappedReason = reportHealthReasonFromDiagnostics(reason);
+    if (isSnapshotReportHealthReason(mappedReason) && !canSurfaceSnapshotReportHealthReason(mappedReason, data, diagnostics, valuationHealth)) return;
+    reasons.add(mappedReason);
+  });
+  diagnostics.snapshotGapHoldings?.forEach((holding) => {
+    holding.knownGapReasons.forEach((reason) => reasons.add(reason));
+  });
+  if (affectedValuationHealthSnapshotTickers("missing_snapshot", valuationHealth).length > 0) reasons.add("missing_snapshot");
+  if (affectedValuationHealthSnapshotTickers("stale_snapshot", valuationHealth).length > 0) reasons.add("stale_snapshot");
+  if (data.dataHealth.missingQuoteCount > 0) reasons.add("missing_quote");
+  if (data.dataHealth.provisionalQuoteCount > 0) reasons.add("provisional_quote");
+  if (data.dataHealth.nonCurrentPriceCount > 0) reasons.add("non_current_price");
+  if ((data.dataHealth.currentMissingFxCount ?? data.dataHealth.missingFxCount) > 0 || data.fxStatus.status !== "complete") reasons.add("missing_fx");
+  if ("performance" in data) {
+    const reportHasStaleSnapshot = hasReportStaleSnapshotDiagnostic(diagnostics);
+    data.performance.diagnostics?.knownGapReasons.forEach((reason) => {
+      const mappedReason = reportHealthReasonFromPerformanceGap(reason);
+      if (isSnapshotReportHealthReason(mappedReason) && !canSurfaceSnapshotReportHealthReason(mappedReason, data, diagnostics, valuationHealth)) return;
+      if (mappedReason === "stale_snapshot" && !reportHasStaleSnapshot) return;
+      reasons.add(mappedReason);
+    });
+    if (
+      data.performance.marketDataStaleSince
+      && reportHasStaleSnapshot
+      && canSurfaceSnapshotReportHealthReason("stale_snapshot", data, diagnostics, valuationHealth)
+    ) reasons.add("stale_snapshot");
+    if (
+      data.performance.points.length === 0
+      && canSurfaceSnapshotReportHealthReason("missing_snapshot", data, diagnostics, valuationHealth)
+    ) reasons.add("missing_snapshot");
+  }
+  const requestedReasons = new Set(healthQuery.reasons);
+  requestedReasons.forEach((reason) => reasons.add(reason));
+
+  return [...reasons].sort((left, right) => reportHealthReasonRank(left) - reportHealthReasonRank(right)).map((reason) => {
+    const copy = reportHealthReasonCopy(dict, reason);
+    const active = isReportHealthReasonActive(reason, data, holdings, diagnostics, valuationHealth);
+    const tickers = affectedReportTickers(reason, holdings, diagnostics, valuationHealth);
+    const markets = affectedReportMarkets(reason, data, holdings, diagnostics);
+    const fxPairs = reason === "missing_fx"
+      ? data.fxStatus.missingRatePairs.map((pair) => `${pair.from}->${pair.to}`)
+      : [];
+    const repairMarket = reason === "missing_fx" ? "FX" : markets.length === 1 ? markets[0] : data.query.scope === "all" ? null : data.query.scope;
+    const repairTickers = tickers.map((value) => value.split(" · ")[0]).filter(Boolean);
+    return {
+      reason,
+      active,
+      count: reportHealthReasonCount(reason, data, holdings, diagnostics),
+      title: copy.title,
+      description: active ? copy.description : dict.reports.dataHealthInactiveDescription,
+      tickers,
+      markets,
+      fxPairs,
+      settingsRepairHref: active && isBackfillRelatedReportHealthReason(reason)
+        ? buildTickerRepairHref({ marketCode: repairMarket, reason, returnTo, tickers: repairTickers })
+        : null,
+      adminHref: active ? buildReportHealthAdminHref(repairMarket, repairTickers) : null,
+    };
+  });
+}
+
+function reportHealthReasonRank(reason: ReportHealthReason): number {
+  return REPORT_HEALTH_REASON_ORDER.indexOf(reason);
+}
+
+const REPORT_HEALTH_REASON_ORDER: ReportHealthReason[] = [
+  "missing_quote",
+  "provisional_quote",
+  "non_current_price",
+  "missing_fx",
+  "missing_snapshot",
+  "stale_snapshot",
+  "missing_provider_source",
+];
+
+function collectReportHoldingRows(data: AnyReportDto): ReportHoldingRowDto[] {
+  if ("suggestions" in data) return [...data.topMovers, ...data.holdings.rows];
+  if ("allocation" in data) return [...data.concentration.topHoldings, ...data.holdings.rows];
+  return [...data.topHoldings, ...data.detail.rows];
+}
+
+function isReportHealthReasonActive(
+  reason: ReportHealthReason,
+  data: AnyReportDto,
+  holdings: ReportHoldingRowDto[],
+  diagnostics: ReportDiagnosticsDto,
+  valuationHealth = reportValuationHealth(data),
+): boolean {
+  return reportHealthReasonCount(reason, data, holdings, diagnostics, valuationHealth) > 0;
+}
+
+function reportHealthReasonCount(
+  reason: ReportHealthReason,
+  data: AnyReportDto,
+  holdings: ReportHoldingRowDto[],
+  diagnostics: ReportDiagnosticsDto,
+  valuationHealth = reportValuationHealth(data),
+): number {
+  switch (reason) {
+    case "missing_quote":
+      return Math.max(data.dataHealth.missingQuoteCount, holdings.filter((row) => row.quoteStatus === "missing").length);
+    case "provisional_quote":
+      return Math.max(data.dataHealth.provisionalQuoteCount, holdings.filter((row) => row.quoteStatus === "provisional").length);
+    case "non_current_price":
+      return Math.max(data.dataHealth.nonCurrentPriceCount, holdings.filter((row) => isNonCurrentPrice(row)).length);
+    case "missing_fx":
+      return Math.max(data.dataHealth.currentMissingFxCount ?? data.dataHealth.missingFxCount, data.fxStatus.missingRatePairs.length);
+    case "missing_snapshot": {
+      const snapshotGapCount = snapshotGapHoldingCountForReason("missing_snapshot", diagnostics, valuationHealth);
+      if (snapshotGapCount > 0) return snapshotGapCount;
+      if (!canSurfaceSnapshotReportHealthReason("missing_snapshot", data, diagnostics, valuationHealth)) return 0;
+      return diagnostics.knownGapReasons.includes("missing_snapshot") || ("performance" in data && data.performance.points.length === 0) ? 1 : 0;
+    }
+    case "stale_snapshot": {
+      const snapshotGapCount = snapshotGapHoldingCountForReason("stale_snapshot", diagnostics, valuationHealth);
+      if (snapshotGapCount > 0) return snapshotGapCount;
+      if (!canSurfaceSnapshotReportHealthReason("stale_snapshot", data, diagnostics, valuationHealth)) return 0;
+      return hasReportStaleSnapshotDiagnostic(diagnostics) ? 1 : 0;
+    }
+    case "missing_provider_source":
+      return diagnostics.missingProviderSourceCount;
+  }
+}
+
+function isSnapshotReportHealthReason(reason: ReportHealthReason): reason is "missing_snapshot" | "stale_snapshot" {
+  return reason === "missing_snapshot" || reason === "stale_snapshot";
+}
+
+function snapshotGapHoldingCountForReason(
+  reason: "missing_snapshot" | "stale_snapshot",
+  diagnostics: ReportDiagnosticsDto,
+  valuationHealth?: DashboardPerformanceDto["valuationHealth"],
+): number {
+  return Math.max(
+    diagnostics.snapshotGapHoldings?.filter((holding) => holding.knownGapReasons.includes(reason)).length ?? 0,
+    affectedValuationHealthSnapshotTickers(reason, valuationHealth).length,
+  );
+}
+
+function canSurfaceSnapshotReportHealthReason(
+  reason: "missing_snapshot" | "stale_snapshot",
+  data: AnyReportDto,
+  diagnostics: ReportDiagnosticsDto,
+  valuationHealth?: DashboardPerformanceDto["valuationHealth"],
+): boolean {
+  return data.dataHealth.holdingCount > 0 || snapshotGapHoldingCountForReason(reason, diagnostics, valuationHealth) > 0;
+}
+
+function hasReportStaleSnapshotDiagnostic(diagnostics: ReportDiagnosticsDto): boolean {
+  return diagnostics.knownGapReasons.includes("stale_snapshot")
+    || Boolean(diagnostics.staleSinceDate)
+    || Boolean(diagnostics.snapshotGapHoldings?.some((holding) => holding.knownGapReasons.includes("stale_snapshot")))
+    || diagnostics.markets.some((market) => market.knownGapReasons.map(reportHealthReasonFromDiagnostics).includes("stale_snapshot"));
+}
+
+function affectedReportTickers(
+  reason: ReportHealthReason,
+  holdings: ReportHoldingRowDto[],
+  diagnostics: ReportDiagnosticsDto,
+  valuationHealth?: DashboardPerformanceDto["valuationHealth"],
+): string[] {
+  if (reason === "missing_snapshot" || reason === "stale_snapshot") {
+    const fromSnapshotGaps = diagnostics.snapshotGapHoldings
+      ?.filter((holding) => holding.knownGapReasons.includes(reason))
+      .map((holding) => `${holding.ticker} · ${holding.marketCode}`) ?? [];
+    const fromValuationHealth = affectedValuationHealthSnapshotTickers(reason, valuationHealth);
+    if (fromSnapshotGaps.length > 0 || fromValuationHealth.length > 0) {
+      return uniqueLimited([...fromSnapshotGaps, ...fromValuationHealth], 12);
+    }
+
+    const affectedMarkets = new Set(diagnostics.markets
+      .filter((market) => market.knownGapReasons.map(reportHealthReasonFromDiagnostics).includes(reason))
+      .map((market) => market.marketCode));
+    return uniqueLimited(holdings
+      .filter((row) => affectedMarkets.has(row.marketCode))
+      .map((row) => `${row.ticker} · ${row.marketCode}`), 12);
+  }
+
+  const filtered = holdings.filter((row) => {
+    if (reason === "missing_quote") return row.quoteStatus === "missing";
+    if (reason === "provisional_quote") return row.quoteStatus === "provisional";
+    if (reason === "non_current_price") return isNonCurrentPrice(row);
+    if (reason === "missing_fx") return row.fxStatus !== "complete";
+    return false;
+  });
+  return uniqueLimited(filtered.map((row) => `${row.ticker} · ${row.marketCode}`), 12);
+}
+
+function reportValuationHealth(data: AnyReportDto): DashboardPerformanceDto["valuationHealth"] | undefined {
+  return "performance" in data ? data.valuationHealth ?? data.performance.valuationHealth : undefined;
+}
+
+function affectedValuationHealthSnapshotTickers(
+  reason: "missing_snapshot" | "stale_snapshot",
+  valuationHealth?: DashboardPerformanceDto["valuationHealth"],
+): string[] {
+  return valuationHealth?.affectedHoldings
+    .filter((holding) => holding.status === reason)
+    .map((holding) => `${holding.ticker} · ${holding.marketCode}`) ?? [];
+}
+
+function affectedReportMarkets(
+  reason: ReportHealthReason,
+  data: AnyReportDto,
+  holdings: ReportHoldingRowDto[],
+  diagnostics: ReportDiagnosticsDto,
+): string[] {
+  const fromDiagnostics = data.diagnostics.markets
+    .filter((market) => market.knownGapReasons.map(reportHealthReasonFromDiagnostics).includes(reason))
+    .map((market) => market.marketCode);
+  const fromHoldings = affectedReportTickers(reason, holdings, diagnostics, reportValuationHealth(data))
+    .map((label) => label.split(" · ")[1])
+    .filter((market): market is string => Boolean(market));
+  const scopedMarket = data.query.scope === "all" ? [] : [data.query.scope];
+  return uniqueLimited([...fromDiagnostics, ...fromHoldings, ...scopedMarket], 8);
+}
+
+function buildReportHealthAdminHref(marketCode: string | null, tickers: string[]): string {
+  const params = new URLSearchParams();
+  if (tickers.length > 0) params.set("search", tickers.slice(0, 20).join(" "));
+  return marketCode
+    ? `/admin/market-data/${encodeURIComponent(marketCode)}/overview${params.size > 0 ? `?${params.toString()}` : ""}`
+    : `/admin/market-data${params.size > 0 ? `?${params.toString()}` : ""}`;
+}
+
+function uniqueLimited(values: string[], limit: number): string[] {
+  return [...new Set(values.filter(Boolean))].slice(0, limit);
+}
+
 function ReportMeta({ data, dict, locale }: { data: AnyReportDto; dict: AppDictionary; locale: LocaleCode }) {
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground" data-testid="reports-meta">
@@ -715,6 +1057,9 @@ type SummaryMetricItem = {
   href?: string | null;
   linkAriaLabel?: string;
   linkTestId?: string;
+  healthHref?: string | null;
+  healthLinkLabel?: string;
+  healthLinkTestId?: string;
 };
 
 function SummaryGrid({
@@ -725,6 +1070,7 @@ function SummaryGrid({
   realizedPnlHref,
   summary,
   unrealizedPnlHref,
+  healthHref,
 }: {
   dataHealth: ReportDataHealthDto;
   currency: AccountDefaultCurrency;
@@ -733,10 +1079,17 @@ function SummaryGrid({
   realizedPnlHref: string;
   summary: ReportSummaryTotalsDto;
   unrealizedPnlHref: string;
+  healthHref: string;
 }) {
   const strictTotalsUnavailable = hasIncompleteReportValuation(dataHealth);
   const items: SummaryMetricItem[] = [
-    { label: dict.reports.marketValue, value: strictTotalsUnavailable ? null : summary.marketValueAmount },
+    {
+      label: dict.reports.marketValue,
+      value: strictTotalsUnavailable ? null : summary.marketValueAmount,
+      healthHref: strictTotalsUnavailable ? healthHref : null,
+      healthLinkLabel: dict.reports.viewDataHealth,
+      healthLinkTestId: "reports-summary-market-value-data-health-link",
+    },
     { label: dict.reports.bookCost, value: summary.costBasisAmount },
     {
       label: dict.reports.unrealizedPnl,
@@ -745,6 +1098,9 @@ function SummaryGrid({
       href: unrealizedPnlHref,
       linkAriaLabel: dict.reports.openUnrealizedPnlAnalysis,
       linkTestId: "reports-summary-unrealized-pnl-analysis-link",
+      healthHref: strictTotalsUnavailable ? healthHref : null,
+      healthLinkLabel: dict.reports.whyHidden,
+      healthLinkTestId: "reports-summary-unrealized-pnl-data-health-link",
     },
     {
       label: dict.reports.realizedPnl,
@@ -762,6 +1118,9 @@ function SummaryGrid({
       detail: strictTotalsUnavailable || summary.dailyChangePercent === null ? "-" : formatPercent(summary.dailyChangePercent, locale),
       toneValue: strictTotalsUnavailable ? null : summary.dailyChangeAmount,
       value: strictTotalsUnavailable ? null : summary.dailyChangeAmount,
+      healthHref: strictTotalsUnavailable ? healthHref : null,
+      healthLinkLabel: dict.reports.whyHidden,
+      healthLinkTestId: "reports-summary-daily-change-data-health-link",
     },
     { label: dict.reports.income, value: summary.incomeAmount },
     {
@@ -818,6 +1177,17 @@ function SummaryGrid({
           {item.detail ? (
             <CardContent className={cn("px-4 pb-4 pt-0 text-sm", holdingsFinanceToneClass(item.toneValue ?? null, "text-muted-foreground"))}>
               {item.detail}
+            </CardContent>
+          ) : null}
+          {item.healthHref ? (
+            <CardContent className="px-4 pb-4 pt-0 text-sm">
+              <Link
+                href={item.healthHref}
+                className="font-medium text-primary underline decoration-primary/30 underline-offset-4 hover:text-primary/80"
+                data-testid={item.healthLinkTestId}
+              >
+                {item.healthLinkLabel ?? dict.reports.viewDataHealth}
+              </Link>
             </CardContent>
           ) : null}
         </Card>
@@ -878,19 +1248,49 @@ function FxStatusCard({
   );
 }
 
-function DataHealthCard({ dataHealth, dict }: { dataHealth: ReportDataHealthDto; dict: AppDictionary }) {
+function DataHealthCard({
+  data,
+  dataHealth,
+  dict,
+  healthQuery,
+  locale,
+  returnTo,
+  sectionRef,
+  showAdminActions,
+}: {
+  data: AnyReportDto;
+  dataHealth: ReportDataHealthDto;
+  dict: AppDictionary;
+  healthQuery: ReportHealthQuery;
+  locale: LocaleCode;
+  returnTo: string;
+  sectionRef: { current: HTMLDivElement | null };
+  showAdminActions: boolean;
+}) {
+  const [copiedAdminHref, setCopiedAdminHref] = useState<string | null>(null);
+  const causes = useMemo(
+    () => buildReportHealthCauses({ data, dict, healthQuery, returnTo }),
+    [data, dict, healthQuery, returnTo],
+  );
   const rows = [
     { key: "holdingCount", label: dict.holdings.dataHealthHoldingCount, value: dataHealth.holdingCount },
     { key: "missingQuoteCount", label: dict.holdings.dataHealthMissingQuoteCount, value: dataHealth.missingQuoteCount },
     { key: "provisionalQuoteCount", label: dict.holdings.dataHealthProvisionalQuoteCount, value: dataHealth.provisionalQuoteCount },
-    { key: "missingFxCount", label: dict.holdings.dataHealthMissingFxCount, value: dataHealth.missingFxCount },
+    { key: "missingFxCount", label: dict.holdings.dataHealthMissingFxCount, value: dataHealth.currentMissingFxCount ?? dataHealth.missingFxCount },
     { key: "nonCurrentPriceCount", label: dict.holdings.dataHealthNonCurrentPriceCount, value: dataHealth.nonCurrentPriceCount },
   ];
   return (
-    <Card>
+    <Card
+      ref={(node) => {
+        sectionRef.current = node;
+      }}
+      tabIndex={-1}
+      data-testid="reports-data-health-card"
+      className={cn(healthQuery.open && "ring-2 ring-primary/30")}
+    >
       <CardHeader>
-        <CardTitle>{dict.holdings.dataHealthTerm}</CardTitle>
-        <CardDescription>{dict.holdings.dataHealthDescription}</CardDescription>
+        <CardTitle>{dict.reports.dataHealthChecklistTitle}</CardTitle>
+        <CardDescription>{dict.reports.dataHealthChecklistDescription}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid gap-2 sm:grid-cols-2">
@@ -907,9 +1307,102 @@ function DataHealthCard({ dataHealth, dict }: { dataHealth: ReportDataHealthDto;
             <AlertDescription>{dict.reports.strictTotalsNoticeDescription}</AlertDescription>
           </Alert>
         ) : null}
+        {causes.length > 0 ? (
+          <div className="space-y-2" data-testid="reports-data-health-causes">
+            {causes.map((cause) => (
+              <div
+                key={cause.reason}
+                className={cn(
+                  "rounded-lg border border-border bg-background p-3",
+                  !cause.active && "border-dashed bg-muted/20 opacity-75",
+                  healthQuery.reasons.includes(cause.reason) && "ring-2 ring-primary/25",
+                )}
+                data-testid={`reports-data-health-cause-${cause.reason}`}
+              >
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-medium text-foreground">{cause.title}</p>
+                      <Badge variant={cause.active ? "outline" : "secondary"}>
+                        {cause.active ? dict.reports.dataHealthActive : dict.reports.dataHealthInactive}
+                      </Badge>
+                      {cause.active ? <Badge variant="secondary">{formatNumber(cause.count, locale)}</Badge> : null}
+                    </div>
+                    <p className="mt-1 text-sm text-muted-foreground">{cause.description}</p>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap gap-2">
+                    {cause.settingsRepairHref ? (
+                      <Button asChild size="sm" variant="secondary" data-testid={`reports-data-health-settings-${cause.reason}`}>
+                        <Link href={cause.settingsRepairHref}>{dict.reports.dataHealthSettingsRepairAction}</Link>
+                      </Button>
+                    ) : null}
+                    {cause.adminHref && showAdminActions ? (
+                      <Button asChild size="sm" data-testid={`reports-data-health-admin-${cause.reason}`}>
+                        <Link href={cause.adminHref}>{dict.reports.dataHealthAdminRepairAction}</Link>
+                      </Button>
+                    ) : null}
+                    {cause.adminHref && !showAdminActions ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        data-testid={`reports-data-health-copy-admin-${cause.reason}`}
+                        onClick={() => {
+                          void copyReportHealthAdminLink(cause, locale).then((copied) => {
+                            if (copied) setCopiedAdminHref(cause.adminHref);
+                          });
+                        }}
+                      >
+                        {copiedAdminHref === cause.adminHref ? dict.reports.dataHealthAdminCopied : dict.reports.dataHealthCopyAdminAction}
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="mt-3 grid gap-2 text-sm md:grid-cols-3">
+                  <AffectedItems label={dict.reports.dataHealthAffectedTickers} values={cause.tickers} emptyLabel={dict.reports.dataHealthNoAffectedItems} />
+                  <AffectedItems label={dict.reports.dataHealthAffectedMarkets} values={cause.markets} emptyLabel={dict.reports.dataHealthNoAffectedItems} />
+                  <AffectedItems label={dict.reports.dataHealthAffectedFxPairs} values={cause.fxPairs} emptyLabel={dict.reports.dataHealthNoAffectedItems} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );
+}
+
+function AffectedItems({ emptyLabel, label, values }: { emptyLabel: string; label: string; values: string[] }) {
+  return (
+    <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-2">
+      <p className="text-xs font-medium text-muted-foreground">{label}</p>
+      <p className="mt-1 break-words font-mono text-xs text-foreground">
+        {values.length > 0 ? values.join(", ") : emptyLabel}
+      </p>
+    </div>
+  );
+}
+
+async function copyReportHealthAdminLink(cause: ReportHealthCause, locale: LocaleCode): Promise<boolean> {
+  if (!cause.adminHref || !navigator.clipboard?.writeText) return false;
+  const absoluteHref = typeof window === "undefined"
+    ? cause.adminHref
+    : new URL(cause.adminHref, window.location.origin).href;
+  const lines = [
+    cause.title,
+    cause.description,
+    cause.tickers.length > 0 ? `${cause.tickers.join(", ")}` : null,
+    cause.markets.length > 0 ? `${cause.markets.join(", ")}` : null,
+    cause.fxPairs.length > 0 ? `${cause.fxPairs.join(", ")}` : null,
+    formatDateLabel(new Date().toISOString().slice(0, 10), locale),
+    absoluteHref,
+  ].filter((line): line is string => line !== null);
+  try {
+    await navigator.clipboard.writeText(lines.join("\n"));
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function DailyReviewView({
@@ -1008,6 +1501,7 @@ function PortfolioReportView({
   locale,
   onRefresh,
   showAdminActions,
+  tickerRepairReturnTo,
   timelineMode,
   onTimelineModeChange,
 }: {
@@ -1018,6 +1512,7 @@ function PortfolioReportView({
   locale: LocaleCode;
   onRefresh: () => void;
   showAdminActions: boolean;
+  tickerRepairReturnTo: string;
   timelineMode: TimelineMode;
   onTimelineModeChange: (mode: TimelineMode) => void;
 }) {
@@ -1030,6 +1525,7 @@ function PortfolioReportView({
         onRefresh={onRefresh}
         performance={data.performance}
         showAdminActions={showAdminActions}
+        tickerRepairReturnTo={tickerRepairReturnTo}
         timelineMode={timelineMode}
         onTimelineModeChange={onTimelineModeChange}
         valuationHealth={data.valuationHealth ?? data.performance.valuationHealth}
@@ -1059,6 +1555,7 @@ function MarketReportView({
   locale,
   onRefresh,
   showAdminActions,
+  tickerRepairReturnTo,
   timelineMode,
   onTimelineModeChange,
 }: {
@@ -1069,6 +1566,7 @@ function MarketReportView({
   locale: LocaleCode;
   onRefresh: () => void;
   showAdminActions: boolean;
+  tickerRepairReturnTo: string;
   timelineMode: TimelineMode;
   onTimelineModeChange: (mode: TimelineMode) => void;
 }) {
@@ -1081,6 +1579,7 @@ function MarketReportView({
         onRefresh={onRefresh}
         performance={data.performance}
         showAdminActions={showAdminActions}
+        tickerRepairReturnTo={tickerRepairReturnTo}
         timelineMode={timelineMode}
         onTimelineModeChange={onTimelineModeChange}
         valuationHealth={data.valuationHealth ?? data.performance.valuationHealth}
@@ -1111,6 +1610,7 @@ function PerformanceChart({
   onRefresh,
   performance,
   showAdminActions,
+  tickerRepairReturnTo,
   timelineMode,
   onTimelineModeChange,
   valuationHealth,
@@ -1121,6 +1621,7 @@ function PerformanceChart({
   onRefresh: () => void;
   performance: DashboardPerformanceDto;
   showAdminActions: boolean;
+  tickerRepairReturnTo: string | null;
   timelineMode: TimelineMode;
   onTimelineModeChange: (mode: TimelineMode) => void;
   valuationHealth?: DashboardPerformanceDto["valuationHealth"];
@@ -1224,6 +1725,7 @@ function PerformanceChart({
             locale={locale}
             showAdminActions={showAdminActions}
             strictTotalsNotice={hasIncompleteReportValuationFromHealth(valuationHealth) ? dict.valuationHealth.strictTotalsNotice : null}
+            tickerRepairReturnTo={tickerRepairReturnTo}
             valuationHealth={valuationHealth}
           />
         ) : null}

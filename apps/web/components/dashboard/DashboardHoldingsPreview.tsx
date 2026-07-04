@@ -147,6 +147,7 @@ interface DashboardHoldingsPreviewProps {
   showAdminActivityLinks?: boolean;
   isRefreshing?: boolean;
   onRefresh?: () => void;
+  dataHealthHref?: string;
 }
 
 export function DashboardHoldingsPreview({
@@ -159,6 +160,7 @@ export function DashboardHoldingsPreview({
   showAdminActivityLinks = false,
   isRefreshing = false,
   onRefresh,
+  dataHealthHref = "/reports?tab=portfolio&scope=all&health=1",
 }: DashboardHoldingsPreviewProps) {
   const dict = getDictionary(locale);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
@@ -380,9 +382,16 @@ export function DashboardHoldingsPreview({
                         {formatTopHoldingsMessage(dict.dashboardHome.missingValuationDescription, {
                           tickers: valuationAttentionLabel,
                         })}
-                      </p>
-                      <p>{dict.dashboardHome.missingValuationHelp}</p>
-                    </AlertDescription>
+	                      </p>
+	                      <p>{dict.dashboardHome.missingValuationHelp}</p>
+                      <Link
+                        href={dataHealthHref}
+                        className="inline-flex text-sm font-medium text-primary underline decoration-primary/30 underline-offset-4 hover:text-primary/80"
+                        data-testid="dashboard-holdings-data-health-link"
+                      >
+                        {dict.reports.viewDataHealth}
+                      </Link>
+	                    </AlertDescription>
                   </Alert>
                 ) : null}
               </div>
