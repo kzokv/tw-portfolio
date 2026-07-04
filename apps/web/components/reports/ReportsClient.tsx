@@ -804,6 +804,9 @@ function buildReportHealthCauses({
   const diagnostics = data.diagnostics;
   const reasons = new Set<ReportHealthReason>();
   diagnostics.knownGapReasons.forEach((reason) => reasons.add(reportHealthReasonFromDiagnostics(reason)));
+  diagnostics.snapshotGapHoldings?.forEach((holding) => {
+    holding.knownGapReasons.forEach((reason) => reasons.add(reason));
+  });
   if (data.dataHealth.missingQuoteCount > 0) reasons.add("missing_quote");
   if (data.dataHealth.provisionalQuoteCount > 0) reasons.add("provisional_quote");
   if (data.dataHealth.nonCurrentPriceCount > 0) reasons.add("non_current_price");

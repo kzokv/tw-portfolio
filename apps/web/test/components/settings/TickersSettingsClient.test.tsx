@@ -111,4 +111,17 @@ describe("TickersSettingsClient", () => {
     expect(container.querySelector("[data-testid='settings-tickers-repair-origin']")).toBeNull();
     expect(container.querySelector("[data-testid='settings-tickers-repair-return-link']")).toBeNull();
   });
+
+  it("rejects backslash-prefixed Data Health return paths", async () => {
+    searchParamsMock.value = "repair=1&origin=data-health&market=TW&tickers=2330&returnTo=%2F%5Cevil.example";
+
+    act(() => {
+      root.render(<TickersSettingsClient />);
+    });
+
+    await act(async () => {});
+
+    expect(container.querySelector("[data-testid='settings-tickers-repair-origin']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='settings-tickers-repair-return-link']")).toBeNull();
+  });
 });

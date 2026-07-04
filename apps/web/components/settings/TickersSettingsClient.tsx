@@ -147,7 +147,7 @@ function normalizeLocalReturnTo(raw: string | null): string | null {
   if (!raw) return null;
   try {
     const decoded = decodeURIComponent(raw);
-    if (!decoded.startsWith("/") || decoded.startsWith("//")) return null;
+    if (!decoded.startsWith("/") || decoded.startsWith("//") || decoded.includes("\\")) return null;
     return decoded;
   } catch {
     return null;

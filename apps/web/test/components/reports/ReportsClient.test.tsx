@@ -1467,7 +1467,7 @@ describe("ReportsClient", () => {
   });
 
   it("names affected tickers for active stale daily snapshot causes", async () => {
-    searchParamsMock.value = "tab=daily-review&scope=all&range=1Y&health=1&healthReason=stale_snapshot";
+    searchParamsMock.value = "tab=daily-review&scope=all&range=1Y";
     const staleFixture = {
       ...fixture,
       diagnostics: {
@@ -1477,15 +1477,8 @@ describe("ReportsClient", () => {
         latestReliableValuationDate: "2026-06-03",
         staleSinceDate: "2026-06-03",
         marketDataStaleSince: "2026-06-03",
-        knownGapReasons: ["stale_snapshot"],
-        markets: [{
-          marketCode: "AU",
-          expectedLatestValuationDate: "2026-06-08",
-          latestSnapshotDate: "2026-06-03",
-          missingProviderSourceCount: 0,
-          providerSources: ["integration-test"],
-          knownGapReasons: ["stale_snapshot"],
-        }],
+        knownGapReasons: [],
+        markets: [],
         snapshotGapHoldings: [{
           ticker: "BHP",
           marketCode: "AU",
