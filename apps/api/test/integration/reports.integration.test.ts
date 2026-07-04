@@ -141,6 +141,29 @@ describe("report routes", () => {
     ]);
     await app.persistence.bulkUpsertHoldingSnapshots(userId, [
       {
+        id: "report-diagnostics-snapshot-2330-valid",
+        userId,
+        accountId: "acc-1",
+        ticker: "2330",
+        marketCode: "TW",
+        snapshotDate: "2026-06-02",
+        quantity: 10,
+        closePrice: 104,
+        marketValue: 1040,
+        costBasis: 1000,
+        unrealizedPnl: 40,
+        cumulativeRealizedPnl: 0,
+        cumulativeDividends: 0,
+        isProvisional: false,
+        currency: "TWD",
+        valueNative: 1040,
+        costBasisNative: 1000,
+        unrealizedPnlNative: 40,
+        providerSource: "integration-test",
+        generatedAt: "2026-06-02T10:05:00.000Z",
+        generationRunId: "report-diagnostics-gen-valid",
+      },
+      {
         id: "report-diagnostics-snapshot-2330",
         userId,
         accountId: "acc-1",
@@ -210,6 +233,17 @@ describe("report routes", () => {
             knownGapReasons: expect.arrayContaining(["missing_provider_source", "non_current_price", "provisional_quote"]),
           }),
         ]),
+        snapshotGapHoldings: [
+          expect.objectContaining({
+            ticker: "2330",
+            marketCode: "TW",
+            accountCount: 1,
+            affectedAccountCount: 1,
+            latestSnapshotDate: "2026-06-02",
+            expectedLatestValuationDate: expect.any(String),
+            knownGapReasons: ["stale_snapshot"],
+          }),
+        ],
         rowCounts: expect.objectContaining({
           holdingsTotal: 1,
           holdingsReturned: 1,
@@ -269,6 +303,14 @@ describe("report routes", () => {
             providerSources: [],
           }),
         ]),
+        snapshotGapHoldings: [
+          expect.objectContaining({
+            ticker: "2330",
+            marketCode: "TW",
+            latestSnapshotDate: "2026-06-02",
+            knownGapReasons: ["stale_snapshot"],
+          }),
+        ],
         rowCounts: expect.objectContaining({
           holdingsTotal: 1,
           holdingsReturned: 1,
@@ -318,6 +360,14 @@ describe("report routes", () => {
             providerSources: [],
           }),
         ]),
+        snapshotGapHoldings: [
+          expect.objectContaining({
+            ticker: "2330",
+            marketCode: "TW",
+            latestSnapshotDate: "2026-06-02",
+            knownGapReasons: ["stale_snapshot"],
+          }),
+        ],
         rowCounts: expect.objectContaining({
           holdingsTotal: 1,
           holdingsReturned: 1,

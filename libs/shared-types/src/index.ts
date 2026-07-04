@@ -1294,6 +1294,15 @@ export interface ReportDiagnosticsDto {
       | "missing_provider_source"
     >;
   }>;
+  snapshotGapHoldings?: Array<{
+    ticker: string;
+    marketCode: MarketCode;
+    accountCount: number;
+    affectedAccountCount: number;
+    latestSnapshotDate: string | null;
+    expectedLatestValuationDate: string;
+    knownGapReasons: Array<"missing_snapshot" | "stale_snapshot">;
+  }>;
   rowCounts: {
     holdingsTotal: number;
     holdingsReturned: number;

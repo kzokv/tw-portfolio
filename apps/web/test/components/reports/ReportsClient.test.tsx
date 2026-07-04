@@ -1466,6 +1466,56 @@ describe("ReportsClient", () => {
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining("/admin/market-data"));
   });
 
+  it("names affected tickers for active stale daily snapshot causes", async () => {
+    searchParamsMock.value = "tab=daily-review&scope=all&range=1Y&health=1&healthReason=stale_snapshot";
+    const staleFixture = {
+      ...fixture,
+      diagnostics: {
+        ...fixture.diagnostics,
+        lastValuationDate: "2026-06-03",
+        latestSnapshotDate: "2026-06-03",
+        latestReliableValuationDate: "2026-06-03",
+        staleSinceDate: "2026-06-03",
+        marketDataStaleSince: "2026-06-03",
+        knownGapReasons: ["stale_snapshot"],
+        markets: [{
+          marketCode: "AU",
+          expectedLatestValuationDate: "2026-06-08",
+          latestSnapshotDate: "2026-06-03",
+          missingProviderSourceCount: 0,
+          providerSources: ["integration-test"],
+          knownGapReasons: ["stale_snapshot"],
+        }],
+        snapshotGapHoldings: [{
+          ticker: "BHP",
+          marketCode: "AU",
+          accountCount: 1,
+          affectedAccountCount: 1,
+          latestSnapshotDate: "2026-06-03",
+          expectedLatestValuationDate: "2026-06-08",
+          knownGapReasons: ["stale_snapshot"],
+        }],
+      },
+    } as DailyReviewReportDto;
+
+    act(() => {
+      root.render(<ReportsClient initialReport={staleFixture} initialState={parseReportRouteState({})} />);
+    });
+
+    await act(async () => {});
+
+    const staleSnapshotCause = document.querySelector("[data-testid='reports-data-health-cause-stale_snapshot']");
+    expect(staleSnapshotCause?.textContent).toContain("Stale daily snapshots");
+    expect(staleSnapshotCause?.textContent).toContain("Active");
+    expect(staleSnapshotCause?.textContent).toContain("BHP");
+    expect(staleSnapshotCause?.textContent).toContain("AU");
+
+    const settingsHref = document.querySelector<HTMLAnchorElement>("[data-testid='reports-data-health-settings-stale_snapshot']")?.getAttribute("href");
+    expect(settingsHref).toContain("/settings/tickers?repair=1&origin=data-health&healthReason=stale_snapshot");
+    expect(settingsHref).toContain("market=AU");
+    expect(settingsHref).toContain("tickers=BHP");
+  });
+
   it("does not hide current valuation totals for historical-only missing FX gaps", async () => {
     const historicalFxFixture = {
       ...fixture,

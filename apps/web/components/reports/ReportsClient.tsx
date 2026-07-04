@@ -819,8 +819,8 @@ function buildReportHealthCauses({
   return [...reasons].sort((left, right) => reportHealthReasonRank(left) - reportHealthReasonRank(right)).map((reason) => {
     const copy = reportHealthReasonCopy(dict, reason);
     const active = isReportHealthReasonActive(reason, data, holdings, diagnostics);
-    const tickers = affectedReportTickers(reason, holdings);
-    const markets = affectedReportMarkets(reason, data, holdings);
+    const tickers = affectedReportTickers(reason, holdings, diagnostics);
+    const markets = affectedReportMarkets(reason, data, holdings, diagnostics);
     const fxPairs = reason === "missing_fx"
       ? data.fxStatus.missingRatePairs.map((pair) => `${pair.from}->${pair.to}`)
       : [];
@@ -888,15 +888,35 @@ function reportHealthReasonCount(
     case "missing_fx":
       return Math.max(data.dataHealth.currentMissingFxCount ?? data.dataHealth.missingFxCount, data.fxStatus.missingRatePairs.length);
     case "missing_snapshot":
-      return diagnostics.knownGapReasons.includes("missing_snapshot") || ("performance" in data && data.performance.points.length === 0) ? 1 : 0;
+      return diagnostics.snapshotGapHoldings?.filter((holding) => holding.knownGapReasons.includes("missing_snapshot")).length
+        || (diagnostics.knownGapReasons.includes("missing_snapshot") || ("performance" in data && data.performance.points.length === 0) ? 1 : 0);
     case "stale_snapshot":
-      return diagnostics.knownGapReasons.includes("stale_snapshot") || Boolean(diagnostics.staleSinceDate || ("performance" in data && data.performance.marketDataStaleSince)) ? 1 : 0;
+      return diagnostics.snapshotGapHoldings?.filter((holding) => holding.knownGapReasons.includes("stale_snapshot")).length
+        || (diagnostics.knownGapReasons.includes("stale_snapshot") || Boolean(diagnostics.staleSinceDate || ("performance" in data && data.performance.marketDataStaleSince)) ? 1 : 0);
     case "missing_provider_source":
       return diagnostics.missingProviderSourceCount;
   }
 }
 
-function affectedReportTickers(reason: ReportHealthReason, holdings: ReportHoldingRowDto[]): string[] {
+function affectedReportTickers(
+  reason: ReportHealthReason,
+  holdings: ReportHoldingRowDto[],
+  diagnostics: ReportDiagnosticsDto,
+): string[] {
+  if (reason === "missing_snapshot" || reason === "stale_snapshot") {
+    const fromSnapshotGaps = diagnostics.snapshotGapHoldings
+      ?.filter((holding) => holding.knownGapReasons.includes(reason))
+      .map((holding) => `${holding.ticker} · ${holding.marketCode}`) ?? [];
+    if (fromSnapshotGaps.length > 0) return uniqueLimited(fromSnapshotGaps, 12);
+
+    const affectedMarkets = new Set(diagnostics.markets
+      .filter((market) => market.knownGapReasons.map(reportHealthReasonFromDiagnostics).includes(reason))
+      .map((market) => market.marketCode));
+    return uniqueLimited(holdings
+      .filter((row) => affectedMarkets.has(row.marketCode))
+      .map((row) => `${row.ticker} · ${row.marketCode}`), 12);
+  }
+
   const filtered = holdings.filter((row) => {
     if (reason === "missing_quote") return row.quoteStatus === "missing";
     if (reason === "provisional_quote") return row.quoteStatus === "provisional";
@@ -907,11 +927,16 @@ function affectedReportTickers(reason: ReportHealthReason, holdings: ReportHoldi
   return uniqueLimited(filtered.map((row) => `${row.ticker} · ${row.marketCode}`), 12);
 }
 
-function affectedReportMarkets(reason: ReportHealthReason, data: AnyReportDto, holdings: ReportHoldingRowDto[]): string[] {
+function affectedReportMarkets(
+  reason: ReportHealthReason,
+  data: AnyReportDto,
+  holdings: ReportHoldingRowDto[],
+  diagnostics: ReportDiagnosticsDto,
+): string[] {
   const fromDiagnostics = data.diagnostics.markets
     .filter((market) => market.knownGapReasons.map(reportHealthReasonFromDiagnostics).includes(reason))
     .map((market) => market.marketCode);
-  const fromHoldings = affectedReportTickers(reason, holdings)
+  const fromHoldings = affectedReportTickers(reason, holdings, diagnostics)
     .map((label) => label.split(" · ")[1])
     .filter((market): market is string => Boolean(market));
   const scopedMarket = data.query.scope === "all" ? [] : [data.query.scope];
