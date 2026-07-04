@@ -51,6 +51,8 @@ interface MonitoredTickersSectionProps {
   isRepairSubmitting: boolean;
   repairMessage: string;
   repairError: string;
+  suggestedRepairKeys?: Set<string>;
+  suggestedRepairTickers?: Set<string>;
   dict: AppDictionary;
 }
 
@@ -114,6 +116,8 @@ export function MonitoredTickersSection({
   isRepairSubmitting,
   repairMessage,
   repairError,
+  suggestedRepairKeys = new Set(),
+  suggestedRepairTickers = new Set(),
   dict,
 }: MonitoredTickersSectionProps) {
   const [search, setSearch] = useState("");
@@ -381,7 +385,9 @@ export function MonitoredTickersSection({
               {filteredManual.map((s) => (
                 <label
                   key={s.key}
-                  className="flex cursor-pointer items-center gap-2 rounded-md px-3 py-1.5 text-sm hover:bg-muted/50"
+                  className={`flex cursor-pointer items-center gap-2 rounded-md px-3 py-1.5 text-sm hover:bg-muted/50 ${
+                    suggestedRepairKeys.has(s.key) || suggestedRepairTickers.has(s.ticker) ? "ring-1 ring-warning/50 bg-warning/10" : ""
+                  }`}
                   data-testid={`manual-ticker-${s.ticker}`}
                 >
                   <input
@@ -394,6 +400,11 @@ export function MonitoredTickersSection({
                     {s.ticker} · {s.marketCode}
                   </span>
                   {s.name && <span className="min-w-0 truncate text-muted-foreground">— {s.name}</span>}
+                  {suggestedRepairKeys.has(s.key) || suggestedRepairTickers.has(s.ticker) ? (
+                    <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-warning/20 text-warning" data-testid={`repair-suggested-${s.ticker}`}>
+                      {dict.settings.repairSuggestedTickerHint}
+                    </span>
+                  ) : null}
                   {s.barsBackfillStatus && (
                     <span className="ml-auto flex items-center gap-1">
                       <span
@@ -444,6 +455,7 @@ export function MonitoredTickersSection({
               const key = monitoredTickerKey(item);
               const selected = repairSelection.has(key);
               const disabled = !selected && disabledReason.length > 0;
+              const suggested = suggestedRepairKeys.has(key) || suggestedRepairTickers.has(item.ticker);
 
               return (
                 <label
@@ -453,7 +465,7 @@ export function MonitoredTickersSection({
                   data-testid={`repair-row-${item.ticker}`}
                   className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition ${
                     disabled ? "cursor-not-allowed bg-muted/70 text-muted-foreground" : "cursor-pointer hover:bg-warning/20"
-                  }`}
+                  } ${suggested ? "ring-1 ring-warning/60 bg-warning/15" : ""}`}
                   title={disabledReason || undefined}
                 >
                   <input
@@ -468,6 +480,11 @@ export function MonitoredTickersSection({
                     {item.ticker} · {item.marketCode ?? "TW"}
                   </span>
                   {item.name ? <span className="truncate text-muted-foreground">— {item.name}</span> : null}
+                  {suggested ? (
+                    <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-warning/20 text-warning" data-testid={`repair-suggested-${item.ticker}`}>
+                      {dict.settings.repairSuggestedTickerHint}
+                    </span>
+                  ) : null}
                   <span className="ml-auto text-[10px] text-muted-foreground" data-testid={`repair-cooldown-hint-${item.ticker}`}>
                     {disabledReason}
                   </span>

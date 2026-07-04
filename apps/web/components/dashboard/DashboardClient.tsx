@@ -33,6 +33,7 @@ import { getRouteLoadingLabels } from "../layout/i18n";
 import type { TimelineMode } from "../../lib/timelineAxis";
 import { hydrateDashboardMarketStates, shouldPollForOpenMarket, type DashboardMarketStateLike } from "../../features/price-state/priceState";
 import { buildUnrealizedPnlRoutePath } from "../../features/analysis/unrealizedPnlRouteState";
+import { buildDashboardReportsHealthHref } from "../../features/reports/reportHealthDeepLinks";
 import {
   Card as ShadcnCard,
   CardContent,
@@ -205,6 +206,8 @@ export function DashboardClient({
   const shouldPollDashboardPrices = shouldPollForOpenMarket(dashboard.holdings, marketStates)
     && isTickerPriceIntradayEnabled(dashboard.settings, initialPrimaryData?.settings);
   const refreshPricesStatus = formatRefreshPricesPending(dict, dashboard.refreshPending ?? null);
+  const dashboardHealthHref = buildDashboardReportsHealthHref();
+  const dashboardFxHealthHref = buildDashboardReportsHealthHref(["missing_fx"]);
 
   useEffect(() => {
     if (!shouldPollDashboardPrices) return;
@@ -263,6 +266,8 @@ export function DashboardClient({
           quoteRefreshVersion={dashboard.quoteRefreshVersion}
           canOpenQuickActions={canUseGlobalQuickActions}
           onOpenQuickActions={openQuickActions}
+          dataHealthHref={dashboardHealthHref}
+          fxHealthHref={dashboardFxHealthHref}
         />
         <BiggestMoversCard groups={holdingGroups} locale={locale} dict={dict} />
       </section>
@@ -388,6 +393,7 @@ export function DashboardClient({
                   onTimelineModeChange={setTimelineMode}
                   onOpenCustomize={() => setCustomizeRangesOpen(true)}
                   valuationHealth={performance.data?.valuationHealth ?? dashboard.valuationHealth}
+                  dataHealthHref={dashboardHealthHref}
                 />
               );
             case "allocation-snapshot":
@@ -413,16 +419,17 @@ export function DashboardClient({
               );
             case "holdings-table":
               return (
-	                <DashboardHoldingsPreview
-	                  fxRates={dashboard.fxRates ?? []}
-	                  groups={holdingGroups}
-	                  locale={locale}
-	                  reportingCurrency={dashboard.summary.reportingCurrency}
-	                  quoteRefreshVersion={dashboard.quoteRefreshVersion}
-                    isRefreshing={dashboard.isRefreshing}
-                    onRefresh={refreshDashboardPrices}
-	                  showAdminActivityLinks={sessionUserRole === "admin"}
-	                />
+                <DashboardHoldingsPreview
+                  fxRates={dashboard.fxRates ?? []}
+                  groups={holdingGroups}
+                  locale={locale}
+                  reportingCurrency={dashboard.summary.reportingCurrency}
+                  quoteRefreshVersion={dashboard.quoteRefreshVersion}
+                  isRefreshing={dashboard.isRefreshing}
+                  onRefresh={refreshDashboardPrices}
+                  showAdminActivityLinks={sessionUserRole === "admin"}
+                  dataHealthHref={dashboardHealthHref}
+                />
               );
             case "dividends-section":
               return (

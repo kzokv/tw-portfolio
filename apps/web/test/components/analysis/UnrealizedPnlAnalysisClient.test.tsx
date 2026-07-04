@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { UnrealizedPnlAnalysisClient } from "../../../components/analysis/UnrealizedPnlAnalysisClient";
 import { AppShellDataProvider, type AppShellData } from "../../../components/layout/AppShellDataContext";
+import { financeGainTextClass, financeLossTextClass } from "../../../components/holdings/holdingsStyle";
 import { getDictionary } from "../../../lib/i18n";
 import { ANALYSIS_DEFAULT_STATE } from "../../../features/analysis/unrealizedPnlRouteState";
 import { buildPreviewUnrealizedPnlAnalysis } from "../../../features/analysis/unrealizedPnlPreview";
@@ -86,6 +87,9 @@ describe("UnrealizedPnlAnalysisClient", () => {
       .find((candidate) => candidate.textContent?.includes(label));
     return row as HTMLButtonElement | null;
   };
+  const containsClass = (rootNode: ParentNode, className: string): boolean => (
+    Array.from(rootNode.querySelectorAll("*")).some((node) => node.className.toString().includes(className))
+  );
 
   beforeEach(() => {
     replaceMock.mockReset();
@@ -1031,6 +1035,36 @@ describe("UnrealizedPnlAnalysisClient", () => {
 
     expect(container.textContent).toContain("A$");
     expect(container.textContent).not.toContain("NT$");
+  });
+
+  it("applies gain/loss tones to focused, detail, and table P&L values", () => {
+    const initialState = {
+      ...ANALYSIS_DEFAULT_STATE,
+      detailLayout: "table" as const,
+    };
+    const initialData = buildPreviewUnrealizedPnlAnalysis(initialState);
+
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={initialState} />
+        </AppShellDataProvider>,
+      );
+    });
+
+    const focusValues = container.querySelector("[data-testid='analysis-focus-values']");
+    const detailCards = container.querySelector("[data-testid='analysis-detail-cards']");
+    const detailTable = container.querySelector("[data-testid='analysis-detail-table']");
+    expect(focusValues).not.toBeNull();
+    expect(detailCards).not.toBeNull();
+    expect(detailTable).not.toBeNull();
+    expect(containsClass(focusValues!, financeGainTextClass)).toBe(true);
+    expect(containsClass(detailCards!, financeGainTextClass)).toBe(true);
+    expect(containsClass(detailCards!, financeLossTextClass)).toBe(true);
+    expect(containsClass(detailTable!, financeGainTextClass)).toBe(true);
+    expect(containsClass(detailTable!, financeLossTextClass)).toBe(true);
+    expect(detailCards?.textContent).toContain("Period P&L change");
+    expect(detailTable?.textContent).toContain("Period P&L change");
   });
 
   it("keeps stale response values in their original currency while refreshing the selected reporting currency", async () => {

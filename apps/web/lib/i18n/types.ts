@@ -694,6 +694,7 @@ export interface AppDictionary {
     partialSnapshotDate: string;
     snapshotOnly: string;
     snapshotRepairAction: string;
+    settingsRepairAction: string;
     stale: string;
     staleSnapshot: string;
     status: string;
@@ -823,6 +824,35 @@ export interface AppDictionary {
     openUnrealizedPnlAnalysis: string;
     strictTotalsNoticeTitle: string;
     strictTotalsNoticeDescription: string;
+    viewDataHealth: string;
+    whyHidden: string;
+    dataHealthChecklistTitle: string;
+    dataHealthChecklistDescription: string;
+    dataHealthActive: string;
+    dataHealthInactive: string;
+    dataHealthInactiveDescription: string;
+    dataHealthAffectedTickers: string;
+    dataHealthAffectedMarkets: string;
+    dataHealthAffectedFxPairs: string;
+    dataHealthNoAffectedItems: string;
+    dataHealthSettingsRepairAction: string;
+    dataHealthAdminRepairAction: string;
+    dataHealthCopyAdminAction: string;
+    dataHealthAdminCopied: string;
+    dataHealthMissingQuoteTitle: string;
+    dataHealthMissingQuoteDescription: string;
+    dataHealthProvisionalQuoteTitle: string;
+    dataHealthProvisionalQuoteDescription: string;
+    dataHealthNonCurrentPriceTitle: string;
+    dataHealthNonCurrentPriceDescription: string;
+    dataHealthMissingFxTitle: string;
+    dataHealthMissingFxDescription: string;
+    dataHealthMissingSnapshotTitle: string;
+    dataHealthMissingSnapshotDescription: string;
+    dataHealthStaleSnapshotTitle: string;
+    dataHealthStaleSnapshotDescription: string;
+    dataHealthMissingProviderSourceTitle: string;
+    dataHealthMissingProviderSourceDescription: string;
   };
   tickerHistory: {
     eyebrow: string;
@@ -1189,6 +1219,11 @@ export interface AppDictionary {
     repairRequestPartial: string;
     repairRequestSuccess: string;
     repairRequestError: string;
+    repairOriginTitle: string;
+    repairOriginDescription: string;
+    repairOriginReturn: string;
+    repairSuggestedTickers: string;
+    repairSuggestedTickerHint: string;
     // KZO-161 (158C) — Display tab (dashboard timeframes + layout reset)
     tabDisplay: string;
     displayTimeframesTitle: string;

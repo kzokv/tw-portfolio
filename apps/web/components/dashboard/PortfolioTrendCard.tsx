@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   type CurrencyCode,
   type DashboardPerformanceDto,
@@ -52,6 +53,7 @@ interface PortfolioTrendCardProps {
   timelineMode: TimelineMode;
   onTimelineModeChange: (mode: TimelineMode) => void;
   valuationHealth?: ValuationHealthDto | null;
+  dataHealthHref?: string;
   // KZO-161 (158C): optional click handler for the "Customize ranges" gear
   // icon. When omitted, the gear is hidden entirely so this card stays
   // usable in non-dashboard contexts (e.g. the shared-portfolio view).
@@ -101,6 +103,7 @@ export function PortfolioTrendCard({
   timelineMode,
   onTimelineModeChange,
   valuationHealth,
+  dataHealthHref = "/reports?tab=portfolio&scope=all&health=1",
   onOpenCustomize,
 }: PortfolioTrendCardProps) {
   const rangeItems = ranges && ranges.length > 0 ? ranges : RANGE_ITEMS;
@@ -280,12 +283,19 @@ export function PortfolioTrendCard({
       ) : null}
 
       {marketDataStaleSince ? (
-        <p
+        <div
           className="mt-3 rounded-[18px] border border-warning/60 bg-warning/10 px-4 py-3 text-sm text-warning"
           data-testid="dashboard-performance-stale-warning"
         >
-          {formatStaleDataWarning(dict, marketDataStaleSince, locale)}
-        </p>
+          <p>{formatStaleDataWarning(dict, marketDataStaleSince, locale)}</p>
+          <Link
+            href={dataHealthHref}
+            className="mt-2 inline-flex font-medium text-primary underline decoration-primary/30 underline-offset-4 hover:text-primary/80"
+            data-testid="dashboard-performance-stale-data-health-link"
+          >
+            {dict.reports.viewDataHealth}
+          </Link>
+        </div>
       ) : null}
 
       {valuationHealth ? (
@@ -297,6 +307,15 @@ export function PortfolioTrendCard({
           showAdminActions={showAdminActions}
           valuationHealth={valuationHealth}
         />
+      ) : null}
+      {valuationHealth && valuationHealth.status !== "healthy" ? (
+        <Link
+          href={dataHealthHref}
+          className="mt-3 inline-flex text-sm font-medium text-primary underline decoration-primary/30 underline-offset-4 hover:text-primary/80"
+          data-testid="dashboard-performance-valuation-data-health-link"
+        >
+          {dict.reports.viewDataHealth}
+        </Link>
       ) : null}
 
       {hasPartialQuotes ? (

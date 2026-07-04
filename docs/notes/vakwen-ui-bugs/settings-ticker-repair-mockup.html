@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Settings Ticker Repair Mode Mockup</title>
+  <style>
+    :root {
+      --bg: #f7f8fb;
+      --card: #ffffff;
+      --border: #d8dee9;
+      --muted: #667085;
+      --text: #101828;
+      --primary: #215dc6;
+      --primary-soft: #eef4ff;
+      --warning-bg: #fff8e6;
+      --warning-border: #f4c84b;
+      --warning-text: #7a4e00;
+      --success-bg: #ecfdf3;
+      --success-text: #067647;
+      --chip: #eef2f7;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    .page {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 34px 28px 44px;
+    }
+
+    .crumb {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    h1 {
+      margin: 4px 0 20px;
+      font-size: 30px;
+      letter-spacing: 0;
+      line-height: 1.15;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 270px minmax(0, 1fr);
+      gap: 16px;
+      align-items: start;
+    }
+
+    .nav, .card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--card);
+      box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    }
+
+    .nav {
+      padding: 10px;
+    }
+
+    .nav-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      border-radius: 7px;
+      padding: 10px 11px;
+      color: #344054;
+      font-size: 13px;
+      font-weight: 750;
+    }
+
+    .nav-item.active {
+      background: var(--primary-soft);
+      color: var(--primary);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      background: var(--chip);
+      color: #344054;
+      font-size: 11px;
+      font-weight: 850;
+      padding: 3px 7px;
+      white-space: nowrap;
+    }
+
+    .content {
+      display: grid;
+      gap: 14px;
+    }
+
+    .origin {
+      border: 1px solid var(--warning-border);
+      border-radius: 8px;
+      background: var(--warning-bg);
+      color: var(--warning-text);
+      padding: 14px 15px;
+    }
+
+    .origin-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+    }
+
+    .origin-title {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 850;
+    }
+
+    .origin p {
+      margin: 5px 0 0;
+      max-width: 720px;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .link {
+      color: var(--primary);
+      font-size: 13px;
+      font-weight: 800;
+      text-decoration: underline;
+      text-decoration-color: rgba(33, 93, 198, 0.32);
+      text-underline-offset: 3px;
+      white-space: nowrap;
+    }
+
+    .chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+      margin-top: 10px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: #fff;
+      color: #344054;
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 12px;
+      font-weight: 750;
+      padding: 5px 8px;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      border-bottom: 1px solid var(--border);
+      padding: 18px;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 20px;
+      letter-spacing: 0;
+    }
+
+    .description {
+      margin: 6px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .segmented {
+      display: inline-flex;
+      height: 38px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      padding: 3px;
+      white-space: nowrap;
+    }
+
+    .segment {
+      border-radius: 6px;
+      padding: 7px 10px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .segment.active {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .search {
+      min-width: 0;
+      flex: 1;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #f8fafc;
+      color: #344054;
+      font-size: 14px;
+      padding: 10px 12px;
+    }
+
+    .button {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fff;
+      color: #344054;
+      font-size: 13px;
+      font-weight: 800;
+      padding: 10px 12px;
+      white-space: nowrap;
+    }
+
+    .button.primary {
+      border-color: var(--primary);
+      background: var(--primary);
+      color: #fff;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    th, td {
+      border-bottom: 1px solid var(--border);
+      padding: 12px 18px;
+      text-align: left;
+      vertical-align: middle;
+      font-size: 13px;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 850;
+      text-transform: uppercase;
+    }
+
+    .ticker {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .ticker strong {
+      font-family: "SFMono-Regular", Consolas, monospace;
+      font-size: 14px;
+    }
+
+    .ticker span {
+      color: var(--muted);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .row-target {
+      background: #fbfdff;
+      box-shadow: inset 3px 0 0 var(--primary);
+    }
+
+    .row-target .badge {
+      background: var(--primary-soft);
+      color: var(--primary);
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      background: var(--success-bg);
+      color: var(--success-text);
+      font-size: 12px;
+      font-weight: 850;
+      padding: 5px 8px;
+    }
+
+    .status.warning {
+      background: var(--warning-bg);
+      color: var(--warning-text);
+    }
+
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 18px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    @media (max-width: 820px) {
+      .page { padding: 22px 14px 32px; }
+      .layout { grid-template-columns: 1fr; }
+      .nav { display: none; }
+      .origin-head, .card-header, .toolbar, .footer {
+        align-items: stretch;
+        flex-direction: column;
+      }
+      .segmented { width: 100%; }
+      .segment { flex: 1; text-align: center; }
+      th:nth-child(3), td:nth-child(3) { display: none; }
+      th, td { padding: 11px 12px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="crumb">Settings / Tickers</div>
+    <h1>Repair ticker coverage from Data Health</h1>
+
+    <div class="layout">
+      <aside class="nav" aria-label="Settings navigation">
+        <div class="nav-item">Profile</div>
+        <div class="nav-item">Accounts</div>
+        <div class="nav-item active">Tickers <span class="badge">Repair</span></div>
+        <div class="nav-item">Market Data</div>
+        <div class="nav-item">Import</div>
+      </aside>
+
+      <section class="content">
+        <div class="origin" aria-label="Data Health origin">
+          <div class="origin-head">
+            <div>
+              <p class="origin-title">Opened from Reports Data Health</p>
+              <p>Repair mode is focused on tickers that may be missing quote prices or daily snapshots. Suggested tickers are highlighted for guidance only; users still choose what to repair.</p>
+            </div>
+            <a class="link" href="/reports?tab=portfolio&amp;scope=all&amp;health=1&amp;healthReason=missing_snapshot">Return to report</a>
+          </div>
+          <div class="chips" aria-label="Suggested tickers">
+            <span class="chip">TW · 2330</span>
+            <span class="chip">TW · 2317</span>
+            <span class="chip">US · NVDA</span>
+          </div>
+        </div>
+
+        <section class="card" aria-label="Ticker repair table">
+          <div class="card-header">
+            <div>
+              <h2>Monitored tickers</h2>
+              <p class="description">Repair mode hides the catalog and keeps the user in the monitored ticker list where backfill actions are available.</p>
+            </div>
+            <div class="segmented" aria-label="Ticker mode">
+              <div class="segment">Catalog</div>
+              <div class="segment active">Repair</div>
+            </div>
+          </div>
+
+          <div class="toolbar">
+            <input class="search" value="Suggested by Data Health: 2330, 2317, NVDA" aria-label="Ticker search">
+            <button class="button">Refresh selected</button>
+            <button class="button primary">Run repair</button>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 34%;">Ticker</th>
+                <th style="width: 19%;">Market</th>
+                <th style="width: 24%;">Last quote</th>
+                <th style="width: 23%;">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="row-target">
+                <td>
+                  <div class="ticker">
+                    <strong>2330</strong>
+                    <span>Taiwan Semiconductor</span>
+                  </div>
+                </td>
+                <td>TW <span class="badge">Suggested</span></td>
+                <td><span class="status warning">Missing snapshot</span></td>
+                <td><button class="button">Select for repair</button></td>
+              </tr>
+              <tr class="row-target">
+                <td>
+                  <div class="ticker">
+                    <strong>2317</strong>
+                    <span>Hon Hai Precision</span>
+                  </div>
+                </td>
+                <td>TW <span class="badge">Suggested</span></td>
+                <td><span class="status warning">Stale quote</span></td>
+                <td><button class="button">Select for repair</button></td>
+              </tr>
+              <tr class="row-target">
+                <td>
+                  <div class="ticker">
+                    <strong>NVDA</strong>
+                    <span>NVIDIA Corp</span>
+                  </div>
+                </td>
+                <td>US <span class="badge">Suggested</span></td>
+                <td><span class="status warning">Missing quote</span></td>
+                <td><button class="button">Select for repair</button></td>
+              </tr>
+              <tr>
+                <td>
+                  <div class="ticker">
+                    <strong>0050</strong>
+                    <span>Yuanta Taiwan 50 ETF</span>
+                  </div>
+                </td>
+                <td>TW</td>
+                <td><span class="status">Current</span></td>
+                <td><button class="button">Check health</button></td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="footer">
+            <span>Suggested rows come from the Data Health deep-link query.</span>
+            <span>Admin Market Data remains a secondary fallback action.</span>
+          </div>
+        </section>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

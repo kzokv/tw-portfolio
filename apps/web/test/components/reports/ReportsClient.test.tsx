@@ -169,6 +169,35 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         openRealizedPnlTransactions: "Open realized P&L transactions",
         strictTotalsNoticeTitle: "Strict totals",
         strictTotalsNoticeDescription: "Market value, unrealized P&L, and daily change stay unavailable instead of showing partial totals while one or more holdings are still waiting for current reportable valuations.",
+        viewDataHealth: "View Data Health",
+        whyHidden: "Why hidden?",
+        dataHealthChecklistTitle: "Data Health checklist",
+        dataHealthChecklistDescription: "Active causes explain why report valuation values may be unavailable.",
+        dataHealthActive: "Active",
+        dataHealthInactive: "Not active in this scope",
+        dataHealthInactiveDescription: "This cause was requested by a link, but it is not active in the current report scope.",
+        dataHealthAffectedTickers: "Affected tickers",
+        dataHealthAffectedMarkets: "Affected markets",
+        dataHealthAffectedFxPairs: "Affected FX pairs",
+        dataHealthNoAffectedItems: "No affected items available",
+        dataHealthSettingsRepairAction: "Open Settings ticker repair",
+        dataHealthAdminRepairAction: "Open Admin Market Data",
+        dataHealthCopyAdminAction: "Copy admin link",
+        dataHealthAdminCopied: "Admin link copied",
+        dataHealthMissingQuoteTitle: "Missing quote prices",
+        dataHealthMissingQuoteDescription: "One or more holdings do not have a usable quote price for report valuation.",
+        dataHealthProvisionalQuoteTitle: "Provisional quote prices",
+        dataHealthProvisionalQuoteDescription: "One or more holdings are using provisional quote data.",
+        dataHealthNonCurrentPriceTitle: "Non-current prices",
+        dataHealthNonCurrentPriceDescription: "One or more holdings do not have a current reportable price.",
+        dataHealthMissingFxTitle: "Missing FX rates",
+        dataHealthMissingFxDescription: "One or more currency conversions are missing.",
+        dataHealthMissingSnapshotTitle: "Missing daily snapshots",
+        dataHealthMissingSnapshotDescription: "The report is missing daily snapshot coverage for this scope.",
+        dataHealthStaleSnapshotTitle: "Stale daily snapshots",
+        dataHealthStaleSnapshotDescription: "The latest daily snapshot is older than expected.",
+        dataHealthMissingProviderSourceTitle: "Missing provider source",
+        dataHealthMissingProviderSourceDescription: "A market data provider source is not configured for one or more affected markets.",
       },
       holdings: {
         dataHealthTerm: "Data health",
@@ -265,6 +294,7 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         partialSnapshotDate: "Partial snapshot",
         snapshotOnly: "Charts stay snapshot-only and do not inject live holdings into historical points.",
         snapshotRepairAction: "Repair snapshots",
+        settingsRepairAction: "Open Settings repair",
         stale: "Stale",
         staleSnapshot: "Stale snapshot",
         status: "Status",
@@ -1349,6 +1379,91 @@ describe("ReportsClient", () => {
     expect(dailyChangeCard?.textContent).toContain("-");
     expect(document.querySelector("[data-testid='reports-strict-totals-alert']")?.textContent).toContain("Strict totals");
     expect(document.body.textContent).toContain("partial totals");
+  });
+
+  it("opens guided Data Health causes from summary links and uses settings repair before admin fallback", async () => {
+    searchParamsMock.value = "tab=daily-review&scope=all&currencyMode=specified&currency=AUD&range=1Y&health=1&healthReasons=missing_quote,missing_fx,stale_snapshot";
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    const strictFixture = {
+      ...fixture,
+      dataHealth: {
+        ...fixture.dataHealth,
+        missingQuoteCount: 1,
+        missingFxCount: 1,
+        currentMissingFxCount: 1,
+      },
+      diagnostics: {
+        ...fixture.diagnostics,
+        missingQuoteCount: 1,
+        missingFxCount: 1,
+        markets: [{
+          marketCode: "AU",
+          expectedLatestValuationDate: "2026-06-08",
+          latestSnapshotDate: "2026-06-08",
+          missingProviderSourceCount: 0,
+          providerSources: [],
+          knownGapReasons: ["missing_quote", "missing_fx"],
+        }],
+        knownGapReasons: ["missing_quote", "missing_fx"],
+      },
+      fxStatus: {
+        ...fixture.fxStatus,
+        status: "partial",
+        missingRatePairs: [{ from: "USD", to: "AUD" }],
+      },
+      holdings: {
+        ...fixture.holdings,
+        rows: [{
+          ...fixture.holdings.rows[0]!,
+          quoteStatus: "missing",
+          fxStatus: "partial",
+          reportingCurrentUnitPrice: null,
+          reportingMarketValueAmount: null,
+          reportingUnrealizedPnlAmount: null,
+          dailyChangeAmount: null,
+          dailyChangePercent: null,
+        }],
+      },
+    } as DailyReviewReportDto;
+
+    act(() => {
+      root.render(<ReportsClient initialReport={strictFixture} initialState={parseReportRouteState({})} />);
+    });
+
+    await act(async () => {});
+
+    const marketValueHref = document.querySelector<HTMLAnchorElement>("[data-testid='reports-summary-market-value-data-health-link']")?.getAttribute("href");
+    expect(marketValueHref).toBe("/reports?tab=daily-review&scope=all&range=1Y&health=1&healthReasons=missing_quote%2Cmissing_fx");
+    const missingQuoteCause = document.querySelector("[data-testid='reports-data-health-cause-missing_quote']");
+    const missingFxCause = document.querySelector("[data-testid='reports-data-health-cause-missing_fx']");
+    const staleSnapshotCause = document.querySelector("[data-testid='reports-data-health-cause-stale_snapshot']");
+    expect(document.querySelector("[data-testid='reports-data-health-card']")?.className).toContain("ring-2");
+    expect(missingQuoteCause?.textContent).toContain("Missing quote prices");
+    expect(missingQuoteCause?.textContent).toContain("Active");
+    expect(missingQuoteCause?.textContent).toContain("BHP");
+    expect(missingFxCause?.textContent).toContain("Missing FX rates");
+    expect(missingFxCause?.textContent).toContain("USD->AUD");
+    expect(staleSnapshotCause?.textContent).toContain("Not active in this scope");
+
+    const settingsHref = document.querySelector<HTMLAnchorElement>("[data-testid='reports-data-health-settings-missing_quote']")?.getAttribute("href");
+    expect(settingsHref).toContain("/settings/tickers?repair=1&origin=data-health&healthReason=missing_quote");
+    expect(settingsHref).toContain("tickers=BHP");
+    expect(settingsHref).toContain("returnTo=%2Freports%3Ftab%3Ddaily-review");
+    expect(settingsHref).toContain("health%3D1");
+    expect(settingsHref).toContain("healthReasons%3Dmissing_quote%252Cmissing_fx%252Cstale_snapshot");
+    expect(document.querySelector("[data-testid='reports-data-health-admin-missing_quote']")).toBeNull();
+    const copyAdminLinkButton = document.querySelector<HTMLButtonElement>("[data-testid='reports-data-health-copy-admin-missing_quote']");
+    expect(copyAdminLinkButton).not.toBeNull();
+
+    await act(async () => {
+      copyAdminLinkButton?.click();
+      await Promise.resolve();
+    });
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining("/admin/market-data"));
   });
 
   it("does not hide current valuation totals for historical-only missing FX gaps", async () => {

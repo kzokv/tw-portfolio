@@ -235,6 +235,11 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       repairRequestPartial: "Some tickers were queued. Review rejected items.",
       repairRequestSuccess: "Repair jobs queued.",
       repairRequestError: "Failed to enqueue repair jobs.",
+      repairOriginTitle: "Opened from Data Health",
+      repairOriginDescription: "Use repair mode to choose the affected tickers below. Suggested tickers are highlighted for guidance only.",
+      repairOriginReturn: "Return to report",
+      repairSuggestedTickers: "Suggested tickers",
+      repairSuggestedTickerHint: "Suggested by Data Health",
       // KZO-161 (158C) — Display tab
       tabDisplay: "Display",
       displayTimeframesTitle: "Dashboard timeframes",
@@ -577,6 +582,11 @@ export const settingsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "settings"
       repairRequestPartial: "部分標的已加入佇列，請查看被拒絕項目。",
       repairRequestSuccess: "修復任務已加入佇列。",
       repairRequestError: "修復任務加入佇列失敗。",
+      repairOriginTitle: "由資料健康度開啟",
+      repairOriginDescription: "請在下方修復模式中選擇受影響標的。建議標的只會用於提示，不會自動勾選。",
+      repairOriginReturn: "返回報表",
+      repairSuggestedTickers: "建議標的",
+      repairSuggestedTickerHint: "資料健康度建議",
       // KZO-161 (158C) — 顯示設定
       tabDisplay: "顯示",
       displayTimeframesTitle: "儀表板時間區段",
