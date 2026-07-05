@@ -188,6 +188,7 @@ async function refreshPolicy(
       refreshedAt: null,
       errorCode: null,
       budgetAfter: null,
+      persistStatus: false,
     });
   }
 
@@ -309,15 +310,18 @@ async function finalizePolicyRefresh(
     refreshedAt: string | null;
     errorCode: string | null;
     budgetAfter: { limit: number; used: number; remaining: number } | null;
+    persistStatus?: boolean;
   },
 ): Promise<QuoteFallbackRefreshItem> {
-  await input.persistence.updateQuoteFallbackPolicyRefreshStatus({
-    policyId: policy.id,
-    status: result.status,
-    refreshedAt: result.refreshedAt,
-    error: result.status === "success" || result.status === "skipped" ? null : result.message,
-    errorCode: result.errorCode,
-  });
+  if (result.persistStatus !== false) {
+    await input.persistence.updateQuoteFallbackPolicyRefreshStatus({
+      policyId: policy.id,
+      status: result.status,
+      refreshedAt: result.refreshedAt,
+      error: result.status === "success" || result.status === "skipped" ? null : result.message,
+      errorCode: result.errorCode,
+    });
+  }
 
   if (input.persistence.createMarketDataActivityEvent) {
     const eventType = mapEventType(result.status);

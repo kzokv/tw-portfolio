@@ -134,6 +134,7 @@ describe("quoteFallbackRefreshService", () => {
     expect(input.budget.tryConsume).not.toHaveBeenCalled();
     expect(input.provider.fetchCloseSnapshot).not.toHaveBeenCalled();
     expect(input.persistence.upsertQuoteFallbackSnapshot).not.toHaveBeenCalled();
+    expect(input.persistence.updateQuoteFallbackPolicyRefreshStatus).not.toHaveBeenCalled();
   });
 
   it("marks the policy rate-limited when the daily budget is exhausted", async () => {
