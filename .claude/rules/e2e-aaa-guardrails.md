@@ -17,3 +17,9 @@ Do not move conditional assertion branches into the test body to satisfy a one-o
 For focused browser coverage of configurable dashboard/reporting surfaces, assert stable controls, selected states, URL state, and honest empty/unavailable states before asserting data-dependent charts or populated rows. Memory/OAuth E2E fixtures can have user preferences or sparse snapshot data that legitimately hide optional columns or render no-chart states.
 
 **Why:** Frontend redesign reliability follow-up tests initially forced Dashboard holdings columns and Reports charts to be visible. The product behavior was correct, but OAuth user column preferences and memory snapshot scarcity made those assertions fixture-dependent. The stable checks are timeline selected-state mirroring, Portfolio style switching, Reports chart-or-no-snapshot state, and Ticker custom range URL/error behavior.
+
+## Portfolio Enrichment Route Mocks
+
+Portfolio page E2E that needs to alter holdings, freshness, or quote-state data after navigation must mock `/portfolio/enrichment`, not `/dashboard/enrichment`. `/portfolio` is initially seeded by the server-side `/portfolio/primary` read, then the client hook refreshes enrichment asynchronously. Assertions must wait for the enriched UI text/state instead of reading the first visible primary snapshot.
+
+**Why:** The EODHD fallback chip spec initially mocked `/dashboard/enrichment` and immediately read the portfolio chip, so it saw the server-rendered primary `Unavailable` state. Targeting `/portfolio/enrichment` and waiting for the chip's enriched `EODHD fallback` label made the test deterministic across desktop and mobile.

@@ -88,6 +88,11 @@ import type {
   AdminMarketWorkspaceTab,
   JpCatalogStockType,
   ProviderOperationAction,
+  QuoteFallbackPolicyDto,
+  QuoteFallbackPolicyRefreshResponse,
+  QuoteFallbackPolicyResponse,
+  QuoteFallbackPolicyUpsertRequest,
+  QuoteFallbackSnapshotDto,
 } from "@vakwen/shared-types";
 import {
   ACCOUNT_DEFAULT_CURRENCIES,
@@ -187,6 +192,10 @@ import {
 } from "../services/snapshotRepair.js";
 import { historyStartFor, RateLimitedError, type MarketDataResolverMode, type ProviderSymbolVerificationResult } from "../services/market-data/types.js";
 import { yahooSuffixHintFromKrCatalogEvidence } from "../services/market-data/providers/twelveDataKr.js";
+import {
+  QUOTE_FALLBACK_REFRESH_QUEUE,
+  quoteFallbackRefreshSingletonKey,
+} from "../services/market-data/quoteFallbackRefreshWorker.js";
 import type { MarketCode } from "@vakwen/domain";
 import type {
   AdminProvidersResponse,
@@ -557,6 +566,8 @@ export const patchAdminSettingsSchema = z
     // ── KZO-198 Tier 0 — encrypted secrets (rotation flow) ──────────────
     finmindApiToken: tier0SecretField,
     twelveDataApiKey: tier0SecretField,
+    eodhdApiKey: tier0SecretField,
+    eodhdDailyCallLimit: plainBoundedField("eodhdDailyCallLimit"),
 
     // ── KZO-195 Tier 2 — absence-based delisting detection ─────────────
     catalogAbsenceThreshold: plainBoundedField("catalogAbsenceThreshold"),
@@ -690,6 +701,7 @@ const TIER1_PLAIN_FIELDS = [
   "routeCachePortfolioTtlMs",
   "routeCacheReportsTtlMs",
   "routeCacheStaleUsableTtlMs",
+  "eodhdDailyCallLimit",
 ] as const satisfies ReadonlyArray<AppConfigPlainField>;
 
 function flattenTickerPriceFreshnessPatch(
@@ -929,6 +941,18 @@ export function buildAppConfigDtoFromRow(
         & import("../services/appConfig/tickerPriceFreshness.js").TickerPriceFreshnessRowFields,
       bounds,
     ),
+    eodhdFallback: {
+      dailyCallLimit: row.eodhdDailyCallLimit,
+      effectiveDailyCallLimit: row.eodhdDailyCallLimit ?? Env.EODHD_DAILY_CALL_LIMIT,
+      apiKeySet: row.eodhdApiKeyEncrypted !== null,
+      validatedMarkets: ["AU"],
+      bounds: {
+        dailyCallLimit: {
+          min: bounds.eodhdDailyCallLimit.min,
+          max: bounds.eodhdDailyCallLimit.max,
+        },
+      },
+    },
 
     // KZO-198 Tier 1 — rate limits
     marketDataPriceWindowMs: row.marketDataPriceWindowMs,
@@ -1121,12 +1145,15 @@ export function buildAppConfigDtoFromRow(
     routeCachePortfolioTtlMs: row.routeCachePortfolioTtlMs,
     routeCacheReportsTtlMs: row.routeCacheReportsTtlMs,
     routeCacheStaleUsableTtlMs: row.routeCacheStaleUsableTtlMs,
+    eodhdDailyCallLimit: row.eodhdDailyCallLimit,
+    effectiveEodhdDailyCallLimit: row.eodhdDailyCallLimit ?? Env.EODHD_DAILY_CALL_LIMIT,
 
     // KZO-198 Tier 2 fields are intentionally absent (DB+SQL only — see DTO type)
 
     // KZO-198 Tier 0 — encrypted secret presence sentinels (NEVER ciphertext or plaintext)
     finmindApiTokenSet: row.finmindApiTokenEncrypted !== null,
     twelveDataApiKeySet: row.twelveDataApiKeyEncrypted !== null,
+    eodhdApiKeySet: row.eodhdApiKeyEncrypted !== null,
 
     // KZO-198 — bounds (single source of truth for UI form constraints)
     bounds,
@@ -1332,6 +1359,31 @@ const marketDataWorkspaceParamSchema = z.object({
   marketCode: z.enum(["TW", "US", "AU", "KR", "JP", "FX"]),
 });
 
+const quoteFallbackPolicyBodySchema = z
+  .object({
+    ticker: z.string().trim().min(1).max(40),
+    marketCode: providerFixerMarketCodeSchema,
+    provider: z.literal("eodhd"),
+    priceType: z.literal("eod_close"),
+    providerSymbol: z.string().trim().min(1).max(80),
+    active: z.boolean().optional(),
+    reason: z.union([z.string().trim().max(500), z.null()]).optional(),
+  })
+  .strict();
+
+const quoteFallbackPolicyTargetSchema = z
+  .object({
+    ticker: z.string().trim().min(1).max(40),
+    marketCode: providerFixerMarketCodeSchema,
+  })
+  .strict();
+
+function assertQuoteFallbackMarketSupported(marketCode: MarketCode): void {
+  if (marketCode !== "AU") {
+    throw routeError(400, "quote_fallback_market_not_validated", "EODHD quote fallback is validated for AU only.");
+  }
+}
+
 function requireOfficialCalendarMarketCode(marketCode: AdminMarketCode): asserts marketCode is Exclude<AdminMarketCode, "FX"> {
   if (!isOfficialCalendarMarketCode(marketCode)) {
     throw routeError(404, "market_calendar_not_supported", "Calendar management is only supported for TW, US, AU, KR, and JP");
@@ -1526,11 +1578,63 @@ function adminInstrumentRowToDto(row: import("../persistence/types.js").AdminIns
   };
 }
 
-function adminInstrumentRowToMarketDataDto(row: import("../persistence/types.js").AdminInstrumentRow): AdminMarketDataInstrumentDto {
+function quoteFallbackSnapshotToDto(
+  snapshot: import("../persistence/types.js").QuoteFallbackSnapshotRecord | null,
+): QuoteFallbackSnapshotDto | null {
+  if (!snapshot) return null;
+  return {
+    id: snapshot.id,
+    policyId: snapshot.policyId,
+    marketCode: snapshot.marketCode as import("@vakwen/shared-types").MarketCode,
+    ticker: snapshot.ticker,
+    provider: snapshot.provider,
+    priceType: snapshot.priceType,
+    providerSymbol: snapshot.providerSymbol,
+    marketDate: snapshot.marketDate,
+    close: snapshot.close,
+    previousClose: snapshot.previousClose,
+    currency: snapshot.currency,
+    currencySource: snapshot.currencySource,
+    source: snapshot.source,
+    fetchedAt: snapshot.fetchedAt,
+    providerMetadata: snapshot.providerMetadata,
+    createdAt: snapshot.createdAt,
+  };
+}
+
+function quoteFallbackPolicyToDto(
+  policy: import("../persistence/types.js").QuoteFallbackPolicyWithSnapshotRecord | null,
+): QuoteFallbackPolicyDto | null {
+  if (!policy) return null;
+  return {
+    id: policy.id,
+    marketCode: policy.marketCode as import("@vakwen/shared-types").MarketCode,
+    ticker: policy.ticker,
+    provider: policy.provider,
+    priceType: policy.priceType,
+    providerSymbol: policy.providerSymbol,
+    active: policy.active,
+    reason: policy.reason,
+    createdAt: policy.createdAt,
+    updatedAt: policy.updatedAt,
+    deactivatedAt: policy.deactivatedAt,
+    lastRefreshStatus: policy.lastRefreshStatus,
+    lastRefreshAt: policy.lastRefreshAt,
+    lastRefreshError: policy.lastRefreshError,
+    lastRefreshErrorCode: policy.lastRefreshErrorCode,
+    latestSnapshot: quoteFallbackSnapshotToDto(policy.latestSnapshot),
+  };
+}
+
+function adminInstrumentRowToMarketDataDto(
+  row: import("../persistence/types.js").AdminInstrumentRow,
+  quoteFallbackPolicy: import("../persistence/types.js").QuoteFallbackPolicyWithSnapshotRecord | null = null,
+): AdminMarketDataInstrumentDto {
   return {
     ...adminInstrumentRowToDto(row),
     providerIds: providerIdsForMarket(row.marketCode as AdminMarketCode),
     backfillStatus: row.barsBackfillStatus,
+    quoteFallbackPolicy: quoteFallbackPolicyToDto(quoteFallbackPolicy),
   };
 }
 
@@ -8520,6 +8624,15 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
       backfillStatus: query.backfillStatus,
       sort: query.sort,
     });
+    const fallbackPolicies = await app.persistence.listQuoteFallbackPoliciesForTickerMarkets(
+      items.map((item) => ({
+        ticker: item.ticker,
+        marketCode: item.marketCode as MarketCode,
+      })),
+    );
+    const fallbackPolicyByTickerMarket = new Map(
+      fallbackPolicies.map((policy) => [`${policy.marketCode}:${policy.ticker}`, policy] as const),
+    );
     const {
       getEffectiveCatalogAbsenceThreshold,
       getEffectiveCatalogAbsenceGuardPercent,
@@ -8528,7 +8641,10 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
 
     return {
       marketCode,
-      items: items.map(adminInstrumentRowToMarketDataDto),
+      items: items.map((item) => adminInstrumentRowToMarketDataDto(
+        item,
+        fallbackPolicyByTickerMarket.get(`${item.marketCode}:${item.ticker}`) ?? null,
+      )),
       total,
       page,
       limit,
@@ -8544,6 +8660,140 @@ function registerMarketDataAdminRoutes(app: FastifyInstance): void {
         instrumentType: ["all", "STOCK", "ETF", "BOND_ETF"],
         sort: ["ticker_asc", "ticker_desc", "updated_desc", "updated_asc"],
       },
+    };
+  });
+
+  app.post("/market-data/:marketCode/quote-fallback-policies/upsert", async (req): Promise<QuoteFallbackPolicyResponse> => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    if (marketCode === "FX") {
+      throw routeError(404, "market_instruments_not_supported", "FX does not expose quote fallback policies");
+    }
+    const body = quoteFallbackPolicyBodySchema.parse(req.body ?? {}) satisfies QuoteFallbackPolicyUpsertRequest;
+    if (body.marketCode !== marketCode) {
+      throw routeError(400, "market_code_mismatch", "Request body marketCode must match the route marketCode.");
+    }
+    assertQuoteFallbackMarketSupported(body.marketCode);
+    const ticker = body.ticker.trim().toUpperCase();
+    const instrument = await app.persistence.getInstrument(ticker, body.marketCode);
+    if (!instrument) {
+      throw routeError(404, "instrument_not_found", "Instrument not found.");
+    }
+    const before = await app.persistence.getQuoteFallbackPolicy(ticker, body.marketCode);
+    const policy = await app.persistence.upsertQuoteFallbackPolicy({
+      marketCode: body.marketCode,
+      ticker,
+      provider: body.provider,
+      priceType: body.priceType,
+      providerSymbol: body.providerSymbol,
+      active: body.active ?? true,
+      reason: body.reason ?? null,
+    });
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: before ? "quote_fallback_policy_updated" : "quote_fallback_policy_created",
+      metadata: {
+        marketCode: body.marketCode,
+        ticker,
+        provider: body.provider,
+        priceType: body.priceType,
+        before: before ? quoteFallbackPolicyToDto(before) : null,
+        after: quoteFallbackPolicyToDto(policy),
+      },
+      ipAddress,
+    });
+    return { policy: quoteFallbackPolicyToDto(policy)! };
+  });
+
+  app.post("/market-data/:marketCode/quote-fallback-policies/deactivate", async (req): Promise<QuoteFallbackPolicyResponse> => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    if (marketCode === "FX") {
+      throw routeError(404, "market_instruments_not_supported", "FX does not expose quote fallback policies");
+    }
+    const body = quoteFallbackPolicyTargetSchema.parse(req.body ?? {});
+    if (body.marketCode !== marketCode) {
+      throw routeError(400, "market_code_mismatch", "Request body marketCode must match the route marketCode.");
+    }
+    assertQuoteFallbackMarketSupported(body.marketCode);
+    const before = await app.persistence.getQuoteFallbackPolicy(body.ticker, body.marketCode);
+    const policy = await app.persistence.deactivateQuoteFallbackPolicy(body);
+    if (!policy) {
+      throw routeError(404, "quote_fallback_policy_not_found", "Quote fallback policy not found.");
+    }
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "quote_fallback_policy_deactivated",
+      metadata: {
+        marketCode: body.marketCode,
+        ticker: body.ticker.trim().toUpperCase(),
+        before: before ? quoteFallbackPolicyToDto(before) : null,
+        after: quoteFallbackPolicyToDto(policy),
+      },
+      ipAddress,
+    });
+    return { policy: quoteFallbackPolicyToDto(policy)! };
+  });
+
+  app.post("/market-data/:marketCode/quote-fallback-policies/refresh", async (req): Promise<QuoteFallbackPolicyRefreshResponse> => {
+    requireAdminRole(req);
+    const { sessionUserId, ipAddress } = resolveAdminContext(req, app);
+    const { marketCode } = marketDataWorkspaceParamSchema.parse(req.params);
+    if (marketCode === "FX") {
+      throw routeError(404, "market_instruments_not_supported", "FX does not expose quote fallback policies");
+    }
+    const body = quoteFallbackPolicyTargetSchema.parse(req.body ?? {});
+    if (body.marketCode !== marketCode) {
+      throw routeError(400, "market_code_mismatch", "Request body marketCode must match the route marketCode.");
+    }
+    assertQuoteFallbackMarketSupported(body.marketCode);
+    const ticker = body.ticker.trim().toUpperCase();
+    const policy = await app.persistence.getQuoteFallbackPolicy(ticker, body.marketCode);
+    if (!policy || !policy.active) {
+      throw routeError(404, "quote_fallback_policy_not_found", "Active quote fallback policy not found.");
+    }
+    if (!app.boss) {
+      throw routeError(503, "queue_unavailable", "Job queue is not available.");
+    }
+    const config = await app.persistence.getAppConfig();
+    const budget = await app.persistence.getEodhdCallBudgetStatus({
+      budgetDate: new Date().toISOString().slice(0, 10),
+      limit: config.eodhdDailyCallLimit ?? Env.EODHD_DAILY_CALL_LIMIT,
+    });
+    const jobId = await app.boss.send(
+      QUOTE_FALLBACK_REFRESH_QUEUE,
+      {
+        kind: "policy_refresh" as const,
+        ticker,
+        marketCode: body.marketCode,
+        requestedAt: new Date().toISOString(),
+        trigger: "manual" as const,
+      },
+      {
+        singletonKey: quoteFallbackRefreshSingletonKey(ticker, body.marketCode),
+        priority: 5,
+      },
+    );
+    await app.persistence.appendAuditLog({
+      actorUserId: sessionUserId,
+      action: "quote_fallback_manual_refresh_requested",
+      metadata: {
+        marketCode: body.marketCode,
+        ticker,
+        policyId: policy.id,
+        queued: jobId !== null,
+        jobId,
+        remainingCalls: budget.remaining,
+      },
+      ipAddress,
+    });
+    return {
+      policy: quoteFallbackPolicyToDto(policy)!,
+      refreshed: false,
+      remainingCalls: budget.remaining,
+      message: jobId === null ? "Refresh already queued." : "Refresh queued.",
     };
   });
 
@@ -9863,7 +10113,7 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
     // rotation gets its own audit row so a partial PATCH cannot co-mingle
     // plaintext-changes with rotations in a single `before/after` diff.
     const rotations: Array<{
-      field: "finmindApiToken" | "twelveDataApiKey";
+      field: "finmindApiToken" | "twelveDataApiKey" | "eodhdApiKey";
       action: "rotate" | "clear";
     }> = [];
     if (body.finmindApiToken !== undefined) {
@@ -9878,6 +10128,13 @@ export const adminRoutes: FastifyPluginAsync = async (app) => {
       rotations.push({
         field: "twelveDataApiKey",
         action: body.twelveDataApiKey === null ? "clear" : "rotate",
+      });
+    }
+    if (body.eodhdApiKey !== undefined) {
+      patch.eodhdApiKey = body.eodhdApiKey;
+      rotations.push({
+        field: "eodhdApiKey",
+        action: body.eodhdApiKey === null ? "clear" : "rotate",
       });
     }
 

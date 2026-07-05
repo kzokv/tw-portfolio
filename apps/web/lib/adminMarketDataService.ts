@@ -11,6 +11,9 @@ import type {
   AdminMarketDataDelistingOverrideAction,
   AdminMarketDataDelistingOverrideRequest,
   AdminMarketDataDelistingOverrideResponse,
+  QuoteFallbackPolicyRefreshResponse,
+  QuoteFallbackPolicyResponse,
+  QuoteFallbackPolicyUpsertRequest,
   AdminMarketDataBackfillPreviewRequest,
   AdminMarketDataBackfillPreviewResponse,
   AdminMarketDataValuationRepairStatusResponse,
@@ -279,6 +282,35 @@ export function updateMarketInstrumentDelistingOverride(input: {
   return postJson(
     `/admin/market-data/${encodeURIComponent(input.marketCode)}/instruments/delisting-override`,
     body,
+  );
+}
+
+export function upsertMarketQuoteFallbackPolicy(
+  input: QuoteFallbackPolicyUpsertRequest,
+): Promise<QuoteFallbackPolicyResponse> {
+  return postJson(
+    `/admin/market-data/${encodeURIComponent(input.marketCode)}/quote-fallback-policies/upsert`,
+    input,
+  );
+}
+
+export function deactivateMarketQuoteFallbackPolicy(input: {
+  ticker: string;
+  marketCode: Exclude<AdminMarketCode, "FX">;
+}): Promise<QuoteFallbackPolicyResponse> {
+  return postJson(
+    `/admin/market-data/${encodeURIComponent(input.marketCode)}/quote-fallback-policies/deactivate`,
+    input,
+  );
+}
+
+export function refreshMarketQuoteFallbackPolicy(input: {
+  ticker: string;
+  marketCode: Exclude<AdminMarketCode, "FX">;
+}): Promise<QuoteFallbackPolicyRefreshResponse> {
+  return postJson(
+    `/admin/market-data/${encodeURIComponent(input.marketCode)}/quote-fallback-policies/refresh`,
+    input,
   );
 }
 

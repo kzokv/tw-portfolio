@@ -123,6 +123,7 @@ export const APP_CONFIG_BOUNDS = {
   routeCachePortfolioTtlMs: { min: 5_000, max: 30 * 60 * 1000 },
   routeCacheReportsTtlMs: { min: 5_000, max: 30 * 60 * 1000 },
   routeCacheStaleUsableTtlMs: { min: 30_000, max: 60 * 60 * 1000 },
+  eodhdDailyCallLimit: { min: 1, max: 1_000 },
 } as const;
 
 export type AppConfigBoundsKey = keyof typeof APP_CONFIG_BOUNDS;

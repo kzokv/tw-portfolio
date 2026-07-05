@@ -191,6 +191,10 @@ import type {
   ProviderOperationRecord,
   ProviderOperationLogLevel,
   ProviderOperationOutcomeRecord,
+  QuoteFallbackPolicyRecord,
+  QuoteFallbackPolicyWithSnapshotRecord,
+  QuoteFallbackSnapshotRecord,
+  QuoteFallbackRefreshStatus,
   ProviderResolutionMappingRecord,
   ProviderUnresolvedItemRecord,
   ResolveProviderUnresolvedItemsInput,
@@ -903,6 +907,101 @@ function buildShareRevokedNotification(
   );
 }
 
+type QuoteFallbackPolicySqlRow = {
+  id: string;
+  market_code: MarketCode;
+  ticker: string;
+  provider: "eodhd";
+  price_type: "eod_close";
+  provider_symbol: string;
+  active: boolean;
+  reason: string | null;
+  created_at: Date | string;
+  updated_at: Date | string;
+  deactivated_at: Date | string | null;
+  last_refresh_status: QuoteFallbackRefreshStatus | null;
+  last_refresh_at: Date | string | null;
+  last_refresh_error: string | null;
+  last_refresh_error_code: string | null;
+};
+
+type QuoteFallbackSnapshotSqlRow = {
+  id: string;
+  policy_id: string;
+  market_code: MarketCode;
+  ticker: string;
+  provider: "eodhd";
+  price_type: "eod_close";
+  provider_symbol: string;
+  market_date: Date | string;
+  close: number | string;
+  previous_close: number | string | null;
+  currency: string;
+  currency_source: "provider" | "market_default";
+  source: string;
+  fetched_at: Date | string;
+  provider_payload_hash: string | null;
+  provider_metadata: Record<string, unknown> | null;
+  created_at: Date | string;
+};
+
+function sqlTimestampToIso(value: Date | string | null): string | null {
+  if (value === null) return null;
+  return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function sqlDateToDateOnly(value: Date | string): string {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return value.slice(0, 10);
+}
+
+function sqlNumericToNumber(value: number | string | null): number | null {
+  if (value === null) return null;
+  return typeof value === "number" ? value : Number(value);
+}
+
+function mapQuoteFallbackPolicyRow(row: QuoteFallbackPolicySqlRow): QuoteFallbackPolicyRecord {
+  return {
+    id: row.id,
+    marketCode: row.market_code,
+    ticker: row.ticker,
+    provider: row.provider,
+    priceType: row.price_type,
+    providerSymbol: row.provider_symbol,
+    active: row.active,
+    reason: row.reason,
+    createdAt: sqlTimestampToIso(row.created_at)!,
+    updatedAt: sqlTimestampToIso(row.updated_at)!,
+    deactivatedAt: sqlTimestampToIso(row.deactivated_at),
+    lastRefreshStatus: row.last_refresh_status,
+    lastRefreshAt: sqlTimestampToIso(row.last_refresh_at),
+    lastRefreshError: row.last_refresh_error,
+    lastRefreshErrorCode: row.last_refresh_error_code,
+  };
+}
+
+function mapQuoteFallbackSnapshotRow(row: QuoteFallbackSnapshotSqlRow): QuoteFallbackSnapshotRecord {
+  return {
+    id: row.id,
+    policyId: row.policy_id,
+    marketCode: row.market_code,
+    ticker: row.ticker,
+    provider: row.provider,
+    priceType: row.price_type,
+    providerSymbol: row.provider_symbol,
+    marketDate: sqlDateToDateOnly(row.market_date),
+    close: sqlNumericToNumber(row.close)!,
+    previousClose: sqlNumericToNumber(row.previous_close),
+    currency: row.currency,
+    currencySource: row.currency_source,
+    source: row.source,
+    fetchedAt: sqlTimestampToIso(row.fetched_at)!,
+    providerPayloadHash: row.provider_payload_hash,
+    providerMetadata: row.provider_metadata ?? {},
+    createdAt: sqlTimestampToIso(row.created_at)!,
+  };
+}
+
 function deriveInviteStatusFromRow(row: { used_at: string | null; revoked_at: string | null; expires_at: string }): InviteListStatus {
   if (row.used_at) return "used";
   if (row.revoked_at) return "revoked";
@@ -939,6 +1038,38 @@ export class PostgresPersistence implements Persistence {
   async close(): Promise<void> {
     if (this.redis.isOpen) await this.redis.quit();
     await this.pool.end();
+  }
+
+  private async getLatestQuoteFallbackSnapshotsForPolicyIds(
+    policyIds: readonly string[],
+  ): Promise<Map<string, QuoteFallbackSnapshotRecord>> {
+    if (policyIds.length === 0) return new Map();
+    const result = await this.pool.query<QuoteFallbackSnapshotSqlRow>(
+      `SELECT DISTINCT ON (policy_id)
+         id, policy_id, market_code, ticker, provider, price_type, provider_symbol,
+         market_date, close, previous_close, currency, currency_source, source,
+         fetched_at, provider_payload_hash, provider_metadata, created_at
+       FROM market_data.quote_fallback_snapshots
+       WHERE policy_id = ANY($1::text[])
+       ORDER BY policy_id, market_date DESC, fetched_at DESC`,
+      [policyIds],
+    );
+    return new Map(
+      result.rows.map((row) => {
+        const snapshot = mapQuoteFallbackSnapshotRow(row);
+        return [snapshot.policyId, snapshot] as const;
+      }),
+    );
+  }
+
+  private async attachLatestQuoteFallbackSnapshots(
+    policies: QuoteFallbackPolicyRecord[],
+  ): Promise<QuoteFallbackPolicyWithSnapshotRecord[]> {
+    const snapshots = await this.getLatestQuoteFallbackSnapshotsForPolicyIds(policies.map((policy) => policy.id));
+    return policies.map((policy) => ({
+      ...policy,
+      latestSnapshot: snapshots.get(policy.id) ?? null,
+    }));
   }
 
   async resolveOrCreateUser(
@@ -12191,6 +12322,306 @@ export class PostgresPersistence implements Persistence {
     );
   }
 
+  async getQuoteFallbackPolicy(
+    ticker: string,
+    marketCode: MarketCode,
+  ): Promise<QuoteFallbackPolicyWithSnapshotRecord | null> {
+    const result = await this.pool.query<QuoteFallbackPolicySqlRow>(
+      `SELECT id, market_code, ticker, provider, price_type, provider_symbol,
+              active, reason, created_at, updated_at, deactivated_at,
+              last_refresh_status, last_refresh_at, last_refresh_error, last_refresh_error_code
+       FROM market_data.quote_fallback_policies
+       WHERE ticker = $1 AND market_code = $2
+       ORDER BY active DESC, updated_at DESC
+       LIMIT 1`,
+      [ticker.trim().toUpperCase(), marketCode],
+    );
+    if (result.rowCount === 0) return null;
+    const [policy] = await this.attachLatestQuoteFallbackSnapshots([
+      mapQuoteFallbackPolicyRow(result.rows[0]!),
+    ]);
+    return policy ?? null;
+  }
+
+  async listQuoteFallbackPoliciesForTickerMarkets(
+    pairs: ReadonlyArray<{ ticker: string; marketCode: MarketCode }>,
+  ): Promise<QuoteFallbackPolicyWithSnapshotRecord[]> {
+    if (pairs.length === 0) return [];
+    const values: string[] = [];
+    const params: string[] = [];
+    pairs.forEach((pair, index) => {
+      const base = index * 2;
+      values.push(`($${base + 1}, $${base + 2})`);
+      params.push(pair.ticker.trim().toUpperCase(), pair.marketCode);
+    });
+    const result = await this.pool.query<QuoteFallbackPolicySqlRow>(
+      `WITH requested(ticker, market_code) AS (VALUES ${values.join(", ")})
+       SELECT p.id, p.market_code, p.ticker, p.provider, p.price_type, p.provider_symbol,
+              p.active, p.reason, p.created_at, p.updated_at, p.deactivated_at,
+              p.last_refresh_status, p.last_refresh_at, p.last_refresh_error, p.last_refresh_error_code
+       FROM market_data.quote_fallback_policies p
+       JOIN requested r
+         ON r.ticker = p.ticker
+        AND r.market_code = p.market_code
+       ORDER BY p.market_code, p.ticker, p.active DESC, p.updated_at DESC`,
+      params,
+    );
+    return this.attachLatestQuoteFallbackSnapshots(result.rows.map(mapQuoteFallbackPolicyRow));
+  }
+
+  async listActiveQuoteFallbackPolicies(
+    marketCode?: MarketCode,
+  ): Promise<QuoteFallbackPolicyRecord[]> {
+    const params: string[] = [];
+    const where = marketCode ? "WHERE active = TRUE AND market_code = $1" : "WHERE active = TRUE";
+    if (marketCode) params.push(marketCode);
+    const result = await this.pool.query<QuoteFallbackPolicySqlRow>(
+      `SELECT id, market_code, ticker, provider, price_type, provider_symbol,
+              active, reason, created_at, updated_at, deactivated_at,
+              last_refresh_status, last_refresh_at, last_refresh_error, last_refresh_error_code
+       FROM market_data.quote_fallback_policies
+       ${where}
+       ORDER BY market_code, ticker`,
+      params,
+    );
+    return result.rows.map(mapQuoteFallbackPolicyRow);
+  }
+
+  async upsertQuoteFallbackPolicy(
+    input: import("./types.js").UpsertQuoteFallbackPolicyInput,
+  ): Promise<QuoteFallbackPolicyWithSnapshotRecord> {
+    const ticker = input.ticker.trim().toUpperCase();
+    const providerSymbol = input.providerSymbol.trim().toUpperCase();
+    const active = input.active ?? true;
+    const id = `qfp_${createHash("sha256")
+      .update(`${input.marketCode}:${ticker}:${input.provider}:${input.priceType}`)
+      .digest("hex")
+      .slice(0, 32)}`;
+    const existing = await this.pool.query<{ id: string; provider_symbol: string }>(
+      `SELECT id, provider_symbol
+       FROM market_data.quote_fallback_policies
+       WHERE market_code = $1
+         AND ticker = $2
+         AND provider = $3
+         AND price_type = $4`,
+      [input.marketCode, ticker, input.provider, input.priceType],
+    );
+    const providerSymbolChanged = Boolean(
+      existing.rows[0] && existing.rows[0].provider_symbol !== providerSymbol,
+    );
+    const result = await this.pool.query<QuoteFallbackPolicySqlRow>(
+      `INSERT INTO market_data.quote_fallback_policies (
+         id, market_code, ticker, provider, price_type, provider_symbol, active, reason,
+         deactivated_at, created_at, updated_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CASE WHEN $7 THEN NULL ELSE NOW() END, NOW(), NOW())
+       ON CONFLICT (market_code, ticker, provider, price_type)
+       DO UPDATE SET
+         provider_symbol = EXCLUDED.provider_symbol,
+         active = EXCLUDED.active,
+         reason = EXCLUDED.reason,
+         deactivated_at = CASE WHEN EXCLUDED.active THEN NULL ELSE COALESCE(market_data.quote_fallback_policies.deactivated_at, NOW()) END,
+         last_refresh_status = CASE WHEN $9 THEN NULL ELSE market_data.quote_fallback_policies.last_refresh_status END,
+         last_refresh_at = CASE WHEN $9 THEN NULL ELSE market_data.quote_fallback_policies.last_refresh_at END,
+         last_refresh_error = CASE WHEN $9 THEN NULL ELSE market_data.quote_fallback_policies.last_refresh_error END,
+         last_refresh_error_code = CASE WHEN $9 THEN NULL ELSE market_data.quote_fallback_policies.last_refresh_error_code END,
+         updated_at = NOW()
+       RETURNING id, market_code, ticker, provider, price_type, provider_symbol,
+                 active, reason, created_at, updated_at, deactivated_at,
+                 last_refresh_status, last_refresh_at, last_refresh_error, last_refresh_error_code`,
+      [
+        id,
+        input.marketCode,
+        ticker,
+        input.provider,
+        input.priceType,
+        providerSymbol,
+        active,
+        input.reason ?? null,
+        providerSymbolChanged,
+      ],
+    );
+    if (providerSymbolChanged) {
+      await this.pool.query(
+        `DELETE FROM market_data.quote_fallback_snapshots WHERE policy_id = $1`,
+        [result.rows[0]!.id],
+      );
+    }
+    const [policy] = await this.attachLatestQuoteFallbackSnapshots([
+      mapQuoteFallbackPolicyRow(result.rows[0]!),
+    ]);
+    return policy!;
+  }
+
+  async deactivateQuoteFallbackPolicy(input: {
+    ticker: string;
+    marketCode: MarketCode;
+  }): Promise<QuoteFallbackPolicyWithSnapshotRecord | null> {
+    const result = await this.pool.query<QuoteFallbackPolicySqlRow>(
+      `UPDATE market_data.quote_fallback_policies
+       SET active = FALSE, deactivated_at = COALESCE(deactivated_at, NOW()), updated_at = NOW()
+       WHERE ticker = $1 AND market_code = $2 AND active = TRUE
+       RETURNING id, market_code, ticker, provider, price_type, provider_symbol,
+                 active, reason, created_at, updated_at, deactivated_at,
+                 last_refresh_status, last_refresh_at, last_refresh_error, last_refresh_error_code`,
+      [input.ticker.trim().toUpperCase(), input.marketCode],
+    );
+    if (result.rowCount === 0) {
+      return this.getQuoteFallbackPolicy(input.ticker, input.marketCode);
+    }
+    const [policy] = await this.attachLatestQuoteFallbackSnapshots([
+      mapQuoteFallbackPolicyRow(result.rows[0]!),
+    ]);
+    return policy ?? null;
+  }
+
+  async getLatestQuoteFallbackSnapshot(policyId: string): Promise<QuoteFallbackSnapshotRecord | null> {
+    const snapshots = await this.getLatestQuoteFallbackSnapshotsForPolicyIds([policyId]);
+    return snapshots.get(policyId) ?? null;
+  }
+
+  async upsertQuoteFallbackSnapshot(
+    input: import("./types.js").UpsertQuoteFallbackSnapshotInput,
+  ): Promise<QuoteFallbackSnapshotRecord> {
+    const id = `qfs_${createHash("sha256")
+      .update(`${input.policyId}:${input.marketDate}`)
+      .digest("hex")
+      .slice(0, 32)}`;
+    const result = await this.pool.query<QuoteFallbackSnapshotSqlRow>(
+      `INSERT INTO market_data.quote_fallback_snapshots (
+         id, policy_id, market_code, ticker, provider, price_type, provider_symbol,
+         market_date, close, previous_close, currency, currency_source, source,
+         fetched_at, provider_payload_hash, provider_metadata, created_at
+       )
+       VALUES (
+         $1, $2, $3, $4, $5, $6, $7,
+         $8::date, $9, $10, $11, $12, $13,
+         $14::timestamptz, $15, $16::jsonb, NOW()
+       )
+       ON CONFLICT (policy_id, market_date)
+       DO UPDATE SET
+         close = EXCLUDED.close,
+         previous_close = EXCLUDED.previous_close,
+         currency = EXCLUDED.currency,
+         currency_source = EXCLUDED.currency_source,
+         source = EXCLUDED.source,
+         fetched_at = EXCLUDED.fetched_at,
+         provider_payload_hash = EXCLUDED.provider_payload_hash,
+         provider_metadata = EXCLUDED.provider_metadata,
+         provider_symbol = EXCLUDED.provider_symbol
+       RETURNING id, policy_id, market_code, ticker, provider, price_type, provider_symbol,
+                 market_date, close, previous_close, currency, currency_source, source,
+                 fetched_at, provider_payload_hash, provider_metadata, created_at`,
+      [
+        id,
+        input.policyId,
+        input.marketCode,
+        input.ticker.trim().toUpperCase(),
+        input.provider,
+        input.priceType,
+        input.providerSymbol.trim().toUpperCase(),
+        input.marketDate,
+        input.close,
+        input.previousClose,
+        input.currency,
+        input.currencySource,
+        input.source,
+        input.fetchedAt,
+        input.providerPayloadHash ?? null,
+        JSON.stringify(input.providerMetadata ?? {}),
+      ],
+    );
+    return mapQuoteFallbackSnapshotRow(result.rows[0]!);
+  }
+
+  async updateQuoteFallbackPolicyRefreshStatus(input: {
+    policyId: string;
+    status: QuoteFallbackRefreshStatus;
+    refreshedAt: string | null;
+    error?: string | null;
+    errorCode?: string | null;
+  }): Promise<QuoteFallbackPolicyRecord | null> {
+    const result = await this.pool.query<QuoteFallbackPolicySqlRow>(
+      `UPDATE market_data.quote_fallback_policies
+       SET last_refresh_status = $2,
+           last_refresh_at = COALESCE($3::timestamptz, last_refresh_at),
+           last_refresh_error = $4,
+           last_refresh_error_code = $5,
+           updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, market_code, ticker, provider, price_type, provider_symbol,
+                 active, reason, created_at, updated_at, deactivated_at,
+                 last_refresh_status, last_refresh_at, last_refresh_error, last_refresh_error_code`,
+      [input.policyId, input.status, input.refreshedAt, input.error ?? null, input.errorCode ?? null],
+    );
+    return result.rowCount === 0 ? null : mapQuoteFallbackPolicyRow(result.rows[0]!);
+  }
+
+  async consumeEodhdCallBudget(input: {
+    budgetDate: string;
+    limit: number;
+    calls?: number;
+  }): Promise<import("./types.js").EodhdCallBudgetStatus & { allowed: boolean }> {
+    const calls = input.calls ?? 1;
+    const limit = Math.max(0, Math.floor(input.limit));
+    if (calls <= 0) {
+      const status = await this.getEodhdCallBudgetStatus({ budgetDate: input.budgetDate, limit });
+      return { ...status, allowed: true };
+    }
+    if (calls > limit) {
+      const status = await this.getEodhdCallBudgetStatus({ budgetDate: input.budgetDate, limit });
+      return { ...status, allowed: false };
+    }
+    const result = await this.pool.query<{ call_count: number; allowed: boolean }>(
+      `WITH consumed AS (
+         INSERT INTO market_data.eodhd_call_budget_usage (budget_date, call_count, updated_at)
+         VALUES ($1::date, $2, NOW())
+         ON CONFLICT (budget_date)
+         DO UPDATE SET call_count = market_data.eodhd_call_budget_usage.call_count + $2,
+                       updated_at = NOW()
+         WHERE market_data.eodhd_call_budget_usage.call_count + $2 <= $3
+         RETURNING call_count, TRUE AS allowed
+       )
+       SELECT call_count, allowed FROM consumed
+       UNION ALL
+       SELECT call_count, FALSE AS allowed
+       FROM market_data.eodhd_call_budget_usage
+       WHERE budget_date = $1::date
+         AND NOT EXISTS (SELECT 1 FROM consumed)
+       LIMIT 1`,
+      [input.budgetDate, calls, limit],
+    );
+    const row = result.rows[0] ?? { call_count: 0, allowed: false };
+    const used = Number(row.call_count);
+    return {
+      budgetDate: input.budgetDate,
+      limit,
+      used,
+      remaining: Math.max(0, limit - used),
+      allowed: row.allowed,
+    };
+  }
+
+  async getEodhdCallBudgetStatus(input: {
+    budgetDate: string;
+    limit: number;
+  }): Promise<import("./types.js").EodhdCallBudgetStatus> {
+    const result = await this.pool.query<{ call_count: number | null }>(
+      `SELECT call_count
+       FROM market_data.eodhd_call_budget_usage
+       WHERE budget_date = $1::date`,
+      [input.budgetDate],
+    );
+    const used = Number(result.rows[0]?.call_count ?? 0);
+    const limit = Math.max(0, Math.floor(input.limit));
+    return {
+      budgetDate: input.budgetDate,
+      limit,
+      used,
+      remaining: Math.max(0, limit - used),
+    };
+  }
+
   async getRepairCooldownMinutes(): Promise<number | null> {
     const r = await this.pool.query<{ repair_cooldown_minutes: number | null }>(
       "SELECT repair_cooldown_minutes FROM public.app_config WHERE id = 1",
@@ -12208,6 +12639,7 @@ export class PostgresPersistence implements Persistence {
     metadataEnrichmentMode: "unconditional" | "conditional" | null;
     finmindApiTokenEncrypted: string | null;
     twelveDataApiKeyEncrypted: string | null;
+    eodhdApiKeyEncrypted: string | null;
     mcpOauthTokenSecretEncrypted: string | null;
     marketDataPriceWindowMs: number | null;
     marketDataPriceLimit: number | null;
@@ -12298,6 +12730,7 @@ export class PostgresPersistence implements Persistence {
     routeCachePortfolioTtlMs: number | null;
     routeCacheReportsTtlMs: number | null;
     routeCacheStaleUsableTtlMs: number | null;
+    eodhdDailyCallLimit: number | null;
     updatedAt: string;
   }> {
     const r = await this.pool.query<{
@@ -12306,6 +12739,7 @@ export class PostgresPersistence implements Persistence {
       metadata_enrichment_mode: "unconditional" | "conditional" | null;
       finmind_api_token: string | null;
       twelve_data_api_key: string | null;
+      eodhd_api_key: string | null;
       mcp_oauth_token_secret: string | null;
       market_data_price_window_ms: number | null;
       market_data_price_limit: number | null;
@@ -12396,11 +12830,12 @@ export class PostgresPersistence implements Persistence {
       route_cache_portfolio_ttl_ms: number | string | null;
       route_cache_reports_ttl_ms: number | string | null;
       route_cache_stale_usable_ttl_ms: number | string | null;
+      eodhd_daily_call_limit: number | null;
       updated_at: Date | string;
     }>(
       `SELECT
          repair_cooldown_minutes, dashboard_performance_ranges, metadata_enrichment_mode,
-         finmind_api_token, twelve_data_api_key, mcp_oauth_token_secret,
+         finmind_api_token, twelve_data_api_key, eodhd_api_key, mcp_oauth_token_secret,
          market_data_price_window_ms, market_data_price_limit,
          market_data_search_window_ms, market_data_search_limit,
          invite_status_window_ms, invite_status_limit,
@@ -12446,6 +12881,7 @@ export class PostgresPersistence implements Persistence {
          route_cache_dashboard_primary_ttl_ms, route_cache_dashboard_enrichment_ttl_ms,
          route_cache_dashboard_performance_ttl_ms, route_cache_portfolio_ttl_ms,
          route_cache_reports_ttl_ms, route_cache_stale_usable_ttl_ms,
+         eodhd_daily_call_limit,
          updated_at
        FROM public.app_config WHERE id = 1`,
     );
@@ -12457,6 +12893,7 @@ export class PostgresPersistence implements Persistence {
         metadataEnrichmentMode: null,
         finmindApiTokenEncrypted: null,
         twelveDataApiKeyEncrypted: null,
+        eodhdApiKeyEncrypted: null,
         mcpOauthTokenSecretEncrypted: null,
         marketDataPriceWindowMs: null,
         marketDataPriceLimit: null,
@@ -12547,6 +12984,7 @@ export class PostgresPersistence implements Persistence {
         routeCachePortfolioTtlMs: null,
         routeCacheReportsTtlMs: null,
         routeCacheStaleUsableTtlMs: null,
+        eodhdDailyCallLimit: null,
         updatedAt: new Date(0).toISOString(),
       };
     }
@@ -12563,6 +13001,7 @@ export class PostgresPersistence implements Persistence {
       metadataEnrichmentMode: row.metadata_enrichment_mode,
       finmindApiTokenEncrypted: row.finmind_api_token,
       twelveDataApiKeyEncrypted: row.twelve_data_api_key,
+      eodhdApiKeyEncrypted: row.eodhd_api_key,
       mcpOauthTokenSecretEncrypted: row.mcp_oauth_token_secret,
       marketDataPriceWindowMs: row.market_data_price_window_ms,
       marketDataPriceLimit: row.market_data_price_limit,
@@ -12653,6 +13092,7 @@ export class PostgresPersistence implements Persistence {
       routeCachePortfolioTtlMs: num(row.route_cache_portfolio_ttl_ms),
       routeCacheReportsTtlMs: num(row.route_cache_reports_ttl_ms),
       routeCacheStaleUsableTtlMs: num(row.route_cache_stale_usable_ttl_ms),
+      eodhdDailyCallLimit: row.eodhd_daily_call_limit,
       updatedAt,
     };
   }
@@ -12676,7 +13116,7 @@ export class PostgresPersistence implements Persistence {
   }
 
   async setAppConfigEncryptedSecret(
-    field: "finmindApiToken" | "twelveDataApiKey" | "mcpOauthTokenSecret",
+    field: "finmindApiToken" | "twelveDataApiKey" | "eodhdApiKey" | "mcpOauthTokenSecret",
     plaintext: string | null,
   ): Promise<void> {
     const { encryptSecret } = await import("../services/appConfig/encryption.js");
@@ -12684,7 +13124,9 @@ export class PostgresPersistence implements Persistence {
       ? "finmind_api_token"
       : field === "twelveDataApiKey"
         ? "twelve_data_api_key"
-        : "mcp_oauth_token_secret";
+        : field === "eodhdApiKey"
+          ? "eodhd_api_key"
+          : "mcp_oauth_token_secret";
     const stored = plaintext === null ? null : encryptSecret(plaintext);
     await this.pool.query(
       `INSERT INTO public.app_config (id, ${column}, updated_at)
@@ -12715,6 +13157,7 @@ export class PostgresPersistence implements Persistence {
     if (
       Object.prototype.hasOwnProperty.call(patch, "finmindApiToken") ||
       Object.prototype.hasOwnProperty.call(patch, "twelveDataApiKey") ||
+      Object.prototype.hasOwnProperty.call(patch, "eodhdApiKey") ||
       Object.prototype.hasOwnProperty.call(patch, "mcpOauthTokenSecret")
     ) {
       const mod = await import("../services/appConfig/encryption.js");
@@ -12727,6 +13170,10 @@ export class PostgresPersistence implements Persistence {
     if (Object.prototype.hasOwnProperty.call(patch, "twelveDataApiKey")) {
       columns.push("twelve_data_api_key");
       values.push(patch.twelveDataApiKey == null ? null : encryptSecret!(patch.twelveDataApiKey));
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "eodhdApiKey")) {
+      columns.push("eodhd_api_key");
+      values.push(patch.eodhdApiKey == null ? null : encryptSecret!(patch.eodhdApiKey));
     }
     if (Object.prototype.hasOwnProperty.call(patch, "mcpOauthTokenSecret")) {
       columns.push("mcp_oauth_token_secret");
@@ -13900,6 +14347,56 @@ export class PostgresPersistence implements Persistence {
           AND i.market_code = held.market_code
         WHERE i.bars_backfill_status = 'ready'
           AND i.delisted_at IS NULL
+        ORDER BY ticker, market_code`,
+    );
+    return result.rows.map((row) => ({ ticker: row.ticker, marketCode: row.market_code }));
+  }
+
+  async listHeldTickerMarketPairsForQuoteFallback(): Promise<{ ticker: string; marketCode: MarketCode }[]> {
+    const result = await this.pool.query<{ ticker: string; market_code: MarketCode }>(
+      `WITH held_lots AS (
+         SELECT DISTINCT l.account_id, l.ticker
+         FROM lots l
+         JOIN accounts a
+           ON a.id = l.account_id
+          AND a.deleted_at IS NULL
+         JOIN users u
+           ON u.id = a.user_id
+        WHERE l.open_quantity > 0
+          AND u.is_demo = FALSE
+          AND u.deactivated_at IS NULL
+          AND u.deleted_at IS NULL
+       ),
+       trade_markets AS (
+         SELECT DISTINCT hl.ticker, te.market_code
+           FROM held_lots hl
+           JOIN trade_events te
+             ON te.account_id = hl.account_id
+            AND te.ticker = hl.ticker
+       ),
+       legacy_lot_markets AS (
+         SELECT DISTINCT hl.ticker, i.market_code
+           FROM held_lots hl
+           JOIN market_data.instruments i
+             ON i.ticker = hl.ticker
+          WHERE NOT EXISTS (
+            SELECT 1
+              FROM trade_events te
+             WHERE te.account_id = hl.account_id
+               AND te.ticker = hl.ticker
+          )
+       ),
+       held AS (
+         SELECT ticker, market_code FROM trade_markets
+         UNION
+         SELECT ticker, market_code FROM legacy_lot_markets
+       )
+       SELECT DISTINCT held.ticker, held.market_code
+         FROM held
+         JOIN market_data.instruments i
+           ON i.ticker = held.ticker
+          AND i.market_code = held.market_code
+        WHERE i.delisted_at IS NULL
         ORDER BY ticker, market_code`,
     );
     return result.rows.map((row) => ({ ticker: row.ticker, marketCode: row.market_code }));

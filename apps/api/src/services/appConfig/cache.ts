@@ -30,6 +30,7 @@ export interface AppConfigCacheEntry {
   // Tier 0 — encrypted secrets
   finmindApiTokenEncrypted: string | null;
   twelveDataApiKeyEncrypted: string | null;
+  eodhdApiKeyEncrypted: string | null;
   mcpOauthTokenSecretEncrypted: string | null;
 
   // Tier 1 / 2 — rate limits
@@ -141,6 +142,7 @@ export interface AppConfigCacheEntry {
   routeCachePortfolioTtlMs: number | null;
   routeCacheReportsTtlMs: number | null;
   routeCacheStaleUsableTtlMs: number | null;
+  eodhdDailyCallLimit: number | null;
 
   /** ISO timestamp of the row's `updated_at`. */
   updatedAt: string;

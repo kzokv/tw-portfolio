@@ -113,7 +113,7 @@ Each resolver module exports synchronous getter functions that read from `getApp
 | `providerHealth.ts` | `getEffectiveDownNotificationSuppressionMs`, `getEffectiveErrorTrailRetentionDays`, `getEffectiveRerunCooldownMs` | 3 Tier 1 columns |
 | `backfill.ts` | `getEffectiveBackfillRetryLimit`, `getEffectiveBackfillRetryDelaySeconds`, `getEffectiveFinmind402RetryMs`, `getEffectiveDailyRefreshLookbackDays`, `getEffectiveDailyRefreshPriority` | 3 Tier 1 + 2 Tier 2 columns |
 | `sse.ts` | `getEffectiveSseHeartbeatIntervalMs`, `getEffectiveSseMaxConnectionsPerUser`, `getEffectiveSseBufferDefaultTtlMs` | 3 Tier 2 columns |
-| `providerKeys.ts` | `getEffectiveFinmindApiToken`, `getEffectiveTwelveDataApiKey` | 2 Tier 0 encrypted columns |
+| `providerKeys.ts` | `getEffectiveFinmindApiToken`, `getEffectiveTwelveDataApiKey`, `getEffectiveEodhdApiKey` | 3 Tier 0 encrypted columns |
 | `repairCooldown.ts` | `getEffectiveRepairCooldownMinutes` | 1 pre-existing column |
 | `metadataEnrichmentMode.ts` | `getEffectiveMetadataEnrichmentMode` | 1 pre-existing column |
 | `bounds.ts` | `APP_CONFIG_BOUNDS`, `APP_CONFIG_SECRET_LENGTH` | (constants only — no DB read) |
@@ -158,7 +158,7 @@ class AppConfigDecryptError extends Error {
 ### Log payload safety
 
 The `app_config_decrypt_failed` log includes only:
-- `field` — field name string (`"finmind_api_token"` or `"twelve_data_api_key"`)
+- `field` — field name string (`"finmind_api_token"`, `"twelve_data_api_key"`, or `"eodhd_api_key"`)
 - `reason` — enum value from `AppConfigDecryptError.reason`
 - `message` — static string from the error constructor
 
@@ -170,8 +170,8 @@ No plaintext, no ciphertext, no key material ever appears in logs. This is asser
 
 | Tier | Count | Storage | Admin UI | Env fallback |
 |---|---|---|---|---|
-| 0 — Encrypted secrets | 2 | Encrypted TEXT in `app_config` | Masked input + Rotate modal | `Env.FINMIND_API_TOKEN`, `Env.TWELVE_DATA_API_KEY` |
-| 1 — Plain incident levers | 12 | Plain typed in `app_config` | Full form + Reset button | Matching `Env.*` defaults |
+| 0 — Encrypted secrets | 3 | Encrypted TEXT in `app_config` | Masked input + Rotate modal | `Env.FINMIND_API_TOKEN`, `Env.TWELVE_DATA_API_KEY`, `Env.EODHD_API_KEY` |
+| 1 — Plain incident levers | 13 | Plain typed in `app_config` | Full form + Reset button | Matching `Env.*` defaults |
 | 2 — Plain DB-only escape hatch | 5 | Plain typed in `app_config` | None — SQL only | Matching `Env.*` defaults |
 | 3 — Env-only | 7 | Env vars only (3 crons + 4 freshness constants) | None — restart required | N/A — env is the only source |
 
@@ -181,12 +181,15 @@ No plaintext, no ciphertext, no key material ever appears in logs. This is asser
 
 Migration `047_kzo198_app_config_tier_a_constants.sql` extends the `app_config` singleton (id = 1) with:
 
+Migration `101_quote_fallback_eodhd.sql` extends the same config pattern with EODHD quote-fallback fields. Those rows are included below because they use the same resolver/encryption/admin UI conventions.
+
 ### Tier 0 columns (encrypted)
 
 | Column | DB type | Resolver | Notes |
 |---|---|---|---|
 | `finmind_api_token` | `TEXT NULL` | `providerKeys.ts` | Stored as `nonce_b64:ct+tag_b64` |
 | `twelve_data_api_key` | `TEXT NULL` | `providerKeys.ts` | Stored as `nonce_b64:ct+tag_b64` |
+| `eodhd_api_key` | `TEXT NULL` | `providerKeys.ts` | Stored as `nonce_b64:ct+tag_b64`; NULL falls back to `Env.EODHD_API_KEY` |
 
 ### Tier 1 columns (admin-editable)
 
@@ -203,6 +206,7 @@ Migration `047_kzo198_app_config_tier_a_constants.sql` extends the `app_config` 
 | `backfill_retry_limit` | `INT NULL` | `Env.BACKFILL_RETRY_LIMIT` | `backfill.ts` |
 | `backfill_retry_delay_seconds` | `INT NULL` | `Env.BACKFILL_RETRY_DELAY_SECONDS` | `backfill.ts` |
 | `backfill_finmind_402_retry_ms` | `BIGINT NULL` | `Env.BACKFILL_FINMIND_402_RETRY_MS` | `backfill.ts` |
+| `eodhd_daily_call_limit` | `INT NULL` | `Env.EODHD_DAILY_CALL_LIMIT` | quote fallback refresh routes/workers |
 
 _(1 Tier 1 search rate-limit column reads the existing `Env.MARKET_DATA_SEARCH_RATE_LIMIT_PER_MINUTE` as fallback — column name `market_data_search_limit`.)_
 

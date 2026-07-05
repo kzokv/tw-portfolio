@@ -96,6 +96,9 @@ describe("buildTickerDetails", () => {
         }
         return result;
       },
+      async listQuoteFallbackPoliciesForTickerMarkets() {
+        return [];
+      },
       async getLatestBarDatesByTickerMarket() {
         const result = new Map<string, string>();
         for (const bar of bars) {

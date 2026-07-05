@@ -65,8 +65,8 @@ export function buildPriceStateActivityPath({
   const activitySourceKind = priceStateActivitySourceKind(priceState.sourceKind);
   if (activitySourceKind) params.set("sourceKind", activitySourceKind);
   const category = activitySourceKind === "yahoo_chart"
-    ? "intraday_price"
-    : activitySourceKind === "twse_close" || activitySourceKind === "finmind"
+    ? priceState.sourceKind === "yahoo_chart_close" ? "daily_close" : "intraday_price"
+    : activitySourceKind === "twse_close" || activitySourceKind === "finmind" || activitySourceKind === "provider"
       ? "daily_close"
       : null;
   if (category) params.set("category", category);
@@ -79,6 +79,8 @@ function priceStateActivitySourceKind(sourceKind: PriceStateDtoLike["sourceKind"
     case "yahoo_chart":
     case "intraday_yahoo_chart":
       return "yahoo_chart";
+    case "eodhd_eod":
+      return "provider";
     case "twse_stock_day_close":
       return "twse_close";
     case "primary_daily":
@@ -123,6 +125,9 @@ export function hasOpenMarketPriceState(value: PriceStateCarrierLike | null | un
 export function isNonCurrentPrice(value: PriceStateCarrierLike | null | undefined): boolean {
   const priceState = getPriceState(value);
   if (priceState) {
+    if (priceState.basis === "fallback_eod_close") {
+      return priceState.fallbackStale === true || priceState.chipState === "fallback_stale";
+    }
     return priceState.basis !== "intraday" && priceState.basis !== "today_close";
   }
   return value?.quoteStatus === "missing" || value?.quoteStatus === "provisional";
@@ -135,8 +140,10 @@ export function priceStateSortRank(value: PriceStateCarrierLike | null | undefin
     switch (priceState.chipState) {
       case "missing":
         return 5;
+      case "fallback_stale":
       case "stale":
         return 4;
+      case "fallback_eod":
       case "open_previous_close":
         return 3;
       case "closed_pending":
@@ -310,6 +317,10 @@ export function formatPriceStateLabel(
       return dict.holdings.priceStatePreviousClose;
     case "closed_pending":
       return dict.holdings.priceStateBasisPendingTodayClose;
+    case "fallback_eod":
+      return dict.holdings.priceStateFallbackEod;
+    case "fallback_stale":
+      return dict.holdings.priceStateFallbackStale;
     case "closed":
       return dict.holdings.priceStateClosed;
     case "stale":
@@ -355,6 +366,7 @@ export function describePriceStateTooltip(
   const calendarReason = readStringFact(priceState, "calendarReason") ?? readStringFact(priceState, "marketStateReason");
   const marketLocalDate = readStringFact(priceState, "marketLocalDate") ?? readStringFact(priceState, "localMarketDate");
   const yahooSymbol = readStringFact(priceState, "yahooSymbol");
+  const providerSymbol = readStringFact(priceState, "providerSymbol");
   const cadenceMinutes = readNumberFact(priceState, "refreshCadenceMinutes");
   const latestAttemptAt = readStringFact(priceState, "latestAttemptAt")
     ?? readStringFact(priceState, "latestRefreshAttemptAt")
@@ -366,6 +378,7 @@ export function describePriceStateTooltip(
   if (calendarReason) rows.push({ label: holdingLabel(dict, "priceStateMarketReasonLabel", "priceStateCalendarReasonLabel", "Market reason"), value: formatReasonFact(calendarReason, dict) });
   if (calendarStatus) rows.push({ label: holdingLabel(dict, "priceStateCalendarStatusLabel", "priceStateCalendarLabel", "Calendar status"), value: formatReasonFact(calendarStatus, dict) });
   if (marketLocalDate) rows.push({ label: holdingLabel(dict, "priceStateLocalMarketDateLabel", "priceStateMarketLocalDateLabel", "Local market date"), value: marketLocalDate });
+  if (providerSymbol) rows.push({ label: holdingLabel(dict, "priceStateProviderSymbolLabel", "priceStateProviderSymbolLabel", "Provider symbol"), value: providerSymbol });
   if (yahooSymbol) rows.push({ label: dict.holdings.priceStateYahooSymbolLabel, value: yahooSymbol });
   if (cadenceMinutes !== null) rows.push({ label: dict.holdings.priceStateCadenceLabel, value: `${cadenceMinutes}m` });
   if (latestAttemptAt) rows.push({
@@ -386,7 +399,9 @@ export function getPriceStateToneClassName(priceState: PriceStateDtoLike | null 
     case "open_delayed":
     case "open_previous_close":
     case "closed_pending":
+    case "fallback_eod":
       return "bg-warning";
+    case "fallback_stale":
     case "closed":
     case "stale":
       return "bg-slate-400";
@@ -448,6 +463,8 @@ function formatBasisLabel(dict: AppDictionary, basis: PriceStateBasis): string {
       return dict.holdings.priceStateBasisTodayClose;
     case "pending_today_close":
       return dict.holdings.priceStateBasisPendingTodayClose;
+    case "fallback_eod_close":
+      return dict.holdings.priceStateBasisFallbackEodClose;
     case "stale_close":
       return dict.holdings.priceStateBasisStaleClose;
     case "missing":
@@ -479,6 +496,8 @@ function formatSourceLabel(dict: AppDictionary, priceState: PriceStateDtoLike): 
       return dict.holdings.priceStateSourceTwseClose;
     case "primary_daily":
       return dict.holdings.priceStateSourcePrimaryDaily;
+    case "eodhd_eod":
+      return dict.holdings.priceStateSourceEodhdEod;
     case "missing":
       return dict.holdings.priceStateUnknownValue;
     default:

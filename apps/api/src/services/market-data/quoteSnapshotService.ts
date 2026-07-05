@@ -7,7 +7,7 @@ import type {
 import { APP_CONFIG_BOUNDS } from "../appConfig/bounds.js";
 import { getAppConfigCacheEntry } from "../appConfig/cache.js";
 import { resolveTickerPriceFreshnessConfig } from "../appConfig/tickerPriceFreshness.js";
-import type { Persistence } from "../../persistence/types.js";
+import type { Persistence, QuoteFallbackPolicyWithSnapshotRecord } from "../../persistence/types.js";
 import { createIntradayOverlayCache } from "./intradayOverlayCache.js";
 import {
   getPreviousRegularSessionTradingDate,
@@ -128,9 +128,19 @@ export async function resolveQuoteSnapshots(
     const key = quoteSnapshotKey(pair.ticker, pair.marketCode);
     const tickerBars = grouped.get(key);
     if (!tickerBars || tickerBars.length === 0) {
-      result[key] = null;
+      const fallbackContext = getQuoteFallbackContext(pair, displayContext);
+      const fallbackSnapshot = fallbackContext
+        ? buildQuoteFallbackSnapshot({
+          pair,
+          policy: fallbackContext.policy,
+          session: fallbackContext.session,
+          settledByMarket,
+          refreshCadenceMinutes: displayContext?.refreshCadenceMinutes ?? null,
+        })
+        : null;
+      result[key] = fallbackSnapshot;
       if (shouldEmitBareTickerAlias(pair, marketsByTicker)) {
-        result[pair.ticker] = null;
+        result[pair.ticker] = fallbackSnapshot;
       }
       continue;
     }
@@ -156,6 +166,7 @@ export async function resolveQuoteSnapshots(
 
 interface DisplayContext {
   overlaysByKey: Map<string, IntradayPriceOverlay>;
+  quoteFallbackPoliciesByKey: Map<string, QuoteFallbackPolicyWithSnapshotRecord>;
   sessionByMarket: Map<MarketCode, RegularSessionState>;
   previousTradingDateByMarket: Map<MarketCode, string | null>;
   freshnessToleranceSeconds: number;
@@ -187,8 +198,10 @@ async function buildDisplayContext(
   const overlaysPromise = freshnessConfig.effectiveIntradayEnabled
     ? createIntradayOverlayCache(persistence).getLatestMany(regularSessionPairs)
     : Promise.resolve(new Map<string, IntradayPriceOverlay>());
-  const [overlaysByKey, sessionEntries] = await Promise.all([
+  const fallbackPoliciesPromise = persistence.listQuoteFallbackPoliciesForTickerMarkets(regularSessionPairs);
+  const [overlaysByKey, fallbackPolicies, sessionEntries] = await Promise.all([
     overlaysPromise,
+    fallbackPoliciesPromise,
     Promise.all(distinctMarkets.map(async (marketCode) => {
       const session = await getRegularSessionState(marketCode, options.tradingCalendar!, now);
       return [
@@ -205,6 +218,11 @@ async function buildDisplayContext(
 
   return {
     overlaysByKey,
+    quoteFallbackPoliciesByKey: new Map(
+      fallbackPolicies
+        .filter((policy) => policy.active)
+        .map((policy) => [quoteSnapshotKey(policy.ticker, policy.marketCode), policy] as const),
+    ),
     sessionByMarket: new Map(sessionEntries.map(([marketCode, session]) => [marketCode, session])),
     previousTradingDateByMarket: new Map(sessionEntries.map(([marketCode, _session, previousTradingDate]) => [
       marketCode,
@@ -225,7 +243,7 @@ function resolveSnapshotForPair(input: {
   settledByMarket: ReadonlyMap<MarketCode, string>;
   displayContext: DisplayContext | null;
   now: Date;
-}): ResolvedQuoteSnapshot {
+}): ResolvedQuoteSnapshot | null {
   const { pair, latest, previous, settledByMarket, displayContext, now } = input;
   const key = quoteSnapshotKey(pair.ticker, pair.marketCode);
   const previousClose = previous?.close ?? null;
@@ -239,11 +257,23 @@ function resolveSnapshotForPair(input: {
 
   if (!pair.marketCode || !displayContext) return dailySnapshot;
 
-  if (!displayContext.supportedMarkets.has(pair.marketCode)) return dailySnapshot;
   if (displayContext.heldPairs && !displayContext.heldPairs.has(key)) return dailySnapshot;
 
   const session = displayContext.sessionByMarket.get(pair.marketCode);
   if (!session) return dailySnapshot;
+
+  const fallbackContext = getQuoteFallbackContext(pair, displayContext);
+  if (fallbackContext) {
+    return buildQuoteFallbackSnapshot({
+      pair,
+      policy: fallbackContext.policy,
+      session: fallbackContext.session,
+      settledByMarket,
+      refreshCadenceMinutes: displayContext.refreshCadenceMinutes,
+    });
+  }
+
+  if (!displayContext.supportedMarkets.has(pair.marketCode)) return dailySnapshot;
 
   const overlay = displayContext.overlaysByKey.get(key);
   if (!overlay || overlay.asOfDate !== session.localDate) {
@@ -346,6 +376,92 @@ function resolveSnapshotForPair(input: {
       latestIntradayAttempt: null,
       latestRefreshAttemptAt: overlay.observedAt,
       latestRefreshOutcome: "success",
+    },
+  };
+}
+
+function getQuoteFallbackContext(
+  pair: QuoteSnapshotPair,
+  displayContext: DisplayContext | null,
+): { policy: QuoteFallbackPolicyWithSnapshotRecord; session: RegularSessionState } | null {
+  if (!pair.marketCode || !displayContext) return null;
+  const key = quoteSnapshotKey(pair.ticker, pair.marketCode);
+  if (displayContext.heldPairs && !displayContext.heldPairs.has(key)) return null;
+  const session = displayContext.sessionByMarket.get(pair.marketCode);
+  if (!session) return null;
+  const policy = displayContext.quoteFallbackPoliciesByKey.get(key);
+  return policy ? { policy, session } : null;
+}
+
+function buildQuoteFallbackSnapshot(input: {
+  pair: QuoteSnapshotPair & { marketCode?: MarketCode };
+  policy: QuoteFallbackPolicyWithSnapshotRecord;
+  session: RegularSessionState;
+  settledByMarket: ReadonlyMap<MarketCode, string>;
+  refreshCadenceMinutes: number | null;
+}): ResolvedQuoteSnapshot | null {
+  const { pair, policy, session, settledByMarket, refreshCadenceMinutes } = input;
+  if (!pair.marketCode) return null;
+  const snapshot = policy.latestSnapshot;
+  if (!snapshot) return null;
+
+  const settled = settledByMarket.get(pair.marketCode) ?? null;
+  const dailyChangeFresh = !session.isOpen
+    && settled !== null
+    && snapshot.marketDate === settled
+    && snapshot.previousClose !== null;
+  const previousClose = dailyChangeFresh ? snapshot.previousClose : null;
+  const change = previousClose !== null && previousClose !== 0
+    ? snapshot.close - previousClose
+    : null;
+  const changePercent = previousClose !== null && previousClose !== 0
+    ? (change! / previousClose) * 100
+    : null;
+  const marketStateReason: PriceStateDto["marketStateReason"] = session.marketStateReason === "market_open"
+    ? "market_open"
+    : session.marketStateReason === "calendar_unknown"
+      ? "calendar_unknown"
+      : session.marketStateReason === "outside_regular_session"
+        ? "outside_regular_session"
+        : "not_trading_day";
+
+  return {
+    ticker: pair.ticker,
+    marketCode: pair.marketCode,
+    close: snapshot.close,
+    previousClose,
+    change,
+    changePercent,
+    asOf: snapshot.marketDate,
+    source: snapshot.source,
+    isProvisional: false,
+    dailyCompatibleClose: snapshot.close,
+    priceState: {
+      basis: "fallback_eod_close",
+      chipState: dailyChangeFresh ? "fallback_eod" : "fallback_stale",
+      marketState: session.isOpen ? "open" : "closed",
+      marketStateReason,
+      source: snapshot.source,
+      sourceKind: "eodhd_eod",
+      sourceId: "eodhd",
+      providerSymbol: policy.providerSymbol,
+      yahooSymbol: null,
+      asOfDate: snapshot.marketDate,
+      asOfTimestamp: null,
+      observedAt: snapshot.fetchedAt,
+      delaySeconds: null,
+      marketTimeZone: session.marketTimeZone,
+      quality: null,
+      marketLocalDate: session.localDate,
+      calendarStatus: session.calendarStatus,
+      refreshCadenceMinutes,
+      latestIntradayAttempt: null,
+      latestRefreshAttemptAt: policy.lastRefreshAt ?? snapshot.fetchedAt,
+      latestRefreshOutcome: policy.lastRefreshStatus,
+      fallbackPolicyId: policy.id,
+      fallbackProvider: policy.provider,
+      fallbackStale: !dailyChangeFresh,
+      fallbackLastError: policy.lastRefreshError,
     },
   };
 }
@@ -516,7 +632,9 @@ function computeIsProvisional(
 }
 
 export function isCurrentPriceState(priceState: PriceStateDto): boolean {
-  return priceState.basis === "intraday" || priceState.basis === "today_close";
+  return priceState.basis === "intraday"
+    || priceState.basis === "today_close"
+    || (priceState.basis === "fallback_eod_close" && priceState.fallbackStale !== true);
 }
 
 export function isIntradayPriceState(priceState: PriceStateDto): boolean {

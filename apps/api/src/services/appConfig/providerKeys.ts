@@ -1,5 +1,5 @@
 /**
- * KZO-198 — Tier 0 provider key resolvers (FinMind + Twelve Data).
+ * KZO-198 — Tier 0 provider key resolvers (FinMind + Twelve Data + EODHD).
  *
  * Each getter:
  *   1. Read the encrypted storage shape from the cache (or null on miss).
@@ -22,7 +22,7 @@ import { AppConfigDecryptError, decryptSecret } from "./encryption.js";
 import { getAppConfigCacheEntry } from "./cache.js";
 
 interface DecryptOptions {
-  field: "finmind_api_token" | "twelve_data_api_key";
+  field: "finmind_api_token" | "twelve_data_api_key" | "eodhd_api_key";
   encrypted: string;
   envFallback: string | undefined;
 }
@@ -74,5 +74,21 @@ export function getEffectiveTwelveDataApiKey(): string | undefined {
     field: "twelve_data_api_key",
     encrypted,
     envFallback: Env.TWELVE_DATA_API_KEY ?? undefined,
+  });
+}
+
+/**
+ * Effective EODHD API key. Same fallback semantics as
+ * `getEffectiveFinmindApiToken`.
+ */
+export function getEffectiveEodhdApiKey(): string | undefined {
+  const encrypted = getAppConfigCacheEntry()?.eodhdApiKeyEncrypted ?? null;
+  if (encrypted === null) {
+    return Env.EODHD_API_KEY ?? undefined;
+  }
+  return decryptOrFallback({
+    field: "eodhd_api_key",
+    encrypted,
+    envFallback: Env.EODHD_API_KEY ?? undefined,
   });
 }

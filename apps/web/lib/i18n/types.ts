@@ -1714,6 +1714,8 @@ export interface AppDictionary {
     priceStateDelayed: string;
     priceStatePreviousClose: string;
     priceStateClosed: string;
+    priceStateFallbackEod: string;
+    priceStateFallbackStale: string;
     priceStateStale: string;
     priceStateUnavailable: string;
     priceStateBasisLabel: string;
@@ -1727,6 +1729,7 @@ export interface AppDictionary {
     priceStateCalendarLabel: string;
     priceStateCalendarReasonLabel: string;
     priceStateMarketLocalDateLabel: string;
+    priceStateProviderSymbolLabel: string;
     priceStateYahooSymbolLabel: string;
     priceStateCadenceLabel: string;
     priceStateLatestAttemptLabel: string;
@@ -1739,6 +1742,7 @@ export interface AppDictionary {
     priceStateSourceYahooClose: string;
     priceStateSourceTwseClose: string;
     priceStateSourcePrimaryDaily: string;
+    priceStateSourceEodhdEod: string;
     calendarUnknownWarningTitle: string;
     calendarUnknownWarningMessage: string;
     priceStateUnknownValue: string;
@@ -1749,6 +1753,7 @@ export interface AppDictionary {
     priceStateBasisPreviousClose: string;
     priceStateBasisTodayClose: string;
     priceStateBasisPendingTodayClose: string;
+    priceStateBasisFallbackEodClose: string;
     priceStateBasisStaleClose: string;
     priceStateBasisMissing: string;
     priceStateQualityFullBar: string;
