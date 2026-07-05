@@ -23,6 +23,7 @@ function deps() {
   }).format(at);
   return {
     persistence: {
+      getQuoteFallbackPolicy: vi.fn().mockResolvedValue(policy()),
       getLatestQuoteFallbackSnapshot: vi.fn().mockResolvedValue(null),
       upsertQuoteFallbackSnapshot: vi.fn().mockResolvedValue(undefined),
       updateQuoteFallbackPolicyRefreshStatus: vi.fn().mockResolvedValue(undefined),
@@ -223,6 +224,36 @@ describe("quoteFallbackRefreshService", () => {
       marketDate: "2026-07-03",
     });
     expect(input.persistence.upsertQuoteFallbackSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("does not write a stale snapshot when the policy symbol changes during refresh", async () => {
+    const input = deps();
+    input.persistence.getQuoteFallbackPolicy = vi.fn().mockResolvedValue(policy({
+      providerSymbol: "ETPMAG-FIXED.AU",
+    }));
+
+    const result = await runQuoteFallbackRefresh({
+      policies: [policy()],
+      persistence: input.persistence,
+      provider: input.provider,
+      tradingCalendar: input.tradingCalendar,
+      budget: input.budget,
+      closeRefreshGraceMinutes: 10,
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      log: input.log,
+    });
+
+    expect(result.items[0]).toMatchObject({
+      status: "skipped",
+      marketDate: "2026-07-03",
+      message: "policy changed during refresh",
+      budgetAfter: { limit: 20, used: 1, remaining: 19 },
+    });
+    expect(input.provider.fetchCloseSnapshot).toHaveBeenCalledWith(expect.objectContaining({
+      providerSymbol: "ETPMAG.AU",
+    }));
+    expect(input.persistence.upsertQuoteFallbackSnapshot).not.toHaveBeenCalled();
+    expect(input.persistence.updateQuoteFallbackPolicyRefreshStatus).not.toHaveBeenCalled();
   });
 
   it("records an error when the provider throws", async () => {

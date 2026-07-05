@@ -134,6 +134,7 @@ function createQuoteFallbackRefreshPersistenceAdapter(
   persistence: Persistence,
 ): RunQuoteFallbackRefreshInput["persistence"] {
   return {
+    getQuoteFallbackPolicy: (ticker, marketCode) => persistence.getQuoteFallbackPolicy(ticker, marketCode),
     getLatestQuoteFallbackSnapshot: (policyId) => persistence.getLatestQuoteFallbackSnapshot(policyId),
     upsertQuoteFallbackSnapshot: async (input) => {
       await persistence.upsertQuoteFallbackSnapshot(input);

@@ -35,6 +35,10 @@ export interface QuoteFallbackSnapshotWrite {
 }
 
 export interface QuoteFallbackRefreshPersistence {
+  getQuoteFallbackPolicy(
+    ticker: string,
+    marketCode: MarketCode,
+  ): Promise<QuoteFallbackPolicy | null>;
   getLatestQuoteFallbackSnapshot(
     policyId: string,
   ): Promise<{ marketDate: string; close: number; previousClose: number | null } | null>;
@@ -251,6 +255,19 @@ async function refreshPolicy(
       });
     }
 
+    const currentPolicy = await input.persistence.getQuoteFallbackPolicy(policy.ticker, policy.marketCode);
+    if (!isSameRefreshPolicy(currentPolicy, policy)) {
+      return await finalizePolicyRefresh(policy, input, {
+        status: "skipped",
+        marketDate: snapshot.closeDate,
+        message: "policy changed during refresh",
+        refreshedAt: null,
+        errorCode: "stale_policy",
+        budgetAfter: { limit: budget.limit, used: budget.used, remaining: budget.remaining },
+        persistStatus: false,
+      });
+    }
+
     await input.persistence.upsertQuoteFallbackSnapshot({
       policyId: policy.id,
       marketCode: policy.marketCode,
@@ -298,6 +315,20 @@ async function refreshPolicy(
       budgetAfter: { limit: budget.limit, used: budget.used, remaining: budget.remaining },
     });
   }
+}
+
+function isSameRefreshPolicy(
+  current: QuoteFallbackPolicy | null,
+  expected: QuoteFallbackPolicy,
+): boolean {
+  if (!current) return false;
+  return current.id === expected.id
+    && current.marketCode === expected.marketCode
+    && current.ticker.trim().toUpperCase() === expected.ticker.trim().toUpperCase()
+    && current.active
+    && current.provider === expected.provider
+    && current.priceType === expected.priceType
+    && current.providerSymbol.trim().toUpperCase() === expected.providerSymbol.trim().toUpperCase();
 }
 
 async function finalizePolicyRefresh(
