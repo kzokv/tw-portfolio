@@ -3021,6 +3021,7 @@ export interface Persistence {
   // Unlike `getAllMonitoredTickers`, this intentionally excludes manual/watchlist
   // selections so scheduled close refreshes stay scoped to held tickers.
   listHeldTickerMarketPairs(): Promise<{ ticker: string; marketCode: MarketCode }[]>;
+  listHeldTickerMarketPairsForQuoteFallback(): Promise<{ ticker: string; marketCode: MarketCode }[]>;
   /**
    * KZO-197 — return AU instruments that need a bars-backfill (status `pending`
    * or `failed`, not delisted). Used by the AU "Re-run now" button's catalog

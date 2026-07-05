@@ -209,6 +209,26 @@ describePostgres("daily refresh persistence queries", () => {
     ]);
   });
 
+  it("returns held ticker-market pairs for quote fallback without primary bar readiness filtering", async () => {
+    const realManual = await createUser("quote-fallback-manual@example.com");
+    const realPosition = await createUser("quote-fallback-position@example.com");
+    const demoPosition = await createUser("quote-fallback-demo@example.com", true);
+
+    await persistence!.updateBackfillStatus("2317", "TW", "failed");
+    await persistence!.updateBackfillStatus("2603", "TW", "failed");
+
+    await persistence!.replaceManualSelections(realManual.userId, [
+      { ticker: "2330", marketCode: "TW" },
+    ]);
+    await addOpenPosition(realPosition.userId, realPosition.accountId, "2317", "lot-quote-fallback-2317");
+    await addOpenPosition(demoPosition.userId, demoPosition.accountId, "2603", "lot-quote-fallback-demo-2603");
+
+    await expect(persistence!.listHeldTickerMarketPairs()).resolves.toEqual([]);
+    await expect(persistence!.listHeldTickerMarketPairsForQuoteFallback()).resolves.toEqual([
+      { ticker: "2317", marketCode: "TW" },
+    ]);
+  });
+
   it("uses held trade markets for scheduled close refresh when account currency drifts", async () => {
     const realPosition = await createUser("close-refresh-cross-currency@example.com");
 

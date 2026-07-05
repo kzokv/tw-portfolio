@@ -180,7 +180,7 @@ export async function enqueueScheduledQuoteFallbackRefreshes(input: {
 
   const supportedMarkets = new Set(input.supportedMarkets);
   const heldPairs = new Set(
-    (await input.persistence.listHeldTickerMarketPairs())
+    (await input.persistence.listHeldTickerMarketPairsForQuoteFallback())
       .map((pair) => `${pair.marketCode}:${pair.ticker.trim().toUpperCase()}`),
   );
   const requestedAt = parseRequestedAt(input.requestedAt ?? new Date().toISOString()).toISOString();

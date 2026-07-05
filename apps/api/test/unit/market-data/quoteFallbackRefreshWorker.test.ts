@@ -14,7 +14,7 @@ describe("quoteFallbackRefreshWorker", () => {
     const result = await enqueueScheduledQuoteFallbackRefreshes({
       boss,
       persistence: {
-        listHeldTickerMarketPairs: vi.fn().mockResolvedValue([
+        listHeldTickerMarketPairsForQuoteFallback: vi.fn().mockResolvedValue([
           { ticker: "ETPMAG", marketCode: "AU" },
         ]),
         listActiveQuoteFallbackPolicies: vi.fn().mockResolvedValue([
@@ -48,5 +48,49 @@ describe("quoteFallbackRefreshWorker", () => {
       { kind: "policy_refresh", ticker: "etpmag", marketCode: "AU", requestedAt, trigger: "scheduled" },
       { singletonKey: quoteFallbackRefreshSingletonKey("etpmag", "AU") },
     );
+  });
+
+  it("uses the quote fallback held-position query for scheduled refreshes", async () => {
+    const requestedAt = "2026-07-05T12:00:00.000Z";
+    const boss = { send: vi.fn().mockResolvedValue("job-1") };
+    const log = { info: vi.fn(), warn: vi.fn() };
+    const listHeldTickerMarketPairs = vi.fn().mockResolvedValue([]);
+    const listHeldTickerMarketPairsForQuoteFallback = vi.fn().mockResolvedValue([
+      { ticker: "PENDING", marketCode: "AU" },
+    ]);
+
+    const result = await enqueueScheduledQuoteFallbackRefreshes({
+      boss,
+      persistence: {
+        listHeldTickerMarketPairs,
+        listHeldTickerMarketPairsForQuoteFallback,
+        listActiveQuoteFallbackPolicies: vi.fn().mockResolvedValue([
+          {
+            id: "policy-au-pending",
+            marketCode: "AU",
+            ticker: "PENDING",
+            provider: "eodhd",
+            priceType: "eod_close",
+            providerSymbol: "PENDING.AU",
+            active: true,
+            reason: null,
+            createdAt: requestedAt,
+            updatedAt: requestedAt,
+            deactivatedAt: null,
+            lastRefreshStatus: null,
+            lastRefreshAt: null,
+            lastRefreshError: null,
+            lastRefreshErrorCode: null,
+          },
+        ]),
+      } as never,
+      requestedAt,
+      supportedMarkets: ["AU"],
+      log,
+    });
+
+    expect(result).toEqual({ policyCount: 1, enqueuedCount: 1, droppedCount: 0 });
+    expect(listHeldTickerMarketPairsForQuoteFallback).toHaveBeenCalledTimes(1);
+    expect(listHeldTickerMarketPairs).not.toHaveBeenCalled();
   });
 });

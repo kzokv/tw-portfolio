@@ -5384,6 +5384,47 @@ export class MemoryPersistence implements Persistence {
     return out;
   }
 
+  async listHeldTickerMarketPairsForQuoteFallback(): Promise<{ ticker: string; marketCode: MarketCode }[]> {
+    const seen = new Set<string>();
+    const out: { ticker: string; marketCode: MarketCode }[] = [];
+
+    for (const [userId, store] of this.stores.entries()) {
+      const user = [...this.usersByEmail.values()].find((candidate) => candidate.id === userId);
+      if (user?.isDemo === true || user?.deactivatedAt || user?.deletedAt) continue;
+
+      for (const lot of store.accounting.projections.lots) {
+        if (lot.openQuantity <= 0) continue;
+        const tradeMarketCodes = new Set(
+          store.accounting.facts.tradeEvents
+            .filter((trade) => trade.accountId === lot.accountId && trade.ticker === lot.ticker)
+            .map((trade) => trade.marketCode),
+        );
+        const marketCodes = tradeMarketCodes.size > 0
+          ? tradeMarketCodes
+          : new Set(
+            [...this.instruments.values()]
+              .filter((instrument) => instrument.ticker === lot.ticker)
+              .map((instrument) => instrument.marketCode as MarketCode),
+          );
+        for (const marketCode of marketCodes) {
+          const key = instrumentCatalogKey(lot.ticker, marketCode);
+          if (seen.has(key)) continue;
+          const instrument = this.instruments.get(key);
+          if (!instrument) continue;
+          if (instrument.delistedAt) continue;
+          seen.add(key);
+          out.push({ ticker: lot.ticker, marketCode });
+        }
+      }
+    }
+
+    out.sort((a, b) => {
+      const t = a.ticker.localeCompare(b.ticker);
+      return t !== 0 ? t : a.marketCode.localeCompare(b.marketCode);
+    });
+    return out;
+  }
+
   async getUsersMonitoringTicker(_ticker: string): Promise<string[]> {
     return [];
   }
