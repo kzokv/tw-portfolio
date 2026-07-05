@@ -68,11 +68,12 @@ const DEFAULT_BOUNDS: AppConfigDto["bounds"] = {
   routeCacheDashboardPerformanceTtlMs: { min: 5_000, max: 30 * 60 * 1000 },
   routeCachePortfolioTtlMs: { min: 5_000, max: 30 * 60 * 1000 },
   routeCacheReportsTtlMs: { min: 5_000, max: 30 * 60 * 1000 },
-  routeCacheStaleUsableTtlMs: { min: 30_000, max: 60 * 60 * 1000 },
-};
+    routeCacheStaleUsableTtlMs: { min: 30_000, max: 60 * 60 * 1000 },
+    eodhdDailyCallLimit: { min: 1, max: 1_000 },
+  };
 
 export function buildAppConfigDto(overrides: Partial<AppConfigDto> = {}): AppConfigDto {
-  return {
+  const defaults: AppConfigDto = {
     repairCooldownMinutes: null,
     effectiveRepairCooldownMinutes: 15,
     dashboardPerformanceRanges: null,
@@ -291,11 +292,28 @@ export function buildAppConfigDto(overrides: Partial<AppConfigDto> = {}): AppCon
     // Tier 0 — encrypted secrets (sentinel)
     finmindApiTokenSet: false,
     twelveDataApiKeySet: false,
+    eodhdApiKeySet: false,
+    eodhdDailyCallLimit: null,
+    effectiveEodhdDailyCallLimit: 20,
+    eodhdFallback: {
+      dailyCallLimit: null,
+      effectiveDailyCallLimit: 20,
+      apiKeySet: false,
+      validatedMarkets: ["AU"],
+      bounds: {
+        dailyCallLimit: DEFAULT_BOUNDS.eodhdDailyCallLimit,
+      },
+    },
 
     bounds: DEFAULT_BOUNDS,
     secretLengthBounds: { min: 20, max: 500 },
 
     updatedAt: "2026-05-08T10:00:00.000Z",
+  };
+  return {
+    ...defaults,
     ...overrides,
+    eodhdFallback: overrides.eodhdFallback ?? defaults.eodhdFallback,
+    bounds: overrides.bounds ?? defaults.bounds,
   };
 }

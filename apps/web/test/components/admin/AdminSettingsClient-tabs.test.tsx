@@ -110,6 +110,18 @@ describe("AdminSettingsClient — tab guard (KZO-199 iter 3 LOW-1)", () => {
     expect(document.body.textContent).toContain("Allowed values: TW, US, AU, KR, JP.");
   });
 
+  it("renders EODHD key rotation and daily budget controls on the API keys tab", () => {
+    mockParams = new URLSearchParams({ tab: "api-keys" });
+    act(() => root.render(<AdminSettingsClient initial={buildConfig()} />));
+
+    expect(panelHidden("api-keys")).toBe(false);
+    expect(document.querySelector("[data-testid='admin-settings-provider-keys-section']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='admin-settings-eodhd-api-key-row']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='admin-settings-eodhd-budget-section']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='admin-settings-input-eodhdDailyCallLimit']")).toBeNull();
+    expect(document.body.textContent).toContain("EODHD fallback budget");
+  });
+
   it("prefills the current effective value when enabling a ticker freshness override", async () => {
     mockParams = new URLSearchParams();
     act(() => root.render(<AdminSettingsClient initial={buildConfig()} />));

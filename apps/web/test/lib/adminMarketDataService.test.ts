@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import {
   bulkUpdateMarketUnresolvedState,
   fetchMarketUnresolved,
+  deactivateMarketQuoteFallbackPolicy,
   previewMarketCalendarImport,
+  refreshMarketQuoteFallbackPolicy,
+  upsertMarketQuoteFallbackPolicy,
   updateMarketUnresolvedState,
 } from "../../lib/adminMarketDataService";
 import { getJson, postJson } from "../../lib/api";
@@ -120,6 +123,49 @@ describe("adminMarketDataService", () => {
           { providerId: "yahoo-finance-au", marketCode: "AU", errorCode: "provider_symbol_unresolved", sourceSymbol: "CDX" },
         ],
       },
+    });
+  });
+
+  it("posts quote fallback policy lifecycle requests to the market-data service endpoints", async () => {
+    postJsonMock.mockResolvedValueOnce({ policy: { ticker: "ETPMAG", providerSymbol: "ETPMAG.AU" } });
+    await upsertMarketQuoteFallbackPolicy({
+      ticker: "ETPMAG",
+      marketCode: "AU",
+      provider: "eodhd",
+      priceType: "eod_close",
+      providerSymbol: "ETPMAG.AU",
+      reason: "Missing Yahoo close",
+    });
+
+    expect(postJsonMock).toHaveBeenCalledWith("/admin/market-data/AU/quote-fallback-policies/upsert", {
+      ticker: "ETPMAG",
+      marketCode: "AU",
+      provider: "eodhd",
+      priceType: "eod_close",
+      providerSymbol: "ETPMAG.AU",
+      reason: "Missing Yahoo close",
+    });
+
+    postJsonMock.mockResolvedValueOnce({ policy: { ticker: "ETPMAG", active: false } });
+    await deactivateMarketQuoteFallbackPolicy({
+      ticker: "ETPMAG",
+      marketCode: "AU",
+    });
+
+    expect(postJsonMock).toHaveBeenCalledWith("/admin/market-data/AU/quote-fallback-policies/deactivate", {
+      ticker: "ETPMAG",
+      marketCode: "AU",
+    });
+
+    postJsonMock.mockResolvedValueOnce({ policy: { ticker: "ETPMAG" }, refreshed: true, remainingCalls: 19, message: null });
+    await refreshMarketQuoteFallbackPolicy({
+      ticker: "ETPMAG",
+      marketCode: "AU",
+    });
+
+    expect(postJsonMock).toHaveBeenCalledWith("/admin/market-data/AU/quote-fallback-policies/refresh", {
+      ticker: "ETPMAG",
+      marketCode: "AU",
     });
   });
 });

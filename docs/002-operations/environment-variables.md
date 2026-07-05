@@ -137,6 +137,15 @@ In addition to the configurable session cookie, the API emits two other cookies 
 | `PRIMARY_PROVIDER` | `mock-primary` | Primary market data provider |
 | `FALLBACK_PROVIDER` | `mock-fallback` | Fallback market data provider |
 | `DATA_PROVIDER_TIMEOUT_MS` | `5000` | Provider request timeout |
+| `FINMIND_API_TOKEN` | (none) | TW/US market-data token. Can also be stored encrypted in `app_config`; admin value wins. |
+| `FINMIND_BASE_URL` | `https://api.finmindtrade.com/api/v4/data` | FinMind API endpoint. |
+| `FINMIND_RATE_LIMIT_PER_HOUR` | `600` | Shared FinMind hourly budget. |
+| `TWELVE_DATA_API_KEY` | (none) | AU/KR/JP catalog key. Can also be stored encrypted in `app_config`; admin value wins. |
+| `TWELVE_DATA_BASE_URL` | `https://api.twelvedata.com` | Twelve Data API endpoint. |
+| `TWELVE_DATA_RATE_LIMIT_PER_MINUTE` | `8` | Twelve Data Basic/free per-minute budget. |
+| `EODHD_API_KEY` | (none) | EODHD EOD quote fallback key. Can also be stored encrypted in `app_config`; admin value wins. |
+| `EODHD_BASE_URL` | `https://eodhd.com/api` | EODHD API endpoint. |
+| `EODHD_DAILY_CALL_LIMIT` | `20` | Strict local daily EODHD call budget for fallback refreshes. Normal reads do not call EODHD. |
 
 ### Next.js web only
 

@@ -111,6 +111,12 @@ export const envSchema = z.object({
   TWELVE_DATA_API_KEY: z.string().optional(),
   TWELVE_DATA_BASE_URL: z.string().url().default("https://api.twelvedata.com"),
   TWELVE_DATA_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(8),
+  // EODHD EOD fallback provider. Normal dashboard/portfolio reads never call
+  // this provider; refresh workers consume cached EOD snapshots under a strict
+  // local daily call budget.
+  EODHD_API_KEY: z.string().optional(),
+  EODHD_BASE_URL: z.string().url().default("https://eodhd.com/api"),
+  EODHD_DAILY_CALL_LIMIT: z.coerce.number().int().positive().default(20),
   AU_CATALOG_PROVIDER_MOCK: envBool,
   KR_CATALOG_PROVIDER_MOCK: envBool,
   JP_CATALOG_PROVIDER_MOCK: envBool,

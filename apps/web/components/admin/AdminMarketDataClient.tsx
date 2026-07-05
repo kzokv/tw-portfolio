@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AdminMarketDataDelistingOverrideAction,
   AdminMarketDataBackfillTargetDto,
@@ -24,11 +24,13 @@ import type {
   AdminMarketDataPurgeExecuteResponse,
   AdminMarketDataPurgePreviewRequest,
   AdminMarketDataPurgePreviewResponse,
+  QuoteFallbackPolicyDto,
 } from "@vakwen/shared-types";
 import { cn } from "../../lib/utils";
 import {
   bulkUpdateMarketUnresolvedState,
   confirmMarketCalendarImport,
+  deactivateMarketQuoteFallbackPolicy,
   executeMarketBackfill,
   executeMarketAction,
   executeMarketSnapshotRepair,
@@ -42,6 +44,8 @@ import {
   previewMarketBackfill,
   previewMarketCalendarImport,
   previewMarketPurge,
+  refreshMarketQuoteFallbackPolicy,
+  upsertMarketQuoteFallbackPolicy,
   updateMarketUnresolvedState,
   updateMarketCalendarSource,
   updateMarketCalendarSourceConfig,
@@ -198,6 +202,30 @@ function marketDataSettingsCopy(adminDict: ReturnType<typeof useAdminI18n>["mark
 
 function detailRow(label: string, value: string | null | undefined) {
   return { label, value: value && value.trim() ? value : "—" };
+}
+
+function quoteFallbackStatusLabel(
+  policy: QuoteFallbackPolicyDto | null,
+  dict: ReturnType<typeof useAdminI18n>["marketData"],
+): string {
+  if (!policy) return dict.instrumentsFallbackStateInactive;
+  const status = policy.lastRefreshStatus ?? "skipped";
+  if (!policy.active) return dict.instrumentsFallbackStateInactive;
+  if (status === "rate_limited") return dict.instrumentsFallbackStateRateLimited;
+  if (status === "warning") return dict.instrumentsFallbackStateWarning;
+  if (status === "error") return dict.instrumentsFallbackStateError;
+  if (status === "success" && policy.latestSnapshot) return dict.instrumentsFallbackStateActive;
+  return dict.instrumentsFallbackStatePending;
+}
+
+function quoteFallbackDefaultProviderSymbol(row: Pick<AdminMarketDataInstrumentDto, "ticker" | "marketCode">): string {
+  return row.marketCode === "AU" ? `${row.ticker}.AU` : row.ticker;
+}
+
+function quoteFallbackPriceSummary(policy: QuoteFallbackPolicyDto | null): string {
+  const snapshot = policy?.latestSnapshot;
+  if (!snapshot) return "—";
+  return `${snapshot.currency} ${snapshot.close.toFixed(4)} · ${snapshot.marketDate}`;
 }
 
 function ActionChips({ marketCode, actions }: { marketCode: AdminMarketCode; actions: AdminMarketDataActionDto[] }) {
@@ -1256,9 +1284,16 @@ function InstrumentsPanel({
   const [selectedTicker, setSelectedTicker] = useState<string | null>(null);
   const [savingTicker, setSavingTicker] = useState<string | null>(null);
   const [savingDelistingTicker, setSavingDelistingTicker] = useState<string | null>(null);
+  const [savingFallbackTicker, setSavingFallbackTicker] = useState<string | null>(null);
+  const [fallbackProviderSymbol, setFallbackProviderSymbol] = useState("");
+  const [fallbackStatusMessage, setFallbackStatusMessage] = useState<string | null>(null);
+  const [fallbackErrorMessage, setFallbackErrorMessage] = useState<string | null>(null);
   const totalPages = Math.max(1, Math.ceil(instruments.total / instruments.limit));
   const delistingOverrideSupported = instruments.marketCode === "AU" || instruments.marketCode === "KR";
+  const fallbackPolicySupported = instruments.marketCode === "AU";
   const selectedInstrument = selectedTicker ? rows.find((row) => row.ticker === selectedTicker) ?? null : null;
+  const selectedInstrumentKey = selectedInstrument ? `${selectedInstrument.marketCode}:${selectedInstrument.ticker}` : null;
+  const fallbackSelectionKeyRef = useRef<string | null>(null);
   type InstrumentColumnId = "ticker" | "status" | "support" | "backfill" | "providers" | "lastSeen";
   const settingsCopy = marketDataSettingsCopy(adminDict);
   const columns = useMemo<Array<AdminMarketDataResponsiveColumn<AdminMarketDataInstrumentDto, InstrumentColumnId>>>(() => [
@@ -1321,6 +1356,20 @@ function InstrumentsPanel({
     setSelectedTicker(null);
   }, [initialQuery, instruments.items]);
 
+  useEffect(() => {
+    if (fallbackSelectionKeyRef.current === selectedInstrumentKey) return;
+    fallbackSelectionKeyRef.current = selectedInstrumentKey;
+    if (!selectedInstrument) {
+      setFallbackProviderSymbol("");
+      setFallbackStatusMessage(null);
+      setFallbackErrorMessage(null);
+      return;
+    }
+    setFallbackProviderSymbol(selectedInstrument.quoteFallbackPolicy?.providerSymbol ?? quoteFallbackDefaultProviderSymbol(selectedInstrument));
+    setFallbackStatusMessage(null);
+    setFallbackErrorMessage(null);
+  }, [selectedInstrument, selectedInstrumentKey]);
+
   function updateFilter(key: keyof InstrumentQuery, value: string) {
     setFilters((current) => ({ ...current, [key]: key === "limit" ? Number.parseInt(value, 10) || current.limit : value }));
   }
@@ -1354,6 +1403,84 @@ function InstrumentsPanel({
       setRows((current) => current.map((item) => item.ticker === row.ticker ? result.instrument : item));
     } finally {
       setSavingDelistingTicker(null);
+    }
+  }
+
+  async function saveQuoteFallbackPolicy(row: AdminMarketDataInstrumentDto) {
+    const providerSymbol = fallbackProviderSymbol.trim().toUpperCase();
+    if (!providerSymbol) {
+      setFallbackErrorMessage(adminDict.instrumentsFallbackProviderRequired);
+      return;
+    }
+    setSavingFallbackTicker(row.ticker);
+    setFallbackErrorMessage(null);
+    setFallbackStatusMessage(null);
+    try {
+      const result = await upsertMarketQuoteFallbackPolicy({
+        ticker: row.ticker,
+        marketCode: row.marketCode,
+        provider: "eodhd",
+        priceType: "eod_close",
+        providerSymbol,
+        active: true,
+      });
+      setRows((current) => current.map((item) => (
+        item.ticker === row.ticker && item.marketCode === row.marketCode
+          ? { ...item, quoteFallbackPolicy: result.policy }
+          : item
+      )));
+      setFallbackStatusMessage(adminDict.instrumentsFallbackSaveSuccess);
+    } catch (error) {
+      setFallbackErrorMessage(error instanceof Error ? error.message : adminDict.instrumentsFallbackSaveFailed);
+    } finally {
+      setSavingFallbackTicker(null);
+    }
+  }
+
+  async function deactivateQuoteFallbackPolicy(row: AdminMarketDataInstrumentDto) {
+    setSavingFallbackTicker(row.ticker);
+    setFallbackErrorMessage(null);
+    setFallbackStatusMessage(null);
+    try {
+      const result = await deactivateMarketQuoteFallbackPolicy({
+        ticker: row.ticker,
+        marketCode: row.marketCode,
+      });
+      setRows((current) => current.map((item) => (
+        item.ticker === row.ticker && item.marketCode === row.marketCode
+          ? { ...item, quoteFallbackPolicy: result.policy }
+          : item
+      )));
+      setFallbackStatusMessage(adminDict.instrumentsFallbackDeactivateSuccess);
+    } catch (error) {
+      setFallbackErrorMessage(error instanceof Error ? error.message : adminDict.instrumentsFallbackDeactivateFailed);
+    } finally {
+      setSavingFallbackTicker(null);
+    }
+  }
+
+  async function refreshQuoteFallbackPolicy(row: AdminMarketDataInstrumentDto) {
+    setSavingFallbackTicker(row.ticker);
+    setFallbackErrorMessage(null);
+    setFallbackStatusMessage(null);
+    try {
+      const result = await refreshMarketQuoteFallbackPolicy({
+        ticker: row.ticker,
+        marketCode: row.marketCode,
+      });
+      setRows((current) => current.map((item) => (
+        item.ticker === row.ticker && item.marketCode === row.marketCode
+          ? { ...item, quoteFallbackPolicy: result.policy }
+          : item
+      )));
+      const remainingCopy = Number.isFinite(result.remainingCalls)
+        ? ` ${adminDict.instrumentsFallbackRemainingCalls.replace("{count}", String(result.remainingCalls))}`
+        : "";
+      setFallbackStatusMessage((result.message ?? adminDict.instrumentsFallbackRefreshSuccess) + remainingCopy);
+    } catch (error) {
+      setFallbackErrorMessage(error instanceof Error ? error.message : adminDict.instrumentsFallbackRefreshFailed);
+    } finally {
+      setSavingFallbackTicker(null);
     }
   }
 
@@ -1430,7 +1557,14 @@ function InstrumentsPanel({
         getCardIdentity={(row) => ({
           title: row.ticker,
           subtitle: row.name ?? adminDict.instrumentsUnnamed,
-          badge: <span className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground">{row.backfillStatus}</span>,
+          badge: (
+            <div className="flex flex-wrap gap-2">
+              <span className="rounded border border-border px-2 py-0.5 text-xs text-muted-foreground">{row.backfillStatus}</span>
+              {row.quoteFallbackPolicy?.active ? (
+                <span className="rounded border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-xs text-cyan-700">{adminDict.instrumentsFallbackBadge}</span>
+              ) : null}
+            </div>
+          ),
         })}
       />
       <Drawer
@@ -1518,6 +1652,84 @@ function InstrumentsPanel({
                 </div>
               ) : (
                 <p className="rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm text-muted-foreground">{adminDict.instrumentsDelistingOverrideUnavailable}</p>
+              )}
+            </section>
+
+            <section className="space-y-3">
+              <h3 className="text-sm font-semibold text-foreground">{adminDict.instrumentsFallbackPolicy}</h3>
+              {fallbackPolicySupported ? (
+                <>
+                  <dl className="grid gap-2">
+                    {[
+                      detailRow(adminDict.instrumentsFallbackProvider, selectedInstrument.quoteFallbackPolicy?.provider === "eodhd" ? "EODHD EOD" : null),
+                      detailRow(adminDict.instrumentsFallbackStatus, quoteFallbackStatusLabel(selectedInstrument.quoteFallbackPolicy, adminDict)),
+                      detailRow(adminDict.instrumentsFallbackLatestClose, quoteFallbackPriceSummary(selectedInstrument.quoteFallbackPolicy)),
+                      detailRow(adminDict.instrumentsFallbackLastRefresh, formatUtcTimestamp(selectedInstrument.quoteFallbackPolicy?.lastRefreshAt ?? null)),
+                      detailRow(adminDict.instrumentsFallbackLastError, selectedInstrument.quoteFallbackPolicy?.lastRefreshError ?? null),
+                    ].map((row) => (
+                      <div key={`${selectedInstrument.ticker}:fallback:${row.label}`} className="grid grid-cols-[8rem_minmax(0,1fr)] gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-2">
+                        <dt className="text-xs text-muted-foreground">{row.label}</dt>
+                        <dd className="break-words text-sm text-foreground">{row.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  <label className="block text-sm font-medium text-foreground" htmlFor="market-data-fallback-provider-symbol">
+                    {adminDict.instrumentsFallbackProviderSymbol}
+                  </label>
+                  <input
+                    id="market-data-fallback-provider-symbol"
+                    type="text"
+                    value={fallbackProviderSymbol}
+                    onChange={(event) => {
+                      setFallbackProviderSymbol(event.target.value.toUpperCase());
+                      setFallbackErrorMessage(null);
+                    }}
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground"
+                    placeholder={quoteFallbackDefaultProviderSymbol(selectedInstrument)}
+                    data-testid="market-data-fallback-provider-symbol-input"
+                  />
+                  <p className="text-xs text-muted-foreground">{adminDict.instrumentsFallbackProviderSymbolHelp}</p>
+                  {fallbackErrorMessage ? (
+                    <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert" data-testid="market-data-fallback-policy-error">
+                      {fallbackErrorMessage}
+                    </p>
+                  ) : null}
+                  {fallbackStatusMessage ? (
+                    <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700" role="status" data-testid="market-data-fallback-policy-status">
+                      {fallbackStatusMessage}
+                    </p>
+                  ) : null}
+                  <div className="flex flex-wrap gap-2 rounded-md border border-border/70 bg-muted/20 p-3">
+                    <Button
+                      size="sm"
+                      disabled={savingFallbackTicker === selectedInstrument.ticker}
+                      onClick={() => void saveQuoteFallbackPolicy(selectedInstrument)}
+                      data-testid="market-data-fallback-policy-save"
+                    >
+                      {adminDict.instrumentsFallbackSave}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={savingFallbackTicker === selectedInstrument.ticker || !selectedInstrument.quoteFallbackPolicy?.active}
+                      onClick={() => void refreshQuoteFallbackPolicy(selectedInstrument)}
+                      data-testid="market-data-fallback-policy-refresh"
+                    >
+                      {adminDict.instrumentsFallbackRefresh}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={savingFallbackTicker === selectedInstrument.ticker || !selectedInstrument.quoteFallbackPolicy}
+                      onClick={() => void deactivateQuoteFallbackPolicy(selectedInstrument)}
+                      data-testid="market-data-fallback-policy-deactivate"
+                    >
+                      {adminDict.instrumentsFallbackDeactivate}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <p className="rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm text-muted-foreground">{adminDict.instrumentsFallbackPolicyUnavailable}</p>
               )}
             </section>
           </>

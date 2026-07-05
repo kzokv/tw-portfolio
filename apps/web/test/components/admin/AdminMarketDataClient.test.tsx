@@ -41,6 +41,7 @@ vi.mock("../../../lib/api", () => ({
 vi.mock("../../../lib/adminMarketDataService", () => ({
   bulkUpdateMarketUnresolvedState: vi.fn(),
   confirmMarketCalendarImport: vi.fn(),
+  deactivateMarketQuoteFallbackPolicy: vi.fn(),
   executeMarketBackfill: vi.fn(),
   executeMarketSnapshotRepair: vi.fn(),
   executeProviderRepair: vi.fn(),
@@ -54,6 +55,7 @@ vi.mock("../../../lib/adminMarketDataService", () => ({
   previewProviderRepair: vi.fn(),
   previewMarketBackfill: vi.fn(),
   previewMarketPurge: vi.fn(),
+  refreshMarketQuoteFallbackPolicy: vi.fn(),
   renewProviderEvidence: vi.fn(),
   rerunProviderResolvedUnresolvedItem: vi.fn(),
   mutateProviderOperation: vi.fn(),
@@ -66,6 +68,7 @@ vi.mock("../../../lib/adminMarketDataService", () => ({
   updateMarketUnresolvedState: vi.fn(),
   updateProviderUnresolvedState: vi.fn(),
   updateMarketInstrumentDelistingOverride: vi.fn(),
+  upsertMarketQuoteFallbackPolicy: vi.fn(),
 }));
 
 import { AdminMarketDataWorkspaceClient } from "../../../components/admin/AdminMarketDataClient";
@@ -77,6 +80,7 @@ import {
   executeMarketSnapshotRepair,
   executeMarketPurge,
   executeProviderRepair,
+  deactivateMarketQuoteFallbackPolicy,
   fetchOperationLogs,
   fetchOperationOutcomes,
   fetchMarketValuationRepairStatus,
@@ -86,6 +90,7 @@ import {
   previewMarketCalendarImport,
   previewMarketPurge,
   previewProviderRepair,
+  refreshMarketQuoteFallbackPolicy,
   renewProviderEvidence,
   rerunProviderResolvedUnresolvedItem,
   reverifyProviderMapping,
@@ -93,6 +98,7 @@ import {
   rerunProviderMapping,
   updateMarketInstrumentDelistingOverride,
   updateProviderUnresolvedState,
+  upsertMarketQuoteFallbackPolicy,
 } from "../../../lib/adminMarketDataService";
 import { getJson, patchJson } from "../../../lib/api";
 
@@ -104,6 +110,7 @@ const executeProviderRepairMock = vi.mocked(executeProviderRepair);
 const executeMarketBackfillMock = vi.mocked(executeMarketBackfill);
 const executeMarketSnapshotRepairMock = vi.mocked(executeMarketSnapshotRepair);
 const executeMarketPurgeMock = vi.mocked(executeMarketPurge);
+const deactivateMarketQuoteFallbackPolicyMock = vi.mocked(deactivateMarketQuoteFallbackPolicy);
 const fetchOperationLogsMock = vi.mocked(fetchOperationLogs);
 const fetchOperationOutcomesMock = vi.mocked(fetchOperationOutcomes);
 const fetchMarketValuationRepairStatusMock = vi.mocked(fetchMarketValuationRepairStatus);
@@ -113,11 +120,13 @@ const previewMarketBackfillMock = vi.mocked(previewMarketBackfill);
 const previewMarketCalendarImportMock = vi.mocked(previewMarketCalendarImport);
 const previewMarketPurgeMock = vi.mocked(previewMarketPurge);
 const previewProviderRepairMock = vi.mocked(previewProviderRepair);
+const refreshMarketQuoteFallbackPolicyMock = vi.mocked(refreshMarketQuoteFallbackPolicy);
 const renewProviderEvidenceMock = vi.mocked(renewProviderEvidence);
 const rerunProviderResolvedUnresolvedItemMock = vi.mocked(rerunProviderResolvedUnresolvedItem);
 const reverifyProviderMappingMock = vi.mocked(reverifyProviderMapping);
 const rerunProviderMappingMock = vi.mocked(rerunProviderMapping);
 const revertProviderMappingMock = vi.mocked(revertProviderMapping);
+const upsertMarketQuoteFallbackPolicyMock = vi.mocked(upsertMarketQuoteFallbackPolicy);
 const getJsonMock = vi.mocked(getJson);
 const patchJsonMock = vi.mocked(patchJson);
 
@@ -165,6 +174,7 @@ function instruments(ticker: string, name: string): AdminMarketDataInstrumentsRe
         delistingDetectionExcluded: false,
         providerIds: ["twelve-data-au"],
         backfillStatus: "pending",
+        quoteFallbackPolicy: null,
       },
     ],
     total: 1,
@@ -2335,6 +2345,168 @@ describe("AdminMarketDataWorkspaceClient", () => {
       ticker: "BHP",
       marketCode: "AU",
       action: "exclude_from_delisting_detection",
+    });
+  });
+
+  it("saves and refreshes the AU quote fallback policy from the instrument drawer", async () => {
+    upsertMarketQuoteFallbackPolicyMock.mockResolvedValueOnce({
+      policy: {
+        id: "policy-1",
+        marketCode: "AU",
+        ticker: "ETPMAG",
+        provider: "eodhd",
+        priceType: "eod_close",
+        providerSymbol: "ETPMAG.AU",
+        active: true,
+        reason: null,
+        createdAt: "2026-07-05T09:30:00.000Z",
+        updatedAt: "2026-07-05T09:30:00.000Z",
+        deactivatedAt: null,
+        lastRefreshStatus: "success",
+        lastRefreshAt: "2026-07-05T09:31:00.000Z",
+        lastRefreshError: null,
+        lastRefreshErrorCode: null,
+        latestSnapshot: {
+          id: "snapshot-1",
+          policyId: "policy-1",
+          marketCode: "AU",
+          ticker: "ETPMAG",
+          provider: "eodhd",
+          priceType: "eod_close",
+          providerSymbol: "ETPMAG.AU",
+          marketDate: "2026-07-04",
+          close: 12.34,
+          previousClose: 12.1,
+          currency: "AUD",
+          currencySource: "provider",
+          source: "EODHD",
+          fetchedAt: "2026-07-05T09:31:00.000Z",
+          providerMetadata: {},
+          createdAt: "2026-07-05T09:31:00.000Z",
+        },
+      },
+    });
+    refreshMarketQuoteFallbackPolicyMock.mockResolvedValueOnce({
+      policy: {
+        id: "policy-1",
+        marketCode: "AU",
+        ticker: "ETPMAG",
+        provider: "eodhd",
+        priceType: "eod_close",
+        providerSymbol: "ETPMAG.AU",
+        active: true,
+        reason: null,
+        createdAt: "2026-07-05T09:30:00.000Z",
+        updatedAt: "2026-07-05T09:32:00.000Z",
+        deactivatedAt: null,
+        lastRefreshStatus: "success",
+        lastRefreshAt: "2026-07-05T09:32:00.000Z",
+        lastRefreshError: null,
+        lastRefreshErrorCode: null,
+        latestSnapshot: {
+          id: "snapshot-2",
+          policyId: "policy-1",
+          marketCode: "AU",
+          ticker: "ETPMAG",
+          provider: "eodhd",
+          priceType: "eod_close",
+          providerSymbol: "ETPMAG.AU",
+          marketDate: "2026-07-04",
+          close: 12.56,
+          previousClose: 12.34,
+          currency: "AUD",
+          currencySource: "provider",
+          source: "EODHD",
+          fetchedAt: "2026-07-05T09:32:00.000Z",
+          providerMetadata: {},
+          createdAt: "2026-07-05T09:32:00.000Z",
+        },
+      },
+      refreshed: true,
+      remainingCalls: 19,
+      message: "Refresh queued.",
+    });
+    deactivateMarketQuoteFallbackPolicyMock.mockResolvedValueOnce({
+      policy: {
+        id: "policy-1",
+        marketCode: "AU",
+        ticker: "ETPMAG",
+        provider: "eodhd",
+        priceType: "eod_close",
+        providerSymbol: "ETPMAG.AU",
+        active: false,
+        reason: null,
+        createdAt: "2026-07-05T09:30:00.000Z",
+        updatedAt: "2026-07-05T09:33:00.000Z",
+        deactivatedAt: "2026-07-05T09:33:00.000Z",
+        lastRefreshStatus: "success",
+        lastRefreshAt: "2026-07-05T09:32:00.000Z",
+        lastRefreshError: null,
+        lastRefreshErrorCode: null,
+        latestSnapshot: null,
+      },
+    });
+
+    await act(async () => {
+      root.render(
+        <AdminMarketDataWorkspaceClient
+          marketCode="AU"
+          tab="instruments"
+          overview={overview()}
+          actions={actions()}
+          instruments={instruments("ETPMAG", "ETPMAG ETF")}
+          instrumentQuery={{
+            page: 1,
+            limit: 50,
+            status: "all",
+            supportState: "all",
+            search: "",
+            instrumentType: "all",
+            backfillStatus: "all",
+            sort: "ticker_asc",
+          }}
+          operations={null}
+          krMappings={null}
+        />,
+      );
+    });
+
+    act(() => {
+      container.querySelector("[data-testid='market-data-instrument-row-ETPMAG']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const input = document.body.querySelector("[data-testid='market-data-fallback-provider-symbol-input']") as HTMLInputElement | null;
+    expect(input?.value).toBe("ETPMAG.AU");
+
+    await act(async () => {
+      document.body.querySelector("[data-testid='market-data-fallback-policy-save']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(upsertMarketQuoteFallbackPolicyMock).toHaveBeenCalledWith({
+      ticker: "ETPMAG",
+      marketCode: "AU",
+      provider: "eodhd",
+      priceType: "eod_close",
+      providerSymbol: "ETPMAG.AU",
+      active: true,
+    });
+
+    await act(async () => {
+      document.body.querySelector("[data-testid='market-data-fallback-policy-refresh']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(refreshMarketQuoteFallbackPolicyMock).toHaveBeenCalledWith({
+      ticker: "ETPMAG",
+      marketCode: "AU",
+    });
+
+    await act(async () => {
+      document.body.querySelector("[data-testid='market-data-fallback-policy-deactivate']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(deactivateMarketQuoteFallbackPolicyMock).toHaveBeenCalledWith({
+      ticker: "ETPMAG",
+      marketCode: "AU",
     });
   });
 

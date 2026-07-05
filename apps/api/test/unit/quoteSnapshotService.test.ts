@@ -47,6 +47,42 @@ function tradingCalendarWithDates(dates: ReadonlyArray<string>) {
   };
 }
 
+async function seedEodhdFallbackSnapshot(
+  persistence: MemoryPersistence,
+  input: {
+    ticker?: string;
+    marketDate: string;
+    close: number;
+    previousClose: number | null;
+    fetchedAt?: string;
+  },
+) {
+  const ticker = input.ticker ?? "ETPMAG";
+  const policy = await persistence.upsertQuoteFallbackPolicy({
+    ticker,
+    marketCode: "AU",
+    provider: "eodhd",
+    priceType: "eod_close",
+    providerSymbol: `${ticker}.AU`,
+    reason: "Yahoo AU delayed close",
+  });
+  await persistence.upsertQuoteFallbackSnapshot({
+    policyId: policy.id,
+    ticker,
+    marketCode: "AU",
+    provider: "eodhd",
+    priceType: "eod_close",
+    providerSymbol: `${ticker}.AU`,
+    marketDate: input.marketDate,
+    close: input.close,
+    previousClose: input.previousClose,
+    currency: "AUD",
+    currencySource: "provider",
+    source: "eodhd-eod",
+    fetchedAt: input.fetchedAt ?? `${input.marketDate}T07:15:00.000Z`,
+  });
+}
+
 describe("resolveQuoteSnapshots", () => {
   let persistence: MemoryPersistence;
 
@@ -387,6 +423,121 @@ describe("resolveQuoteSnapshots", () => {
     expect(result["QAU"]?.priceState.basis).toBe("intraday");
     expect(result["QAU"]?.priceState.chipState).toBe("open_fresh");
     expect(result["QAU"]?.priceState.sourceKind).toBe("intraday_yahoo_chart");
+  });
+
+  it("uses a fresh EODHD fallback snapshot for displayed held AU valuation and suppresses Yahoo prices", async () => {
+    persistence._seedDailyBars([
+      { ticker: "ETPMAG", marketCode: "AU", barDate: "2026-06-19", open: 8.9, high: 9.1, low: 8.8, close: 9.05, volume: 100, quality: FULL_BAR, source: "yahoo-finance-au", ingestedAt: "2026-06-19T01:00:00.000Z" },
+      { ticker: "ETPMAG", marketCode: "AU", barDate: "2026-06-18", open: 8.5, high: 8.7, low: 8.4, close: 8.65, volume: 100, quality: FULL_BAR, source: "yahoo-finance-au", ingestedAt: "2026-06-18T07:00:00.000Z" },
+    ]);
+    await persistence.setLatestIntradayOverlay({
+      ticker: "ETPMAG",
+      marketCode: "AU",
+      price: 9.12,
+      previousClose: 8.65,
+      asOfDate: "2026-06-19",
+      asOfTimestamp: "2026-06-19T01:00:42.000Z",
+      observedAt: "2026-06-19T01:01:00.000Z",
+      sourceKind: "intraday_yahoo_chart",
+      source: "yahoo-finance-chart",
+      currency: "AUD",
+      providerSymbol: "ETPMAG.AX",
+    });
+    await seedEodhdFallbackSnapshot(persistence, {
+      marketDate: "2026-06-19",
+      close: 8.12,
+      previousClose: 8.01,
+    });
+
+    const result = await resolveQuoteSnapshots(
+      [{ ticker: "ETPMAG", marketCode: "AU" }],
+      persistence,
+      new Map([["AU", "2026-06-19"]]),
+      {
+        mode: "displayed",
+        now: new Date("2026-06-19T07:00:00.000Z"),
+        heldPairs: new Set(["ETPMAG:AU"]),
+        tradingCalendar: tradingCalendarWithDates(["2026-06-18", "2026-06-19"]),
+      },
+    );
+
+    expect(result["ETPMAG:AU"]?.close).toBe(8.12);
+    expect(result["ETPMAG:AU"]?.dailyCompatibleClose).toBe(8.12);
+    expect(result["ETPMAG:AU"]?.previousClose).toBe(8.01);
+    expect(result["ETPMAG:AU"]?.change).toBeCloseTo(0.11, 4);
+    expect(result["ETPMAG:AU"]?.changePercent).toBeCloseTo((0.11 / 8.01) * 100, 4);
+    expect(result["ETPMAG:AU"]?.source).toBe("eodhd-eod");
+    expect(result["ETPMAG:AU"]?.priceState).toEqual(expect.objectContaining({
+      basis: "fallback_eod_close",
+      chipState: "fallback_eod",
+      sourceKind: "eodhd_eod",
+      sourceId: "eodhd",
+      providerSymbol: "ETPMAG.AU",
+      yahooSymbol: null,
+      fallbackProvider: "eodhd",
+      fallbackStale: false,
+    }));
+  });
+
+  it("keeps fallback valuation but withholds daily change while the AU fallback close is stale during the open session", async () => {
+    await seedEodhdFallbackSnapshot(persistence, {
+      marketDate: "2026-06-18",
+      close: 8.12,
+      previousClose: 8.01,
+    });
+
+    const result = await resolveQuoteSnapshots(
+      [{ ticker: "ETPMAG", marketCode: "AU" }],
+      persistence,
+      new Map([["AU", "2026-06-19"]]),
+      {
+        mode: "displayed",
+        now: new Date("2026-06-19T01:05:00.000Z"),
+        heldPairs: new Set(["ETPMAG:AU"]),
+        tradingCalendar: tradingCalendarWithDates(["2026-06-18", "2026-06-19"]),
+      },
+    );
+
+    expect(result["ETPMAG:AU"]?.close).toBe(8.12);
+    expect(result["ETPMAG:AU"]?.previousClose).toBeNull();
+    expect(result["ETPMAG:AU"]?.change).toBeNull();
+    expect(result["ETPMAG:AU"]?.changePercent).toBeNull();
+    expect(result["ETPMAG:AU"]?.priceState).toEqual(expect.objectContaining({
+      basis: "fallback_eod_close",
+      chipState: "fallback_stale",
+      marketState: "open",
+      fallbackStale: true,
+    }));
+  });
+
+  it("returns unavailable when an active fallback policy has no snapshot instead of leaking Yahoo prices", async () => {
+    persistence._seedDailyBars([
+      { ticker: "ETPMAG", marketCode: "AU", barDate: "2026-06-19", open: 8.9, high: 9.1, low: 8.8, close: 9.05, volume: 100, quality: FULL_BAR, source: "yahoo-finance-au", ingestedAt: "2026-06-19T01:00:00.000Z" },
+      { ticker: "ETPMAG", marketCode: "AU", barDate: "2026-06-18", open: 8.5, high: 8.7, low: 8.4, close: 8.65, volume: 100, quality: FULL_BAR, source: "yahoo-finance-au", ingestedAt: "2026-06-18T07:00:00.000Z" },
+    ]);
+    await persistence.upsertQuoteFallbackPolicy({
+      ticker: "ETPMAG",
+      marketCode: "AU",
+      provider: "eodhd",
+      priceType: "eod_close",
+      providerSymbol: "ETPMAG.AU",
+      reason: "Yahoo AU delayed close",
+    });
+
+    const result = await resolveQuoteSnapshots(
+      [{ ticker: "ETPMAG", marketCode: "AU" }],
+      persistence,
+      new Map([["AU", "2026-06-19"]]),
+      {
+        mode: "displayed",
+        now: new Date("2026-06-19T07:00:00.000Z"),
+        heldPairs: new Set(["ETPMAG:AU"]),
+        tradingCalendar: tradingCalendarWithDates(["2026-06-18", "2026-06-19"]),
+      },
+    );
+
+    expect(result["ETPMAG:AU"]).toBeNull();
+    expect(result["ETPMAG"]).toBeNull();
   });
 
   it("keeps stale close state while the market is open when the latest bar is older than settled", async () => {

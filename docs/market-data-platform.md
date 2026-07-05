@@ -45,6 +45,7 @@
 | `daily_bars` | Raw OHLCV daily bars keyed by `(ticker, market_code, bar_date)`; not adjusted |
 | `dividend_events` | Dividend event reference (ex-date, pay-date, amount-per-unit, source) with `market_code` for lookup disambiguation |
 | `fx_rates` | Daily FX rates for stored currency pairs (Frankfurter-sourced) |
+| `quote_fallback_policies`, `quote_fallback_snapshots`, `eodhd_call_budget_usage` | Global per-ticker EOD quote fallback policy, cached close snapshots, and strict local EODHD call budget |
 
 ### Key boundary
 
@@ -61,6 +62,7 @@
 - **FinMind** supplies TW and US market data/catalog paths.
 - **Yahoo Finance via `yahoo-finance2`** supplies AU and KR bars, basic dividends, metadata, and live search, and supplies JP bars, basic cash dividends, metadata, and live search via `.T` symbol normalization.
 - **Twelve Data Basic/free** supplies AU, KR, and JP bulk catalogs only. JP uses `/stocks?country=Japan` plus `/etf?country=Japan` with strict `JPY` + `JPX` + `XJPX` filtering; JP prices do not use Twelve Data.
+- **EODHD EOD** supplies budgeted per-ticker quote fallback close snapshots only. It is not a normal read-path provider and does not replace Yahoo bars, dividends, metadata, search, or historical reports in v1.
 - **Frankfurter** supplies FX rates for stored reporting currencies.
 
 ### FX rates
@@ -101,7 +103,22 @@ What Yahoo cannot supply (locked Yahoo gaps, EODHD upgrade path):
 - Full ASX catalog enumeration.
 - Comprehensive AU split coverage.
 
-**EODHD upgrade path (re-verified 2026-05-02).** Source: ASX ReferencePoint E34 feed, refreshed daily after 18:30 AEST.
+### AU EOD quote fallback (EODHD, v1)
+
+The EODHD integration in this worktree is a narrow quote fallback, not a full AU provider replacement. It exists for cases where Yahoo returns a delayed or otherwise unusable display price for a specific held ticker.
+
+Key contract:
+- Policies are global market-data configuration, not per-account settings. Admins manage them from **Admin -> Market Data -> AU -> Instruments** by opening an instrument drawer.
+- v1 validates only `market_code = 'AU'`, `provider = 'eodhd'`, and `price_type = 'eod_close'`, while the schema is generic enough for other markets/providers later.
+- The provider symbol is editable. AU defaults use EODHD's exchange suffix such as `ETPMAG.AU`; Yahoo's AU suffix remains `.AX` and is provider-internal to the Yahoo provider.
+- Refresh is after market close through the quote-fallback pg-boss worker or a guarded manual refresh. Normal dashboard, portfolio, ticker, and report reads never call EODHD.
+- Active policies suppress Yahoo intraday/Yahoo daily display prices for that ticker and use the latest cached EODHD `close` as the trusted valuation close.
+- Historical daily bars and report history remain untouched in v1. If the fallback daily change is stale or unavailable, aggregate portfolio daily change is marked stale/unavailable rather than computed from a partial total.
+- `app_config.eodhd_api_key` stores the API key encrypted with env fallback to `EODHD_API_KEY`.
+- `app_config.eodhd_daily_call_limit` sets the strict local daily budget with env fallback to `EODHD_DAILY_CALL_LIMIT` (default 20). Usage is tracked in `market_data.eodhd_call_budget_usage`.
+- User-facing freshness appears in the existing price-state chip as `EODHD fallback` / `EODHD stale`, including source, provider symbol, market date, and activity link when the viewer is an admin.
+
+**Full EODHD provider upgrade path (re-verified 2026-05-02).** Source: ASX ReferencePoint E34 feed, refreshed daily after 18:30 AEST. The fallback above does not include catalog enumeration, dividends, splits, or `_asx_extra` corporate-action data.
 
 | Tier | Plan | What you get for AU |
 |---|--:|---|
@@ -110,9 +127,7 @@ What Yahoo cannot supply (locked Yahoo gaps, EODHD upgrade path):
 | **Fundamentals** | **$59.99/mo** | All of the above PLUS the **ASX Corporate Actions API (beta)** with `_asx_extra` (franking %, DRP, BSP, withholding tax, rights/bonus/buyback/capital-return events) |
 | All-In-One | $99.99/mo | Fundamentals + intraday + news/calendar |
 
-Switch from Yahoo → EODHD when any of: (1) commercializing beyond personal use (Yahoo ToS), (2) tax reporting requires franking credits, (3) AU split events become operationally required, (4) Yahoo HTML/`chart()` breaks unrecoverably across releases, (5) full ASX catalog enumeration becomes a product requirement. The swap is a registry-level change in `buildMarketDataRegistry()` — no call-site changes (KZO-163 invariant).
-
-Likely env vars when EODHD lands: `EODHD_API_KEY`, `EODHD_BASE_URL` (default `https://eodhd.com/api`), `EODHD_RATE_LIMIT_PER_DAY` (default 100k), `EODHD_RATE_LIMIT_PER_MINUTE` (default 1000), `EODHD_PLAN` (signals whether `_asx_extra` is available).
+Switch the broader AU stack from Yahoo → EODHD when any of: (1) commercializing beyond personal use (Yahoo ToS), (2) tax reporting requires franking credits, (3) AU split events become operationally required, (4) Yahoo HTML/`chart()` breaks unrecoverably across releases, (5) full ASX catalog enumeration becomes a product requirement. That future swap remains a registry-level change in `buildMarketDataRegistry()` — no call-site changes (KZO-163 invariant). The current fallback vars are `EODHD_API_KEY`, `EODHD_BASE_URL` (default `https://eodhd.com/api`), and `EODHD_DAILY_CALL_LIMIT` (default 20).
 
 ### KR provider strategy
 
@@ -210,6 +225,7 @@ FinMind updates at **17:30 TST**. Between market close (13:30) and the FinMind u
 | Valuation-by-date | `public.daily_portfolio_snapshots` lookup | `public` only |
 | Holding snapshot drill-down | `public.daily_holding_snapshots` | `public` only |
 | Currency wallet balances | `public.currency_wallet_snapshots` | `public` only |
+| Current close fallback for active quote policies | `market_data.quote_fallback_snapshots` selected during quote snapshot reads | `market_data` cache only — no provider call |
 
 ### Portfolio snapshot materialization (Option B)
 

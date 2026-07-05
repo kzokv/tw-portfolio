@@ -1,0 +1,996 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ETPMAG EODHD Fallback Mockup</title>
+  <style>
+    :root {
+      --background: #f8fafc;
+      --surface: #ffffff;
+      --surface-soft: #f1f5f9;
+      --surface-tint: #eef2ff;
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: #dbe3ee;
+      --primary: #4f46e5;
+      --primary-strong: #3730a3;
+      --success: #15803d;
+      --success-soft: #dcfce7;
+      --warning: #b45309;
+      --warning-soft: #fef3c7;
+      --danger: #b91c1c;
+      --danger-soft: #fee2e2;
+      --cyan: #0891b2;
+      --cyan-soft: #cffafe;
+      --shadow: 0 18px 42px rgba(15, 23, 42, 0.08);
+      --radius: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--background);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    .mock-stack {
+      display: grid;
+      gap: 32px;
+      padding: 32px;
+    }
+
+    .screen {
+      width: 1360px;
+      min-height: 860px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: 236px 1fr;
+      min-height: 860px;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--border);
+      background: #fbfdff;
+      padding: 24px 16px;
+    }
+
+    .brand {
+      margin-bottom: 28px;
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .nav {
+      display: grid;
+      gap: 6px;
+    }
+
+    .nav-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 38px;
+      border-radius: 6px;
+      padding: 0 12px;
+      color: var(--muted);
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .nav-item.active {
+      background: var(--surface-tint);
+      color: var(--primary-strong);
+    }
+
+    .dot-icon {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.72;
+    }
+
+    .main {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-width: 0;
+      background: #f8fafc;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      height: 72px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.88);
+      padding: 0 28px;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      letter-spacing: 0;
+    }
+
+    h1 {
+      font-size: 22px;
+      line-height: 1.2;
+    }
+
+    h2 {
+      font-size: 16px;
+      line-height: 1.3;
+    }
+
+    h3 {
+      font-size: 14px;
+      line-height: 1.3;
+    }
+
+    p {
+      margin: 0;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .text-sm {
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .text-xs {
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .content {
+      display: grid;
+      gap: 20px;
+      padding: 24px 28px;
+    }
+
+    .market-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 420px;
+      gap: 20px;
+      align-items: start;
+    }
+
+    .panel {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      border-bottom: 1px solid var(--border);
+      padding: 16px 18px;
+    }
+
+    .panel-body {
+      padding: 18px;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .tabs,
+    .segmented {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: var(--surface);
+      padding: 3px;
+    }
+
+    .tab,
+    .segment {
+      border-radius: 5px;
+      padding: 7px 10px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .tab.active,
+    .segment.active {
+      background: var(--surface-tint);
+      color: var(--primary-strong);
+    }
+
+    .field {
+      min-height: 38px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: #fff;
+      padding: 8px 10px;
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .search {
+      min-width: 260px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    th {
+      border-bottom: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-align: left;
+      padding: 10px 12px;
+    }
+
+    td {
+      border-bottom: 1px solid #edf2f7;
+      padding: 13px 12px;
+      vertical-align: middle;
+    }
+
+    tr.selected {
+      background: #f8fafc;
+      box-shadow: inset 3px 0 0 var(--primary);
+    }
+
+    .num {
+      font-variant-numeric: tabular-nums;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 24px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      padding: 3px 8px;
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .badge.success {
+      border-color: #bbf7d0;
+      background: var(--success-soft);
+      color: var(--success);
+    }
+
+    .badge.warning {
+      border-color: #fde68a;
+      background: var(--warning-soft);
+      color: var(--warning);
+    }
+
+    .badge.primary {
+      border-color: #c7d2fe;
+      background: var(--surface-tint);
+      color: var(--primary-strong);
+    }
+
+    .badge.cyan {
+      border-color: #a5f3fc;
+      background: var(--cyan-soft);
+      color: var(--cyan);
+    }
+
+    .drawer {
+      min-height: 764px;
+      border-left: 1px solid var(--border);
+      background: #fff;
+    }
+
+    .drawer-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+      padding: 18px;
+    }
+
+    .drawer-body {
+      display: grid;
+      gap: 16px;
+      padding: 18px;
+    }
+
+    .summary-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .summary-row {
+      display: grid;
+      grid-template-columns: 132px minmax(0, 1fr);
+      gap: 10px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: #f8fafc;
+      padding: 10px;
+    }
+
+    .summary-row dt {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .summary-row dd {
+      margin: 0;
+      min-width: 0;
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+
+    .policy-box {
+      display: grid;
+      gap: 14px;
+      border: 1px solid #c7d2fe;
+      border-radius: var(--radius);
+      background: #f8faff;
+      padding: 14px;
+    }
+
+    .row-between {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .form-grid {
+      display: grid;
+      gap: 12px;
+    }
+
+    .field-row {
+      display: grid;
+      gap: 6px;
+    }
+
+    label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .input-like {
+      min-height: 38px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: #fff;
+      padding: 9px 10px;
+      font-size: 13px;
+    }
+
+    .check-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .check {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: #fff;
+      padding: 9px 10px;
+      font-size: 12px;
+      color: var(--text);
+    }
+
+    .checkbox {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      background: var(--primary);
+      box-shadow: inset 0 0 0 3px #fff;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .metric {
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: #fff;
+      padding: 10px;
+    }
+
+    .metric .value {
+      margin-top: 4px;
+      font-size: 16px;
+      font-weight: 800;
+    }
+
+    .button-row {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 34px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: #fff;
+      color: var(--text);
+      padding: 0 12px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .btn.primary {
+      border-color: var(--primary);
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .btn.warning {
+      border-color: #fbbf24;
+      background: #fffbeb;
+      color: var(--warning);
+    }
+
+    .btn.ghost {
+      background: transparent;
+    }
+
+    .lucide {
+      width: 15px;
+      height: 15px;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+      flex: none;
+    }
+
+    .settings-layout {
+      display: grid;
+      grid-template-columns: 260px 1fr;
+      gap: 20px;
+      padding: 24px 28px;
+    }
+
+    .settings-tabs {
+      display: grid;
+      gap: 6px;
+      align-self: start;
+    }
+
+    .settings-tab {
+      border: 1px solid transparent;
+      border-radius: 7px;
+      padding: 11px 12px;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .settings-tab.active {
+      border-color: #c7d2fe;
+      background: var(--surface-tint);
+      color: var(--primary-strong);
+    }
+
+    .settings-grid {
+      display: grid;
+      gap: 16px;
+    }
+
+    .settings-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #fff;
+    }
+
+    .settings-card-body {
+      display: grid;
+      gap: 14px;
+      padding: 18px;
+    }
+
+    .provider-row {
+      display: grid;
+      grid-template-columns: 210px minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: #f8fafc;
+      padding: 12px;
+    }
+
+    .secret-field {
+      display: flex;
+      align-items: center;
+      min-height: 38px;
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: #fff;
+      padding: 0 12px;
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 13px;
+    }
+
+    .portfolio-screen {
+      display: grid;
+      grid-template-columns: 236px 1fr;
+      min-height: 860px;
+      background: #f8fafc;
+    }
+
+    .portfolio-content {
+      display: grid;
+      gap: 18px;
+      padding: 24px 28px;
+      align-content: start;
+    }
+
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .stat {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: #fff;
+      padding: 16px;
+    }
+
+    .stat-value {
+      margin-top: 7px;
+      font-size: 24px;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .holding-name {
+      display: grid;
+      gap: 4px;
+    }
+
+    .price-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      width: fit-content;
+      color: var(--cyan);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .chip-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--cyan);
+    }
+
+    .tooltip {
+      width: 360px;
+      border: 1px solid #a5f3fc;
+      border-radius: var(--radius);
+      background: #ecfeff;
+      color: #164e63;
+      padding: 12px;
+      box-shadow: 0 14px 32px rgba(8, 145, 178, 0.16);
+    }
+
+    .tooltip dl {
+      display: grid;
+      grid-template-columns: 126px minmax(0, 1fr);
+      gap: 6px 10px;
+      margin: 10px 0 0;
+      font-size: 12px;
+    }
+
+    .tooltip dt {
+      color: #0e7490;
+      font-weight: 700;
+    }
+
+    .tooltip dd {
+      margin: 0;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .callout {
+      border: 1px solid #fde68a;
+      border-radius: var(--radius);
+      background: #fffbeb;
+      padding: 12px;
+      color: #92400e;
+    }
+  </style>
+</head>
+<body>
+  <div class="mock-stack">
+    <section class="screen" id="admin-market-data">
+      <div class="app">
+        <aside class="sidebar">
+          <div class="brand">Vakwen</div>
+          <nav class="nav" aria-label="Admin">
+            <div class="nav-item"><span class="dot-icon"></span>Dashboard</div>
+            <div class="nav-item"><span class="dot-icon"></span>Portfolios</div>
+            <div class="nav-item active"><span class="dot-icon"></span>Market data</div>
+            <div class="nav-item"><span class="dot-icon"></span>Settings</div>
+            <div class="nav-item"><span class="dot-icon"></span>Audit log</div>
+          </nav>
+        </aside>
+        <main class="main">
+          <header class="topbar">
+            <div>
+              <h1>Market data</h1>
+              <p class="text-sm muted">AU provider operations and instrument controls</p>
+            </div>
+            <span class="badge primary">AU validated for EODHD fallback</span>
+          </header>
+          <div class="content">
+            <div class="tabs" aria-label="Market tabs">
+              <span class="tab">TW</span>
+              <span class="tab">US</span>
+              <span class="tab active">AU</span>
+              <span class="tab">KR</span>
+              <span class="tab">JP</span>
+            </div>
+            <div class="market-grid">
+              <section class="panel">
+                <div class="panel-header">
+                  <div>
+                    <h2>Instruments</h2>
+                    <p class="text-sm muted">Catalog rows, support state, and provider controls</p>
+                  </div>
+                  <span class="badge cyan">1 fallback policy active</span>
+                </div>
+                <div class="panel-body">
+                  <div class="toolbar">
+                    <input class="field search" value="ETPMAG" aria-label="Search instruments">
+                    <div class="segmented">
+                      <span class="segment active">All</span>
+                      <span class="segment">Supported</span>
+                      <span class="segment">Excluded</span>
+                    </div>
+                  </div>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Ticker</th>
+                        <th>Name</th>
+                        <th>Support</th>
+                        <th>Backfill</th>
+                        <th>Provider</th>
+                        <th>Last seen</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr class="selected">
+                        <td><strong>ETPMAG</strong></td>
+                        <td>Global X Physical Gold</td>
+                        <td><span class="badge success">supported</span></td>
+                        <td><span class="badge success">ready</span></td>
+                        <td>yahoo-finance-au</td>
+                        <td class="num">2026-07-03 08:10</td>
+                      </tr>
+                      <tr>
+                        <td><strong>QAU</strong></td>
+                        <td>Betashares Gold Bullion ETF</td>
+                        <td><span class="badge success">supported</span></td>
+                        <td><span class="badge success">ready</span></td>
+                        <td>yahoo-finance-au</td>
+                        <td class="num">2026-07-03 08:08</td>
+                      </tr>
+                      <tr>
+                        <td><strong>BHP</strong></td>
+                        <td>BHP Group Ltd</td>
+                        <td><span class="badge success">supported</span></td>
+                        <td><span class="badge success">ready</span></td>
+                        <td>yahoo-finance-au</td>
+                        <td class="num">2026-07-03 08:03</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+              <aside class="drawer">
+                <div class="drawer-header">
+                  <div>
+                    <h2>ETPMAG details</h2>
+                    <p class="text-sm muted">Global X Physical Gold</p>
+                  </div>
+                  <span class="badge success">Policy active</span>
+                </div>
+                <div class="drawer-body">
+                  <section>
+                    <h3>Summary</h3>
+                    <dl class="summary-list" style="margin-top: 10px;">
+                      <div class="summary-row"><dt>Ticker</dt><dd>ETPMAG</dd></div>
+                      <div class="summary-row"><dt>Market</dt><dd>AU</dd></div>
+                      <div class="summary-row"><dt>Type</dt><dd>ETF</dd></div>
+                      <div class="summary-row"><dt>Support</dt><dd>supported</dd></div>
+                    </dl>
+                  </section>
+                  <section class="policy-box">
+                    <div class="row-between">
+                      <div>
+                        <h3>Quote fallback policy</h3>
+                        <p class="text-xs muted">Global market-data policy</p>
+                      </div>
+                      <span class="badge primary">EODHD EOD</span>
+                    </div>
+                    <div class="form-grid">
+                      <div class="field-row">
+                        <label for="provider-symbol">Provider symbol</label>
+                        <div id="provider-symbol" class="input-like">ETPMAG.AU</div>
+                      </div>
+                      <div class="field-row">
+                        <label>Disabled Yahoo sources</label>
+                        <div class="check-grid">
+                          <div class="check"><span class="checkbox"></span>Intraday overlay</div>
+                          <div class="check"><span class="checkbox"></span>Daily display price</div>
+                        </div>
+                      </div>
+                      <div class="field-row">
+                        <label>Applies to</label>
+                        <div class="check-grid">
+                          <div class="check"><span class="checkbox"></span>Market value</div>
+                          <div class="check"><span class="checkbox"></span>Daily change source</div>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="metric-grid">
+                      <div class="metric"><span class="text-xs muted">Close</span><div class="value num">82.44 AUD</div></div>
+                      <div class="metric"><span class="text-xs muted">Previous</span><div class="value num">79.96</div></div>
+                      <div class="metric"><span class="text-xs muted">Market date</span><div class="value num">2026-07-03</div></div>
+                    </div>
+                    <div class="callout text-sm">
+                      Latest snapshot is fresh for the latest completed AU session. Budget used today: <strong>1 of 20</strong>.
+                    </div>
+                    <div class="button-row">
+                      <button class="btn">
+                        <svg class="lucide" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12a9 9 0 0 1-9 9 9.8 9.8 0 0 1-6.7-2.6"/><path d="M3 12a9 9 0 0 1 9-9 9.8 9.8 0 0 1 6.7 2.6"/><path d="M3 21v-6h6"/><path d="M21 3v6h-6"/></svg>
+                        Refresh now
+                      </button>
+                      <button class="btn warning">Deactivate</button>
+                      <button class="btn primary">Save changes</button>
+                    </div>
+                  </section>
+                </div>
+              </aside>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <section class="screen" id="admin-settings">
+      <div class="app">
+        <aside class="sidebar">
+          <div class="brand">Vakwen</div>
+          <nav class="nav" aria-label="Admin">
+            <div class="nav-item"><span class="dot-icon"></span>Dashboard</div>
+            <div class="nav-item"><span class="dot-icon"></span>Market data</div>
+            <div class="nav-item active"><span class="dot-icon"></span>Settings</div>
+            <div class="nav-item"><span class="dot-icon"></span>Audit log</div>
+          </nav>
+        </aside>
+        <main class="main">
+          <header class="topbar">
+            <div>
+              <h1>Admin settings</h1>
+              <p class="text-sm muted">Provider keys, freshness controls, and operational budgets</p>
+            </div>
+            <button class="btn primary">Save pending changes</button>
+          </header>
+          <div class="settings-layout">
+            <nav class="settings-tabs" aria-label="Settings sections">
+              <div class="settings-tab">General</div>
+              <div class="settings-tab active">Provider API keys</div>
+              <div class="settings-tab">Ticker price freshness</div>
+              <div class="settings-tab">Provider health</div>
+              <div class="settings-tab">Route cache</div>
+            </nav>
+            <div class="settings-grid">
+              <section class="settings-card">
+                <div class="panel-header">
+                  <div>
+                    <h2>Provider API keys</h2>
+                    <p class="text-sm muted">Encrypted DB overrides with env fallback</p>
+                  </div>
+                  <span class="badge success">3 keys configured</span>
+                </div>
+                <div class="settings-card-body">
+                  <div class="provider-row">
+                    <div><strong>FinMind</strong><p class="text-xs muted">TW and US market data</p></div>
+                    <div class="secret-field">DB override configured</div>
+                    <button class="btn">Rotate</button>
+                  </div>
+                  <div class="provider-row">
+                    <div><strong>Twelve Data</strong><p class="text-xs muted">AU catalog enrichment</p></div>
+                    <div class="secret-field">Env default active</div>
+                    <button class="btn">Set key</button>
+                  </div>
+                  <div class="provider-row">
+                    <div><strong>EODHD</strong><p class="text-xs muted">EOD fallback snapshots</p></div>
+                    <div class="secret-field">DB override configured</div>
+                    <button class="btn">Rotate</button>
+                  </div>
+                </div>
+              </section>
+              <section class="settings-card">
+                <div class="panel-header">
+                  <div>
+                    <h2>EODHD fallback budget</h2>
+                    <p class="text-sm muted">Strict local guard for scheduled and manual refreshes</p>
+                  </div>
+                  <span class="badge primary">Default 20 calls/day</span>
+                </div>
+                <div class="settings-card-body">
+                  <div class="metric-grid">
+                    <div class="metric"><span class="text-xs muted">Daily call limit</span><div class="value num">20</div></div>
+                    <div class="metric"><span class="text-xs muted">Used today</span><div class="value num">1</div></div>
+                    <div class="metric"><span class="text-xs muted">Remaining</span><div class="value num">19</div></div>
+                  </div>
+                  <div class="provider-row">
+                    <div><strong>Validated markets</strong><p class="text-xs muted">Schema remains multi-market</p></div>
+                    <div class="segmented">
+                      <span class="segment active">AU</span>
+                      <span class="segment">US locked</span>
+                      <span class="segment">TW locked</span>
+                      <span class="segment">JP locked</span>
+                      <span class="segment">KR locked</span>
+                    </div>
+                    <button class="btn">Save</button>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+
+    <section class="screen" id="portfolio-view">
+      <div class="portfolio-screen">
+        <aside class="sidebar">
+          <div class="brand">Vakwen</div>
+          <nav class="nav" aria-label="Portfolio">
+            <div class="nav-item active"><span class="dot-icon"></span>Dashboard</div>
+            <div class="nav-item"><span class="dot-icon"></span>Holdings</div>
+            <div class="nav-item"><span class="dot-icon"></span>Transactions</div>
+            <div class="nav-item"><span class="dot-icon"></span>Reports</div>
+          </nav>
+        </aside>
+        <main class="main">
+          <header class="topbar">
+            <div>
+              <h1>Portfolio dashboard</h1>
+              <p class="text-sm muted">Holdings are valued in their native market currency before reporting conversion</p>
+            </div>
+            <span class="badge warning">AU market closed</span>
+          </header>
+          <div class="portfolio-content">
+            <div class="stat-grid">
+              <section class="stat"><span class="text-xs muted">Total market value</span><div class="stat-value">A$128,608.00</div></section>
+              <section class="stat"><span class="text-xs muted">Daily change</span><div class="stat-value" style="font-size: 20px; color: var(--warning);">Stale</div></section>
+              <section class="stat"><span class="text-xs muted">Fallback-priced holdings</span><div class="stat-value">1</div></section>
+              <section class="stat"><span class="text-xs muted">Held markets</span><div class="stat-value">AU</div></section>
+            </div>
+            <section class="panel">
+              <div class="panel-header">
+                <div>
+                  <h2>Holdings</h2>
+                  <p class="text-sm muted">Current valuation uses trusted source selection per instrument</p>
+                </div>
+                <span class="badge cyan">EODHD fallback visible</span>
+              </div>
+              <div class="panel-body" style="display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 18px; align-items: start;">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Holding</th>
+                      <th>Quantity</th>
+                      <th>Unit price</th>
+                      <th>Market value</th>
+                      <th>Daily change</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>
+                        <div class="holding-name">
+                          <strong>ETPMAG</strong>
+                          <span class="text-xs muted">Global X Physical Gold</span>
+                          <span class="price-chip"><span class="chip-dot"></span>EODHD EOD fallback</span>
+                        </div>
+                      </td>
+                      <td class="num">1,000</td>
+                      <td class="num">82.44 AUD</td>
+                      <td class="num">82,440.00 AUD</td>
+                      <td><span class="badge warning">stale</span></td>
+                    </tr>
+                    <tr>
+                      <td>
+                        <div class="holding-name">
+                          <strong>QAU</strong>
+                          <span class="text-xs muted">Betashares Gold Bullion ETF</span>
+                          <span class="price-chip" style="color: var(--success);"><span class="chip-dot" style="background: var(--success);"></span>Yahoo daily close</span>
+                        </div>
+                      </td>
+                      <td class="num">1,400</td>
+                      <td class="num">32.98 AUD</td>
+                      <td class="num">46,168.00 AUD</td>
+                      <td class="num" style="color: var(--success);">+420.00</td>
+                    </tr>
+                  </tbody>
+                </table>
+                <aside class="tooltip">
+                  <strong>ETPMAG price source</strong>
+                  <p class="text-sm" style="margin-top: 4px;">Yahoo intraday and Yahoo daily display price are disabled by admin policy.</p>
+                  <dl>
+                    <dt>Provider</dt><dd>EODHD EOD</dd>
+                    <dt>Provider symbol</dt><dd>ETPMAG.AU</dd>
+                    <dt>Market date</dt><dd>2026-07-03</dd>
+                    <dt>Fetched at</dt><dd>2026-07-03 07:12 UTC</dd>
+                    <dt>Close</dt><dd>82.44 AUD</dd>
+                    <dt>Daily change</dt><dd>Unavailable for current open session</dd>
+                  </dl>
+                </aside>
+              </div>
+            </section>
+          </div>
+        </main>
+      </div>
+    </section>
+  </div>
+</body>
+</html>
