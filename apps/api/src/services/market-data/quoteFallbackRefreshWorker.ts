@@ -44,6 +44,7 @@ export interface QuoteFallbackRefreshWorkerDeps {
   tradingCalendar: RunQuoteFallbackRefreshInput["tradingCalendar"];
   resolveRuntimeConfig: () => QuoteFallbackRefreshRuntimeConfig;
   log: NonNullable<RunQuoteFallbackRefreshInput["log"]>;
+  now?: () => Date;
 }
 
 export function quoteFallbackRefreshSingletonKey(ticker: string, marketCode: MarketCode): string {
@@ -92,6 +93,7 @@ export function createQuoteFallbackRefreshHandler(deps: QuoteFallbackRefreshWork
         { ticker: data.ticker, marketCode: data.marketCode, jobId: job.id, trigger: data.trigger },
         "quote_fallback_refresh_started",
       );
+      const executionNow = deps.now?.() ?? new Date();
       const result = await runQuoteFallbackRefresh({
         policies: [policy],
         persistence: createQuoteFallbackRefreshPersistenceAdapter(deps.persistence),
@@ -113,7 +115,7 @@ export function createQuoteFallbackRefreshHandler(deps: QuoteFallbackRefreshWork
           },
         },
         closeRefreshGraceMinutes: runtimeConfig.closeRefreshGraceMinutes,
-        now: parseRequestedAt(data.requestedAt),
+        now: executionNow,
         log: deps.log,
       });
       deps.log.info(
