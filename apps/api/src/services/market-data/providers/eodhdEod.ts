@@ -59,6 +59,10 @@ export class EodhdEodProvider {
     this.fetchImpl = config.fetchImpl ?? fetch;
   }
 
+  isConfigured(): boolean {
+    return Boolean(this.apiToken()?.trim());
+  }
+
   async fetchCloseSnapshot(input: {
     marketCode: MarketCode;
     providerSymbol: string;

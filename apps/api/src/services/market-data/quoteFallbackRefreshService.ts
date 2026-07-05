@@ -88,7 +88,9 @@ export interface QuoteFallbackRefreshResult {
 export interface RunQuoteFallbackRefreshInput {
   policies: ReadonlyArray<QuoteFallbackPolicy>;
   persistence: QuoteFallbackRefreshPersistence;
-  provider: Pick<EodhdEodProvider, "fetchCloseSnapshot">;
+  provider: Pick<EodhdEodProvider, "fetchCloseSnapshot"> & {
+    isConfigured?: () => boolean;
+  };
   tradingCalendar: RegularSessionClock;
   budget: QuoteFallbackRefreshBudget;
   closeRefreshGraceMinutes: number;
@@ -189,6 +191,34 @@ async function refreshPolicy(
     });
   }
 
+  const previousCloseDate = await getPreviousRegularSessionTradingDate(
+    policy.marketCode,
+    input.tradingCalendar,
+    closeDate,
+  );
+
+  try {
+    if (input.provider.isConfigured && !input.provider.isConfigured()) {
+      return await finalizePolicyRefresh(policy, input, {
+        status: "error",
+        marketDate: closeDate,
+        message: "eodhd_api_key_missing",
+        refreshedAt: null,
+        errorCode: "provider_config_missing",
+        budgetAfter: null,
+      });
+    }
+  } catch (error) {
+    return await finalizePolicyRefresh(policy, input, {
+      status: "error",
+      marketDate: closeDate,
+      message: error instanceof Error ? error.message : String(error),
+      refreshedAt: null,
+      errorCode: "provider_config_missing",
+      budgetAfter: null,
+    });
+  }
+
   const budgetDate = now.toISOString().slice(0, 10);
   const budget = await input.budget.tryConsume({ budgetDate, calls: 1 });
   if (!budget.allowed) {
@@ -201,12 +231,6 @@ async function refreshPolicy(
       budgetAfter: { limit: budget.limit, used: budget.used, remaining: budget.remaining },
     });
   }
-
-  const previousCloseDate = await getPreviousRegularSessionTradingDate(
-    policy.marketCode,
-    input.tradingCalendar,
-    closeDate,
-  );
 
   try {
     const snapshot = await input.provider.fetchCloseSnapshot({

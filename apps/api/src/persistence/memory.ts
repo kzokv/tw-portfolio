@@ -4633,6 +4633,7 @@ export class MemoryPersistence implements Persistence {
     });
     const existing = this.quoteFallbackPolicies.get(key);
     const active = input.active ?? true;
+    const providerSymbolChanged = Boolean(existing && existing.providerSymbol !== providerSymbol);
     const next: import("./types.js").QuoteFallbackPolicyRecord = {
       id: existing?.id ?? randomUUID(),
       marketCode: input.marketCode,
@@ -4645,12 +4646,19 @@ export class MemoryPersistence implements Persistence {
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
       deactivatedAt: active ? null : existing?.deactivatedAt ?? now,
-      lastRefreshStatus: existing?.lastRefreshStatus ?? null,
-      lastRefreshAt: existing?.lastRefreshAt ?? null,
-      lastRefreshError: existing?.lastRefreshError ?? null,
-      lastRefreshErrorCode: existing?.lastRefreshErrorCode ?? null,
+      lastRefreshStatus: providerSymbolChanged ? null : existing?.lastRefreshStatus ?? null,
+      lastRefreshAt: providerSymbolChanged ? null : existing?.lastRefreshAt ?? null,
+      lastRefreshError: providerSymbolChanged ? null : existing?.lastRefreshError ?? null,
+      lastRefreshErrorCode: providerSymbolChanged ? null : existing?.lastRefreshErrorCode ?? null,
     };
     this.quoteFallbackPolicies.set(key, next);
+    if (providerSymbolChanged) {
+      for (const [snapshotKey, snapshot] of this.quoteFallbackSnapshots.entries()) {
+        if (snapshot.policyId === next.id) {
+          this.quoteFallbackSnapshots.delete(snapshotKey);
+        }
+      }
+    }
     return this.quoteFallbackPolicyWithSnapshot(next);
   }
 

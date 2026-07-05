@@ -12397,6 +12397,18 @@ export class PostgresPersistence implements Persistence {
       .update(`${input.marketCode}:${ticker}:${input.provider}:${input.priceType}`)
       .digest("hex")
       .slice(0, 32)}`;
+    const existing = await this.pool.query<{ id: string; provider_symbol: string }>(
+      `SELECT id, provider_symbol
+       FROM market_data.quote_fallback_policies
+       WHERE market_code = $1
+         AND ticker = $2
+         AND provider = $3
+         AND price_type = $4`,
+      [input.marketCode, ticker, input.provider, input.priceType],
+    );
+    const providerSymbolChanged = Boolean(
+      existing.rows[0] && existing.rows[0].provider_symbol !== providerSymbol,
+    );
     const result = await this.pool.query<QuoteFallbackPolicySqlRow>(
       `INSERT INTO market_data.quote_fallback_policies (
          id, market_code, ticker, provider, price_type, provider_symbol, active, reason,
@@ -12409,6 +12421,10 @@ export class PostgresPersistence implements Persistence {
          active = EXCLUDED.active,
          reason = EXCLUDED.reason,
          deactivated_at = CASE WHEN EXCLUDED.active THEN NULL ELSE COALESCE(market_data.quote_fallback_policies.deactivated_at, NOW()) END,
+         last_refresh_status = CASE WHEN $9 THEN NULL ELSE market_data.quote_fallback_policies.last_refresh_status END,
+         last_refresh_at = CASE WHEN $9 THEN NULL ELSE market_data.quote_fallback_policies.last_refresh_at END,
+         last_refresh_error = CASE WHEN $9 THEN NULL ELSE market_data.quote_fallback_policies.last_refresh_error END,
+         last_refresh_error_code = CASE WHEN $9 THEN NULL ELSE market_data.quote_fallback_policies.last_refresh_error_code END,
          updated_at = NOW()
        RETURNING id, market_code, ticker, provider, price_type, provider_symbol,
                  active, reason, created_at, updated_at, deactivated_at,
@@ -12422,8 +12438,15 @@ export class PostgresPersistence implements Persistence {
         providerSymbol,
         active,
         input.reason ?? null,
+        providerSymbolChanged,
       ],
     );
+    if (providerSymbolChanged) {
+      await this.pool.query(
+        `DELETE FROM market_data.quote_fallback_snapshots WHERE policy_id = $1`,
+        [result.rows[0]!.id],
+      );
+    }
     const [policy] = await this.attachLatestQuoteFallbackSnapshots([
       mapQuoteFallbackPolicyRow(result.rows[0]!),
     ]);

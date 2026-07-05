@@ -212,4 +212,87 @@ describe("admin quote fallback policy routes", () => {
       "quote_fallback_policy_deactivated",
     ]));
   });
+
+  it("clears stale snapshots and refresh status when the provider symbol changes", async () => {
+    seedAuInstrument(app);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/AU/quote-fallback-policies/upsert",
+      headers: adminHeaders,
+      payload: {
+        ticker: "ETPMAG",
+        marketCode: "AU",
+        provider: "eodhd",
+        priceType: "eod_close",
+        providerSymbol: "ETPMAG.AU",
+      },
+    });
+    expect(created.statusCode).toBe(200);
+    const createdPolicy = created.json().policy as { id: string };
+
+    await app.persistence.upsertQuoteFallbackSnapshot({
+      policyId: createdPolicy.id,
+      marketCode: "AU",
+      ticker: "ETPMAG",
+      provider: "eodhd",
+      priceType: "eod_close",
+      providerSymbol: "ETPMAG.AU",
+      marketDate: "2026-07-03",
+      close: 82.44,
+      previousClose: 81.75,
+      currency: "AUD",
+      currencySource: "market_default",
+      source: "eodhd-eod",
+      fetchedAt: "2026-07-05T12:00:00.000Z",
+      providerPayloadHash: null,
+      providerMetadata: { request: { from: "2026-07-02", to: "2026-07-03" } },
+    });
+    await app.persistence.updateQuoteFallbackPolicyRefreshStatus({
+      policyId: createdPolicy.id,
+      status: "success",
+      refreshedAt: "2026-07-05T12:00:00.000Z",
+      error: null,
+      errorCode: null,
+    });
+
+    const before = await app.persistence.getQuoteFallbackPolicy("ETPMAG", "AU");
+    expect(before).toMatchObject({
+      providerSymbol: "ETPMAG.AU",
+      lastRefreshStatus: "success",
+      latestSnapshot: {
+        providerSymbol: "ETPMAG.AU",
+        close: 82.44,
+      },
+    });
+
+    const updated = await app.inject({
+      method: "POST",
+      url: "/admin/market-data/AU/quote-fallback-policies/upsert",
+      headers: adminHeaders,
+      payload: {
+        ticker: "ETPMAG",
+        marketCode: "AU",
+        provider: "eodhd",
+        priceType: "eod_close",
+        providerSymbol: "GOLD.AU",
+      },
+    });
+
+    expect(updated.statusCode).toBe(200);
+    expect(updated.json()).toMatchObject({
+      policy: {
+        id: createdPolicy.id,
+        ticker: "ETPMAG",
+        marketCode: "AU",
+        providerSymbol: "GOLD.AU",
+        lastRefreshStatus: null,
+        lastRefreshAt: null,
+        lastRefreshError: null,
+        lastRefreshErrorCode: null,
+        latestSnapshot: null,
+      },
+    });
+    await expect(app.persistence.getLatestQuoteFallbackSnapshot(createdPolicy.id)).resolves.toBeNull();
+  });
 });

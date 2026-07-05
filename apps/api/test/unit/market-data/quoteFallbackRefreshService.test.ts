@@ -29,6 +29,7 @@ function deps() {
       createMarketDataActivityEvent: vi.fn().mockResolvedValue(undefined),
     },
     provider: {
+      isConfigured: vi.fn().mockReturnValue(true),
       fetchCloseSnapshot: vi.fn().mockResolvedValue({
         marketCode: "AU",
         providerSymbol: "ETPMAG.AU",
@@ -166,6 +167,38 @@ describe("quoteFallbackRefreshService", () => {
       refreshedAt: null,
       error: "daily EODHD call budget exhausted for 2026-07-05",
       errorCode: "budget_exhausted",
+    });
+  });
+
+  it("does not consume budget when the provider is not configured", async () => {
+    const input = deps();
+    input.provider.isConfigured = vi.fn().mockReturnValue(false);
+
+    const result = await runQuoteFallbackRefresh({
+      policies: [policy()],
+      persistence: input.persistence,
+      provider: input.provider,
+      tradingCalendar: input.tradingCalendar,
+      budget: input.budget,
+      closeRefreshGraceMinutes: 10,
+      now: new Date("2026-07-05T12:00:00.000Z"),
+      log: input.log,
+    });
+
+    expect(result.items[0]).toMatchObject({
+      status: "error",
+      marketDate: "2026-07-03",
+      message: "eodhd_api_key_missing",
+      budgetAfter: null,
+    });
+    expect(input.budget.tryConsume).not.toHaveBeenCalled();
+    expect(input.provider.fetchCloseSnapshot).not.toHaveBeenCalled();
+    expect(input.persistence.updateQuoteFallbackPolicyRefreshStatus).toHaveBeenCalledWith({
+      policyId: "policy-au-etpmag",
+      status: "error",
+      refreshedAt: null,
+      error: "eodhd_api_key_missing",
+      errorCode: "provider_config_missing",
     });
   });
 

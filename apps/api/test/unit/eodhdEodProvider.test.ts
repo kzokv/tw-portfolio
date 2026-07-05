@@ -14,6 +14,12 @@ function okJson(body: unknown) {
 }
 
 describe("EodhdEodProvider", () => {
+  it("reports whether an API key is configured", () => {
+    expect(new EodhdEodProvider({ apiToken: () => "secret" }).isConfigured()).toBe(true);
+    expect(new EodhdEodProvider({ apiToken: () => "   " }).isConfigured()).toBe(false);
+    expect(new EodhdEodProvider({ apiToken: () => undefined }).isConfigured()).toBe(false);
+  });
+
   it("calls the official EODHD /api/eod endpoint with short-range date params", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(okJson([]));
     const provider = new EodhdEodProvider({
