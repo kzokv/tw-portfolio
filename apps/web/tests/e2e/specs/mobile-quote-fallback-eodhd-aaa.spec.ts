@@ -1,6 +1,6 @@
 import type { Locator, Page } from "@playwright/test";
 import type { DashboardOverviewDto, PriceStateDto } from "@vakwen/shared-types";
-import { appPagesTest as test } from "@vakwen/test-e2e/fixtures";
+import { test } from "@vakwen/test-e2e/fixtures/appPages";
 import { seedAccountForUser } from "./helpers/sharing.js";
 
 const MD_BREAKPOINT_PX = 768;
