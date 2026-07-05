@@ -29,6 +29,7 @@ export function fakePersistenceWithAppConfig(
     metadataEnrichmentMode: null,
     finmindApiTokenEncrypted: null,
     twelveDataApiKeyEncrypted: null,
+    eodhdApiKeyEncrypted: null,
     mcpOauthTokenSecretEncrypted: null,
     marketDataPriceWindowMs: null,
     marketDataPriceLimit: null,
@@ -108,6 +109,7 @@ export function fakePersistenceWithAppConfig(
     routeCachePortfolioTtlMs: null,
     routeCacheReportsTtlMs: null,
     routeCacheStaleUsableTtlMs: null,
+    eodhdDailyCallLimit: null,
     updatedAt: new Date().toISOString(),
     ...override,
   };

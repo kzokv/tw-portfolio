@@ -607,9 +607,13 @@ export class MemoryPersistence implements Persistence {
    *  null = unset, callers (resolvers) fall back to env. */
   private _finmindApiTokenEncrypted: string | null = null;
   private _twelveDataApiKeyEncrypted: string | null = null;
+  private _eodhdApiKeyEncrypted: string | null = null;
   private _mcpOauthTokenSecretEncrypted: string | null = null;
   /** KZO-198: Tier 1/2 plain overrides — keyed by AppConfigPlainField. */
   private _appConfigPlain: Partial<Record<import("./types.js").AppConfigPlainField, import("./types.js").AppConfigPlainValue>> = {};
+  private readonly quoteFallbackPolicies = new Map<string, import("./types.js").QuoteFallbackPolicyRecord>();
+  private readonly quoteFallbackSnapshots = new Map<string, import("./types.js").QuoteFallbackSnapshotRecord>();
+  private readonly eodhdCallBudgetUsage = new Map<string, number>();
   /** KZO-196: AU GICS sync cron override. null = use Env.ASX_GICS_REFRESH_CRON. */
   private _asxGicsRefreshCron: string | null = null;
   /** KZO-199: Tier 2 SQL-only override for anonymous-share retention window.
@@ -4536,6 +4540,232 @@ export class MemoryPersistence implements Persistence {
     }
   }
 
+  private quoteFallbackPolicyKey(input: {
+    marketCode: MarketCode;
+    ticker: string;
+    provider: import("./types.js").QuoteFallbackProvider;
+    priceType: import("./types.js").QuoteFallbackPriceType;
+  }): string {
+    return `${input.marketCode}:${input.ticker.trim().toUpperCase()}:${input.provider}:${input.priceType}`;
+  }
+
+  private cloneQuoteFallbackPolicy(
+    policy: import("./types.js").QuoteFallbackPolicyRecord,
+  ): import("./types.js").QuoteFallbackPolicyRecord {
+    return { ...policy };
+  }
+
+  private cloneQuoteFallbackSnapshot(
+    snapshot: import("./types.js").QuoteFallbackSnapshotRecord,
+  ): import("./types.js").QuoteFallbackSnapshotRecord {
+    return {
+      ...snapshot,
+      providerMetadata: { ...snapshot.providerMetadata },
+    };
+  }
+
+  private latestQuoteFallbackSnapshotForPolicy(policyId: string): import("./types.js").QuoteFallbackSnapshotRecord | null {
+    let latest: import("./types.js").QuoteFallbackSnapshotRecord | null = null;
+    for (const snapshot of this.quoteFallbackSnapshots.values()) {
+      if (snapshot.policyId !== policyId) continue;
+      if (
+        latest === null
+        || snapshot.marketDate > latest.marketDate
+        || (snapshot.marketDate === latest.marketDate && snapshot.fetchedAt > latest.fetchedAt)
+      ) {
+        latest = snapshot;
+      }
+    }
+    return latest ? this.cloneQuoteFallbackSnapshot(latest) : null;
+  }
+
+  private quoteFallbackPolicyWithSnapshot(
+    policy: import("./types.js").QuoteFallbackPolicyRecord,
+  ): import("./types.js").QuoteFallbackPolicyWithSnapshotRecord {
+    return {
+      ...this.cloneQuoteFallbackPolicy(policy),
+      latestSnapshot: this.latestQuoteFallbackSnapshotForPolicy(policy.id),
+    };
+  }
+
+  async getQuoteFallbackPolicy(
+    ticker: string,
+    marketCode: MarketCode,
+  ): Promise<import("./types.js").QuoteFallbackPolicyWithSnapshotRecord | null> {
+    const normalizedTicker = ticker.trim().toUpperCase();
+    const matches = [...this.quoteFallbackPolicies.values()]
+      .filter((policy) => policy.ticker === normalizedTicker && policy.marketCode === marketCode)
+      .sort((left, right) => Number(right.active) - Number(left.active) || right.updatedAt.localeCompare(left.updatedAt));
+    return matches[0] ? this.quoteFallbackPolicyWithSnapshot(matches[0]) : null;
+  }
+
+  async listQuoteFallbackPoliciesForTickerMarkets(
+    pairs: ReadonlyArray<{ ticker: string; marketCode: MarketCode }>,
+  ): Promise<import("./types.js").QuoteFallbackPolicyWithSnapshotRecord[]> {
+    if (pairs.length === 0) return [];
+    const requested = new Set(pairs.map((pair) => `${pair.marketCode}:${pair.ticker.trim().toUpperCase()}`));
+    return [...this.quoteFallbackPolicies.values()]
+      .filter((policy) => requested.has(`${policy.marketCode}:${policy.ticker}`))
+      .sort((left, right) => left.marketCode.localeCompare(right.marketCode) || left.ticker.localeCompare(right.ticker))
+      .map((policy) => this.quoteFallbackPolicyWithSnapshot(policy));
+  }
+
+  async listActiveQuoteFallbackPolicies(
+    marketCode?: MarketCode,
+  ): Promise<import("./types.js").QuoteFallbackPolicyRecord[]> {
+    return [...this.quoteFallbackPolicies.values()]
+      .filter((policy) => policy.active && (!marketCode || policy.marketCode === marketCode))
+      .sort((left, right) => left.marketCode.localeCompare(right.marketCode) || left.ticker.localeCompare(right.ticker))
+      .map((policy) => this.cloneQuoteFallbackPolicy(policy));
+  }
+
+  async upsertQuoteFallbackPolicy(
+    input: import("./types.js").UpsertQuoteFallbackPolicyInput,
+  ): Promise<import("./types.js").QuoteFallbackPolicyWithSnapshotRecord> {
+    const now = new Date().toISOString();
+    const ticker = input.ticker.trim().toUpperCase();
+    const providerSymbol = input.providerSymbol.trim().toUpperCase();
+    const key = this.quoteFallbackPolicyKey({
+      marketCode: input.marketCode,
+      ticker,
+      provider: input.provider,
+      priceType: input.priceType,
+    });
+    const existing = this.quoteFallbackPolicies.get(key);
+    const active = input.active ?? true;
+    const next: import("./types.js").QuoteFallbackPolicyRecord = {
+      id: existing?.id ?? randomUUID(),
+      marketCode: input.marketCode,
+      ticker,
+      provider: input.provider,
+      priceType: input.priceType,
+      providerSymbol,
+      active,
+      reason: input.reason ?? null,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      deactivatedAt: active ? null : existing?.deactivatedAt ?? now,
+      lastRefreshStatus: existing?.lastRefreshStatus ?? null,
+      lastRefreshAt: existing?.lastRefreshAt ?? null,
+      lastRefreshError: existing?.lastRefreshError ?? null,
+      lastRefreshErrorCode: existing?.lastRefreshErrorCode ?? null,
+    };
+    this.quoteFallbackPolicies.set(key, next);
+    return this.quoteFallbackPolicyWithSnapshot(next);
+  }
+
+  async deactivateQuoteFallbackPolicy(input: {
+    ticker: string;
+    marketCode: MarketCode;
+  }): Promise<import("./types.js").QuoteFallbackPolicyWithSnapshotRecord | null> {
+    const existing = await this.getQuoteFallbackPolicy(input.ticker, input.marketCode);
+    if (!existing) return null;
+    const key = this.quoteFallbackPolicyKey(existing);
+    const now = new Date().toISOString();
+    const next: import("./types.js").QuoteFallbackPolicyRecord = {
+      ...existing,
+      active: false,
+      updatedAt: now,
+      deactivatedAt: existing.deactivatedAt ?? now,
+    };
+    this.quoteFallbackPolicies.set(key, next);
+    return this.quoteFallbackPolicyWithSnapshot(next);
+  }
+
+  async getLatestQuoteFallbackSnapshot(policyId: string): Promise<import("./types.js").QuoteFallbackSnapshotRecord | null> {
+    return this.latestQuoteFallbackSnapshotForPolicy(policyId);
+  }
+
+  async upsertQuoteFallbackSnapshot(
+    input: import("./types.js").UpsertQuoteFallbackSnapshotInput,
+  ): Promise<import("./types.js").QuoteFallbackSnapshotRecord> {
+    const key = `${input.policyId}:${input.marketDate}`;
+    const existing = this.quoteFallbackSnapshots.get(key);
+    const snapshot: import("./types.js").QuoteFallbackSnapshotRecord = {
+      id: existing?.id ?? randomUUID(),
+      policyId: input.policyId,
+      marketCode: input.marketCode,
+      ticker: input.ticker.trim().toUpperCase(),
+      provider: input.provider,
+      priceType: input.priceType,
+      providerSymbol: input.providerSymbol.trim().toUpperCase(),
+      marketDate: input.marketDate,
+      close: input.close,
+      previousClose: input.previousClose,
+      currency: input.currency,
+      currencySource: input.currencySource,
+      source: input.source,
+      fetchedAt: input.fetchedAt,
+      providerPayloadHash: input.providerPayloadHash ?? null,
+      providerMetadata: { ...(input.providerMetadata ?? {}) },
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
+    };
+    this.quoteFallbackSnapshots.set(key, snapshot);
+    return this.cloneQuoteFallbackSnapshot(snapshot);
+  }
+
+  async updateQuoteFallbackPolicyRefreshStatus(input: {
+    policyId: string;
+    status: import("./types.js").QuoteFallbackRefreshStatus;
+    refreshedAt: string | null;
+    error?: string | null;
+    errorCode?: string | null;
+  }): Promise<import("./types.js").QuoteFallbackPolicyRecord | null> {
+    for (const [key, policy] of this.quoteFallbackPolicies.entries()) {
+      if (policy.id !== input.policyId) continue;
+      const next: import("./types.js").QuoteFallbackPolicyRecord = {
+        ...policy,
+        updatedAt: new Date().toISOString(),
+        lastRefreshStatus: input.status,
+        lastRefreshAt: input.refreshedAt ?? policy.lastRefreshAt,
+        lastRefreshError: input.error ?? null,
+        lastRefreshErrorCode: input.errorCode ?? null,
+      };
+      this.quoteFallbackPolicies.set(key, next);
+      return this.cloneQuoteFallbackPolicy(next);
+    }
+    return null;
+  }
+
+  async consumeEodhdCallBudget(input: {
+    budgetDate: string;
+    limit: number;
+    calls?: number;
+  }): Promise<import("./types.js").EodhdCallBudgetStatus & { allowed: boolean }> {
+    const calls = input.calls ?? 1;
+    const used = this.eodhdCallBudgetUsage.get(input.budgetDate) ?? 0;
+    const limit = Math.max(0, Math.floor(input.limit));
+    if (calls <= 0) {
+      return { budgetDate: input.budgetDate, limit, used, remaining: Math.max(0, limit - used), allowed: true };
+    }
+    if (used + calls > limit) {
+      return { budgetDate: input.budgetDate, limit, used, remaining: Math.max(0, limit - used), allowed: false };
+    }
+    const nextUsed = used + calls;
+    this.eodhdCallBudgetUsage.set(input.budgetDate, nextUsed);
+    return {
+      budgetDate: input.budgetDate,
+      limit,
+      used: nextUsed,
+      remaining: Math.max(0, limit - nextUsed),
+      allowed: true,
+    };
+  }
+
+  async getEodhdCallBudgetStatus(input: {
+    budgetDate: string;
+    limit: number;
+  }): Promise<import("./types.js").EodhdCallBudgetStatus> {
+    const used = this.eodhdCallBudgetUsage.get(input.budgetDate) ?? 0;
+    const limit = Math.max(0, Math.floor(input.limit));
+    return {
+      budgetDate: input.budgetDate,
+      limit,
+      used,
+      remaining: Math.max(0, limit - used),
+    };
+  }
+
   // --- App Config (KZO-133) ---
 
   async getRepairCooldownMinutes(): Promise<number | null> {
@@ -4548,6 +4778,7 @@ export class MemoryPersistence implements Persistence {
     metadataEnrichmentMode: "unconditional" | "conditional" | null;
     finmindApiTokenEncrypted: string | null;
     twelveDataApiKeyEncrypted: string | null;
+    eodhdApiKeyEncrypted: string | null;
     mcpOauthTokenSecretEncrypted: string | null;
     marketDataPriceWindowMs: number | null;
     marketDataPriceLimit: number | null;
@@ -4638,6 +4869,7 @@ export class MemoryPersistence implements Persistence {
     routeCachePortfolioTtlMs: number | null;
     routeCacheReportsTtlMs: number | null;
     routeCacheStaleUsableTtlMs: number | null;
+    eodhdDailyCallLimit: number | null;
     updatedAt: string;
   }> {
     const p = this._appConfigPlain;
@@ -4675,6 +4907,7 @@ export class MemoryPersistence implements Persistence {
       metadataEnrichmentMode: this._metadataEnrichmentMode,
       finmindApiTokenEncrypted: this._finmindApiTokenEncrypted,
       twelveDataApiKeyEncrypted: this._twelveDataApiKeyEncrypted,
+      eodhdApiKeyEncrypted: this._eodhdApiKeyEncrypted,
       mcpOauthTokenSecretEncrypted: this._mcpOauthTokenSecretEncrypted,
       marketDataPriceWindowMs: numberOrNull(p.marketDataPriceWindowMs),
       marketDataPriceLimit: numberOrNull(p.marketDataPriceLimit),
@@ -4773,6 +5006,7 @@ export class MemoryPersistence implements Persistence {
       routeCachePortfolioTtlMs: numberOrNull(p.routeCachePortfolioTtlMs),
       routeCacheReportsTtlMs: numberOrNull(p.routeCacheReportsTtlMs),
       routeCacheStaleUsableTtlMs: numberOrNull(p.routeCacheStaleUsableTtlMs),
+      eodhdDailyCallLimit: numberOrNull(p.eodhdDailyCallLimit),
       updatedAt: this._appConfigUpdatedAt,
     };
   }
@@ -4792,7 +5026,7 @@ export class MemoryPersistence implements Persistence {
   }
 
   async setAppConfigEncryptedSecret(
-    field: "finmindApiToken" | "twelveDataApiKey" | "mcpOauthTokenSecret",
+    field: "finmindApiToken" | "twelveDataApiKey" | "eodhdApiKey" | "mcpOauthTokenSecret",
     plaintext: string | null,
   ): Promise<void> {
     const { encryptSecret } = await import("../services/appConfig/encryption.js");
@@ -4801,6 +5035,8 @@ export class MemoryPersistence implements Persistence {
       this._finmindApiTokenEncrypted = stored;
     } else if (field === "twelveDataApiKey") {
       this._twelveDataApiKeyEncrypted = stored;
+    } else if (field === "eodhdApiKey") {
+      this._eodhdApiKeyEncrypted = stored;
     } else {
       this._mcpOauthTokenSecretEncrypted = stored;
       this.aiConnectorPolicySettings = {
@@ -4833,6 +5069,7 @@ export class MemoryPersistence implements Persistence {
     if (
       Object.prototype.hasOwnProperty.call(patch, "finmindApiToken") ||
       Object.prototype.hasOwnProperty.call(patch, "twelveDataApiKey") ||
+      Object.prototype.hasOwnProperty.call(patch, "eodhdApiKey") ||
       Object.prototype.hasOwnProperty.call(patch, "mcpOauthTokenSecret")
     ) {
       const { encryptSecret } = await import("../services/appConfig/encryption.js");
@@ -4844,6 +5081,11 @@ export class MemoryPersistence implements Persistence {
       if (Object.prototype.hasOwnProperty.call(patch, "twelveDataApiKey")) {
         this._twelveDataApiKeyEncrypted =
           patch.twelveDataApiKey == null ? null : encryptSecret(patch.twelveDataApiKey);
+        touched = true;
+      }
+      if (Object.prototype.hasOwnProperty.call(patch, "eodhdApiKey")) {
+        this._eodhdApiKeyEncrypted =
+          patch.eodhdApiKey == null ? null : encryptSecret(patch.eodhdApiKey);
         touched = true;
       }
       if (Object.prototype.hasOwnProperty.call(patch, "mcpOauthTokenSecret")) {

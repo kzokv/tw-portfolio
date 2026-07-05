@@ -144,7 +144,8 @@ export type AppConfigPlainField =
   | "routeCacheDashboardPerformanceTtlMs"
   | "routeCachePortfolioTtlMs"
   | "routeCacheReportsTtlMs"
-  | "routeCacheStaleUsableTtlMs";
+  | "routeCacheStaleUsableTtlMs"
+  | "eodhdDailyCallLimit";
 
 export type AppConfigPlainValue =
   | number
@@ -167,6 +168,7 @@ export type AppConfigPlainValue =
 export type AppConfigPatch = Partial<Record<AppConfigPlainField, AppConfigPlainValue>> & {
   finmindApiToken?: string | null;
   twelveDataApiKey?: string | null;
+  eodhdApiKey?: string | null;
   mcpOauthTokenSecret?: string | null;
 };
 
@@ -266,6 +268,7 @@ export const APP_CONFIG_PLAIN_COLUMNS: Record<AppConfigPlainField, string> = {
   routeCachePortfolioTtlMs: "route_cache_portfolio_ttl_ms",
   routeCacheReportsTtlMs: "route_cache_reports_ttl_ms",
   routeCacheStaleUsableTtlMs: "route_cache_stale_usable_ttl_ms",
+  eodhdDailyCallLimit: "eodhd_daily_call_limit",
 };
 
 export type RouteCachePolicyMode = "fresh" | "balanced" | "low_load" | "custom";
@@ -378,6 +381,10 @@ export type AuditLogAction =
   | "market_calendar_confirmed"
   | "market_calendar_invalidated"
   | "market_calendar_source_updated"
+  | "quote_fallback_policy_created"
+  | "quote_fallback_policy_updated"
+  | "quote_fallback_policy_deactivated"
+  | "quote_fallback_manual_refresh_requested"
   // ui-enhancement — account lifecycle audit actions.
   | "account_soft_deleted"
   | "account_restored"
@@ -2297,6 +2304,88 @@ export interface AdminAuditLogListOptions {
   toDate?: string;
 }
 
+export type QuoteFallbackProvider = "eodhd";
+export type QuoteFallbackPriceType = "eod_close";
+export type QuoteFallbackRefreshStatus = "success" | "warning" | "error" | "skipped" | "rate_limited";
+export type QuoteFallbackCurrencySource = "provider" | "market_default";
+
+export interface QuoteFallbackPolicyRecord {
+  id: string;
+  marketCode: MarketCode;
+  ticker: string;
+  provider: QuoteFallbackProvider;
+  priceType: QuoteFallbackPriceType;
+  providerSymbol: string;
+  active: boolean;
+  reason: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deactivatedAt: string | null;
+  lastRefreshStatus: QuoteFallbackRefreshStatus | null;
+  lastRefreshAt: string | null;
+  lastRefreshError: string | null;
+  lastRefreshErrorCode: string | null;
+}
+
+export interface QuoteFallbackSnapshotRecord {
+  id: string;
+  policyId: string;
+  marketCode: MarketCode;
+  ticker: string;
+  provider: QuoteFallbackProvider;
+  priceType: QuoteFallbackPriceType;
+  providerSymbol: string;
+  marketDate: string;
+  close: number;
+  previousClose: number | null;
+  currency: string;
+  currencySource: QuoteFallbackCurrencySource;
+  source: string;
+  fetchedAt: string;
+  providerPayloadHash: string | null;
+  providerMetadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface QuoteFallbackPolicyWithSnapshotRecord extends QuoteFallbackPolicyRecord {
+  latestSnapshot: QuoteFallbackSnapshotRecord | null;
+}
+
+export interface UpsertQuoteFallbackPolicyInput {
+  marketCode: MarketCode;
+  ticker: string;
+  provider: QuoteFallbackProvider;
+  priceType: QuoteFallbackPriceType;
+  providerSymbol: string;
+  active?: boolean;
+  reason?: string | null;
+}
+
+export interface UpsertQuoteFallbackSnapshotInput {
+  policyId: string;
+  marketCode: MarketCode;
+  ticker: string;
+  provider: QuoteFallbackProvider;
+  priceType: QuoteFallbackPriceType;
+  providerSymbol: string;
+  marketDate: string;
+  close: number;
+  previousClose: number | null;
+  currency: string;
+  currencySource: QuoteFallbackCurrencySource;
+  source: string;
+  fetchedAt: string;
+  providerPayloadHash?: string | null;
+  providerMetadata?: Record<string, unknown>;
+}
+
+export interface EodhdCallBudgetStatus {
+  budgetDate: string;
+  limit: number;
+  used: number;
+  remaining: number;
+}
+
 export interface Persistence {
   init(): Promise<void>;
   close(): Promise<void>;
@@ -2696,6 +2785,43 @@ export interface Persistence {
   ): Promise<void>;
   updateLastRepairAt(ticker: string): Promise<void>;
 
+  // Quote fallback policies — global market-data configuration used by
+  // displayed valuation only. Normal historical bars/reports stay unchanged.
+  getQuoteFallbackPolicy(
+    ticker: string,
+    marketCode: MarketCode,
+  ): Promise<QuoteFallbackPolicyWithSnapshotRecord | null>;
+  listQuoteFallbackPoliciesForTickerMarkets(
+    pairs: ReadonlyArray<{ ticker: string; marketCode: MarketCode }>,
+  ): Promise<QuoteFallbackPolicyWithSnapshotRecord[]>;
+  listActiveQuoteFallbackPolicies(
+    marketCode?: MarketCode,
+  ): Promise<QuoteFallbackPolicyRecord[]>;
+  upsertQuoteFallbackPolicy(
+    input: UpsertQuoteFallbackPolicyInput,
+  ): Promise<QuoteFallbackPolicyWithSnapshotRecord>;
+  deactivateQuoteFallbackPolicy(
+    input: { ticker: string; marketCode: MarketCode },
+  ): Promise<QuoteFallbackPolicyWithSnapshotRecord | null>;
+  getLatestQuoteFallbackSnapshot(policyId: string): Promise<QuoteFallbackSnapshotRecord | null>;
+  upsertQuoteFallbackSnapshot(input: UpsertQuoteFallbackSnapshotInput): Promise<QuoteFallbackSnapshotRecord>;
+  updateQuoteFallbackPolicyRefreshStatus(input: {
+    policyId: string;
+    status: QuoteFallbackRefreshStatus;
+    refreshedAt: string | null;
+    error?: string | null;
+    errorCode?: string | null;
+  }): Promise<QuoteFallbackPolicyRecord | null>;
+  consumeEodhdCallBudget(input: {
+    budgetDate: string;
+    limit: number;
+    calls?: number;
+  }): Promise<EodhdCallBudgetStatus & { allowed: boolean }>;
+  getEodhdCallBudgetStatus(input: {
+    budgetDate: string;
+    limit: number;
+  }): Promise<EodhdCallBudgetStatus>;
+
   // App config (KZO-133) — global settings. Returns null when unset (callers
   // fall back to Env defaults via getEffectiveRepairCooldownMinutes()).
   getRepairCooldownMinutes(): Promise<number | null>;
@@ -2712,6 +2838,7 @@ export interface Persistence {
     metadataEnrichmentMode: "unconditional" | "conditional" | null;
     finmindApiTokenEncrypted: string | null;
     twelveDataApiKeyEncrypted: string | null;
+    eodhdApiKeyEncrypted: string | null;
     mcpOauthTokenSecretEncrypted: string | null;
     marketDataPriceWindowMs: number | null;
     marketDataPriceLimit: number | null;
@@ -2808,6 +2935,7 @@ export interface Persistence {
     routeCachePortfolioTtlMs: number | null;
     routeCacheReportsTtlMs: number | null;
     routeCacheStaleUsableTtlMs: number | null;
+    eodhdDailyCallLimit: number | null;
     updatedAt: string;
   }>;
 
@@ -2849,7 +2977,7 @@ export interface Persistence {
   // never lives outside the persistence boundary. `null` clears the column.
   // Stamps `updated_at`.
   setAppConfigEncryptedSecret(
-    field: "finmindApiToken" | "twelveDataApiKey" | "mcpOauthTokenSecret",
+    field: "finmindApiToken" | "twelveDataApiKey" | "eodhdApiKey" | "mcpOauthTokenSecret",
     plaintext: string | null,
   ): Promise<void>;
 

@@ -55,6 +55,7 @@ For full variable documentation, see [Environment Variables](./environment-varia
 - `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX_MUTATIONS` — mutation rate limiting
 - When `AUTH_MODE=oauth`: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET` required
 - When `DEMO_MODE_ENABLED=true`: enables demo sign-in and demo user creation
+- Optional EODHD quote fallback: set `EODHD_API_KEY` in env or rotate it from Admin -> Settings -> Provider Keys; `EODHD_DAILY_CALL_LIMIT` defaults to 20.
 
 ### Notes
 
@@ -2096,6 +2097,57 @@ The catalog-sync cron (`30 17 * * 1-5`, post-AU-close) calls `TwelveDataAuCatalo
 
 **Commercial-use note:** Twelve Data Basic ToS §2.3(l) prohibits commercial use; commercialization swaps to EODHD commercial ($399/mo) per the KZO-171 spike. Yahoo retirement is also deferred to that swap — TD's free tier does not cover bars/dividends/quotes (Pro tier $229/mo+).
 
+### AU quote fallback (EODHD EOD)
+
+The EODHD fallback is for per-ticker display/valuation close repair when Yahoo is known to be delayed or wrong for a held AU instrument. It does not replace AU daily bars, dividends, metadata, search, reports, or the Twelve Data catalog.
+
+Configuration:
+- Rotate **EODHD API key** from `/admin/settings?tab=provider-keys`, or set `EODHD_API_KEY` as env fallback.
+- Set **EODHD daily call limit** from the same settings tab; NULL falls back to `EODHD_DAILY_CALL_LIMIT` (default 20, bounds 1-1000).
+- Create a policy from `/admin/market-data/AU/instruments` by opening an instrument drawer, setting the provider symbol, and saving the quote fallback policy. AU defaults to `<ticker>.AU`, for example `ETPMAG.AU`.
+
+Runtime behavior:
+- Normal dashboard, portfolio, report, and ticker reads never call EODHD. They only read cached snapshots.
+- The quote-fallback worker scans active policies and refreshes after the market is closed according to existing trading-calendar/session helpers.
+- Manual refresh enqueues the same worker path and writes an audit row with `quote_fallback_manual_refresh_requested`.
+- If the strict local budget is exhausted, refreshes are blocked locally and the policy records `rate_limited`; no outbound call is attempted.
+- While a policy is active, Yahoo intraday and Yahoo daily display prices are suppressed for that ticker. The cached EODHD `close` is used as the trusted current valuation close.
+- If fallback daily change is stale or unavailable, portfolio aggregate daily change is marked stale/unavailable instead of being partially computed.
+
+Operational checks:
+
+```sql
+-- Active fallback policies
+SELECT market_code, ticker, provider_symbol, active, last_refresh_status, last_refresh_at, last_refresh_error
+FROM market_data.quote_fallback_policies
+WHERE active = TRUE
+ORDER BY market_code, ticker;
+
+-- Latest cached fallback close
+SELECT p.market_code, p.ticker, s.market_date, s.close, s.previous_close, s.currency, s.fetched_at
+FROM market_data.quote_fallback_policies p
+LEFT JOIN LATERAL (
+  SELECT *
+  FROM market_data.quote_fallback_snapshots s
+  WHERE s.policy_id = p.id
+  ORDER BY s.market_date DESC
+  LIMIT 1
+) s ON TRUE
+WHERE p.active = TRUE
+ORDER BY p.market_code, p.ticker;
+
+-- Daily EODHD budget usage
+SELECT budget_date, call_count, updated_at
+FROM market_data.eodhd_call_budget_usage
+ORDER BY budget_date DESC
+LIMIT 10;
+```
+
+Rollback:
+- Deactivate the affected policy from the instrument drawer to restore normal Yahoo display-price selection.
+- To disable EODHD globally without deleting policy rows, clear the encrypted key and unset `EODHD_API_KEY`; refreshes will fail safely while reads continue to use existing cache only when a policy remains active.
+- Migration rollback is additive-table cleanup only: drop `market_data.quote_fallback_snapshots`, `market_data.quote_fallback_policies`, `market_data.eodhd_call_budget_usage`, and the `app_config` EODHD columns after deactivating policies.
+
 ### History start
 
 AU bar history starts from `1988-01-28` (BHP.AX `meta.firstTradeDate`). Trade dates predating this are truncated with a `pre_provider_history_truncated` log entry; the trade itself is accepted and persisted normally.
@@ -2379,6 +2431,8 @@ This prints a 64-character lowercase hex string. Add it to the deployment enviro
 
 No CHECK constraints were added (SQL escape hatch preserved). All columns are nullable — backward compatible with old API images.
 
+`101_quote_fallback_eodhd.sql` extends the same pattern with `eodhd_api_key` (Tier 0 encrypted secret) and `eodhd_daily_call_limit` (Tier 1 admin-editable budget, defaulting to `EODHD_DAILY_CALL_LIMIT`).
+
 ### Admin UI — Tier 1 knobs
 
 Navigate to **`/admin` → Settings** to adjust the following levers. Changes take effect on the next resolver read (≤ 8 s TTL cache propagation).
@@ -2413,11 +2467,17 @@ As of KZO-199, the Settings page is organised into **five tabs** (`?tab=<slug>` 
 - Absence guard floor (minimum removable count regardless of percent)
 - Metadata enrichment mode (`unconditional` or `conditional`)
 
+**Tab: Provider Keys** (`?tab=provider-keys`)
+- FinMind API token
+- Twelve Data API key
+- EODHD API key
+- EODHD daily call limit
+
 Each field has a "Reset to default (NULL)" button that clears the DB override and causes the resolver to fall back to the env var default.
 
 ### Tier 0 key rotation procedure
 
-Rotating a FinMind or Twelve Data API key:
+Rotating a FinMind, Twelve Data, or EODHD API key:
 
 1. Navigate to **`/admin` → Settings → Provider Keys**.
 2. Click **Rotate** on the relevant key field.
@@ -2426,7 +2486,7 @@ Rotating a FinMind or Twelve Data API key:
 5. Click **Save**. The API validates length, encrypts with AES-256-GCM using `APP_CONFIG_ENCRYPTION_KEY`, and writes the `nonce:ciphertext+tag` to the DB column.
 6. The cache is invalidated immediately; all provider fetches within 8 s will re-read and decrypt the new value.
 
-**Audit trail:** the audit log records `metadata: { type: "rotation", field: "finmind_api_token" | "twelve_data_api_key", actorUserId }`. The plaintext value is **never** stored in the audit log.
+**Audit trail:** the audit log records `metadata: { type: "rotation", field: "finmind_api_token" | "twelve_data_api_key" | "eodhd_api_key", actorUserId }`. The plaintext value is **never** stored in the audit log.
 
 To clear a key (force env-fallback): click **Rotate** → leave the input blank → click **Clear** (submits `null`, which sets the column to NULL and forces env-fallback on the next read).
 
@@ -2488,7 +2548,7 @@ app_config_decrypt_failed  { field: "finmind_api_token", reason: "tag_mismatch" 
 
 This means the `APP_CONFIG_ENCRYPTION_KEY` in the current deployment does not match the key used to encrypt the stored ciphertext.
 
-**Behavior during failure:** the resolver falls back to `Env.FINMIND_API_TOKEN` (or `Env.TWELVE_DATA_API_KEY`) transparently. Provider fetches continue using the env var value. No panic, no outage.
+**Behavior during failure:** the resolver falls back to `Env.FINMIND_API_TOKEN`, `Env.TWELVE_DATA_API_KEY`, or `Env.EODHD_API_KEY` transparently. Provider fetches continue using the env var value. No panic, no outage.
 
 **Recovery options:**
 

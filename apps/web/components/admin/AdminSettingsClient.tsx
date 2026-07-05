@@ -270,6 +270,12 @@ const ADMIN_SETTINGS_ZH: Record<string, string> = {
   "Bearer token used by the TWSE/FinMind data provider.": "TWSE/FinMind 資料提供者使用的 Bearer 權杖。",
   "Twelve Data API key": "Twelve Data API 金鑰",
   "API key used by the AU catalog (Twelve Data) provider.": "澳洲目錄（Twelve Data）資料提供者使用的 API 金鑰。",
+  "EODHD API key": "EODHD API 金鑰",
+  "API key used by the EODHD end-of-day fallback provider.": "EODHD 收盤備援提供者使用的 API 金鑰。",
+  "EODHD fallback budget": "EODHD 備援配額",
+  "Strict local guard for scheduled and manual fallback refreshes.": "排程與手動備援刷新的本地嚴格防護。",
+  "EODHD daily call limit": "EODHD 每日呼叫上限",
+  "Maximum EODHD calls the app may spend per day before refreshes are blocked locally.": "應用程式每天可使用的 EODHD 最大呼叫數；超過後會在本地封鎖刷新。",
   "Last updated": "最後更新",
   "· Change will be recorded in the audit log": "· 變更將記錄到稽核記錄",
 };
@@ -3107,6 +3113,35 @@ export function AdminSettingsClient({ initial }: AdminSettingsClientProps) {
                 secretLengthBounds={config.secretLengthBounds}
                 onRotate={(plaintext) => patchAppConfigField("twelveDataApiKey", plaintext)}
                 onClear={() => patchAppConfigField("twelveDataApiKey", null)}
+              />
+              <MaskedSecretInput
+                fieldKey="eodhd-api-key"
+                label={t("EODHD API key")}
+                description={t("API key used by the EODHD end-of-day fallback provider.")}
+                isSet={config.eodhdApiKeySet ?? false}
+                secretLengthBounds={config.secretLengthBounds}
+                onRotate={(plaintext) => patchAppConfigField("eodhdApiKey", plaintext)}
+                onClear={() => patchAppConfigField("eodhdApiKey", null)}
+              />
+            </div>
+          </Card>
+          <Card data-testid="admin-settings-eodhd-budget-section">
+            <div className="space-y-5">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">{t("EODHD fallback budget")}</h2>
+                <p className="mt-1 text-sm text-slate-600">
+                  {t("Strict local guard for scheduled and manual fallback refreshes.")}
+                </p>
+              </div>
+              <NumericOverrideRow
+                fieldKey="eodhdDailyCallLimit"
+                label={t("EODHD daily call limit")}
+                description={t("Maximum EODHD calls the app may spend per day before refreshes are blocked locally.")}
+                override={config.eodhdDailyCallLimit ?? null}
+                effective={config.effectiveEodhdDailyCallLimit ?? 20}
+                bounds={config.bounds.eodhdDailyCallLimit ?? { min: 1, max: 1_000 }}
+                inputTestId="admin-settings-input-eodhdDailyCallLimit"
+                onSave={(v) => patchAppConfigField("eodhdDailyCallLimit", v)}
               />
             </div>
           </Card>

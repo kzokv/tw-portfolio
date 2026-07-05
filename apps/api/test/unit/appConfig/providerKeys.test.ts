@@ -16,6 +16,7 @@ const mockEnv: {
   APP_CONFIG_ENCRYPTION_KEY?: string;
   FINMIND_API_TOKEN?: string;
   TWELVE_DATA_API_KEY?: string;
+  EODHD_API_KEY?: string;
 } = {
   APP_CONFIG_ENCRYPTION_KEY: TEST_APP_CONFIG_ENCRYPTION_KEY,
 };
@@ -47,6 +48,7 @@ const {
 const { encryptSecret } = await import("../../../src/services/appConfig/encryption.js");
 const {
   getEffectiveFinmindApiToken,
+  getEffectiveEodhdApiKey,
   getEffectiveTwelveDataApiKey,
 } = await import("../../../src/services/appConfig/providerKeys.js");
 const { fakePersistenceWithAppConfig, seedCache } = await import("./_helpers.js");
@@ -56,6 +58,7 @@ beforeEach(() => {
   mockEnv.APP_CONFIG_ENCRYPTION_KEY = TEST_APP_CONFIG_ENCRYPTION_KEY;
   delete mockEnv.FINMIND_API_TOKEN;
   delete mockEnv.TWELVE_DATA_API_KEY;
+  delete mockEnv.EODHD_API_KEY;
 });
 
 afterEach(() => {
@@ -77,6 +80,12 @@ const CASES = {
     cacheField: "twelveDataApiKeyEncrypted",
     envField: "TWELVE_DATA_API_KEY" as const,
     dbValue: "twelve-data-key-from-app-config",
+  },
+  getEffectiveEodhdApiKey: {
+    resolver: getEffectiveEodhdApiKey,
+    cacheField: "eodhdApiKeyEncrypted",
+    envField: "EODHD_API_KEY" as const,
+    dbValue: "eodhd-key-from-app-config",
   },
 } as const;
 

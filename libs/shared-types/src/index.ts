@@ -360,6 +360,7 @@ export type PriceStateBasisDto =
   | "previous_close"
   | "today_close"
   | "pending_today_close"
+  | "fallback_eod_close"
   | "stale_close"
   | "missing";
 export type PriceStateChipStateDto =
@@ -367,6 +368,8 @@ export type PriceStateChipStateDto =
   | "open_delayed"
   | "open_previous_close"
   | "closed_pending"
+  | "fallback_eod"
+  | "fallback_stale"
   | "closed"
   | "stale"
   | "missing";
@@ -381,6 +384,7 @@ export type PriceStateSourceKindDto =
   | "primary_daily"
   | "yahoo_chart"
   | "intraday_yahoo_chart"
+  | "eodhd_eod"
   | "twse_stock_day_close"
   | "yahoo_chart_close"
   | "missing";
@@ -425,6 +429,10 @@ export interface PriceStateDto {
   latestIntradayAttempt?: PriceStateIntradayAttemptDto | null;
   latestRefreshAttemptAt?: string | null;
   latestRefreshOutcome?: PriceStateIntradayAttemptOutcomeDto | null;
+  fallbackPolicyId?: string | null;
+  fallbackProvider?: QuoteFallbackProviderDto | null;
+  fallbackStale?: boolean | null;
+  fallbackLastError?: string | null;
 }
 
 export interface PriceRefreshPendingDto {
@@ -2132,6 +2140,16 @@ export interface TickerPriceFreshnessAppConfigDto {
   bounds: TickerPriceFreshnessAppConfigBoundsDto;
 }
 
+export interface EodhdFallbackAppConfigDto {
+  dailyCallLimit: number | null;
+  effectiveDailyCallLimit: number;
+  apiKeySet: boolean;
+  validatedMarkets: MarketCode[];
+  bounds: {
+    dailyCallLimit: { min: number; max: number };
+  };
+}
+
 export interface AppConfigDto {
   // ── KZO-133 / KZO-189 / KZO-159 — pre-existing override knobs ──────────
   repairCooldownMinutes: number | null;
@@ -2145,6 +2163,7 @@ export interface AppConfigDto {
   /** Fully-resolved mode after env fallback. */
   effectiveMetadataEnrichmentMode: "unconditional" | "conditional";
   tickerPriceFreshness: TickerPriceFreshnessAppConfigDto;
+  eodhdFallback: EodhdFallbackAppConfigDto;
 
   // ── KZO-198 Tier 1 — Rate limits (UI-editable) ─────────────────────────
   marketDataPriceWindowMs: number | null;
@@ -2298,6 +2317,12 @@ export interface AppConfigDto {
   finmindApiTokenSet: boolean;
   /** True when the encrypted Twelve Data key is set in `app_config`. The plaintext value is never sent to the client. */
   twelveDataApiKeySet: boolean;
+  /** True when the encrypted EODHD key is set in `app_config`. The plaintext value is never sent to the client. */
+  eodhdApiKeySet: boolean;
+  /** Admin override for the EODHD daily call budget. `null` = use env fallback. */
+  eodhdDailyCallLimit?: number | null;
+  /** Fully-resolved EODHD daily call budget after env fallback. */
+  effectiveEodhdDailyCallLimit?: number;
 
   // ── KZO-198 — Bounds (single source of truth for UI form constraints) ──
   bounds: AppConfigBoundsDto;
@@ -3787,6 +3812,7 @@ export interface AdminMarketDataOverviewResponse {
 export interface AdminMarketDataInstrumentDto extends AdminInstrumentDto {
   providerIds: string[];
   backfillStatus: "pending" | "backfilling" | "ready" | "failed" | "unknown";
+  quoteFallbackPolicy: QuoteFallbackPolicyDto | null;
 }
 
 export interface AdminMarketDataInstrumentsResponse extends AdminInstrumentsResponse {
@@ -3799,6 +3825,69 @@ export interface AdminMarketDataInstrumentsResponse extends AdminInstrumentsResp
     sort: string[];
   };
   items: AdminMarketDataInstrumentDto[];
+}
+
+export type QuoteFallbackProviderDto = "eodhd";
+export type QuoteFallbackPriceTypeDto = "eod_close";
+export type QuoteFallbackRefreshStatusDto = "success" | "warning" | "error" | "skipped" | "rate_limited";
+
+export interface QuoteFallbackSnapshotDto {
+  id: string;
+  policyId: string;
+  marketCode: MarketCode;
+  ticker: string;
+  provider: QuoteFallbackProviderDto;
+  priceType: QuoteFallbackPriceTypeDto;
+  providerSymbol: string;
+  marketDate: string;
+  close: number;
+  previousClose: number | null;
+  currency: string;
+  currencySource: "provider" | "market_default";
+  source: string;
+  fetchedAt: string;
+  providerMetadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface QuoteFallbackPolicyDto {
+  id: string;
+  marketCode: MarketCode;
+  ticker: string;
+  provider: QuoteFallbackProviderDto;
+  priceType: QuoteFallbackPriceTypeDto;
+  providerSymbol: string;
+  active: boolean;
+  reason: string | null;
+  createdAt: string;
+  updatedAt: string;
+  deactivatedAt: string | null;
+  lastRefreshStatus: QuoteFallbackRefreshStatusDto | null;
+  lastRefreshAt: string | null;
+  lastRefreshError: string | null;
+  lastRefreshErrorCode: string | null;
+  latestSnapshot: QuoteFallbackSnapshotDto | null;
+}
+
+export interface QuoteFallbackPolicyUpsertRequest {
+  ticker: string;
+  marketCode: MarketCode;
+  provider: QuoteFallbackProviderDto;
+  priceType: QuoteFallbackPriceTypeDto;
+  providerSymbol: string;
+  active?: boolean;
+  reason?: string | null;
+}
+
+export interface QuoteFallbackPolicyResponse {
+  policy: QuoteFallbackPolicyDto;
+}
+
+export interface QuoteFallbackPolicyRefreshResponse {
+  policy: QuoteFallbackPolicyDto;
+  refreshed: boolean;
+  remainingCalls: number;
+  message: string | null;
 }
 
 export interface AdminMarketDataActionDto {

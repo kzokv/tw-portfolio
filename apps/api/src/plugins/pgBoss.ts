@@ -41,6 +41,7 @@ import { TwseStockDayCloseProvider, YahooChartCloseProvider } from "../services/
 import {
   getEffectiveTickerPriceFreshnessConfig,
 } from "../services/appConfig/tickerPriceFreshness.js";
+import { getEffectiveEodhdApiKey } from "../services/appConfig/providerKeys.js";
 import {
   buildIntradayRefreshWorkerConfig,
   registerIntradayRefreshWorker,
@@ -50,9 +51,14 @@ import {
   buildCloseRefreshWorkerConfig,
   registerCloseRefreshWorker,
 } from "../services/market-data/registerCloseRefreshWorker.js";
+import {
+  buildQuoteFallbackRefreshWorkerConfig,
+  registerQuoteFallbackRefreshWorker,
+} from "../services/market-data/registerQuoteFallbackRefreshWorker.js";
 import { toDailyBarUpsertRows } from "../services/market-data/closeRefreshWorker.js";
 import { upsertDailyBars } from "../services/market-data/upserts.js";
 import { registerMcpReplayPositionRunWorker } from "../services/mcpReplayPositionRunWorker.js";
+import { EodhdEodProvider } from "../services/market-data/providers/eodhdEod.js";
 
 function createRedisIntradayRefreshRequestBudget(
   redis: Pick<RedisClientType, "isOpen" | "connect" | "incrBy" | "pExpire" | "pTTL">,
@@ -353,6 +359,38 @@ export async function registerPgBoss(app: AppInstance, persistenceOverride?: str
       closeRefreshGraceMinutes: tickerPriceFreshness.closeRefreshGraceMinutes,
     },
     "close_refresh_worker_registered",
+  );
+
+  await registerQuoteFallbackRefreshWorker(
+    boss,
+    buildQuoteFallbackRefreshWorkerConfig(tickerPriceFreshness),
+    {
+      boss,
+      persistence: app.persistence,
+      provider: new EodhdEodProvider({
+        apiToken: getEffectiveEodhdApiKey,
+        baseUrl: Env.EODHD_BASE_URL,
+      }),
+      tradingCalendar: app.tradingCalendarCache,
+      resolveRuntimeConfig: () => {
+        const currentConfig = getEffectiveTickerPriceFreshnessConfig();
+        return {
+          closeRefreshGraceMinutes: currentConfig.closeRefreshGraceMinutes,
+          dailyCallLimit: getAppConfigCacheEntry()?.eodhdDailyCallLimit ?? Env.EODHD_DAILY_CALL_LIMIT,
+          supportedMarkets: ["AU"],
+        };
+      },
+      log: app.log,
+    },
+  );
+  app.log.info(
+    {
+      feature: "quote_fallback_refresh",
+      concurrency: tickerPriceFreshness.queueConcurrency,
+      supportedMarkets: ["AU"],
+      dailyCallLimit: getAppConfigCacheEntry()?.eodhdDailyCallLimit ?? Env.EODHD_DAILY_CALL_LIMIT,
+    },
+    "quote_fallback_refresh_worker_registered",
   );
 
   if (!tickerPriceReadiness.redis || !chartRequestBudget) {
