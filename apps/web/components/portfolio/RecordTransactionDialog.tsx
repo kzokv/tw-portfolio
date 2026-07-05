@@ -54,7 +54,7 @@ export function RecordTransactionDialog({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[70] bg-foreground/80" />
         <Dialog.Content
-          className="!fixed left-1/2 top-1/2 z-[71] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-5 text-card-foreground shadow-xl focus:outline-none sm:p-6"
+          className="!fixed left-1/2 top-1/2 z-[71] max-h-[calc(100dvh_-_2rem)] w-[calc(100%_-_2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border border-border bg-card p-5 text-card-foreground shadow-xl focus:outline-none sm:p-6"
           data-testid="record-transaction-dialog"
         >
           <Dialog.Title className="sr-only">{title}</Dialog.Title>

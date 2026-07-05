@@ -1,6 +1,8 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useSettingsRouteContext } from "./SettingsRouteProvider";
 import { getDictionary } from "../../lib/i18n";
 import { MonitoredTickersSection } from "../../features/settings/components/MonitoredTickersSection";
@@ -19,8 +21,13 @@ import { useMonitoredTickers } from "../../features/settings/hooks/useMonitoredT
  */
 export function TickersSettingsClient() {
   const { locale } = useSettingsRouteContext();
+  const searchParams = useSearchParams();
   const dict = getDictionary(locale);
   const tickers = useMonitoredTickers(true);
+  const repairQuery = useMemo(
+    () => parseTickerRepairQuery(searchParams ?? new URLSearchParams()),
+    [searchParams],
+  );
 
   const positionTickerKeys = useMemo(
     () =>
@@ -32,8 +39,38 @@ export function TickersSettingsClient() {
     [tickers.monitoredTickers],
   );
 
+  useEffect(() => {
+    if (!repairQuery.open) return;
+    tickers.setShowCatalog(false);
+    tickers.setRepairMode(true);
+  }, [repairQuery.open, tickers.setRepairMode, tickers.setShowCatalog]);
+
   return (
     <div className="space-y-4" data-testid="settings-section-tickers">
+      {repairQuery.fromDataHealth ? (
+        <div className="rounded-xl border border-warning/40 bg-warning/10 px-4 py-3" data-testid="settings-tickers-repair-origin">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-sm font-semibold text-foreground">{dict.settings.repairOriginTitle}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{dict.settings.repairOriginDescription}</p>
+              {repairQuery.suggestedLabels.length > 0 ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {dict.settings.repairSuggestedTickers}: <span className="font-mono text-foreground">{repairQuery.suggestedLabels.join(", ")}</span>
+                </p>
+              ) : null}
+            </div>
+            {repairQuery.returnTo ? (
+              <Link
+                href={repairQuery.returnTo}
+                className="text-sm font-medium text-primary underline decoration-primary/30 underline-offset-4 hover:text-primary/80"
+                data-testid="settings-tickers-repair-return-link"
+              >
+                {dict.settings.repairOriginReturn}
+              </Link>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       {tickers.showCatalog ? (
         <InstrumentCatalogSheet
           instruments={tickers.instruments}
@@ -68,9 +105,51 @@ export function TickersSettingsClient() {
           isRepairSubmitting={tickers.isRepairSubmitting}
           repairMessage={tickers.repairMessage}
           repairError={tickers.repairError}
+          suggestedRepairKeys={repairQuery.suggestedKeys}
+          suggestedRepairTickers={repairQuery.suggestedTickers}
           dict={dict}
         />
       )}
     </div>
   );
+}
+
+interface TickerRepairQuery {
+  fromDataHealth: boolean;
+  open: boolean;
+  returnTo: string | null;
+  suggestedKeys: Set<string>;
+  suggestedLabels: string[];
+  suggestedTickers: Set<string>;
+}
+
+function parseTickerRepairQuery(params: URLSearchParams): TickerRepairQuery {
+  const open = params.get("repair") === "1" || params.get("repair") === "valuation";
+  const fromDataHealth = params.get("origin") === "data-health";
+  const market = params.get("market")?.trim() || null;
+  const tickers = (params.get("tickers") ?? "")
+    .split(",")
+    .map((ticker) => ticker.trim())
+    .filter(Boolean);
+  const suggestedKeys = new Set(market ? tickers.map((ticker) => `${ticker}|${market}`) : []);
+  const suggestedLabels = tickers.map((ticker) => (market ? `${ticker} · ${market}` : ticker));
+  return {
+    fromDataHealth,
+    open,
+    returnTo: normalizeLocalReturnTo(params.get("returnTo")),
+    suggestedKeys,
+    suggestedLabels,
+    suggestedTickers: new Set(tickers),
+  };
+}
+
+function normalizeLocalReturnTo(raw: string | null): string | null {
+  if (!raw) return null;
+  try {
+    const decoded = decodeURIComponent(raw);
+    if (!decoded.startsWith("/") || decoded.startsWith("//") || decoded.includes("\\")) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
 }

@@ -217,6 +217,51 @@ describe("ValuationHealthPanel", () => {
     expect(document.querySelector("[data-testid='valuation-health-copy-admin-link-US']")?.textContent).toContain("Admin link copied");
   });
 
+  it("does not derive Settings repair returnTo from window when omitted", async () => {
+    const valuationHealth = buildValuationHealth();
+
+    act(() => {
+      root.render(
+        <ValuationHealthPanel
+          copy={getDictionary("en").valuationHealth}
+          locale="en"
+          showAdminActions={false}
+          valuationHealth={valuationHealth}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    const repairLink = document.querySelector<HTMLAnchorElement>("[data-testid='valuation-health-settings-repair-US']");
+    expect(repairLink?.getAttribute("href")).toBe(
+      "/settings/tickers?repair=1&origin=data-health&market=US&healthReason=stale_snapshot&tickers=VRT",
+    );
+  });
+
+  it("uses the caller-provided Settings repair returnTo", async () => {
+    const valuationHealth = buildValuationHealth();
+
+    act(() => {
+      root.render(
+        <ValuationHealthPanel
+          copy={getDictionary("en").valuationHealth}
+          locale="en"
+          showAdminActions={false}
+          tickerRepairReturnTo="/dashboard"
+          valuationHealth={valuationHealth}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    const repairLink = document.querySelector<HTMLAnchorElement>("[data-testid='valuation-health-settings-repair-US']");
+    expect(repairLink?.getAttribute("href")).toBe(
+      "/settings/tickers?repair=1&origin=data-health&market=US&healthReason=stale_snapshot&tickers=VRT&returnTo=%2Fdashboard",
+    );
+  });
+
   it("uses neutral non-admin guidance when no repair is recommended", async () => {
     const valuationHealth = buildValuationHealth({
       status: "healthy",

@@ -8,7 +8,11 @@ import { Badge } from "../ui/shadcn/badge";
 import { Button } from "../ui/Button";
 import { Alert, AlertDescription, AlertTitle } from "../ui/shadcn/alert";
 import { cn, formatCurrencyAmount, formatDateLabel, formatPercent } from "../../lib/utils";
-import { getValuationHealthAdminRepairLinks, type ValuationHealthAdminRepairLink } from "./valuationHealthAdminLink";
+import {
+  getValuationHealthAdminRepairLinks,
+  getValuationHealthTickerRepairLinks,
+  type ValuationHealthAdminRepairLink,
+} from "./valuationHealthAdminLink";
 
 type ValuationHealthCopy = AppDictionary["valuationHealth"];
 
@@ -19,6 +23,7 @@ interface ValuationHealthPanelProps {
   locale: LocaleCode;
   showAdminActions?: boolean;
   strictTotalsNotice?: string | null;
+  tickerRepairReturnTo?: string | null;
   valuationHealth: ValuationHealthDto | null | undefined;
 }
 
@@ -29,6 +34,7 @@ export function ValuationHealthPanel({
   locale,
   showAdminActions = false,
   strictTotalsNotice = null,
+  tickerRepairReturnTo = null,
   valuationHealth,
 }: ValuationHealthPanelProps) {
   const [copiedHref, setCopiedHref] = useState<string | null>(null);
@@ -40,6 +46,7 @@ export function ValuationHealthPanel({
   const hasRepairRecommendation = hasBackfillAction || hasSnapshotRepairAction;
   const hasMaterialNoRepair = valuationHealth.status === "material" && !hasRepairRecommendation;
   const adminRepairLinks = getValuationHealthAdminRepairLinks(valuationHealth);
+  const tickerRepairLinks = getValuationHealthTickerRepairLinks(valuationHealth, tickerRepairReturnTo);
   const repairLinks = adminRepairLinks.length > 0
     ? adminRepairLinks
     : adminRepairHref
@@ -217,6 +224,19 @@ export function ValuationHealthPanel({
           </Alert>
         )}
         <div className="flex flex-wrap items-center gap-2">
+          {tickerRepairLinks.map((link) => (
+            <Button
+              asChild
+              size="sm"
+              variant="secondary"
+              data-testid={link.marketCode ? `valuation-health-settings-repair-${link.marketCode}` : "valuation-health-settings-repair"}
+              key={link.href}
+            >
+              <Link href={link.href}>
+                {link.marketCode ? `${copy.settingsRepairAction} · ${link.marketCode}` : copy.settingsRepairAction}
+              </Link>
+            </Button>
+          ))}
           {showAdminActions
             ? repairLinks.map((link) => (
                 <Button

@@ -129,6 +129,48 @@ describe("POST /backfill/repair (integration, memory mode)", () => {
     );
   });
 
+  it("uses market-aware repair targets when provided", async () => {
+    const cookie = await createSessionCookieHeader();
+    seedInstrument({
+      ticker: "BHP",
+      name: "BHP Group AU",
+      instrumentType: "STOCK",
+      marketCode: "AU",
+      barsBackfillStatus: "ready",
+    });
+    seedInstrument({
+      ticker: "BHP",
+      name: "BHP Group US",
+      instrumentType: "STOCK",
+      marketCode: "US",
+      barsBackfillStatus: "ready",
+    });
+
+    const send = vi.fn().mockResolvedValue(undefined);
+    (app as unknown as { boss: { send: (...args: unknown[]) => Promise<void> } }).boss = { send };
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/backfill/repair",
+      headers: { cookie },
+      payload: {
+        targets: [{ ticker: "BHP", marketCode: "AU" }],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().queued).toEqual(["BHP|AU"]);
+    expect(send).toHaveBeenCalledWith(
+      "finmind-backfill",
+      expect.objectContaining({
+        ticker: "BHP",
+        marketCode: "AU",
+        trigger: "repair",
+      }),
+      { singletonKey: "BHP:AU", priority: 5 },
+    );
+  });
+
   it("rejects a ticker within cooldown window using last_repair_at", async () => {
     const cookie = await createSessionCookieHeader();
     seedInstrument({

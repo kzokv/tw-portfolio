@@ -27,6 +27,8 @@ interface DashboardHeroProps {
   quoteRefreshVersion?: number;
   canOpenQuickActions?: boolean;
   onOpenQuickActions?: () => void;
+  dataHealthHref?: string;
+  fxHealthHref?: string;
 }
 
 export function DashboardHero({
@@ -39,6 +41,8 @@ export function DashboardHero({
   quoteRefreshVersion = 0,
   canOpenQuickActions = false,
   onOpenQuickActions,
+  dataHealthHref = "/reports?tab=portfolio&scope=all&health=1",
+  fxHealthHref = "/reports?tab=portfolio&scope=all&health=1&healthReason=missing_fx",
 }: DashboardHeroProps) {
   const totalValue = summary.marketValueAmount !== null
     ? formatCompactCurrencyAmount(summary.marketValueAmount, summary.reportingCurrency, locale)
@@ -75,6 +79,14 @@ export function DashboardHero({
           <p className="mt-1 text-sm text-muted-foreground" data-testid="dashboard-hero-total-exact">
             {formatHeroMessage(dict.dashboardHome.exactAmountInline, { amount: totalExactValue })}
           </p>
+        ) : holdingCount > 0 ? (
+          <Link
+            href={dataHealthHref}
+            className="mt-1 inline-flex text-sm font-medium text-primary underline decoration-primary/30 underline-offset-4 hover:text-primary/80"
+            data-testid="dashboard-hero-market-value-data-health-link"
+          >
+            {dict.reports.viewDataHealth}
+          </Link>
         ) : null}
       </Card>
 
@@ -95,6 +107,14 @@ export function DashboardHero({
           <p className={cn("mt-1 text-sm", deltaTone)} data-testid="dashboard-hero-day-delta-exact">
             {formatHeroMessage(dict.dashboardHome.exactAmountInline, { amount: dayDeltaExactValue })}
           </p>
+        ) : holdingCount > 0 ? (
+          <Link
+            href={dataHealthHref}
+            className="mt-1 inline-flex text-sm font-medium text-primary underline decoration-primary/30 underline-offset-4 hover:text-primary/80"
+            data-testid="dashboard-hero-daily-change-data-health-link"
+          >
+            {dict.reports.whyHidden}
+          </Link>
         ) : null}
         {dayDeltaPercent ? (
           <p
@@ -135,6 +155,15 @@ export function DashboardHero({
               <span className="text-xs font-semibold uppercase text-muted-foreground">{dict.reports.fxStatusTitle}</span>
               <Badge variant={summary.fxStatus === "complete" ? "secondary" : "outline"}>{summary.fxStatus}</Badge>
             </div>
+            {summary.fxStatus !== "complete" ? (
+              <Link
+                href={fxHealthHref}
+                className="text-xs font-medium text-primary underline decoration-primary/30 underline-offset-4 hover:text-primary/80"
+                data-testid="dashboard-hero-fx-data-health-link"
+              >
+                {dict.reports.viewDataHealth}
+              </Link>
+            ) : null}
             {fxRates.length > 0 ? (
               <div className="grid gap-1.5">
                 {fxRates.map((rate) => (
