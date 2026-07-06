@@ -753,6 +753,7 @@ async function buildReportValuationBasis(
       const priceStates = marketGroups.map((group) => group.priceState);
       const quoteAsOfDate = maxNullableDateFromValues(priceStates.map((state) => state.asOfDate));
       const representative = pickRepresentativePriceState(priceStates, quoteAsOfDate);
+      const marketFxAsOfDate = latestFxAsOfDateForMarket(marketGroups, fxRates, reportQuery.reportingCurrency);
       const closure = await findFirstMarketClosureAfterQuote(
         persistence,
         marketCode,
@@ -776,7 +777,7 @@ async function buildReportValuationBasis(
         closureDate: closure.closureDate,
         closureName: closure.closureName,
         closureReason: closure.closureReason,
-        fxAsOfDate,
+        fxAsOfDate: marketFxAsOfDate,
         reportingCurrency: reportQuery.reportingCurrency,
       };
     }));
@@ -793,6 +794,24 @@ async function buildReportValuationBasis(
 function latestFxAsOfDate(fxRates: readonly FxConversionRateDto[], fallback: string): string | null {
   if (fxRates.length === 0) return fallback;
   return maxNullableDateFromValues(fxRates.map((rate) => rate.asOf));
+}
+
+function latestFxAsOfDateForMarket(
+  marketGroups: Awaited<ReturnType<typeof translateOverviewHoldingGroups>>,
+  fxRates: readonly FxConversionRateDto[],
+  reportingCurrency: AccountDefaultCurrency,
+): string | null {
+  const requiredCurrencies = new Set<AccountDefaultCurrency>();
+  for (const group of marketGroups) {
+    if (group.currency === reportingCurrency) continue;
+    if (isAccountDefaultCurrency(group.currency)) requiredCurrencies.add(group.currency);
+  }
+  if (requiredCurrencies.size === 0) return null;
+  return maxNullableDateFromValues(
+    fxRates
+      .filter((rate) => rate.toCurrency === reportingCurrency && requiredCurrencies.has(rate.fromCurrency))
+      .map((rate) => rate.asOf),
+  );
 }
 
 function pickRepresentativePriceState(
@@ -826,6 +845,7 @@ async function findFirstMarketClosureAfterQuote(
   if (quoteAsOfDate === null || quoteAsOfDate >= requestedAsOf) {
     return { closureDate: null, closureName: null, closureReason: null };
   }
+  let firstClosure: Pick<ReportValuationBasisDto["markets"][number], "closureDate" | "closureName" | "closureReason"> | null = null;
   let current = addDaysIsoDate(quoteAsOfDate, 1);
   while (current <= requestedAsOf) {
     const version = await persistence.getActiveMarketCalendarVersion(marketCode, Number(current.slice(0, 4)));
@@ -834,18 +854,22 @@ async function findFirstMarketClosureAfterQuote(
     }
     const exception = version.exceptions.find((candidate) => candidate.date === current);
     if (exception?.status === "closed") {
-      return {
+      firstClosure ??= {
         closureDate: current,
         closureName: exception.name,
         closureReason: "market_holiday",
       };
+      current = addDaysIsoDate(current, 1);
+      continue;
     }
     if (!exception && isWeekendIsoDate(current)) {
-      return { closureDate: current, closureName: null, closureReason: "weekend" };
+      firstClosure ??= { closureDate: current, closureName: null, closureReason: "weekend" };
+      current = addDaysIsoDate(current, 1);
+      continue;
     }
-    current = addDaysIsoDate(current, 1);
+    return { closureDate: null, closureName: null, closureReason: null };
   }
-  return { closureDate: null, closureName: null, closureReason: null };
+  return firstClosure ?? { closureDate: null, closureName: null, closureReason: null };
 }
 
 function addDaysIsoDate(date: string, days: number): string {
@@ -856,6 +880,10 @@ function addDaysIsoDate(date: string, days: number): string {
 function isWeekendIsoDate(date: string): boolean {
   const day = new Date(`${date}T00:00:00.000Z`).getUTCDay();
   return day === 0 || day === 6;
+}
+
+function isAccountDefaultCurrency(currency: string): currency is AccountDefaultCurrency {
+  return (ACCOUNT_DEFAULT_CURRENCIES as readonly string[]).includes(currency);
 }
 
 function maxNullableDateFromValues(values: readonly (string | null | undefined)[]): string | null {

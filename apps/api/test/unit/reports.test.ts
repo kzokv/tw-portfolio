@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { AccountDefaultCurrency } from "@vakwen/shared-types";
 import { buildApp } from "../../src/app.js";
 import {
   confirmAdminMarketCalendarImport,
@@ -8,6 +9,115 @@ import { buildPortfolioReport } from "../../src/services/reports.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 let userId: string;
+
+type ReportSeedMarket = "TW" | "US" | "AU";
+type ReportSeedInstrumentType = "STOCK" | "ETF" | "BOND_ETF";
+type MemoryReportPersistence = typeof app.persistence & {
+  _seedInstrument?: (instrument: {
+    ticker: string;
+    name: string;
+    instrumentType: ReportSeedInstrumentType;
+    marketCode: ReportSeedMarket;
+    barsBackfillStatus: "pending" | "backfilling" | "ready" | "failed";
+  }) => void;
+  _seedDailyBars?: (bars: Array<{
+    ticker: string;
+    marketCode: ReportSeedMarket;
+    barDate: string;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+    source: string;
+    ingestedAt: string;
+  }>) => void;
+};
+
+async function seedReportHolding(input: {
+  ticker: string;
+  marketCode: ReportSeedMarket;
+  instrumentType: ReportSeedInstrumentType;
+  name: string;
+  currency: AccountDefaultCurrency;
+  barDate: string;
+  close: number;
+  quantity?: number;
+  costBasisAmount?: number;
+  tradeDate?: string;
+  source?: string;
+}): Promise<void> {
+  const store = await app.persistence.loadStore(userId);
+  const account = store.accounts[0];
+  const feeProfile = store.feeProfiles[0];
+  if (!account || !feeProfile) throw new Error("expected seeded default account and fee profile");
+  const quantity = input.quantity ?? 1;
+  store.accounting.projections.holdings.push({
+    accountId: account.id,
+    ticker: input.ticker,
+    quantity,
+    costBasisAmount: input.costBasisAmount ?? input.close * quantity,
+    currency: input.currency,
+  });
+  store.accounting.facts.tradeEvents.push({
+    id: `buy-${input.ticker}-${input.marketCode}-${input.barDate}`,
+    userId,
+    accountId: account.id,
+    ticker: input.ticker,
+    marketCode: input.marketCode,
+    instrumentType: input.instrumentType,
+    type: "BUY",
+    quantity,
+    unitPrice: input.costBasisAmount ? input.costBasisAmount / quantity : input.close,
+    priceCurrency: input.currency,
+    tradeDate: input.tradeDate ?? input.barDate,
+    commissionAmount: 0,
+    taxAmount: 0,
+    isDayTrade: false,
+    feeSnapshot: feeProfile,
+  });
+  store.marketData.instruments = store.marketData.instruments
+    .filter((instrument) => instrument.ticker !== input.ticker || instrument.marketCode !== input.marketCode)
+    .concat({
+      ticker: input.ticker,
+      marketCode: input.marketCode,
+      instrumentType: input.instrumentType,
+      name: input.name,
+      isProvisional: false,
+      lastSyncedAt: null,
+    });
+  store.instruments = store.instruments
+    .filter((instrument) => instrument.ticker !== input.ticker || instrument.marketCode !== input.marketCode)
+    .concat({
+      ticker: input.ticker,
+      marketCode: input.marketCode,
+      type: input.instrumentType,
+      isProvisional: false,
+      lastSyncedAt: null,
+    });
+  await app.persistence.saveStore(store);
+
+  const memoryPersistence = app.persistence as MemoryReportPersistence;
+  memoryPersistence._seedInstrument?.({
+    ticker: input.ticker,
+    name: input.name,
+    instrumentType: input.instrumentType,
+    marketCode: input.marketCode,
+    barsBackfillStatus: "ready",
+  });
+  memoryPersistence._seedDailyBars?.([{
+    ticker: input.ticker,
+    marketCode: input.marketCode,
+    barDate: input.barDate,
+    open: input.close,
+    high: input.close,
+    low: input.close,
+    close: input.close,
+    volume: 1_000,
+    source: input.source ?? `test-${input.marketCode.toLowerCase()}-close`,
+    ingestedAt: `${input.barDate}T21:00:00.000Z`,
+  }]);
+}
 
 describe("buildPortfolioReport", () => {
   beforeEach(async () => {
@@ -313,5 +423,88 @@ describe("buildPortfolioReport", () => {
       "TW",
       "US",
     ]);
+  });
+
+  it("does not explain stale quotes with a holiday when later open trading days were missed", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-06T16:00:00.000Z"));
+
+    const preview = await previewAdminMarketCalendarImport(app.persistence, "US", {
+      calendarYear: 2026,
+      retrievedAt: "2026-07-06T00:00:00.000Z",
+      coverage: { scope: "full_year", evidence: "Unit test confirmed coverage." },
+      exceptions: [
+        {
+          date: "2026-07-03",
+          status: "closed",
+          name: "Independence Day observed",
+          evidence: "Unit test holiday",
+          overrideReason: "unit_test",
+        },
+      ],
+    });
+    await confirmAdminMarketCalendarImport(app.persistence, "US", preview.previewToken);
+    await seedReportHolding({
+      ticker: "AVGO",
+      marketCode: "US",
+      instrumentType: "STOCK",
+      name: "Broadcom",
+      currency: "USD",
+      barDate: "2026-07-02",
+      close: 212,
+      quantity: 2,
+      source: "test-us-close",
+    });
+    await app.persistence.upsertFxRates([
+      { date: "2026-07-02", baseCurrency: "USD", quoteCurrency: "TWD", rate: 32, source: "test-fx" },
+    ]);
+
+    const report = await buildPortfolioReport(app, userId, { scope: "all", currencyMode: "specified", currency: "TWD" });
+    const usBasis = report.diagnostics.valuationBasis?.markets.find((market) => market.marketCode === "US");
+
+    expect(usBasis).toEqual(expect.objectContaining({
+      quoteAsOfDate: "2026-07-02",
+      closureDate: null,
+      closureName: null,
+      closureReason: null,
+    }));
+  });
+
+  it("uses per-market FX dates in valuation basis", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
+    await seedReportHolding({
+      ticker: "AVGO",
+      marketCode: "US",
+      instrumentType: "STOCK",
+      name: "Broadcom",
+      currency: "USD",
+      barDate: "2026-07-02",
+      close: 212,
+      quantity: 2,
+      source: "test-us-close",
+    });
+    await seedReportHolding({
+      ticker: "ETPMAG",
+      marketCode: "AU",
+      instrumentType: "ETF",
+      name: "Global X Physical Gold",
+      currency: "AUD",
+      barDate: "2026-07-04",
+      close: 38,
+      quantity: 3,
+      source: "test-au-close",
+    });
+    await app.persistence.upsertFxRates([
+      { date: "2026-07-02", baseCurrency: "USD", quoteCurrency: "TWD", rate: 32, source: "test-fx-usd" },
+      { date: "2026-07-04", baseCurrency: "AUD", quoteCurrency: "TWD", rate: 21, source: "test-fx-aud" },
+    ]);
+
+    const report = await buildPortfolioReport(app, userId, { scope: "all", currencyMode: "specified", currency: "TWD" });
+    const usBasis = report.diagnostics.valuationBasis?.markets.find((market) => market.marketCode === "US");
+    const auBasis = report.diagnostics.valuationBasis?.markets.find((market) => market.marketCode === "AU");
+
+    expect(usBasis?.fxAsOfDate).toBe("2026-07-02");
+    expect(auBasis?.fxAsOfDate).toBe("2026-07-04");
   });
 });
