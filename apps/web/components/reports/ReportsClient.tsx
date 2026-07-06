@@ -1300,11 +1300,6 @@ function buildReportBasisFxSummary(data: AnyReportDto, dict: AppDictionary, loca
   return dict.reports.basisFxLatest;
 }
 
-function latestDate(values: Array<string | null | undefined>): string | null {
-  const filtered = values.filter((value): value is string => Boolean(value)).sort();
-  return filtered.at(-1) ?? null;
-}
-
 function conservativeQuoteAsOfDate(values: Array<string | null | undefined>): string | null {
   if (values.length === 0 || values.some((value) => !value)) return null;
   return [...values].sort()[0] ?? null;

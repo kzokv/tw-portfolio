@@ -112,6 +112,8 @@ superseded_by: null
 - Passed after final mixed-source/focused-basis fixes: `npx vitest run test/components/reports/ReportsClient.test.tsx test/components/analysis/UnrealizedPnlAnalysisClient.test.tsx` from `apps/web`
 - Passed after final mixed-source/focused-basis fixes: `npm run typecheck`
 - Passed after legacy cached-basis review fix: `npx vitest run test/components/reports/ReportsClient.test.tsx` from `apps/web`
+- Passed after CI lint cleanup: `npx eslint .` (existing Playwright conditional warnings only)
+- Passed after CI lint cleanup: `npx vitest run test/components/reports/ReportsClient.test.tsx` from `apps/web`
 - Passed after fixes: `npm run test:integration:full:host` (`95` files, `966` passed, `1` skipped)
 - Passed: `npm run test:e2e:bypass:mem --prefix apps/web` (`318` passed, `19` skipped)
 - Passed after fixes: `npx playwright test tests/e2e/specs-oauth/admin-instruments-aaa.spec.ts --config=tests/e2e/playwright.oauth.config.ts` from `apps/web`
@@ -128,6 +130,7 @@ superseded_by: null
 - Live Vakwen Dev validation found that the AU market basis card rendered `Source eodhd` while only `ETPMAG` used an `EODHD stale` fallback and `QAU` stayed on the normal closed quote path. Fixed by rendering per-holding source composition plus fallback counts instead of a single market-wide representative source.
 - Codex review found that the analysis selected-detail basis note still used all selected series points while focused cards used the focused date. Fixed by aggregating basis metadata from focused points when a focus date is active.
 - Codex review found that the legacy/cached report fallback path used the freshest holding quote date even though server-side valuation basis is conservative. Fixed by deriving `quoteAsOf` as unavailable when any market row is missing an as-of date, otherwise the earliest market row date.
+- CI lint then found the previous `latestDate` helper was unused after that conservative fallback fix. Removed the dead helper and reran lint plus the report component regression.
 
 ## References
 
