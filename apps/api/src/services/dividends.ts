@@ -855,11 +855,12 @@ export function resolveDividendTickerName(
   marketCode?: MarketCode,
 ): string | null {
   const normalizedTicker = ticker.trim().toUpperCase();
-  const marketInstrument = store.instruments.find((entry) =>
+  const matchesTicker = (entry: { ticker: string; marketCode?: string; name?: string | null }): boolean =>
     entry.ticker.trim().toUpperCase() === normalizedTicker
       && (!marketCode || entry.marketCode === marketCode)
-      && entry.name?.trim()
-  );
+      && Boolean(entry.name?.trim());
+  const marketInstrument = store.instruments.find(matchesTicker)
+    ?? store.marketData.instruments.find(matchesTicker);
 
   return marketInstrument?.name?.trim() ?? null;
 }

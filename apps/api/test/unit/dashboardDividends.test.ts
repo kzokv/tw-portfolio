@@ -14,9 +14,14 @@ describe("buildDashboardOverview dividend metadata", () => {
 
   it("includes ticker display names and market context on upcoming and recent dividend rows", () => {
     const store = createStore();
-    const instrument = store.instruments.find((entry) => entry.ticker === "2330" && entry.marketCode === "TW");
-    if (!instrument) throw new Error("instrument_not_found:2330:TW");
-    instrument.name = "TSMC";
+    store.instruments = store.instruments.map((entry) =>
+      entry.ticker === "2330" && entry.marketCode === "TW"
+        ? { ...entry, name: null }
+        : entry);
+    store.marketData.instruments = store.marketData.instruments.map((entry) =>
+      entry.ticker === "2330" && entry.marketCode === "TW"
+        ? { ...entry, name: "TSMC" }
+        : entry);
 
     store.accounting.facts.tradeEvents.push({
       id: "buy-2330",

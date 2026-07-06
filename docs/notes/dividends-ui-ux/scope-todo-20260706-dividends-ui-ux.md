@@ -142,6 +142,9 @@ superseded_by: null
   - Added row-specific date bounds to ticker Dividends row Review links so prior-year posted rows and future upcoming rows stay visible when Review opens.
   - Carried dividend `paymentDate` on recent dividend DTOs so row Review links use the dividend event year instead of a later booking timestamp.
   - Focused validation passed: `cd apps/web && npx vitest run test/components/dividends/TickerDividendsTab.test.tsx --config vitest.config.ts`; `npx eslint libs/shared-types/src/index.ts apps/api/src/services/dashboard.ts apps/api/src/services/tickerDetails.ts apps/web/components/dividends/TickerDividendsTab.tsx apps/web/test/components/dividends/TickerDividendsTab.test.tsx`; `npm run typecheck -- --pretty false`.
+- Fifth Codex review fix:
+  - Resolved dividend ticker names from both `store.instruments` and `store.marketData.instruments`, preserving dashboard dividend display names in Postgres overview read stores where catalog names live only under `marketData.instruments`.
+  - Focused validation passed: `npm run test --prefix apps/api -- test/unit/dashboardDividends.test.ts test/unit/tickerDetails.test.ts test/unit/dividendReviewRows.test.ts`; `npx eslint apps/api/src/services/dividends.ts apps/api/test/unit/dashboardDividends.test.ts`; `npx tsc --noEmit -p apps/api/tsconfig.json --pretty false && npx tsc --noEmit -p apps/api/test/unit/tsconfig.json --pretty false`.
 
 ## Explicit Out Of Scope
 
