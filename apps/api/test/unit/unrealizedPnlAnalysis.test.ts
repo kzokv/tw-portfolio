@@ -290,6 +290,46 @@ describe("buildUnrealizedPnlAnalysis", () => {
     expect(report.rankings[0]?.fxAsOfDate).toBe("2026-07-03");
   });
 
+  it("uses conservative FX dates for aggregate buckets with mixed FX bases", async () => {
+    await seedInstrument({ ticker: "0050", marketCode: "TW", instrumentType: "ETF", name: "Taiwan 50" });
+    await seedInstrument({ ticker: "AVGO", marketCode: "US", instrumentType: "STOCK", name: "Broadcom" });
+    vi.spyOn(persistence, "listUnrealizedPnlAnalysisSnapshots").mockResolvedValue([
+      makeAnalysisSnapshotRow({
+        ticker: "0050",
+        marketCode: "TW",
+        snapshotDate: "2026-07-05",
+        nativeCurrency: "TWD",
+        reportingCurrency: "TWD",
+        costBasisAmount: 1000,
+        marketValueAmount: 1100,
+        unrealizedPnlAmount: 100,
+        fxAsOfDate: "2026-07-05",
+      }),
+      makeAnalysisSnapshotRow({
+        ticker: "AVGO",
+        marketCode: "US",
+        snapshotDate: "2026-07-05",
+        nativeCurrency: "USD",
+        reportingCurrency: "TWD",
+        costBasisAmount: 3000,
+        marketValueAmount: 3600,
+        unrealizedPnlAmount: 600,
+        fxAsOfDate: "2026-07-03",
+      }),
+    ]);
+
+    const report = await buildUnrealizedPnlAnalysis(app, "user-1", {
+      granularity: "daily",
+      fromDate: "2026-07-05",
+      toDate: "2026-07-05",
+      reportingCurrency: "TWD",
+    });
+
+    expect(report.portfolioSeries[0]?.fxAsOfDate).toBe("2026-07-03");
+    expect(report.tickerSeries.find((point) => point.ticker === "0050")?.fxAsOfDate).toBe("2026-07-05");
+    expect(report.tickerSeries.find((point) => point.ticker === "AVGO")?.fxAsOfDate).toBe("2026-07-03");
+  });
+
   it("memory snapshot rows preserve resolved FX dates when FX rolls back", async () => {
     await seedSnapshots([
       makeSnapshot({

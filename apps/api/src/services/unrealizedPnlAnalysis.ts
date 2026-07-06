@@ -410,7 +410,7 @@ function aggregateBucketRows(
       const quantity = roundToDecimal(bucketRows.reduce((sum, row) => sum + row.quantity, 0), 6);
       const closePrice = bucketRows.find((row) => row.quantity !== 0 && row.closePrice !== null)?.closePrice ?? null;
       const snapshotDate = maxNullableIsoDate(...bucketRows.map((row) => row.snapshotDate));
-      const fxAsOfDate = maxNullableIsoDate(...bucketRows.map((row) => row.fxAsOfDate ?? null));
+      const fxAsOfDate = minNullableIsoDate(...bucketRows.map((row) => row.fxAsOfDate ?? null));
       const snapshotProviderSources = [...new Set(bucketRows
         .map((row) => row.providerSource?.trim() ?? "")
         .filter((source) => source.length > 0))]
@@ -445,6 +445,15 @@ function maxNullableIsoDate(...dates: Array<string | null | undefined>): string 
     if (latest === null || date > latest) latest = date;
   }
   return latest;
+}
+
+function minNullableIsoDate(...dates: Array<string | null | undefined>): string | null {
+  let earliest: string | null = null;
+  for (const date of dates) {
+    if (!date) continue;
+    if (earliest === null || date < earliest) earliest = date;
+  }
+  return earliest;
 }
 
 function padSoldOutSeries(
