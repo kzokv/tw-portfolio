@@ -1081,12 +1081,12 @@ function ReportBasisStrip({ data, dict, locale }: { data: AnyReportDto; dict: Ap
                   : dict.reports.basisMarketUnavailable}
               </p>
               <p className="mt-1">
-                {summary.source
-                  ? formatReportMessage(dict.reports.basisMarketSource, { source: summary.source })
+                {summary.sources.length > 0
+                  ? formatReportBasisSourceSummary(summary, dict)
                   : dict.reports.basisMarketUnavailable}
               </p>
               <p className="mt-1">
-                {summary.fallbackUsed ? dict.reports.basisMarketFallbackUsed : dict.reports.basisMarketFallbackNone}
+                {formatReportBasisFallbackSummary(summary, dict)}
               </p>
               <p className="mt-1">
                 {summary.closureDate && summary.quoteAsOf && isConfirmedMarketClosure(summary.closureReason)
@@ -1120,33 +1120,53 @@ function ReportBasisStrip({ data, dict, locale }: { data: AnyReportDto; dict: Ap
 function buildReportBasisMarketSummaries(data: AnyReportDto): Array<{
   marketCode: string;
   quoteAsOf: string | null;
-  source: string | null;
+  sources: string[];
   fallbackUsed: boolean;
+  fallbackQuoteCount: number | null;
+  holdingCount: number | null;
   expectedLatestValuationDate: string | null;
   closureDate: string | null;
   closureName: string | null;
   closureReason: "market_holiday" | "weekend" | "calendar_unknown" | null;
 }> {
-  const valuationMarkets = data.diagnostics.valuationBasis?.markets;
-  if (valuationMarkets && valuationMarkets.length > 0) {
-    return valuationMarkets.map((market) => ({
-      marketCode: market.marketCode,
-      quoteAsOf: market.quoteAsOfDate,
-      source: firstNonEmptyString([market.fallbackProvider ?? null, market.quoteSource]),
-      fallbackUsed: market.usesFallbackQuote,
-      expectedLatestValuationDate: market.expectedLatestValuationDate,
-      closureDate: market.closureDate,
-      closureName: market.closureName,
-      closureReason: market.closureReason,
-    }));
-  }
-
   const holdings = collectReportHoldingRows(data);
   const rowsByMarket = new Map<string, ReportHoldingRowDto[]>();
   for (const row of holdings) {
     const list = rowsByMarket.get(row.marketCode) ?? [];
     list.push(row);
     rowsByMarket.set(row.marketCode, list);
+  }
+
+  const valuationMarkets = data.diagnostics.valuationBasis?.markets;
+  if (valuationMarkets && valuationMarkets.length > 0) {
+    return valuationMarkets.map((market) => {
+      const rows = rowsByMarket.get(market.marketCode) ?? [];
+      const rowFallbackCount = rows.filter((row) => row.priceState.fallbackProvider || row.priceState.basis === "fallback_eod_close").length;
+      const fallbackQuoteCount = market.fallbackQuoteCount ?? (rows.length > 0 ? rowFallbackCount : null);
+      const holdingCount = market.holdingCount ?? (rows.length > 0 ? rows.length : null);
+      const quoteSources = uniqueSortedNonEmptyStrings([
+        ...(market.quoteSources ?? []),
+        ...rows.map((row) => row.priceState.source),
+        market.quoteSource,
+      ]);
+      const fallbackProviders = uniqueSortedNonEmptyStrings([
+        ...(market.fallbackProviders ?? []),
+        ...rows.map((row) => row.priceState.fallbackProvider),
+        market.fallbackProvider ?? null,
+      ]);
+      return {
+        marketCode: market.marketCode,
+        quoteAsOf: market.quoteAsOfDate,
+        sources: buildReportBasisSourceList(quoteSources, fallbackProviders, fallbackQuoteCount, holdingCount),
+        fallbackUsed: market.usesFallbackQuote,
+        fallbackQuoteCount,
+        holdingCount,
+        expectedLatestValuationDate: market.expectedLatestValuationDate,
+        closureDate: market.closureDate,
+        closureName: market.closureName,
+        closureReason: market.closureReason,
+      };
+    });
   }
 
   const marketCodes = data.diagnostics.markets.length > 0
@@ -1157,24 +1177,80 @@ function buildReportBasisMarketSummaries(data: AnyReportDto): Array<{
     const market = data.diagnostics.markets.find((candidate) => candidate.marketCode === marketCode);
     const rows = rowsByMarket.get(marketCode) ?? [];
     const quoteAsOf = latestDate(rows.map((row) => row.priceState.asOfDate));
-    const source = firstNonEmptyString([
-      rows.find((row) => row.priceState.fallbackProvider)?.priceState.fallbackProvider ?? null,
-      rows.find((row) => row.priceState.source)?.priceState.source ?? null,
-      market?.providerSources[0] ?? null,
+    const fallbackQuoteCount = rows.filter((row) => row.priceState.fallbackProvider || row.priceState.basis === "fallback_eod_close").length;
+    const quoteSources = uniqueSortedNonEmptyStrings([
+      ...rows.map((row) => row.priceState.source),
+      ...(market?.providerSources ?? []),
     ]);
-    const fallbackUsed = rows.some((row) => row.priceState.fallbackProvider || row.priceState.basis === "fallback_eod_close");
+    const fallbackProviders = uniqueSortedNonEmptyStrings(rows.map((row) => row.priceState.fallbackProvider));
+    const sources = buildReportBasisSourceList(quoteSources, fallbackProviders, fallbackQuoteCount, rows.length);
+    const fallbackUsed = fallbackQuoteCount > 0;
 
     return {
       marketCode,
       quoteAsOf,
-      source,
+      sources,
       fallbackUsed,
+      fallbackQuoteCount,
+      holdingCount: rows.length,
       expectedLatestValuationDate: market?.expectedLatestValuationDate ?? null,
       closureDate: market?.basis?.closureDate ?? null,
       closureName: market?.basis?.closureName ?? null,
       closureReason: market?.basis?.closureReason ?? null,
     };
   });
+}
+
+function buildReportBasisSourceList(
+  quoteSources: string[],
+  fallbackProviders: string[],
+  fallbackQuoteCount: number | null,
+  holdingCount: number | null,
+): string[] {
+  if (
+    fallbackQuoteCount !== null
+    && holdingCount !== null
+    && fallbackQuoteCount > 0
+    && fallbackQuoteCount === holdingCount
+    && fallbackProviders.length > 0
+  ) {
+    return fallbackProviders;
+  }
+  return uniqueSortedNonEmptyStrings([...quoteSources, ...fallbackProviders]);
+}
+
+function formatReportBasisSourceSummary(
+  summary: { sources: string[]; fallbackQuoteCount: number | null; holdingCount: number | null },
+  dict: AppDictionary,
+): string {
+  const source = summary.sources.join(", ");
+  const hasPartialFallback = summary.fallbackQuoteCount !== null
+    && summary.holdingCount !== null
+    && summary.fallbackQuoteCount > 0
+    && summary.fallbackQuoteCount < summary.holdingCount;
+  if (summary.sources.length > 1 || hasPartialFallback) {
+    return formatReportMessage(dict.reports.basisMarketSources, { sources: source });
+  }
+  return formatReportMessage(dict.reports.basisMarketSource, { source });
+}
+
+function formatReportBasisFallbackSummary(
+  summary: { fallbackUsed: boolean; fallbackQuoteCount: number | null; holdingCount: number | null },
+  dict: AppDictionary,
+): string {
+  if (!summary.fallbackUsed) return dict.reports.basisMarketFallbackNone;
+  if (
+    summary.fallbackQuoteCount !== null
+    && summary.holdingCount !== null
+    && summary.fallbackQuoteCount > 0
+    && summary.fallbackQuoteCount < summary.holdingCount
+  ) {
+    return formatReportMessage(dict.reports.basisMarketFallbackPartial, {
+      count: String(summary.fallbackQuoteCount),
+      total: String(summary.holdingCount),
+    });
+  }
+  return dict.reports.basisMarketFallbackUsed;
 }
 
 function isConfirmedMarketClosure(reason: "market_holiday" | "weekend" | "calendar_unknown" | null): boolean {
@@ -1229,8 +1305,9 @@ function latestDate(values: Array<string | null | undefined>): string | null {
   return filtered.at(-1) ?? null;
 }
 
-function firstNonEmptyString(values: Array<string | null | undefined>): string | null {
-  return values.find((value): value is string => typeof value === "string" && value.trim().length > 0) ?? null;
+function uniqueSortedNonEmptyStrings(values: Array<string | null | undefined>): string[] {
+  return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))]
+    .sort((left, right) => left.localeCompare(right));
 }
 
 type SummaryMetricItem = {

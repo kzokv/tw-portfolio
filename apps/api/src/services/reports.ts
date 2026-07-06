@@ -754,6 +754,9 @@ async function buildReportValuationBasis(
       const hasMissingQuote = priceStates.some((state) => state.asOfDate === null);
       const quoteAsOfDate = hasMissingQuote ? null : minNullableDateFromValues(priceStates.map((state) => state.asOfDate));
       const representative = pickRepresentativePriceState(priceStates, quoteAsOfDate);
+      const quoteSources = uniqueSortedStrings(priceStates.flatMap((state) => state.source ? [state.source] : []));
+      const fallbackProviders = uniqueSortedStrings(priceStates.flatMap((state) => state.fallbackProvider ? [state.fallbackProvider] : []));
+      const fallbackQuoteCount = priceStates.filter((state) => state.fallbackProvider || state.basis === "fallback_eod_close").length;
       const marketFxAsOfDate = latestFxAsOfDateForMarket(marketGroups, fxRates, reportQuery.reportingCurrency);
       const closure = await findFirstMarketClosureAfterQuote(
         persistence,
@@ -767,9 +770,13 @@ async function buildReportValuationBasis(
         expectedLatestValuationDate: expectedValuationDatesByMarket.get(marketCode) ?? null,
         quoteAsOfDate,
         quoteSource: representative?.source ?? null,
+        quoteSources,
         quoteSourceKind: representative?.sourceKind ?? null,
-        usesFallbackQuote: priceStates.some((state) => state.basis === "fallback_eod_close"),
+        usesFallbackQuote: fallbackQuoteCount > 0,
+        fallbackQuoteCount,
         fallbackProvider: representative?.fallbackProvider ?? null,
+        fallbackProviders,
+        holdingCount: marketGroups.length,
         fallbackStale: representative?.fallbackStale ?? null,
         calendarStatus: representative?.calendarStatus ?? null,
         marketState: representative?.marketState ?? null,
@@ -790,6 +797,10 @@ async function buildReportValuationBasis(
     fxAsOfDate,
     markets,
   };
+}
+
+function uniqueSortedStrings(values: readonly string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right));
 }
 
 function latestFxAsOfDate(fxRates: readonly FxConversionRateDto[]): string | null {

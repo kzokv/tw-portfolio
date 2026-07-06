@@ -747,7 +747,9 @@ export interface AppDictionary {
     basisFxLabel: string;
     basisMarketQuoteAsOf: string;
     basisMarketSource: string;
+    basisMarketSources: string;
     basisMarketFallbackUsed: string;
+    basisMarketFallbackPartial: string;
     basisMarketFallbackNone: string;
     basisMarketRollback: string;
     basisMarketStaleQuote: string;

@@ -1268,9 +1268,13 @@ export interface ReportMarketValuationBasisDto {
   expectedLatestValuationDate: string | null;
   quoteAsOfDate: string | null;
   quoteSource: string | null;
+  quoteSources?: string[];
   quoteSourceKind: PriceStateSourceKindDto | null;
   usesFallbackQuote: boolean;
+  fallbackQuoteCount?: number;
   fallbackProvider?: QuoteFallbackProviderDto | null;
+  fallbackProviders?: string[];
+  holdingCount?: number;
   fallbackStale?: boolean | null;
   calendarStatus: PriceStateCalendarStatusDto | null;
   marketState: PriceStateMarketStateDto | null;

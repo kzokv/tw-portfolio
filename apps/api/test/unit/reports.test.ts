@@ -524,6 +524,10 @@ describe("buildPortfolioReport", () => {
     expect(usBasis).toEqual(expect.objectContaining({
       quoteAsOfDate: "2026-07-01",
       quoteSource: "test-us-stale-close",
+      quoteSources: ["test-us-latest-close", "test-us-stale-close"],
+      fallbackQuoteCount: 0,
+      fallbackProviders: [],
+      holdingCount: 2,
     }));
   });
 
@@ -563,6 +567,10 @@ describe("buildPortfolioReport", () => {
       quoteAsOfDate: null,
       quoteSource: null,
       quoteSourceKind: "missing",
+      quoteSources: ["test-us-close"],
+      fallbackQuoteCount: 0,
+      fallbackProviders: [],
+      holdingCount: 2,
     }));
     expect(report.diagnostics.markets.find((market) => market.marketCode === "US")?.knownGapReasons).toContain("missing_quote");
   });

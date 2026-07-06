@@ -871,6 +871,24 @@ describe("UnrealizedPnlAnalysisClient", () => {
     expect(container.textContent).toContain("Apr 24, 2026");
   });
 
+  it("uses focused points for the selected detail basis disclosure", () => {
+    const focusedState = { ...ANALYSIS_DEFAULT_STATE, focusDate: "2026-04-24" };
+    const initialData = buildPreviewUnrealizedPnlAnalysis(focusedState);
+
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={focusedState} />
+        </AppShellDataProvider>,
+      );
+    });
+
+    const basisTip = container.querySelector("[data-testid='analysis-selected-detail-basis-tip']");
+    expect(basisTip?.textContent).toContain("Latest snapshot shown: Apr 24, 2026");
+    expect(basisTip?.textContent).toContain("Snapshot FX as of: Apr 24, 2026");
+    expect(basisTip?.textContent).not.toContain("Jun 26, 2026");
+  });
+
   it("keeps large focused values compact in the mobile focus strip", () => {
     const focusedState = { ...ANALYSIS_DEFAULT_STATE, focusDate: "2026-04-24" };
     const initialData = buildPreviewUnrealizedPnlAnalysis(focusedState);

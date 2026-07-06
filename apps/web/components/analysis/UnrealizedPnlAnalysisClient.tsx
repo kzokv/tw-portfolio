@@ -222,7 +222,12 @@ export function UnrealizedPnlAnalysisClient({
     return values.reduce((sum, value) => sum + value, 0);
   }, [detailRows, selectedSet]);
   const selectedDetailBasis = useMemo(() => {
-    const points = selectedSeries.flatMap((series) => series.points);
+    const points = focusDate
+      ? selectedSeries.flatMap((series) => {
+          const point = series.points.find((candidate) => candidate.date === focusDate);
+          return point ? [point] : [];
+        })
+      : selectedSeries.flatMap((series) => series.points);
     const snapshotDates = points.flatMap((point) => point.basis?.snapshotDate ? [point.basis.snapshotDate] : []);
     const providerSources = [...new Set(points.flatMap((point) => point.basis?.snapshotProviderSources ?? [])
       .map((source) => source.trim())
@@ -230,12 +235,13 @@ export function UnrealizedPnlAnalysisClient({
       .sort();
     const fxDates = [...new Set(points.flatMap((point) => point.basis?.fxAsOfDate ? [point.basis.fxAsOfDate] : []))]
       .sort();
+    const fallbackSnapshotDate = focusDate ? null : data?.basis?.endSnapshotDate ?? data?.diagnostics?.latestSnapshotDate ?? null;
     return {
-      latestSnapshotDate: latestDate(snapshotDates) ?? data?.basis?.endSnapshotDate ?? data?.diagnostics?.latestSnapshotDate ?? null,
+      latestSnapshotDate: latestDate(snapshotDates) ?? fallbackSnapshotDate,
       providerSources,
       latestFxAsOfDate: latestDate(fxDates),
     };
-  }, [data?.basis?.endSnapshotDate, data?.diagnostics?.latestSnapshotDate, selectedSeries]);
+  }, [data?.basis?.endSnapshotDate, data?.diagnostics?.latestSnapshotDate, focusDate, selectedSeries]);
   const focusedSelectedValues = useMemo(
     () => selectedSeries.map((series) => {
       const point = focusDate ? series.points.find((candidate) => candidate.date === focusDate) : undefined;

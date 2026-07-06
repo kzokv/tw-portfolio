@@ -88,7 +88,9 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         basisFxLabel: "FX",
         basisMarketQuoteAsOf: "Quote {date}",
         basisMarketSource: "Source {source}",
+        basisMarketSources: "Sources by holding: {sources}",
         basisMarketFallbackUsed: "Fallback quote used",
+        basisMarketFallbackPartial: "Fallback quote used by {count}/{total} holdings",
         basisMarketFallbackNone: "Primary quote path",
         basisMarketRollback: "{market} closed {expected}: using {actual} close",
         basisMarketStaleQuote: "Stale market data: {market} expected {expected}, using {actual} close",
@@ -830,6 +832,102 @@ describe("ReportsClient", () => {
     expect(document.querySelector("[data-testid='reports-basis-market-AU']")?.textContent).toContain("Fallback quote used");
     expect(document.querySelector("[data-testid='reports-basis-market-AU']")?.textContent).toContain("AU closed Jun 8, 2026: using Jun 7, 2026 close");
     expect(document.querySelector("[data-testid='reports-basis-fx']")?.textContent).toContain("FX as of Jun 8, 2026");
+  });
+
+  it("discloses mixed per-holding sources when only part of a market uses fallback quotes", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=all&range=1M";
+    const baseRow = portfolioFixture.holdings.rows[0]!;
+    const qauRow = {
+      ...baseRow,
+      ticker: "QAU",
+      instrumentName: "BetaShares Gold Bullion ETF",
+      priceState: testPriceState({
+        asOfDate: "2026-07-03",
+        basis: "today_close",
+        source: "yahoo-finance-au",
+      }),
+    };
+    const etpmagRow = {
+      ...baseRow,
+      ticker: "ETPMAG",
+      instrumentName: "Global X Physical Silver",
+      quantity: 23,
+      priceState: testPriceState({
+        asOfDate: "2026-07-03",
+        basis: "fallback_eod_close",
+        chipState: "stale",
+        source: "eodhd",
+        fallbackProvider: "eodhd",
+      }),
+    };
+    const mixedSourceFixture: PortfolioReportDto = {
+      ...portfolioFixture,
+      diagnostics: {
+        ...portfolioFixture.diagnostics,
+        markets: [{
+          marketCode: "AU",
+          expectedLatestValuationDate: "2026-07-03",
+          latestSnapshotDate: "2026-07-03",
+          missingProviderSourceCount: 0,
+          providerSources: ["yahoo-finance-au", "eodhd"],
+          knownGapReasons: ["non_current_price"],
+        }],
+        valuationBasis: {
+          semantics: "current_report_valuation",
+          reportingCurrency: "AUD",
+          reportAsOf: "2026-07-06",
+          fxAsOfDate: null,
+          markets: [{
+            marketCode: "AU",
+            requestedAsOf: "2026-07-06",
+            expectedLatestValuationDate: "2026-07-03",
+            quoteAsOfDate: "2026-07-03",
+            quoteSource: "eodhd",
+            quoteSources: ["eodhd", "yahoo-finance-au"],
+            quoteSourceKind: "eodhd_eod",
+            usesFallbackQuote: true,
+            fallbackQuoteCount: 1,
+            fallbackProvider: "eodhd",
+            fallbackProviders: ["eodhd"],
+            holdingCount: 2,
+            fallbackStale: true,
+            calendarStatus: null,
+            marketState: null,
+            marketStateReason: null,
+            marketLocalDate: "2026-07-06",
+            closureDate: null,
+            closureName: null,
+            closureReason: null,
+            fxAsOfDate: null,
+            reportingCurrency: "AUD",
+          }],
+        },
+      },
+      holdings: {
+        ...portfolioFixture.holdings,
+        total: 2,
+        rows: [qauRow, etpmagRow],
+      },
+      concentration: {
+        ...portfolioFixture.concentration,
+        topHoldings: [qauRow, etpmagRow],
+      },
+    };
+
+    act(() => {
+      root.render(<ReportsClient initialReport={mixedSourceFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "all",
+        range: "1M",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    const auBasis = document.querySelector("[data-testid='reports-basis-market-AU']")?.textContent;
+    expect(auBasis).toContain("Sources by holding: eodhd, yahoo-finance-au");
+    expect(auBasis).toContain("Fallback quote used by 1/2 holdings");
+    expect(auBasis).not.toContain("Source eodhdFallback quote used");
   });
 
   it("does not label missing FX as latest available in valuation basis disclosure", async () => {
