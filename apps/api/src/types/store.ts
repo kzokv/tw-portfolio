@@ -12,6 +12,7 @@ export interface FeeProfileBinding {
 
 export interface InstrumentDef {
   ticker: string;
+  name?: string | null;
   type: InstrumentType | null;
   // KZO-169: required after migration 044's composite PK + provider stamping
   // audit (G1). Every code path that produces an InstrumentDef must supply a

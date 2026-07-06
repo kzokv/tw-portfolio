@@ -18,6 +18,7 @@ import type {
   AccountingStore,
   BookedTradeEvent,
   CashLedgerEntry,
+  InstrumentDef,
   LotAllocationProjection,
   MarketDataFacts,
   Store,
@@ -254,6 +255,18 @@ interface MemoryInstrument {
   delistedAt?: string;
   /** KZO-196 — GICS industry-group label (AU only); null on non-AU and pre-sync rows. */
   gicsIndustryGroup?: string | null;
+}
+
+function memoryInstrumentToDef(instrument: MemoryInstrument): InstrumentDef {
+  return {
+    ticker: instrument.ticker,
+    name: instrument.name,
+    type: instrument.instrumentType as InstrumentType | null,
+    marketCode: instrument.marketCode as MarketCode,
+    typeRaw: instrument.typeRaw ?? null,
+    industryCategoryRaw: instrument.industryCategoryRaw ?? null,
+    lastSyncedAt: null,
+  };
 }
 
 type MemoryDailyBar = DailyBar & { marketCode: MarketCode };
@@ -2117,6 +2130,10 @@ export class MemoryPersistence implements Persistence {
     store.userId = userId;
     store.settings.userId = userId;
     store.accounts = store.accounts.map((account) => ({ ...account, userId }));
+    const userCatalog = this.instrumentsByUser.get(userId);
+    if (userCatalog && userCatalog.size > 0) {
+      setStoreInstruments(store, [...userCatalog.values()].map(memoryInstrumentToDef));
+    }
 
     // Surface displayName from identity resolution (if user was bootstrapped via resolveOrCreateUser)
     const memUser = [...this.usersByEmail.values()].find((u) => u.id === userId);
@@ -2446,6 +2463,7 @@ export class MemoryPersistence implements Persistence {
       if (reversedIds.has(entry.id)) return false;
       if (opts.accountId && entry.accountId !== opts.accountId) return false;
       const event = eventById.get(entry.dividendEventId);
+      if (opts.marketCode && (!event || dividendEventMarketCode(event) !== opts.marketCode)) return false;
       const hasDates = opts.fromPaymentDate != null || opts.toPaymentDate != null;
       if (hasDates) {
         if (!matchesNullableDateRange(event?.paymentDate ?? null, opts.fromPaymentDate, opts.toPaymentDate)) return false;
@@ -2608,6 +2626,7 @@ export class MemoryPersistence implements Persistence {
       if (opts.postingStatus && entry.postingStatus !== opts.postingStatus) return [];
       const event = eventById.get(entry.dividendEventId);
       if (!event) return [];
+      if (opts.marketCode && dividendEventMarketCode(event) !== opts.marketCode) return [];
       if (!matchesDateFilter(event.paymentDate)) return [];
       if (opts.ticker && event.ticker !== opts.ticker) return [];
       return [{
@@ -2637,11 +2656,12 @@ export class MemoryPersistence implements Persistence {
       for (const event of store.marketData.dividendEvents) {
         let eventMarketCode: MarketCode;
         try {
-          eventMarketCode = marketCodeFor(event.cashDividendCurrency);
+          eventMarketCode = dividendEventMarketCode(event);
         } catch {
           continue;
         }
         if (account.defaultCurrency !== event.cashDividendCurrency) continue;
+        if (opts.marketCode && eventMarketCode !== opts.marketCode) continue;
         if (!matchesDateFilter(event.paymentDate)) continue;
         if (opts.ticker && event.ticker !== opts.ticker) continue;
         if (opts.reconciliationStatus && opts.reconciliationStatus !== "open") continue;
@@ -6137,6 +6157,13 @@ export class MemoryPersistence implements Persistence {
       }
       this._seedInstrument(instrument, userId);
     }
+    if (userId) {
+      const store = this.stores.get(userId);
+      if (store) {
+        setStoreInstruments(store, [...catalog.values()].map(memoryInstrumentToDef));
+        this.stores.set(userId, store);
+      }
+    }
   }
 
   private _catalogForUser(userId?: string): Map<string, MemoryInstrument> {
@@ -8086,6 +8113,12 @@ function matchesNullableDateRange(value: string | null | undefined, fromDate?: s
   if (fromDate && value < fromDate) return false;
   if (toDate && value > toDate) return false;
   return true;
+}
+
+function dividendEventMarketCode(
+  event: Pick<Store["marketData"]["dividendEvents"][number], "marketCode" | "cashDividendCurrency">,
+): MarketCode {
+  return event.marketCode ?? marketCodeFor(event.cashDividendCurrency);
 }
 
 function compareNullablePaymentDates(

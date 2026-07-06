@@ -15,7 +15,7 @@ import {
 import type { PersistedTickerFundamentalsRecord, Persistence } from "../persistence/types.js";
 import { routeError } from "../lib/routeError.js";
 import { listDividendDeductionEntries, listDividendLedgerEntries, listTradeEvents } from "./accountingStore.js";
-import { deriveEligibleQuantity } from "./dividends.js";
+import { deriveEligibleQuantity, resolveDividendTickerName } from "./dividends.js";
 import { createEmptyTickerFundamentals } from "./fundamentals/types.js";
 import { historyStartFor } from "./market-data/types.js";
 import {
@@ -260,6 +260,10 @@ export async function buildTickerDetails(
     unrealizedPnlHistory,
     transactions: filteredTransactions.map((trade) => mapTransactionHistoryItem(trade, accountById, buildRealizedPnlBreakdown)),
     dividends: {
+      upcomingCount: upcomingDividends.length,
+      nextPaymentDate: minNullableDate(upcomingDividends.map((dividend) => dividend.paymentDate ?? dividend.exDividendDate)),
+      lastPostedDate: maxNullableDate(recentDividends.map((dividend) => dividend.postedAt)),
+      openReconciliationCount: recentDividends.filter((dividend) => dividend.reconciliationStatus === "open").length,
       upcoming: upcomingDividends,
       recent: recentDividends,
     },
@@ -1031,6 +1035,8 @@ function buildUpcomingDividends(
           accountId: account.id,
           accountName: account.name,
           ticker: event.ticker,
+          tickerName: resolveDividendTickerName(store, event.ticker, marketCode),
+          marketCode,
           exDividendDate: event.exDividendDate,
           paymentDate: event.paymentDate,
           expectedAmount: event.cashDividendPerShare > 0
@@ -1080,12 +1086,16 @@ function buildRecentDividends(
         accountId: entry.accountId,
         accountName: accountById.get(entry.accountId)?.name ?? entry.accountId,
         ticker: event.ticker,
+        tickerName: resolveDividendTickerName(store, event.ticker, marketCode),
+        marketCode,
+        dividendLedgerEntryId: entry.id,
         postedAt: entry.bookedAt ?? event.paymentDate ?? new Date().toISOString(),
         netAmount: entry.receivedCashAmount,
         grossAmount: entry.receivedCashAmount + deductionAmount,
         deductionAmount: deductionAmount || null,
         currency: event.cashDividendCurrency,
         sourceSummary: resolveSourceSummary(event.eventType),
+        reconciliationStatus: entry.reconciliationStatus,
         status: entry.reconciliationStatus === "matched" ? "posted" : "unreconciled",
       }];
     })

@@ -16,6 +16,35 @@ export class DividendsAssert extends BaseAssert {
   }
 
   @Step()
+  async monthInputHasValue(value: string): Promise<void> {
+    await expect(this.el.monthInput).toHaveValue(value);
+  }
+
+  @Step()
+  async actionQueueContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.actionQueue).toContainText(text);
+  }
+
+  @Step()
+  async thisMonthContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.thisMonth).toContainText(text);
+  }
+
+  @Step()
+  async recentReceiptsContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.recentReceipts).toContainText(text);
+  }
+
+  @Step()
+  async actionQueueAppearsBeforeThisMonth(): Promise<void> {
+    await expect.poll(async () => {
+      const actionBox = await this.el.actionQueue.boundingBox();
+      const thisMonthBox = await this.el.thisMonth.boundingBox();
+      return (actionBox?.y ?? Number.POSITIVE_INFINITY) < (thisMonthBox?.y ?? Number.NEGATIVE_INFINITY);
+    }).toBe(true);
+  }
+
+  @Step()
   async rowBadgeContains(eventId: string, text: string | RegExp): Promise<void> {
     await expect(this.el.badge(eventId)).toContainText(text);
   }

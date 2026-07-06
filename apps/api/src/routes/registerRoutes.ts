@@ -103,9 +103,11 @@ import { resolveAccountDisplayName } from "../services/mcpAccountHelpers.js";
 import {
   buildDividendEventListItems,
   buildDividendLedgerEntryDetails,
+  buildDividendReviewRowDetails,
   createDividendEvent,
   postDividend,
   preparePostedCashDividendUpdate,
+  resolveDividendEventMarketCode,
 } from "../services/dividends.js";
 import { applyCorporateAction, createTransaction, listHoldings } from "../services/portfolio.js";
 import {
@@ -466,6 +468,7 @@ const dividendLedgerQuerySchema = z.object({
   reconciliationStatus: z.enum(["open", "matched", "explained", "resolved"]).optional(),
   postingStatus: z.enum(["expected", "posted", "adjusted"]).optional(),
   ticker: tickerSchema.optional(),
+  marketCode: marketCodeSchema.optional(),
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(500).default(50),
   sortBy: z
@@ -6270,9 +6273,41 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  app.get("/portfolio/dividends/calendar", async (req) => {
+    const query = dividendLedgerQuerySchema.parse(req.query);
+    const { userId, store } = await loadUserStore(app, req);
+    const [dividendEvents, ledgerResult] = await Promise.all([
+      app.persistence.listDividendEventsByPaymentDate(
+        userId,
+        query.fromPaymentDate,
+        query.toPaymentDate,
+        query.limit,
+      ),
+      app.persistence.listDividendLedgerEntries(userId, {
+        accountId: query.accountId,
+        fromPaymentDate: query.fromPaymentDate,
+        toPaymentDate: query.toPaymentDate,
+        marketCode: query.marketCode,
+        limit: query.limit,
+        page: 1,
+        sortBy: "paymentDate",
+        sortOrder: "asc",
+      }),
+    ]);
+
+    const filteredDividendEvents = query.marketCode
+      ? dividendEvents.filter((event) => resolveDividendEventMarketCode(event) === query.marketCode)
+      : dividendEvents;
+
+    return {
+      events: buildDividendEventListItems(store, filteredDividendEvents),
+      ledgerEntries: buildDividendLedgerEntryDetails(store, ledgerResult.ledgerEntries, { preserveOrder: true }),
+    };
+  });
+
   app.get("/portfolio/dividends/review", async (req) => {
     const query = dividendLedgerQuerySchema.parse(req.query);
-    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const { userId, store } = await loadUserStore(app, req);
     const result = await app.persistence.listDividendReviewRows(userId, {
       accountId: query.accountId,
       fromPaymentDate: query.fromPaymentDate,
@@ -6280,6 +6315,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       reconciliationStatus: query.reconciliationStatus,
       postingStatus: query.postingStatus,
       ticker: query.ticker,
+      marketCode: query.marketCode,
       page: query.page,
       limit: query.limit,
       sortBy: query.sortBy,
@@ -6287,7 +6323,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     });
 
     return {
-      reviewRows: result.rows,
+      reviewRows: buildDividendReviewRowDetails(store, result.rows),
       total: result.total,
       aggregates: result.aggregates,
     };

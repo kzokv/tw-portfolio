@@ -4,6 +4,10 @@ import { DividendPostingDrawerComponent, type TDividendPostingDrawerElements } f
 
 export interface TDividendCalendarElements {
   calendarPage: Locator;
+  monthInput: Locator;
+  actionQueue: Locator;
+  thisMonth: Locator;
+  recentReceipts: Locator;
   tbdSection: Locator;
   // Phase 5a — Tabs container (calendar | ledger).
   tabsContainer: Locator;
@@ -23,6 +27,10 @@ export class DividendCalendarPage extends BasePage<TDividendCalendarElements> {
   protected initializeElements(): void {
     this._elements = {
       calendarPage: this.locate("dividends-calendar-page", "Dividend Calendar Page"),
+      monthInput: this.locate("dividends-month-input", "Dividends Month Input"),
+      actionQueue: this.locate("dividends-action-queue", "Dividends Action Queue"),
+      thisMonth: this.locate("dividends-this-month", "Dividends This Month Section"),
+      recentReceipts: this.locate("dividends-recent-receipts", "Dividends Recent Receipts Section"),
       tbdSection: this.locate("dividends-tbd-section", "Dividend Payment Date TBD Section"),
       tabsContainer: this.locate("dividends-tabs", "Dividends Tabs Container"),
       tabCalendar: this.locate("dividends-tab-calendar", "Dividends Calendar Tab"),
@@ -30,7 +38,11 @@ export class DividendCalendarPage extends BasePage<TDividendCalendarElements> {
       tabpanelCalendar: this.locate("dividends-tabpanel-calendar", "Dividends Calendar Panel"),
       tabpanelLedger: this.locate("dividends-tabpanel-ledger", "Dividends Ledger Panel"),
       row: (eventId: string) => this.locate(`dividend-row-${eventId}`, `Dividend Row ${eventId}`),
-      badge: (eventId: string) => this.locate(`dividend-badge-${eventId}`, `Dividend Badge ${eventId}`),
+      badge: (eventId: string) =>
+        this.withDescription(
+          this.locate(`dividend-row-${eventId}`).getByTestId(`dividend-badge-${eventId}`),
+          `Dividend Badge ${eventId}`,
+        ),
       postButton: (eventId: string) => this.locate(`dividend-post-${eventId}`, `Post Dividend Button ${eventId}`),
       editButton: (eventId: string) => this.locate(`dividend-edit-${eventId}`, `Edit Dividend Button ${eventId}`),
       markMatchedButton: (eventId: string) => this.locate(`dividend-mark-matched-${eventId}`, `Mark Dividend Matched Button ${eventId}`),

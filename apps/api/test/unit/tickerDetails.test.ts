@@ -187,8 +187,8 @@ describe("buildTickerDetails", () => {
     store.feeProfiles.push(usdFeeProfile, audFeeProfile);
     setStoreInstruments(store, [
       ...store.instruments,
-      { ticker: "BHP", type: "STOCK", marketCode: "US", isProvisional: false },
-      { ticker: "BHP", type: "STOCK", marketCode: "AU", isProvisional: false },
+      { ticker: "BHP", name: "BHP Group ADR", type: "STOCK", marketCode: "US", isProvisional: false },
+      { ticker: "BHP", name: "BHP Group", type: "STOCK", marketCode: "AU", isProvisional: false },
     ]);
     store.accounting.projections.holdings.push(
       {
@@ -416,7 +416,7 @@ describe("buildTickerDetails", () => {
         receivedCashAmount: 6,
         receivedStockQuantity: 0,
         postingStatus: "posted",
-        reconciliationStatus: "matched",
+        reconciliationStatus: "open",
         version: 1,
         sourceCompositionStatus: "provided",
         bookedAt: "2026-04-11T00:00:00.000Z",
@@ -471,17 +471,27 @@ describe("buildTickerDetails", () => {
     expect(details.dividends.upcoming).toEqual([
       expect.objectContaining({
         accountId: "acc-au",
+        tickerName: "BHP Group",
+        marketCode: "AU",
         currency: "USD",
         expectedAmount: 7.5,
       }),
     ]);
+    expect(details.dividends.upcomingCount).toBe(1);
+    expect(details.dividends.nextPaymentDate).toBe("2026-05-01");
     expect(details.dividends.recent).toEqual([
       expect.objectContaining({
         accountId: "acc-au",
+        tickerName: "BHP Group",
+        marketCode: "AU",
+        dividendLedgerEntryId: "bhp-au-posted-dividend",
+        reconciliationStatus: "open",
         currency: "USD",
         grossAmount: 6,
       }),
     ]);
+    expect(details.dividends.lastPostedDate).toBe("2026-04-11T00:00:00.000Z");
+    expect(details.dividends.openReconciliationCount).toBe(1);
   });
 
   it("scopes ticker transactions and realized P&L to requested account ids", async () => {

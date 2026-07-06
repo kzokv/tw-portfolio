@@ -21,6 +21,17 @@ async function seedTwdAccount(): Promise<string> {
   return account.id;
 }
 
+async function seedInstrumentName(
+  ticker: string,
+  marketCode: "TW" | "US" | "AU" | "KR",
+  name: string,
+): Promise<void> {
+  const store = await app.persistence.loadStore(USER_ID);
+  const instrument = store.instruments.find((entry) => entry.ticker === ticker && entry.marketCode === marketCode);
+  if (!instrument) throw new Error(`instrument_not_found:${ticker}:${marketCode}`);
+  instrument.name = name;
+}
+
 async function seedBuy(
   accountId: string,
   ticker: string,
@@ -180,8 +191,37 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
     expect(review.total).toBe(0);
   });
 
+  it("filters same-ticker review rows by market code", async () => {
+    const accountId = await seedTwdAccount();
+    const twEvent = await seedDividendEvent({
+      ticker: "DUAL",
+      marketCode: "TW",
+      cashDividendCurrency: "TWD",
+    });
+    const usEvent = await seedDividendEvent({
+      ticker: "DUAL",
+      marketCode: "US",
+      cashDividendCurrency: "USD",
+    });
+    await seedLedgerEntry(accountId, twEvent.id);
+    await seedLedgerEntry(accountId, usEvent.id);
+
+    const review = await app.persistence.listDividendReviewRows(USER_ID, {
+      ...defaultOpts,
+      ticker: "DUAL",
+      marketCode: "TW",
+    });
+
+    expect(review.rows).toHaveLength(1);
+    expect(review.rows[0]).toMatchObject({
+      dividendEventId: twEvent.id,
+      ticker: "DUAL",
+    });
+  });
+
   it("exposes expected rows on the review route while keeping the ledger route ledger-only", async () => {
     const accountId = await seedTwdAccount();
+    await seedInstrumentName("2330", "TW", "TSMC");
     await seedBuy(accountId, "2330", 1000, "2024-05-20");
     const event = await seedDividendEvent();
 
@@ -204,6 +244,8 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
           accountId,
           dividendEventId: event.id,
           ticker: "2330",
+          tickerName: "TSMC",
+          marketCode: "TW",
         },
       ],
     });

@@ -15,7 +15,7 @@ import type {
 import { currencyFor, MARKET_CODES, marketCodeFor, type MarketCode } from "@vakwen/shared-types";
 import { roundToDecimal } from "@vakwen/domain";
 import type { QuoteSnapshot } from "@vakwen/domain";
-import { deriveEligibleQuantity, resolveDividendEventMarketCode } from "./dividends.js";
+import { deriveEligibleQuantity, resolveDividendEventMarketCode, resolveDividendTickerName } from "./dividends.js";
 import { listTransactionInstruments } from "./instrumentRegistry.js";
 import {
   buildMissingPriceState,
@@ -563,6 +563,8 @@ function buildUpcomingDividends(store: Store): DashboardOverviewUpcomingDividend
             accountId: account.id,
             accountName: account.name,
             ticker: event.ticker,
+            tickerName: resolveDividendTickerName(store, event.ticker, resolveDividendEventMarketCode(event)),
+            marketCode: resolveDividendEventMarketCode(event),
             exDividendDate: event.exDividendDate,
             paymentDate: event.paymentDate,
             expectedAmount,
@@ -596,12 +598,16 @@ function buildRecentDividends(store: Store): DashboardOverviewRecentDividendDto[
         accountId: entry.accountId,
         accountName: accountById.get(entry.accountId)?.name ?? entry.accountId,
         ticker: event?.ticker ?? "UNKNOWN",
+        tickerName: event ? resolveDividendTickerName(store, event.ticker, resolveDividendEventMarketCode(event)) : null,
+        marketCode: event ? resolveDividendEventMarketCode(event) : undefined,
+        dividendLedgerEntryId: entry.id,
         postedAt: entry.bookedAt ?? event?.paymentDate ?? new Date().toISOString(),
         netAmount: entry.receivedCashAmount,
         grossAmount: entry.receivedCashAmount + deductionAmount,
         deductionAmount: deductionAmount || null,
         currency: event?.cashDividendCurrency ?? "TWD",
         sourceSummary: resolveSourceSummary(event?.eventType),
+        reconciliationStatus: entry.reconciliationStatus,
         status: entry.reconciliationStatus === "matched" ? "posted" : "unreconciled",
       } satisfies DashboardOverviewRecentDividendDto;
     })

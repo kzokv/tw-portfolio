@@ -5993,7 +5993,14 @@ export class PostgresPersistence implements Persistence {
         dividendEvents,
         instruments,
       },
-      instruments: instruments.map(instrumentRefToDef),
+      instruments: instruments.map((instrument) => ({
+        ticker: instrument.ticker,
+        name: instrument.name ?? null,
+        type: instrument.instrumentType,
+        marketCode: instrument.marketCode,
+        isProvisional: instrument.isProvisional,
+        lastSyncedAt: instrument.lastSyncedAt ?? null,
+      })),
       recomputeJobs,
       idempotencyKeys: new Set<string>(),
     };
@@ -9712,6 +9719,7 @@ export class PostgresPersistence implements Persistence {
       opts.reconciliationStatus ?? null, // $5
       opts.postingStatus ?? null, // $6
       opts.ticker ?? null, // $7
+      opts.marketCode ?? null, // $8
     ];
 
     // Re-usable WHERE clause and FROM join shared by every query below.
@@ -9764,6 +9772,7 @@ export class PostgresPersistence implements Persistence {
         AND ($5::text IS NULL OR dle.reconciliation_status = $5)
         AND ($6::text IS NULL OR dle.posting_status = $6)
         AND ($7::text IS NULL OR event.ticker = $7)
+        AND ($8::text IS NULL OR event.market_code = $8)
     `;
 
     // Query A — total count + openCount (single row).
@@ -9817,7 +9826,7 @@ export class PostgresPersistence implements Persistence {
              COALESCE(receipts.received_cash_amount, 0) AS received_cash_amount
       ${fromAndWhere}
       ORDER BY ${sortColumn} ${sortDirection} ${sortDirection === "ASC" ? "NULLS FIRST" : "NULLS LAST"}, dle.id ASC
-      LIMIT $8 OFFSET $9
+      LIMIT $9 OFFSET $10
     `;
 
     // Run all five queries inside a REPEATABLE READ transaction so that
@@ -9967,6 +9976,7 @@ export class PostgresPersistence implements Persistence {
       opts.reconciliationStatus ?? null,
       opts.postingStatus ?? null,
       opts.ticker ?? null,
+      opts.marketCode ?? null,
     ];
 
     const dateClause = `AND (
@@ -10039,6 +10049,7 @@ export class PostgresPersistence implements Persistence {
           AND ($5::text IS NULL OR dle.reconciliation_status = $5)
           AND ($6::text IS NULL OR dle.posting_status = $6)
           AND ($7::text IS NULL OR event.ticker = $7)
+          AND ($8::text IS NULL OR event.market_code = $8)
       ),
       expected_rows AS (
         SELECT
@@ -10097,6 +10108,7 @@ export class PostgresPersistence implements Persistence {
           AND ($5::text IS NULL OR $5 = 'open')
           AND ($6::text IS NULL OR $6 = 'expected')
           AND ($7::text IS NULL OR event.ticker = $7)
+          AND ($8::text IS NULL OR event.market_code = $8)
           AND NOT EXISTS (
             SELECT 1
             FROM dividend_ledger_entries AS existing
@@ -10126,7 +10138,7 @@ export class PostgresPersistence implements Persistence {
         SELECT *
         FROM base
         ORDER BY ${sortColumn} ${sortDirection} ${sortDirection === "ASC" ? "NULLS FIRST" : "NULLS LAST"}, id ASC
-        LIMIT $8 OFFSET $9
+        LIMIT $9 OFFSET $10
       ),
       summary AS (
         SELECT COUNT(*)::int AS total,

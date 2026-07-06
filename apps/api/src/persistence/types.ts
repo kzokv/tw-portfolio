@@ -1138,6 +1138,7 @@ export interface DividendLedgerListOptions {
   reconciliationStatus?: DividendLedgerEntry["reconciliationStatus"];
   postingStatus?: DividendPostingStatus;
   ticker?: string;
+  marketCode?: MarketCode;
   page: number;
   limit: number;
   sortBy: DividendLedgerSortColumn;

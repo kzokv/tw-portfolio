@@ -22,7 +22,7 @@ import {
   fetchDividendLedgerReview,
   fetchDividendLedgerYears,
 } from "../../../features/dividends/services/dividendService";
-import { DividendsTabsClient } from "../../../components/dividends/DividendsTabsClient";
+import { buildOverviewTabUrl, DividendsTabsClient } from "../../../components/dividends/DividendsTabsClient";
 
 beforeAll(() => {
   (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -78,6 +78,7 @@ describe("DividendsTabsClient", () => {
           dict={dict}
           locale="en"
           accounts={[]}
+          initialCalendarMonth="2026-07"
           initialCalendarSnapshot={null}
           initialReviewData={{
             ledgerEntries: [],
@@ -112,6 +113,7 @@ describe("DividendsTabsClient", () => {
           dict={dict}
           locale="en"
           accounts={[]}
+          initialCalendarMonth="2026-07"
           initialCalendarSnapshot={null}
           initialReviewData={{
             ledgerEntries: [],
@@ -153,6 +155,13 @@ describe("DividendsTabsClient", () => {
     expect(fetchDividendCalendarSnapshotMock).toHaveBeenCalledTimes(1);
   });
 
+  it("preserves the current URL month when building the Review to Overview tab URL", () => {
+    expect(buildOverviewTabUrl("?view=ledger&month=2026-08&ticker=2330&marketCode=TW")).toEqual({
+      month: "2026-08",
+      url: "/dividends?month=2026-08",
+    });
+  });
+
   it("renders an error state when lazy calendar loading fails", async () => {
     fetchDividendCalendarSnapshotMock.mockRejectedValue(new Error("calendar unavailable"));
 
@@ -165,6 +174,7 @@ describe("DividendsTabsClient", () => {
           dict={dict}
           locale="en"
           accounts={[]}
+          initialCalendarMonth="2026-07"
           initialCalendarSnapshot={null}
           initialReviewData={{
             ledgerEntries: [],
@@ -191,6 +201,7 @@ describe("DividendsTabsClient", () => {
           dict={dict}
           locale="en"
           accounts={[]}
+          initialCalendarMonth="2026-07"
           initialCalendarSnapshot={null}
           initialReviewData={{
             ledgerEntries: [],
@@ -224,6 +235,7 @@ describe("DividendsTabsClient", () => {
           dict={dict}
           locale="en"
           accounts={[]}
+          initialCalendarMonth="2026-07"
           initialCalendarSnapshot={null}
           initialReviewData={null}
           initialYears={[]}

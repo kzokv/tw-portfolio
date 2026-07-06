@@ -25,6 +25,7 @@ import { RecordTransactionDialog } from "../../../components/portfolio/RecordTra
 import { DeleteConfirmationDialog } from "../../../components/portfolio/DeleteConfirmationDialog";
 import { EditConfirmationDialog } from "../../../components/portfolio/EditConfirmationDialog";
 import { FeeRecalcConfirmDialog } from "../../../components/portfolio/FeeRecalcConfirmDialog";
+import { TickerDividendsTab } from "../../../components/dividends/TickerDividendsTab";
 import { Button } from "../../../components/ui/Button";
 import { Card } from "../../../components/ui/Card";
 import { StatusToast } from "../../../components/ui/StatusToast";
@@ -50,6 +51,7 @@ import { useElementVisibility } from "../../../hooks/useFixedHeader";
 import { useTransactionMutations } from "../../../features/portfolio/hooks/useTransactionMutations";
 import { useTransactionSubmission } from "../../../features/portfolio/hooks/useTransactionSubmission";
 import { fetchTransactionHistory } from "../../../features/portfolio/services/portfolioService";
+import { updateDividendReconciliation } from "../../../features/dividends/services/dividendService";
 import {
   fetchTickerDetailsFullRefresh,
   fetchTickerDetailsHydration,
@@ -588,6 +590,7 @@ export function TickerHistoryClient({
   const detailsStateRef = useRef(details);
   const [isDetailsLoading, setIsDetailsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("overview");
+  const [pendingDividendLedgerEntryId, setPendingDividendLedgerEntryId] = useState<string | null>(null);
   const [analysisContextCleared, setAnalysisContextCleared] = useState(false);
   const [tickerChartSelection, setTickerChartSelection] = useState<TickerRangeControl>(() => initialTickerChartState.selection);
   const [tickerChartMetric, setTickerChartMetric] = useState<TickerChartMetric>(() => openedFromAnalysis ? "unrealizedPnl" : "price");
@@ -812,6 +815,16 @@ export function TickerHistoryClient({
     writeRouteDtoCache(tickerDetailsCacheKey, nextDetails, TICKER_DETAILS_CACHE_TTL_MS);
     router.refresh();
   }, [analysisIncludeProvisional, instrument, router, ticker, tickerChartRequest.endDate, tickerChartRequest.range, tickerChartRequest.startDate, tickerDetailsCacheKey, transactionAccountFilter, transactionAccountIdsFilter, transactionMarketFilter]);
+
+  const handleTickerDividendMarkMatched = useCallback(async (dividendLedgerEntryId: string) => {
+    setPendingDividendLedgerEntryId(dividendLedgerEntryId);
+    try {
+      await updateDividendReconciliation(dividendLedgerEntryId, "matched");
+      await refresh();
+    } finally {
+      setPendingDividendLedgerEntryId(null);
+    }
+  }, [refresh]);
 
   const handleDeleteAccepted = useCallback((transactionId: string) => {
     setDisplayTransactions((current) => current.filter((transaction) => transaction.id !== transactionId));
@@ -1471,6 +1484,7 @@ export function TickerHistoryClient({
               <SelectContent>
                 <SelectGroup>
                   <SelectItem value="overview">{dict.tickerHistory.overviewTabLabel}</SelectItem>
+                  <SelectItem value="dividends" data-testid="ticker-tab-select-dividends">{dict.tickerHistory.dividendsTabLabel}</SelectItem>
                   <SelectItem value="fundamentals">{dict.tickerHistory.fundamentalsTabLabel}</SelectItem>
                   <SelectItem value="transactions">{dict.tickerHistory.transactionsTabLabel}</SelectItem>
                 </SelectGroup>
@@ -1481,6 +1495,10 @@ export function TickerHistoryClient({
             <TabsTrigger value="overview" data-testid="ticker-tab-overview" className="rounded-xl px-4 py-2">
               <BarChart3 className="mr-2 h-4 w-4" />
               {dict.tickerHistory.overviewTabLabel}
+            </TabsTrigger>
+            <TabsTrigger value="dividends" data-testid="ticker-tab-dividends" className="rounded-xl px-4 py-2">
+              <ReceiptText className="mr-2 h-4 w-4" />
+              {dict.tickerHistory.dividendsTabLabel}
             </TabsTrigger>
             <TabsTrigger value="fundamentals" data-testid="ticker-tab-fundamentals" className="rounded-xl px-4 py-2">
               <Landmark className="mr-2 h-4 w-4" />
@@ -1850,6 +1868,19 @@ export function TickerHistoryClient({
                 )}
               </Card>
             </div>
+          </TabsContent>
+
+          <TabsContent value="dividends" className="mt-0" data-testid="ticker-detail-dividends-tab">
+            <TickerDividendsTab
+              dict={dict}
+              locale={locale}
+              marketCode={detailsState.identity.marketCode}
+              ticker={detailsState.identity.ticker}
+              tickerName={detailsState.identity.name}
+              dividends={detailsState.dividends}
+              onMarkMatched={handleTickerDividendMarkMatched}
+              pendingLedgerEntryId={pendingDividendLedgerEntryId}
+            />
           </TabsContent>
 
           <TabsContent value="fundamentals" className="mt-0 grid gap-6 lg:grid-cols-2" data-testid="ticker-detail-fundamentals">

@@ -35,6 +35,11 @@ export class DividendsActions extends AppBaseActions {
   }
 
   @Step()
+  async setOverviewMonth(month: string): Promise<void> {
+    await this.uiActions.fill.perform(this.el.monthInput, month);
+  }
+
+  @Step()
   async openPostingDrawerForEvent(eventId: string): Promise<void> {
     await this.uiActions.click.perform(this.el.postButton(eventId));
   }

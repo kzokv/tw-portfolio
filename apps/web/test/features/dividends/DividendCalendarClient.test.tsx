@@ -30,6 +30,7 @@ function buildEvent(overrides: Partial<DividendEventListItem>): DividendEventLis
     id: overrides.id ?? "event-1",
     accountId: overrides.accountId ?? "acc-1",
     ticker: overrides.ticker ?? "2330",
+    marketCode: overrides.marketCode ?? "TW",
     instrumentType: overrides.instrumentType ?? "STOCK",
     eventType: overrides.eventType ?? "CASH",
     exDividendDate: overrides.exDividendDate ?? "2026-04-10",
@@ -49,6 +50,7 @@ function buildLedger(overrides: Partial<DividendLedgerEntryDetails>): DividendLe
     dividendEventId: overrides.dividendEventId ?? "event-1",
     accountId: overrides.accountId ?? "acc-1",
     ticker: overrides.ticker ?? "2330",
+    marketCode: overrides.marketCode ?? "TW",
     instrumentType: overrides.instrumentType ?? "STOCK",
     eventType: overrides.eventType ?? "CASH",
     paymentDate: overrides.paymentDate ?? "2026-04-20",
@@ -91,7 +93,7 @@ describe("DividendCalendarClient", () => {
     vi.mocked(fetchDividendCalendarSnapshot).mockResolvedValue(snapshot);
 
     act(() => {
-      root.render(<DividendCalendarClient initialSnapshot={snapshot} dict={dict} locale="en" />);
+      root.render(<DividendCalendarClient initialSnapshot={snapshot} initialMonth="2026-04" dict={dict} locale="en" />);
     });
 
     await act(async () => {});
@@ -99,7 +101,7 @@ describe("DividendCalendarClient", () => {
     expect(container.textContent).toContain(dict.dividends.emptyState);
   });
 
-  it("maps row badges, shows the TBD bucket, and marks open rows as matched", async () => {
+  it("renders overview metrics and marks open rows as matched", async () => {
     const snapshot: DividendCalendarSnapshot = {
       events: [
         buildEvent({ id: "event-open", ticker: "2330", hasPostedLedgerEntry: true, dividendLedgerEntryId: "ledger-open" }),
@@ -133,24 +135,15 @@ describe("DividendCalendarClient", () => {
     );
 
     act(() => {
-      root.render(<DividendCalendarClient initialSnapshot={snapshot} dict={dict} locale="en" />);
+      root.render(<DividendCalendarClient initialSnapshot={snapshot} initialMonth="2026-04" dict={dict} locale="en" />);
     });
 
     await act(async () => {});
 
-    expect((document.querySelector("[data-testid='dividend-badge-event-open']") as HTMLElement).textContent).toBe(dict.dividends.badge.pendingReview);
-    expect((document.querySelector("[data-testid='dividend-badge-event-posted']") as HTMLElement).textContent).toBe(dict.dividends.badge.matched);
-    // Variance has reconciliationStatus=matched, so precedence picks "matched"
-    // ahead of the variance fallback.
-    expect((document.querySelector("[data-testid='dividend-badge-event-variance']") as HTMLElement).textContent).toBe(dict.dividends.badge.matched);
-    expect((document.querySelector("[data-testid='dividend-badge-event-resolved']") as HTMLElement).textContent).toBe(dict.dividends.badge.resolved);
-    expect((document.querySelector("[data-testid='dividend-badge-event-tbd']") as HTMLElement).textContent).toBe(dict.dividends.badge.unposted);
-    expect(document.querySelector("[data-testid='dividends-tbd-section']")).not.toBeNull();
-
-    // Stock entries are now editable (they open the drawer in reconcile-only mode).
-    const stockEditButton = document.querySelector("[data-testid='dividend-edit-event-stock']") as HTMLButtonElement;
-    expect(stockEditButton.disabled).toBe(false);
-    expect(stockEditButton.title).toBe("");
+    expect(container.textContent).toContain("NT$");
+    expect(container.textContent).toContain("1 open items.");
+    expect(document.querySelector("[data-testid='dividends-action-queue']")?.textContent ?? "").toContain(dict.dividends.form.reconciliation.statusOpen);
+    expect(document.querySelector("[data-testid='dividends-this-month']")?.textContent ?? "").toContain("2330");
 
     const markMatchedButton = document.querySelector("[data-testid='dividend-mark-matched-event-open']") as HTMLButtonElement;
     await act(async () => {
@@ -161,7 +154,7 @@ describe("DividendCalendarClient", () => {
     expect(fetchDividendCalendarSnapshot).toHaveBeenCalledTimes(1);
   });
 
-  it("renders matched and explained badges for reconciliation statuses", async () => {
+  it("renders reconciliation labels for matched and explained rows", async () => {
     const snapshot: DividendCalendarSnapshot = {
       events: [
         buildEvent({ id: "event-matched", ticker: "1111", hasPostedLedgerEntry: true, dividendLedgerEntryId: "ledger-matched" }),
@@ -175,26 +168,20 @@ describe("DividendCalendarClient", () => {
     vi.mocked(fetchDividendCalendarSnapshot).mockResolvedValue(snapshot);
 
     act(() => {
-      root.render(<DividendCalendarClient initialSnapshot={snapshot} dict={dict} locale="en" />);
+      root.render(<DividendCalendarClient initialSnapshot={snapshot} initialMonth="2026-04" dict={dict} locale="en" />);
     });
     await act(async () => {});
 
-    const matchedBadge = document.querySelector("[data-testid='dividend-badge-event-matched']") as HTMLElement;
-    expect(matchedBadge.textContent).toBe(dict.dividends.badge.matched);
-    expect(matchedBadge.className).toContain("bg-sky-50");
-
-    const explainedBadge = document.querySelector("[data-testid='dividend-badge-event-explained']") as HTMLElement;
-    expect(explainedBadge.textContent).toBe(dict.dividends.badge.explained);
-    expect(explainedBadge.className).toContain("bg-indigo-50");
+    expect(container.textContent).toContain(dict.dividends.badge.matched);
+    expect(container.textContent).toContain(dict.dividends.badge.explained);
   });
 
-  it("renders an ELIGIBLE SHARES column per row card", async () => {
+  it("changes the active month from the direct month picker and updates the URL state", async () => {
     const snapshot: DividendCalendarSnapshot = {
       events: [
         buildEvent({
           id: "event-eligible",
           ticker: "2330",
-          eligibleQuantity: 9_000,
           expectedCashAmount: 54_000,
           hasPostedLedgerEntry: false,
         }),
@@ -202,16 +189,24 @@ describe("DividendCalendarClient", () => {
       ledgerEntries: [],
     };
     vi.mocked(fetchDividendCalendarSnapshot).mockResolvedValue(snapshot);
+    window.history.replaceState(null, "", "/dividends");
 
     act(() => {
-      root.render(<DividendCalendarClient initialSnapshot={snapshot} dict={dict} locale="en" />);
+      root.render(<DividendCalendarClient initialSnapshot={snapshot} initialMonth="2026-04" dict={dict} locale="en" />);
     });
     await act(async () => {});
 
-    const cell = document.querySelector("[data-testid='dividend-eligible-event-eligible']");
-    expect(cell).not.toBeNull();
-    expect(cell?.textContent).toContain(dict.dividends.eligibleSharesLabel);
-    expect(cell?.textContent).toContain("9,000");
+    const nextMonthButton = document.querySelector("[aria-label='Next month']") as HTMLButtonElement;
+    await act(async () => {
+      nextMonthButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(window.location.search).toContain("month=2026-05");
+    expect(fetchDividendCalendarSnapshot).toHaveBeenCalledWith({
+      fromPaymentDate: "2026-05-01",
+      toPaymentDate: "2026-05-31",
+      limit: 500,
+    });
   });
 
   it("prompts before discarding unsaved changes when Cancel is clicked", async () => {
@@ -231,7 +226,7 @@ describe("DividendCalendarClient", () => {
     const confirmSpy = vi.spyOn(window, "confirm");
 
     act(() => {
-      root.render(<DividendCalendarClient initialSnapshot={snapshot} dict={dict} locale="en" />);
+      root.render(<DividendCalendarClient initialSnapshot={snapshot} initialMonth="2026-04" dict={dict} locale="en" />);
     });
     await act(async () => {});
 
