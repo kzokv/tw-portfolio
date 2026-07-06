@@ -2654,6 +2654,7 @@ export interface Persistence {
     fromPaymentDate?: string,
     toPaymentDate?: string,
     limit?: number,
+    marketCode?: MarketCode,
   ): Promise<Store["marketData"]["dividendEvents"]>;
   listDividendLedgerEntries(
     userId: string,

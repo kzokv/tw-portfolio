@@ -343,6 +343,69 @@ describe("dividends", () => {
     ]);
   });
 
+  it("applies the calendar market filter before limiting dividend events", async () => {
+    const accountResponse = await app.inject({
+      method: "POST",
+      url: "/accounts",
+      payload: {
+        name: "AU Account",
+        defaultCurrency: "AUD",
+        accountType: "broker",
+      },
+    });
+    expect(accountResponse.statusCode).toBe(200);
+    const auAccount = accountResponse.json() as { id: string };
+    const tradeResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "calendar-au-position" },
+      payload: transactionPayload({
+        accountId: auAccount.id,
+        ticker: "DUPE",
+        marketCode: "AU",
+        quantity: 10,
+        unitPrice: 10,
+        priceCurrency: "AUD",
+        tradeDate: "2026-01-15",
+      }),
+    });
+    expect(tradeResponse.statusCode).toBe(200);
+    const store = await app.persistence.loadStore("user-1");
+    createDividendEvent(store, {
+      id: randomUUID(),
+      ...dividendEventPayload({
+        ticker: "DUPE",
+        marketCode: "TW",
+        cashDividendCurrency: "TWD",
+        paymentDate: "2026-02-20",
+      }),
+    } as CreateDividendEventInput);
+    createDividendEvent(store, {
+      id: randomUUID(),
+      ...dividendEventPayload({
+        ticker: "DUPE",
+        marketCode: "AU",
+        cashDividendCurrency: "AUD",
+        paymentDate: "2026-02-21",
+      }),
+    } as CreateDividendEventInput);
+    await app.persistence.saveStore(store);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/calendar?fromPaymentDate=2026-02-01&toPaymentDate=2026-02-28&marketCode=AU&limit=1",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().events).toEqual([
+      expect.objectContaining({
+        ticker: "DUPE",
+        marketCode: "AU",
+        paymentDate: "2026-02-21",
+      }),
+    ]);
+  });
+
   it("updates posted cash dividends in place and emits dividend events", async () => {
     const events: Array<{ type: string; data: unknown }> = [];
     app.eventBus.subscribe("user-1", (event) => events.push({ type: event.type, data: event.data }));

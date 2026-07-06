@@ -9652,27 +9652,30 @@ export class PostgresPersistence implements Persistence {
     fromPaymentDate?: string,
     toPaymentDate?: string,
     limit: number = 500,
+    marketCode?: MarketCode,
   ): Promise<Store["marketData"]["dividendEvents"]> {
     await this.ensureDefaultPortfolioData(userId);
     const result = await this.pool.query(
-      `SELECT id, ticker, event_type, ex_dividend_date, payment_date,
+      `SELECT id, ticker, market_code, event_type, ex_dividend_date, payment_date,
               cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
               source, source_reference, ingested_at AS created_at,
               fiscal_year_period, announcement_date, total_distribution_shares
        FROM market_data.dividend_events
-       WHERE payment_date IS NULL
+       WHERE ($4::text IS NULL OR market_code = $4::text)
+         AND (payment_date IS NULL
           OR (
             ($1::date IS NULL OR payment_date >= $1::date)
             AND ($2::date IS NULL OR payment_date <= $2::date)
-          )
+          ))
        ORDER BY payment_date NULLS FIRST, ex_dividend_date, id
        LIMIT $3`,
-      [fromPaymentDate ?? null, toPaymentDate ?? null, limit],
+      [fromPaymentDate ?? null, toPaymentDate ?? null, limit, marketCode ?? null],
     );
 
     return result.rows.map((row) => ({
       id: row.id,
       ticker: row.ticker,
+      marketCode: row.market_code ?? undefined,
       eventType: row.event_type,
       exDividendDate: normalizeDate(String(row.ex_dividend_date)),
       paymentDate: row.payment_date ? normalizeDate(String(row.payment_date)) : null,

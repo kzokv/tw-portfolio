@@ -107,7 +107,6 @@ import {
   createDividendEvent,
   postDividend,
   preparePostedCashDividendUpdate,
-  resolveDividendEventMarketCode,
 } from "../services/dividends.js";
 import { applyCorporateAction, createTransaction, listHoldings } from "../services/portfolio.js";
 import {
@@ -6282,6 +6281,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         query.fromPaymentDate,
         query.toPaymentDate,
         query.limit,
+        query.marketCode,
       ),
       app.persistence.listDividendLedgerEntries(userId, {
         accountId: query.accountId,
@@ -6295,12 +6295,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       }),
     ]);
 
-    const filteredDividendEvents = query.marketCode
-      ? dividendEvents.filter((event) => resolveDividendEventMarketCode(event) === query.marketCode)
-      : dividendEvents;
-
     return {
-      events: buildDividendEventListItems(store, filteredDividendEvents),
+      events: buildDividendEventListItems(store, dividendEvents),
       ledgerEntries: buildDividendLedgerEntryDetails(store, ledgerResult.ledgerEntries, { preserveOrder: true }),
     };
   });

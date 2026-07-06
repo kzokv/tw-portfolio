@@ -135,6 +135,9 @@ superseded_by: null
   - Excluded unposted `expected` rows from Overview Recent Receipts and received totals.
   - Dropped ledger-only params when normalizing explicit calendar URLs.
   - Focused validation passed: `npm run test --prefix apps/api -- test/integration/dividends.integration.test.ts`; `cd apps/web && npx vitest run test/features/dividends/DividendCalendarClient.test.tsx --config vitest.config.ts`; `npx eslint apps/api/src/routes/registerRoutes.ts apps/api/test/integration/dividends.integration.test.ts apps/web/components/dividends/DividendCalendarClient.tsx apps/web/test/features/dividends/DividendCalendarClient.test.tsx`; `npx tsc --noEmit -p apps/api/tsconfig.json --pretty false && npx tsc --noEmit -p apps/web/tsconfig.json --pretty false`; `git diff --check`.
+- Third Codex review fix:
+  - Applied `/portfolio/dividends/calendar` `marketCode` filtering inside the dividend event persistence query before `limit`, preserving market-filtered calendar completeness when another market fills the first page.
+  - Focused validation passed: `npm run test --prefix apps/api -- test/integration/dividends.integration.test.ts`; `npx eslint apps/api/src/persistence/types.ts apps/api/src/persistence/memory.ts apps/api/src/persistence/postgres.ts apps/api/src/routes/registerRoutes.ts apps/api/test/integration/dividends.integration.test.ts`; `npx tsc --noEmit -p apps/api/tsconfig.json --pretty false`; `git diff --check`.
 
 ## Explicit Out Of Scope
 

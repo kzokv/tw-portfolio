@@ -2422,11 +2422,13 @@ export class MemoryPersistence implements Persistence {
     fromPaymentDate?: string,
     toPaymentDate?: string,
     limit: number = 500,
+    marketCode?: MarketCode,
   ) {
     const store = await this.loadStore(userId);
     void userId;
     return store.marketData.dividendEvents
       .filter((event) => matchesNullableDateRange(event.paymentDate, fromPaymentDate, toPaymentDate))
+      .filter((event) => !marketCode || (event.marketCode ?? marketCodeFor(event.cashDividendCurrency)) === marketCode)
       .sort(compareNullablePaymentDates)
       .slice(0, limit);
   }
