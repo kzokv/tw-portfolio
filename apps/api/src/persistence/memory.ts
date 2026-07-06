@@ -178,6 +178,7 @@ import type {
   UpsertProviderIncidentInput,
   UpsertProviderUnresolvedItemInput,
   UpsertProviderResolutionMappingInput,
+  ResolvedFxRate,
   UserRole,
 } from "./types.js";
 // KZO-199: anonymous-share token cap and retention are now resolver-backed
@@ -3287,23 +3288,30 @@ export class MemoryPersistence implements Persistence {
   }
 
   async getFxRate(base: string, quote: string, asOfDate: string): Promise<number | null> {
-    if (base === quote) return 1.0;
-    const directRate = this.findLatestFxRate(base, quote, asOfDate);
-    if (directRate !== null) return directRate;
+    return (await this.getResolvedFxRate(base, quote, asOfDate))?.rate ?? null;
+  }
 
-    const inverseRate = this.findLatestFxRate(quote, base, asOfDate);
-    if (inverseRate !== null && inverseRate !== 0) return 1 / inverseRate;
+  async getResolvedFxRate(base: string, quote: string, asOfDate: string): Promise<ResolvedFxRate | null> {
+    if (base === quote) return { rate: 1.0, asOfDate };
+    const directRate = this.findLatestFxRateRow(base, quote, asOfDate);
+    if (directRate !== null) return { rate: directRate.rate, asOfDate: directRate.date };
+
+    const inverseRate = this.findLatestFxRateRow(quote, base, asOfDate);
+    if (inverseRate !== null && inverseRate.rate !== 0) return { rate: 1 / inverseRate.rate, asOfDate: inverseRate.date };
 
     const pivot = "TWD";
-    const baseToPivot = this.getFxRateToPivot(base, pivot, asOfDate);
-    const quoteToPivot = this.getFxRateToPivot(quote, pivot, asOfDate);
-    if (baseToPivot !== null && quoteToPivot !== null && quoteToPivot !== 0) {
-      return baseToPivot / quoteToPivot;
+    const baseToPivot = this.getFxRateToPivotRow(base, pivot, asOfDate);
+    const quoteToPivot = this.getFxRateToPivotRow(quote, pivot, asOfDate);
+    if (baseToPivot !== null && quoteToPivot !== null && quoteToPivot.rate !== 0) {
+      return {
+        rate: baseToPivot.rate / quoteToPivot.rate,
+        asOfDate: minIsoDate(baseToPivot.date, quoteToPivot.date),
+      };
     }
     return null;
   }
 
-  private findLatestFxRate(base: string, quote: string, asOfDate: string): number | null {
+  private findLatestFxRateRow(base: string, quote: string, asOfDate: string): { rate: number; date: string } | null {
     let bestDate: string | null = null;
     let bestRate: number | null = null;
     for (const r of this.fxRates.values()) {
@@ -3314,15 +3322,17 @@ export class MemoryPersistence implements Persistence {
         bestRate = r.rate;
       }
     }
-    return bestRate;
+    return bestDate !== null && bestRate !== null ? { rate: bestRate, date: bestDate } : null;
   }
 
-  private getFxRateToPivot(currency: string, pivot: string, asOfDate: string): number | null {
-    if (currency === pivot) return 1.0;
-    const directRate = this.findLatestFxRate(currency, pivot, asOfDate);
+  private getFxRateToPivotRow(currency: string, pivot: string, asOfDate: string): { rate: number; date: string } | null {
+    if (currency === pivot) return { rate: 1.0, date: asOfDate };
+    const directRate = this.findLatestFxRateRow(currency, pivot, asOfDate);
     if (directRate !== null) return directRate;
-    const inverseRate = this.findLatestFxRate(pivot, currency, asOfDate);
-    if (inverseRate !== null && inverseRate !== 0) return 1 / inverseRate;
+    const inverseRate = this.findLatestFxRateRow(pivot, currency, asOfDate);
+    if (inverseRate !== null && inverseRate.rate !== 0) {
+      return { rate: 1 / inverseRate.rate, date: inverseRate.date };
+    }
     return null;
   }
 
@@ -8160,6 +8170,10 @@ function isCompleteHoldingSnapshot(snapshot: HoldingSnapshot): boolean {
       )
     )
     && snapshot.providerSource !== null;
+}
+
+function minIsoDate(left: string, right: string): string {
+  return left <= right ? left : right;
 }
 
 // KZO-183 — application-layer mirror of the composite-FK ownership invariant

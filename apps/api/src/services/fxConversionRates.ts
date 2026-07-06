@@ -12,13 +12,17 @@ export async function buildFxConversionRateRows(
     .sort();
 
   const rows = await Promise.all(uniqueSources.map(async (fromCurrency): Promise<FxConversionRateDto | null> => {
-    const rate = await persistence.getFxRate(fromCurrency, reportingCurrency, asOf);
+    const resolved = persistence.getResolvedFxRate
+      ? await persistence.getResolvedFxRate(fromCurrency, reportingCurrency, asOf)
+      : null;
+    const fallbackRate = resolved === null ? await persistence.getFxRate(fromCurrency, reportingCurrency, asOf) : null;
+    const rate = resolved?.rate ?? fallbackRate;
     if (rate === null) return null;
     return {
       fromCurrency,
       toCurrency: reportingCurrency,
       rate,
-      asOf,
+      asOf: resolved?.asOfDate ?? asOf,
     };
   }));
   return rows.filter((row): row is FxConversionRateDto => row !== null);

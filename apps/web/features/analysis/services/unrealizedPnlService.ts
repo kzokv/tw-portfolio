@@ -371,9 +371,9 @@ function groupSeries(
         quantity: point.quantity,
         closePrice: point.closePrice,
         basis: {
-          snapshotDate: point.snapshotDate ?? point.date,
+          snapshotDate: point.snapshotDate ?? null,
           snapshotProviderSources: point.snapshotProviderSources ?? [],
-          fxAsOfDate: point.fxAsOfDate ?? point.date,
+          fxAsOfDate: point.fxAsOfDate ?? null,
         },
         transactionContext: point.isSoldOut ? "Sold-out position carried as zero after exit." : "Open-position snapshot.",
       })),

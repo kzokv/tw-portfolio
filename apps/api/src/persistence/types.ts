@@ -2044,6 +2044,11 @@ export interface UnrealizedPnlAnalysisSnapshotRow {
   fxAsOfDate: string | null;
 }
 
+export interface ResolvedFxRate {
+  rate: number;
+  asOfDate: string;
+}
+
 export interface McpReplayScopeRecord {
   accountId: string;
   accountName: string;
@@ -3151,6 +3156,7 @@ export interface Persistence {
    *   - Read-path callers (future dashboard JOINs) MAY degrade to native-only.
    */
   getFxRate(base: CurrencyCode, quote: CurrencyCode, asOfDate: string): Promise<number | null>;
+  getResolvedFxRate?(base: CurrencyCode, quote: CurrencyCode, asOfDate: string): Promise<ResolvedFxRate | null>;
   getFxTransferById(
     userId: string,
     fxTransferId: string,

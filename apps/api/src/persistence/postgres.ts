@@ -217,6 +217,7 @@ import type {
   UpsertProviderOperationOutcomeInput,
   UpsertProviderUnresolvedItemInput,
   UpsertProviderResolutionMappingInput,
+  ResolvedFxRate,
   UserRole,
 } from "./types.js";
 // KZO-199: anonymous-share token cap and retention are now resolver-backed
@@ -6804,15 +6805,25 @@ export class PostgresPersistence implements Persistence {
   }
 
   async getFxRate(base: string, quote: string, asOfDate: string): Promise<number | null> {
-    if (base === quote) return 1.0;
+    return (await this.getResolvedFxRate(base, quote, asOfDate))?.rate ?? null;
+  }
+
+  async getResolvedFxRate(base: string, quote: string, asOfDate: string): Promise<ResolvedFxRate | null> {
+    if (base === quote) return { rate: 1.0, asOfDate };
     const pivot = "TWD";
     const result = await this.pool.query<{
       direct_rate: string | null;
+      direct_rate_date: string | null;
       inverse_rate: string | null;
+      inverse_rate_date: string | null;
       base_to_pivot_direct_rate: string | null;
+      base_to_pivot_direct_rate_date: string | null;
       pivot_to_base_rate: string | null;
+      pivot_to_base_rate_date: string | null;
       quote_to_pivot_direct_rate: string | null;
+      quote_to_pivot_direct_rate_date: string | null;
       pivot_to_quote_rate: string | null;
+      pivot_to_quote_rate_date: string | null;
     }>(
       `SELECT
          (
@@ -6821,40 +6832,70 @@ export class PostgresPersistence implements Persistence {
             ORDER BY date DESC LIMIT 1
          ) AS direct_rate,
          (
+           SELECT date::text FROM market_data.fx_rates
+            WHERE base_currency = $1 AND quote_currency = $2 AND date <= $3
+            ORDER BY date DESC LIMIT 1
+         ) AS direct_rate_date,
+         (
            SELECT rate::text FROM market_data.fx_rates
             WHERE base_currency = $2 AND quote_currency = $1 AND date <= $3
             ORDER BY date DESC LIMIT 1
          ) AS inverse_rate,
+         (
+           SELECT date::text FROM market_data.fx_rates
+            WHERE base_currency = $2 AND quote_currency = $1 AND date <= $3
+            ORDER BY date DESC LIMIT 1
+         ) AS inverse_rate_date,
          (
            SELECT rate::text FROM market_data.fx_rates
             WHERE base_currency = $1 AND quote_currency = $4 AND date <= $3
             ORDER BY date DESC LIMIT 1
          ) AS base_to_pivot_direct_rate,
          (
+           SELECT date::text FROM market_data.fx_rates
+            WHERE base_currency = $1 AND quote_currency = $4 AND date <= $3
+            ORDER BY date DESC LIMIT 1
+         ) AS base_to_pivot_direct_rate_date,
+         (
            SELECT rate::text FROM market_data.fx_rates
             WHERE base_currency = $4 AND quote_currency = $1 AND date <= $3
             ORDER BY date DESC LIMIT 1
          ) AS pivot_to_base_rate,
+         (
+           SELECT date::text FROM market_data.fx_rates
+            WHERE base_currency = $4 AND quote_currency = $1 AND date <= $3
+            ORDER BY date DESC LIMIT 1
+         ) AS pivot_to_base_rate_date,
          (
            SELECT rate::text FROM market_data.fx_rates
             WHERE base_currency = $2 AND quote_currency = $4 AND date <= $3
             ORDER BY date DESC LIMIT 1
          ) AS quote_to_pivot_direct_rate,
          (
+           SELECT date::text FROM market_data.fx_rates
+            WHERE base_currency = $2 AND quote_currency = $4 AND date <= $3
+            ORDER BY date DESC LIMIT 1
+         ) AS quote_to_pivot_direct_rate_date,
+         (
            SELECT rate::text FROM market_data.fx_rates
             WHERE base_currency = $4 AND quote_currency = $2 AND date <= $3
             ORDER BY date DESC LIMIT 1
-         ) AS pivot_to_quote_rate`,
+         ) AS pivot_to_quote_rate,
+         (
+           SELECT date::text FROM market_data.fx_rates
+            WHERE base_currency = $4 AND quote_currency = $2 AND date <= $3
+            ORDER BY date DESC LIMIT 1
+         ) AS pivot_to_quote_rate_date`,
       [base, quote, asOfDate, pivot],
     );
     const row = result.rows[0];
     if (!row) return null;
 
     const directRate = row.direct_rate === null ? null : Number(row.direct_rate);
-    if (directRate !== null) return directRate;
+    if (directRate !== null) return { rate: directRate, asOfDate: row.direct_rate_date ?? asOfDate };
 
     const inverseRate = row.inverse_rate === null ? null : Number(row.inverse_rate);
-    if (inverseRate !== null && inverseRate !== 0) return 1 / inverseRate;
+    if (inverseRate !== null && inverseRate !== 0) return { rate: 1 / inverseRate, asOfDate: row.inverse_rate_date ?? asOfDate };
 
     const baseToPivot = base === pivot
       ? 1.0
@@ -6864,7 +6905,26 @@ export class PostgresPersistence implements Persistence {
       : rateOrInverse(row.quote_to_pivot_direct_rate, row.pivot_to_quote_rate);
 
     if (baseToPivot !== null && quoteToPivot !== null && quoteToPivot !== 0) {
-      return baseToPivot / quoteToPivot;
+      const baseToPivotDate = base === pivot
+        ? asOfDate
+        : rateDateOrInverse(
+          row.base_to_pivot_direct_rate,
+          row.base_to_pivot_direct_rate_date,
+          row.pivot_to_base_rate,
+          row.pivot_to_base_rate_date,
+        );
+      const quoteToPivotDate = quote === pivot
+        ? asOfDate
+        : rateDateOrInverse(
+          row.quote_to_pivot_direct_rate,
+          row.quote_to_pivot_direct_rate_date,
+          row.pivot_to_quote_rate,
+          row.pivot_to_quote_rate_date,
+        );
+      return {
+        rate: baseToPivot / quoteToPivot,
+        asOfDate: minNullableIsoDate(baseToPivotDate, quoteToPivotDate) ?? asOfDate,
+      };
     }
     return null;
   }
@@ -18739,4 +18799,15 @@ function rateOrInverse(directRateText: string | null, inverseRateText: string | 
   if (inverseRateText === null) return null;
   const inverseRate = Number(inverseRateText);
   return inverseRate === 0 ? null : 1 / inverseRate;
+}
+
+function rateDateOrInverse(
+  directRateText: string | null,
+  directDate: string | null,
+  inverseRateText: string | null,
+  inverseDate: string | null,
+): string | null {
+  if (directRateText !== null) return directDate;
+  if (inverseRateText === null) return null;
+  return Number(inverseRateText) === 0 ? null : inverseDate;
 }

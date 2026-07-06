@@ -290,10 +290,9 @@ describe("buildPortfolioReport", () => {
       },
     ]);
 
-    const report = await buildPortfolioReport(app, userId, { scope: "US" });
+    const report = await buildPortfolioReport(app, userId, { scope: "all", currencyMode: "specified", currency: "TWD" });
     const usBasis = report.diagnostics.valuationBasis?.markets.find((market) => market.marketCode === "US");
     const usDiagnostics = report.diagnostics.markets.find((market) => market.marketCode === "US");
-    const allMarketReport = await buildPortfolioReport(app, userId, { scope: "all" });
 
     expect(usBasis).toEqual(expect.objectContaining({
       expectedLatestValuationDate: "2026-07-02",
@@ -303,11 +302,11 @@ describe("buildPortfolioReport", () => {
       closureDate: "2026-07-03",
       closureName: "Independence Day observed",
       closureReason: "market_holiday",
-      fxAsOfDate: report.query.asOf,
+      fxAsOfDate: "2026-07-02",
       reportingCurrency: report.query.reportingCurrency,
     }));
     expect(usDiagnostics?.basis).toEqual(usBasis);
-    expect(allMarketReport.diagnostics.valuationBasis?.markets.map((market) => market.marketCode)).toEqual([
+    expect(report.diagnostics.valuationBasis?.markets.map((market) => market.marketCode)).toEqual([
       "AU",
       "JP",
       "KR",

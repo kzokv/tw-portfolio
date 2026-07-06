@@ -99,6 +99,9 @@ describe("fetchUnrealizedPnlAnalysis", () => {
           accountNames: ["US Growth"],
           isSelected: false,
           isSoldOut: false,
+          snapshotDate: null,
+          snapshotProviderSources: [],
+          fxAsOfDate: null,
         },
       ],
       rankings: [{
@@ -295,7 +298,16 @@ describe("fetchUnrealizedPnlAnalysis", () => {
     expect(model.tickerSeries.find((series) => series.ticker === "MSFT")).toEqual(expect.objectContaining({
       endUnrealizedPnl: null,
       periodChange: null,
-      points: [expect.objectContaining({ unrealizedPnl: null, marketValue: null, costBasis: 975 })],
+      points: [expect.objectContaining({
+        unrealizedPnl: null,
+        marketValue: null,
+        costBasis: 975,
+        basis: {
+          snapshotDate: null,
+          snapshotProviderSources: [],
+          fxAsOfDate: null,
+        },
+      })],
     }));
     expect(model.tickerComposition.map((row) => [row.ticker, row.endUnrealizedPnl, row.contributionSharePercent])).toEqual([
       ["NVDA", 25, 100],
