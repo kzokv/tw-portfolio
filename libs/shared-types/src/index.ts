@@ -727,6 +727,7 @@ export interface DashboardOverviewRecentDividendDto {
   tickerName?: string | null;
   marketCode?: MarketCode;
   dividendLedgerEntryId?: string;
+  paymentDate?: string | null;
   postedAt: string;
   netAmount: number;
   grossAmount: number | null;

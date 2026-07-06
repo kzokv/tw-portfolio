@@ -1089,6 +1089,7 @@ function buildRecentDividends(
         tickerName: resolveDividendTickerName(store, event.ticker, marketCode),
         marketCode,
         dividendLedgerEntryId: entry.id,
+        paymentDate: event.paymentDate,
         postedAt: entry.bookedAt ?? event.paymentDate ?? new Date().toISOString(),
         netAmount: entry.receivedCashAmount,
         grossAmount: entry.receivedCashAmount + deductionAmount,

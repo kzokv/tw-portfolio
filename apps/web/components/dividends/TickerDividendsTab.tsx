@@ -45,6 +45,15 @@ function buildDividendReviewHref(ticker: string, marketCode: string, extra?: Rec
   return `/dividends?${params.toString()}`;
 }
 
+function reviewYearBounds(date: string | null | undefined): Record<string, string> | undefined {
+  if (!date || !/^\d{4}-\d{2}-\d{2}/.test(date)) return undefined;
+  const year = date.slice(0, 4);
+  return {
+    fromPaymentDate: `${year}-01-01`,
+    toPaymentDate: `${year}-12-31`,
+  };
+}
+
 function resolveUpcomingStatusLabel(
   dict: AppDictionary,
   status: DashboardOverviewUpcomingDividendDto["status"],
@@ -214,26 +223,36 @@ export function TickerDividendsTab({
               <div className="px-5 py-8 text-sm text-slate-500">{dict.dividends.ticker.upcoming.empty}</div>
             ) : (
               <div className="divide-y divide-slate-200">
-                {upcomingEvents.map((item, index) => (
-                  <article
-                    key={`${item.accountId}-${item.ticker}-${item.paymentDate ?? item.exDividendDate ?? index}`}
-                    className="grid gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1.3fr)_repeat(3,minmax(0,0.8fr))_auto]"
-                    data-testid={`ticker-upcoming-dividend-${index}`}
-                  >
-                    <div className="min-w-0">
-                      <p className="text-lg font-semibold text-slate-950">{item.ticker}{item.tickerName ? ` ${item.tickerName}` : ""}</p>
-                      <p className="mt-1 text-sm text-slate-500">{item.accountName ?? item.accountId}</p>
-                    </div>
-                    <KeyValueRow label={dict.dashboardHome.exDividendDateLabel} value={item.exDividendDate ? formatDateLabel(item.exDividendDate, locale) : "-"} />
-                    <KeyValueRow label={dict.dashboardHome.paymentDateLabel} value={item.paymentDate ? formatDateLabel(item.paymentDate, locale) : dict.dividends.paymentDateTbdSection} />
-                    <KeyValueRow label={dict.dashboardHome.expectedAmountLabel} value={item.expectedAmount !== null ? formatCurrencyAmount(item.expectedAmount, item.currency, locale) : "-"} />
-                    <div className="flex items-center sm:justify-end">
-                      <span className={cn("inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em]", statusClassName(item.status))}>
-                        {resolveUpcomingStatusLabel(dict, item.status)}
-                      </span>
-                    </div>
-                  </article>
-                ))}
+                {upcomingEvents.map((item, index) => {
+                  const rowReviewHref = buildDividendReviewHref(
+                    ticker,
+                    marketCode,
+                    reviewYearBounds(item.paymentDate ?? item.exDividendDate),
+                  );
+                  return (
+                    <article
+                      key={`${item.accountId}-${item.ticker}-${item.paymentDate ?? item.exDividendDate ?? index}`}
+                      className="grid gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1.3fr)_repeat(3,minmax(0,0.8fr))_auto]"
+                      data-testid={`ticker-upcoming-dividend-${index}`}
+                    >
+                      <div className="min-w-0">
+                        <p className="text-lg font-semibold text-slate-950">{item.ticker}{item.tickerName ? ` ${item.tickerName}` : ""}</p>
+                        <p className="mt-1 text-sm text-slate-500">{item.accountName ?? item.accountId}</p>
+                      </div>
+                      <KeyValueRow label={dict.dashboardHome.exDividendDateLabel} value={item.exDividendDate ? formatDateLabel(item.exDividendDate, locale) : "-"} />
+                      <KeyValueRow label={dict.dashboardHome.paymentDateLabel} value={item.paymentDate ? formatDateLabel(item.paymentDate, locale) : dict.dividends.paymentDateTbdSection} />
+                      <KeyValueRow label={dict.dashboardHome.expectedAmountLabel} value={item.expectedAmount !== null ? formatCurrencyAmount(item.expectedAmount, item.currency, locale) : "-"} />
+                      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                        <span className={cn("inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em]", statusClassName(item.status))}>
+                          {resolveUpcomingStatusLabel(dict, item.status)}
+                        </span>
+                        <Link href={rowReviewHref} className="text-sm font-semibold text-sky-700 hover:text-sky-900" data-testid={`ticker-upcoming-dividend-review-${index}`}>
+                          {dict.dividends.ticker.openRowReview}
+                        </Link>
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
             )}
           </Card>
@@ -256,6 +275,11 @@ export function TickerDividendsTab({
               <div className="divide-y divide-slate-200">
                 {postedHistory.map((item, index) => {
                   const canMarkMatched = item.reconciliationStatus === "open" && item.dividendLedgerEntryId;
+                  const rowReviewHref = buildDividendReviewHref(
+                    ticker,
+                    marketCode,
+                    reviewYearBounds(item.paymentDate ?? item.postedAt),
+                  );
                   return (
                     <article
                       key={`${item.dividendLedgerEntryId ?? item.postedAt}-${index}`}
@@ -293,7 +317,7 @@ export function TickerDividendsTab({
                           </Button>
                         ) : null}
                         <Button asChild size="sm" variant="secondary">
-                          <Link href={openReviewHref} data-testid={`ticker-posted-dividend-review-${index}`}>
+                          <Link href={rowReviewHref} data-testid={`ticker-posted-dividend-review-${index}`}>
                             {dict.dividends.ticker.openRowReview}
                           </Link>
                         </Button>
@@ -315,38 +339,45 @@ export function TickerDividendsTab({
             {openRows.length === 0 ? (
               <div className="px-5 py-8 text-sm text-slate-500">{dict.dividends.ticker.reconciliation.empty}</div>
             ) : (
-              openRows.map((item, index) => (
-                <article key={`${item.dividendLedgerEntryId}-${index}`} className="px-5 py-4" data-testid={`ticker-open-reconciliation-${index}`}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <p className="text-lg font-semibold text-slate-950">{dict.dividends.ticker.reconciliation.openReceipt}</p>
-                      <p className="mt-1 text-sm text-slate-600">
-                        {dict.dividends.ticker.reconciliation.openReceiptDetail.replace("{entryId}", item.dividendLedgerEntryId ?? "-")}
-                      </p>
+              openRows.map((item, index) => {
+                const rowReviewHref = buildDividendReviewHref(
+                  ticker,
+                  marketCode,
+                  reviewYearBounds(item.paymentDate ?? item.postedAt),
+                );
+                return (
+                  <article key={`${item.dividendLedgerEntryId}-${index}`} className="px-5 py-4" data-testid={`ticker-open-reconciliation-${index}`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-lg font-semibold text-slate-950">{dict.dividends.ticker.reconciliation.openReceipt}</p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {dict.dividends.ticker.reconciliation.openReceiptDetail.replace("{entryId}", item.dividendLedgerEntryId ?? "-")}
+                        </p>
+                      </div>
+                      <span className={cn("inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em]", statusClassName("open"))}>
+                        {dict.dividends.form.reconciliation.statusOpen}
+                      </span>
                     </div>
-                    <span className={cn("inline-flex rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-[0.14em]", statusClassName("open"))}>
-                      {dict.dividends.form.reconciliation.statusOpen}
-                    </span>
-                  </div>
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {item.dividendLedgerEntryId ? (
-                      <Button
-                        size="sm"
-                        onClick={() => onMarkMatched(item.dividendLedgerEntryId!)}
-                        disabled={pendingLedgerEntryId === item.dividendLedgerEntryId}
-                        data-testid={`ticker-reconciliation-mark-matched-${item.dividendLedgerEntryId}`}
-                      >
-                        {dict.dividends.action.markMatched}
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      {item.dividendLedgerEntryId ? (
+                        <Button
+                          size="sm"
+                          onClick={() => onMarkMatched(item.dividendLedgerEntryId!)}
+                          disabled={pendingLedgerEntryId === item.dividendLedgerEntryId}
+                          data-testid={`ticker-reconciliation-mark-matched-${item.dividendLedgerEntryId}`}
+                        >
+                          {dict.dividends.action.markMatched}
+                        </Button>
+                      ) : null}
+                      <Button asChild size="sm" variant="secondary">
+                        <Link href={rowReviewHref} data-testid={`ticker-open-reconciliation-review-${index}`}>
+                          {dict.dividends.ticker.openRowReview}
+                        </Link>
                       </Button>
-                    ) : null}
-                    <Button asChild size="sm" variant="secondary">
-                      <Link href={openReviewHref} data-testid={`ticker-open-reconciliation-review-${index}`}>
-                        {dict.dividends.ticker.openRowReview}
-                      </Link>
-                    </Button>
-                  </div>
-                </article>
-              ))
+                    </div>
+                  </article>
+                );
+              })
             )}
             <article className="px-5 py-4">
               <p className="text-lg font-semibold text-slate-950">{dict.dividends.ticker.reconciliation.marketContextTitle}</p>

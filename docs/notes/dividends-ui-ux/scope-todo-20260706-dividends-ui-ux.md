@@ -138,6 +138,10 @@ superseded_by: null
 - Third Codex review fix:
   - Applied `/portfolio/dividends/calendar` `marketCode` filtering inside the dividend event persistence query before `limit`, preserving market-filtered calendar completeness when another market fills the first page.
   - Focused validation passed: `npm run test --prefix apps/api -- test/integration/dividends.integration.test.ts`; `npx eslint apps/api/src/persistence/types.ts apps/api/src/persistence/memory.ts apps/api/src/persistence/postgres.ts apps/api/src/routes/registerRoutes.ts apps/api/test/integration/dividends.integration.test.ts`; `npx tsc --noEmit -p apps/api/tsconfig.json --pretty false`; `git diff --check`.
+- Fourth Codex review fix:
+  - Added row-specific date bounds to ticker Dividends row Review links so prior-year posted rows and future upcoming rows stay visible when Review opens.
+  - Carried dividend `paymentDate` on recent dividend DTOs so row Review links use the dividend event year instead of a later booking timestamp.
+  - Focused validation passed: `cd apps/web && npx vitest run test/components/dividends/TickerDividendsTab.test.tsx --config vitest.config.ts`; `npx eslint libs/shared-types/src/index.ts apps/api/src/services/dashboard.ts apps/api/src/services/tickerDetails.ts apps/web/components/dividends/TickerDividendsTab.tsx apps/web/test/components/dividends/TickerDividendsTab.test.tsx`; `npm run typecheck -- --pretty false`.
 
 ## Explicit Out Of Scope
 

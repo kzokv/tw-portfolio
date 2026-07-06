@@ -601,6 +601,7 @@ function buildRecentDividends(store: Store): DashboardOverviewRecentDividendDto[
         tickerName: event ? resolveDividendTickerName(store, event.ticker, resolveDividendEventMarketCode(event)) : null,
         marketCode: event ? resolveDividendEventMarketCode(event) : undefined,
         dividendLedgerEntryId: entry.id,
+        paymentDate: event?.paymentDate ?? null,
         postedAt: entry.bookedAt ?? event?.paymentDate ?? new Date().toISOString(),
         netAmount: entry.receivedCashAmount,
         grossAmount: entry.receivedCashAmount + deductionAmount,
