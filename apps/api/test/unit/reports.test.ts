@@ -561,4 +561,26 @@ describe("buildPortfolioReport", () => {
     expect(usBasis?.fxAsOfDate).toBe("2026-07-02");
     expect(auBasis?.fxAsOfDate).toBe("2026-07-04");
   });
+
+  it("does not fabricate a report-level FX basis date when required FX is missing", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
+    await seedReportHolding({
+      ticker: "AVGO",
+      marketCode: "US",
+      instrumentType: "STOCK",
+      name: "Broadcom",
+      currency: "USD",
+      barDate: "2026-07-02",
+      close: 212,
+      quantity: 2,
+      source: "test-us-close",
+    });
+
+    const report = await buildPortfolioReport(app, userId, { scope: "all", currencyMode: "specified", currency: "TWD" });
+
+    expect(report.fxStatus.status).toBe("missing");
+    expect(report.diagnostics.valuationBasis?.fxAsOfDate).toBeNull();
+    expect(report.diagnostics.valuationBasis?.markets.find((market) => market.marketCode === "US")?.fxAsOfDate).toBeNull();
+  });
 });

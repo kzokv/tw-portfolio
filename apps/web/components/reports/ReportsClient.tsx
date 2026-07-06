@@ -1198,6 +1198,12 @@ function buildReportBasisFxSummary(data: AnyReportDto, dict: AppDictionary, loca
       end: formatDateLabel(dates.at(-1)!, locale),
     });
   }
+  if (data.fxStatus.status !== "complete" || data.fxStatus.missingRatePairs.length > 0) {
+    const pairs = data.fxStatus.missingRatePairs.map((pair) => `${pair.from}->${pair.to}`).join(", ");
+    return pairs
+      ? formatReportMessage(dict.reports.basisFxUnavailableForPairs, { pairs })
+      : dict.reports.basisFxUnavailable;
+  }
   return dict.reports.basisFxLatest;
 }
 

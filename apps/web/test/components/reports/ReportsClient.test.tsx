@@ -96,6 +96,8 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         basisFxAsOf: "FX as of {date}",
         basisFxDateRange: "FX dates {start} to {end}",
         basisFxLatest: "Latest available FX in report response",
+        basisFxUnavailable: "FX unavailable",
+        basisFxUnavailableForPairs: "FX unavailable for {pairs}",
         basisFxNotRequired: "No FX conversion required",
         marketValue: "Market value",
         bookCost: "Book Cost",
@@ -801,6 +803,34 @@ describe("ReportsClient", () => {
     expect(document.querySelector("[data-testid='reports-basis-market-AU']")?.textContent).toContain("Fallback quote used");
     expect(document.querySelector("[data-testid='reports-basis-market-AU']")?.textContent).toContain("AU closed Jun 8, 2026: using Jun 7, 2026 close");
     expect(document.querySelector("[data-testid='reports-basis-fx']")?.textContent).toContain("FX as of Jun 8, 2026");
+  });
+
+  it("does not label missing FX as latest available in valuation basis disclosure", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=all&range=1Y";
+    const missingFxFixture: PortfolioReportDto = {
+      ...portfolioFixture,
+      fxStatus: {
+        ...portfolioFixture.fxStatus,
+        status: "missing",
+        nativeCurrencies: ["USD"],
+        missingRatePairs: [{ from: "USD", to: "AUD" }],
+      },
+      fxRates: [],
+    };
+
+    act(() => {
+      root.render(<ReportsClient initialReport={missingFxFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "all",
+        range: "1Y",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    const fxBasis = document.querySelector("[data-testid='reports-basis-fx']")?.textContent;
+    expect(fxBasis).toContain("FX unavailable for USD->AUD");
+    expect(fxBasis).not.toContain("Latest available FX in report response");
   });
 
   it("renders the ticker allocation card and persists chart preferences through holdings table settings", async () => {

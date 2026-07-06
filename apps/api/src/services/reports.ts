@@ -746,7 +746,7 @@ async function buildReportValuationBasis(
     if (!groupsByMarket.has(marketCode)) groupsByMarket.set(marketCode, []);
   }
 
-  const fxAsOfDate = latestFxAsOfDate(fxRates, reportQuery.asOf);
+  const fxAsOfDate = latestFxAsOfDate(fxRates);
   const markets = await Promise.all([...groupsByMarket.entries()]
     .sort(([left], [right]) => left.localeCompare(right))
     .map(async ([marketCode, marketGroups]) => {
@@ -791,8 +791,8 @@ async function buildReportValuationBasis(
   };
 }
 
-function latestFxAsOfDate(fxRates: readonly FxConversionRateDto[], fallback: string): string | null {
-  if (fxRates.length === 0) return fallback;
+function latestFxAsOfDate(fxRates: readonly FxConversionRateDto[]): string | null {
+  if (fxRates.length === 0) return null;
   return maxNullableDateFromValues(fxRates.map((rate) => rate.asOf));
 }
 

@@ -755,6 +755,8 @@ export interface AppDictionary {
     basisFxAsOf: string;
     basisFxDateRange: string;
     basisFxLatest: string;
+    basisFxUnavailable: string;
+    basisFxUnavailableForPairs: string;
     basisFxNotRequired: string;
     marketValue: string;
     bookCost: string;
