@@ -91,6 +91,7 @@ describe("DividendCalendarClient", () => {
   it("renders the empty state when there are no rows for the month", async () => {
     const snapshot: DividendCalendarSnapshot = { events: [], ledgerEntries: [] };
     vi.mocked(fetchDividendCalendarSnapshot).mockResolvedValue(snapshot);
+    window.history.replaceState(null, "", "/dividends?view=calendar&ticker=2330&marketCode=TW&status=open");
 
     act(() => {
       root.render(<DividendCalendarClient initialSnapshot={snapshot} initialMonth="2026-04" dict={dict} locale="en" />);
@@ -99,6 +100,7 @@ describe("DividendCalendarClient", () => {
     await act(async () => {});
 
     expect(container.textContent).toContain(dict.dividends.emptyState);
+    expect(window.location.search).toBe("?month=2026-04");
   });
 
   it("renders overview metrics and marks open rows as matched", async () => {
@@ -109,6 +111,7 @@ describe("DividendCalendarClient", () => {
         buildEvent({ id: "event-variance", ticker: "0050", instrumentType: "ETF", hasPostedLedgerEntry: true, dividendLedgerEntryId: "ledger-variance" }),
         buildEvent({ id: "event-resolved", ticker: "2891", hasPostedLedgerEntry: true, dividendLedgerEntryId: "ledger-resolved" }),
         buildEvent({ id: "event-stock", ticker: "2603", eventType: "STOCK", paymentDate: "2026-04-18", expectedCashAmount: 0, expectedStockQuantity: 50, hasPostedLedgerEntry: true, dividendLedgerEntryId: "ledger-stock" }),
+        buildEvent({ id: "event-expected", ticker: "1199", hasPostedLedgerEntry: true, dividendLedgerEntryId: "ledger-expected" }),
         buildEvent({ id: "event-tbd", ticker: "1101", paymentDate: null, hasPostedLedgerEntry: false }),
       ],
       ledgerEntries: [
@@ -126,6 +129,7 @@ describe("DividendCalendarClient", () => {
           expectedStockQuantity: 50,
           receivedStockQuantity: 50,
         }),
+        buildLedger({ id: "ledger-expected", dividendEventId: "event-expected", ticker: "1199", postingStatus: "expected", receivedCashAmount: 0, expectedCashAmount: 70 }),
       ],
     };
 
@@ -144,6 +148,7 @@ describe("DividendCalendarClient", () => {
     expect(container.textContent).toContain("1 open items.");
     expect(document.querySelector("[data-testid='dividends-action-queue']")?.textContent ?? "").toContain(dict.dividends.form.reconciliation.statusOpen);
     expect(document.querySelector("[data-testid='dividends-this-month']")?.textContent ?? "").toContain("2330");
+    expect(document.querySelector("[data-testid='dividends-recent-receipts']")?.textContent ?? "").not.toContain("ledger-expected");
     expect(
       Array.from(container.querySelectorAll<HTMLAnchorElement>("a")).some((link) => (
         link.href.includes("view=ledger") && link.href.includes("month=2026-04")

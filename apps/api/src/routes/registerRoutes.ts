@@ -6339,6 +6339,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       reconciliationStatus: query.reconciliationStatus,
       postingStatus: query.postingStatus,
       ticker: query.ticker,
+      marketCode: query.marketCode,
       page: query.page,
       limit: query.limit,
       sortBy: query.sortBy,

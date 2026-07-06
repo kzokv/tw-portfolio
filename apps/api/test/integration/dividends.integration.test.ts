@@ -263,6 +263,86 @@ describe("dividends", () => {
     expect(body.ledgerEntries[0]).toHaveProperty("id");
   });
 
+  it("filters the dividend ledger route by marketCode", async () => {
+    const accountResponse = await app.inject({
+      method: "POST",
+      url: "/accounts",
+      payload: {
+        name: "AU Account",
+        defaultCurrency: "AUD",
+        accountType: "broker",
+      },
+    });
+    expect(accountResponse.statusCode).toBe(200);
+    const auAccount = accountResponse.json() as { id: string };
+    const store = await app.persistence.loadStore("user-1");
+    const twEvent = createDividendEvent(store, {
+      id: randomUUID(),
+      ...dividendEventPayload({
+        ticker: "DUPE",
+        marketCode: "TW",
+        cashDividendCurrency: "TWD",
+        paymentDate: "2026-02-20",
+      }),
+    } as CreateDividendEventInput);
+    const auEvent = createDividendEvent(store, {
+      id: randomUUID(),
+      ...dividendEventPayload({
+        ticker: "DUPE",
+        marketCode: "AU",
+        cashDividendCurrency: "AUD",
+        paymentDate: "2026-02-21",
+      }),
+    } as CreateDividendEventInput);
+    store.accounting.facts.dividendLedgerEntries.push(
+      {
+        id: "ledger-tw",
+        accountId: "acc-1",
+        dividendEventId: twEvent.id,
+        eligibleQuantity: 10,
+        expectedCashAmount: 120,
+        expectedStockQuantity: 0,
+        receivedCashAmount: 120,
+        receivedStockQuantity: 0,
+        postingStatus: "posted",
+        reconciliationStatus: "matched",
+        version: 1,
+        sourceCompositionStatus: "provided",
+        bookedAt: new Date().toISOString(),
+      },
+      {
+        id: "ledger-au",
+        accountId: auAccount.id,
+        dividendEventId: auEvent.id,
+        eligibleQuantity: 10,
+        expectedCashAmount: 80,
+        expectedStockQuantity: 0,
+        receivedCashAmount: 80,
+        receivedStockQuantity: 0,
+        postingStatus: "posted",
+        reconciliationStatus: "matched",
+        version: 1,
+        sourceCompositionStatus: "provided",
+        bookedAt: new Date().toISOString(),
+      },
+    );
+    await app.persistence.saveStore(store);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/ledger?ticker=DUPE&marketCode=AU",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().ledgerEntries).toEqual([
+      expect.objectContaining({
+        id: "ledger-au",
+        marketCode: "AU",
+        ticker: "DUPE",
+      }),
+    ]);
+  });
+
   it("updates posted cash dividends in place and emits dividend events", async () => {
     const events: Array<{ type: string; data: unknown }> = [];
     app.eventBus.subscribe("user-1", (event) => events.push({ type: event.type, data: event.data }));

@@ -22,6 +22,7 @@ import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Drawer } from "../ui/Drawer";
 import { DividendPostingForm } from "./DividendPostingForm";
+import { DIVIDENDS_LEDGER_ONLY_PARAMS } from "./dividendsTabsUtils";
 
 interface DividendCalendarClientProps {
   initialSnapshot: DividendCalendarSnapshot;
@@ -226,10 +227,9 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    for (const key of DIVIDENDS_LEDGER_ONLY_PARAMS) params.delete(key);
     params.set("month", activeMonthKey);
     params.delete("view");
-    params.delete("fromPaymentDate");
-    params.delete("toPaymentDate");
     const qs = params.toString();
     window.history.replaceState(null, "", qs ? `/dividends?${qs}` : "/dividends");
   }, [activeMonthKey]);
@@ -245,7 +245,7 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
   const rows = useMemo(() => buildRows(snapshot), [snapshot]);
   const tbdRows = rows.filter((row) => row.event.paymentDate === null);
   const receiptRows = rows
-    .filter((row) => row.ledgerEntry !== null)
+    .filter((row) => row.ledgerEntry?.postingStatus === "posted" || row.ledgerEntry?.postingStatus === "adjusted")
     .sort((left, right) => {
       const leftDate = left.ledgerEntry?.paymentDate ?? left.ledgerEntry?.bookedAt ?? left.event.paymentDate ?? "";
       const rightDate = right.ledgerEntry?.paymentDate ?? right.ledgerEntry?.bookedAt ?? right.event.paymentDate ?? "";

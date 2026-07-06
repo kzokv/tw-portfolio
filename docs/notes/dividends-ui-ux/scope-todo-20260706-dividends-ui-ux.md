@@ -130,6 +130,11 @@ superseded_by: null
   - Preserved active `month=YYYY-MM` in Overview-to-Review links so returning from Review restores the selected month.
   - Added review query-key invalidation so opening Review with a different month/ticker/market filter refetches rows instead of reusing stale Review data.
   - Focused validation passed: `npx eslint apps/web/components/dividends/DividendCalendarClient.tsx apps/web/components/dividends/DividendsTabsClient.tsx apps/web/test/features/dividends/DividendCalendarClient.test.tsx apps/web/test/components/dividends/DividendsTabsClient.test.tsx`; `npx tsc --noEmit -p apps/web/tsconfig.json --pretty false`; `cd apps/web && npx vitest run test/features/dividends/DividendCalendarClient.test.tsx test/components/dividends/DividendsTabsClient.test.tsx --config vitest.config.ts`.
+- Second Codex review fixes:
+  - Forwarded `marketCode` through `/portfolio/dividends/ledger`.
+  - Excluded unposted `expected` rows from Overview Recent Receipts and received totals.
+  - Dropped ledger-only params when normalizing explicit calendar URLs.
+  - Focused validation passed: `npm run test --prefix apps/api -- test/integration/dividends.integration.test.ts`; `cd apps/web && npx vitest run test/features/dividends/DividendCalendarClient.test.tsx --config vitest.config.ts`; `npx eslint apps/api/src/routes/registerRoutes.ts apps/api/test/integration/dividends.integration.test.ts apps/web/components/dividends/DividendCalendarClient.tsx apps/web/test/features/dividends/DividendCalendarClient.test.tsx`; `npx tsc --noEmit -p apps/api/tsconfig.json --pretty false && npx tsc --noEmit -p apps/web/tsconfig.json --pretty false`; `git diff --check`.
 
 ## Explicit Out Of Scope
 
