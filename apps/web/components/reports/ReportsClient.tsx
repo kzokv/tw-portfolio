@@ -1096,7 +1096,7 @@ function ReportBasisStrip({ data, dict, locale }: { data: AnyReportDto; dict: Ap
                       market: summary.marketCode,
                     })
                   : summary.expectedLatestValuationDate && summary.quoteAsOf && summary.quoteAsOf < summary.expectedLatestValuationDate
-                    ? formatReportMessage(dict.reports.basisMarketRollback, {
+                    ? formatReportMessage(dict.reports.basisMarketStaleQuote, {
                         actual: formatDateLabel(summary.quoteAsOf, locale),
                         expected: formatDateLabel(summary.expectedLatestValuationDate, locale),
                         market: summary.marketCode,
@@ -1189,6 +1189,22 @@ function buildReportBasisFxSummary(data: AnyReportDto, dict: AppDictionary, loca
   }
   const rates = getOptionalFxRates(data.fxStatus, data.fxRates);
   const dates = [...new Set(rates.flatMap((rate) => rate.asOf ? [rate.asOf] : []))].sort();
+  if (data.fxStatus.status !== "complete" || data.fxStatus.missingRatePairs.length > 0) {
+    const pairs = data.fxStatus.missingRatePairs.map((pair) => `${pair.from}->${pair.to}`).join(", ");
+    const unavailable = pairs
+      ? formatReportMessage(dict.reports.basisFxUnavailableForPairs, { pairs })
+      : dict.reports.basisFxUnavailable;
+    if (dates.length === 1) {
+      return `${unavailable}; ${formatReportMessage(dict.reports.basisFxAsOf, { date: formatDateLabel(dates[0]!, locale) })}`;
+    }
+    if (dates.length > 1) {
+      return `${unavailable}; ${formatReportMessage(dict.reports.basisFxDateRange, {
+        start: formatDateLabel(dates[0]!, locale),
+        end: formatDateLabel(dates.at(-1)!, locale),
+      })}`;
+    }
+    return unavailable;
+  }
   if (dates.length === 1) {
     return formatReportMessage(dict.reports.basisFxAsOf, { date: formatDateLabel(dates[0]!, locale) });
   }
@@ -1197,12 +1213,6 @@ function buildReportBasisFxSummary(data: AnyReportDto, dict: AppDictionary, loca
       start: formatDateLabel(dates[0]!, locale),
       end: formatDateLabel(dates.at(-1)!, locale),
     });
-  }
-  if (data.fxStatus.status !== "complete" || data.fxStatus.missingRatePairs.length > 0) {
-    const pairs = data.fxStatus.missingRatePairs.map((pair) => `${pair.from}->${pair.to}`).join(", ");
-    return pairs
-      ? formatReportMessage(dict.reports.basisFxUnavailableForPairs, { pairs })
-      : dict.reports.basisFxUnavailable;
   }
   return dict.reports.basisFxLatest;
 }

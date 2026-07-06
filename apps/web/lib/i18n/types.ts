@@ -750,6 +750,7 @@ export interface AppDictionary {
     basisMarketFallbackUsed: string;
     basisMarketFallbackNone: string;
     basisMarketRollback: string;
+    basisMarketStaleQuote: string;
     basisMarketCurrent: string;
     basisMarketUnavailable: string;
     basisFxAsOf: string;

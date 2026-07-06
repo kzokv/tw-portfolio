@@ -91,6 +91,7 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         basisMarketFallbackUsed: "Fallback quote used",
         basisMarketFallbackNone: "Primary quote path",
         basisMarketRollback: "{market} closed {expected}: using {actual} close",
+        basisMarketStaleQuote: "Stale market data: {market} expected {expected}, using {actual} close",
         basisMarketCurrent: "Current through {date}",
         basisMarketUnavailable: "Quote basis unavailable",
         basisFxAsOf: "FX as of {date}",
@@ -760,6 +761,32 @@ describe("ReportsClient", () => {
           providerSources: ["Test Feed"],
           knownGapReasons: [],
         }],
+        valuationBasis: {
+          semantics: "current_report_valuation",
+          reportingCurrency: "AUD",
+          reportAsOf: "2026-06-08",
+          fxAsOfDate: "2026-06-08",
+          markets: [{
+            marketCode: "AU",
+            requestedAsOf: "2026-06-08",
+            expectedLatestValuationDate: "2026-06-08",
+            quoteAsOfDate: "2026-06-07",
+            quoteSource: "Test Feed",
+            quoteSourceKind: "primary_daily",
+            usesFallbackQuote: true,
+            fallbackProvider: "eodhd",
+            fallbackStale: null,
+            calendarStatus: null,
+            marketState: null,
+            marketStateReason: null,
+            marketLocalDate: "2026-06-08",
+            closureDate: "2026-06-08",
+            closureName: null,
+            closureReason: "market_holiday",
+            fxAsOfDate: "2026-06-08",
+            reportingCurrency: "AUD",
+          }],
+        },
       },
       holdings: {
         ...portfolioFixture.holdings,
@@ -831,6 +858,95 @@ describe("ReportsClient", () => {
     const fxBasis = document.querySelector("[data-testid='reports-basis-fx']")?.textContent;
     expect(fxBasis).toContain("FX unavailable for USD->AUD");
     expect(fxBasis).not.toContain("Latest available FX in report response");
+  });
+
+  it("does not label stale quotes as market closures in valuation basis disclosure", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=all&range=1Y";
+    const staleQuoteFixture: PortfolioReportDto = {
+      ...portfolioFixture,
+      diagnostics: {
+        ...portfolioFixture.diagnostics,
+        valuationBasis: {
+          semantics: "current_report_valuation",
+          reportingCurrency: "AUD",
+          reportAsOf: "2026-07-06",
+          fxAsOfDate: null,
+          markets: [{
+            marketCode: "US",
+            requestedAsOf: "2026-07-06",
+            expectedLatestValuationDate: "2026-07-06",
+            quoteAsOfDate: "2026-07-02",
+            quoteSource: "test-us-close",
+            quoteSourceKind: "primary_daily",
+            usesFallbackQuote: false,
+            fallbackProvider: null,
+            fallbackStale: null,
+            calendarStatus: null,
+            marketState: null,
+            marketStateReason: null,
+            marketLocalDate: "2026-07-06",
+            closureDate: null,
+            closureName: null,
+            closureReason: null,
+            fxAsOfDate: null,
+            reportingCurrency: "AUD",
+          }],
+        },
+      },
+    };
+
+    act(() => {
+      root.render(<ReportsClient initialReport={staleQuoteFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "all",
+        range: "1Y",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    const marketBasis = document.querySelector("[data-testid='reports-basis-market-US']")?.textContent;
+    expect(marketBasis).toContain("Stale market data: US expected Jul 6, 2026, using Jul 2, 2026 close");
+    expect(marketBasis).not.toContain("US closed");
+  });
+
+  it("surfaces missing FX pairs before resolved date summaries in valuation basis disclosure", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=all&range=1Y";
+    const partialFxFixture: PortfolioReportDto = {
+      ...portfolioFixture,
+      query: {
+        ...portfolioFixture.query,
+        currency: "TWD",
+        reportingCurrency: "TWD",
+      },
+      fxStatus: {
+        ...portfolioFixture.fxStatus,
+        status: "partial",
+        reportingCurrency: "TWD",
+        nativeCurrencies: ["USD", "AUD"],
+        missingRatePairs: [{ from: "AUD", to: "TWD" }],
+      },
+      fxRates: [{
+        fromCurrency: "USD",
+        toCurrency: "TWD",
+        rate: 32,
+        asOf: "2026-06-08",
+      }],
+    };
+
+    act(() => {
+      root.render(<ReportsClient initialReport={partialFxFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "all",
+        range: "1Y",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    const fxBasis = document.querySelector("[data-testid='reports-basis-fx']")?.textContent;
+    expect(fxBasis).toContain("FX unavailable for AUD->TWD");
+    expect(fxBasis).toContain("FX as of Jun 8, 2026");
   });
 
   it("renders the ticker allocation card and persists chart preferences through holdings table settings", async () => {
