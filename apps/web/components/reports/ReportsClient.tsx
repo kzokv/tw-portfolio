@@ -1176,7 +1176,7 @@ function buildReportBasisMarketSummaries(data: AnyReportDto): Array<{
   return marketCodes.map((marketCode) => {
     const market = data.diagnostics.markets.find((candidate) => candidate.marketCode === marketCode);
     const rows = rowsByMarket.get(marketCode) ?? [];
-    const quoteAsOf = latestDate(rows.map((row) => row.priceState.asOfDate));
+    const quoteAsOf = conservativeQuoteAsOfDate(rows.map((row) => row.priceState.asOfDate));
     const fallbackQuoteCount = rows.filter((row) => row.priceState.fallbackProvider || row.priceState.basis === "fallback_eod_close").length;
     const quoteSources = uniqueSortedNonEmptyStrings([
       ...rows.map((row) => row.priceState.source),
@@ -1303,6 +1303,11 @@ function buildReportBasisFxSummary(data: AnyReportDto, dict: AppDictionary, loca
 function latestDate(values: Array<string | null | undefined>): string | null {
   const filtered = values.filter((value): value is string => Boolean(value)).sort();
   return filtered.at(-1) ?? null;
+}
+
+function conservativeQuoteAsOfDate(values: Array<string | null | undefined>): string | null {
+  if (values.length === 0 || values.some((value) => !value)) return null;
+  return [...values].sort()[0] ?? null;
 }
 
 function uniqueSortedNonEmptyStrings(values: Array<string | null | undefined>): string[] {

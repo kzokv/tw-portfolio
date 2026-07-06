@@ -85,6 +85,7 @@ superseded_by: null
 - UI:
   - `apps/web/components/reports/ReportsClient.tsx` renders the report valuation basis strip under report meta/header.
   - The report valuation basis strip renders mixed per-holding quote sources and partial fallback counts, for example when one AU holding uses `eodhd` while another AU holding stays on the primary quote path.
+  - Legacy/cached report payloads without `diagnostics.valuationBasis` use the same conservative quote-date disclosure as the backend: unavailable when any holding row is missing a quote date, otherwise the earliest quote date across market rows.
   - `apps/web/components/analysis/UnrealizedPnlAnalysisClient.tsx` renders the selected-detail basis note, active selected end P&L total, zero baseline, and max/zero/min y-axis amount labels.
   - The analysis selected-detail basis note follows the focused chart date when a user scrubs/focuses an earlier point instead of falling back to the latest snapshot date.
   - English and zh-TW copy was added in `apps/web/features/analysis/i18n.ts`, `apps/web/features/dashboard/i18n.ts`, and `apps/web/lib/i18n/types.ts`.
@@ -110,6 +111,7 @@ superseded_by: null
 - Passed after final mixed-source/focused-basis fixes: `npm run test --prefix apps/api -- --run test/unit/reports.test.ts test/unit/unrealizedPnlAnalysis.test.ts`
 - Passed after final mixed-source/focused-basis fixes: `npx vitest run test/components/reports/ReportsClient.test.tsx test/components/analysis/UnrealizedPnlAnalysisClient.test.tsx` from `apps/web`
 - Passed after final mixed-source/focused-basis fixes: `npm run typecheck`
+- Passed after legacy cached-basis review fix: `npx vitest run test/components/reports/ReportsClient.test.tsx` from `apps/web`
 - Passed after fixes: `npm run test:integration:full:host` (`95` files, `966` passed, `1` skipped)
 - Passed: `npm run test:e2e:bypass:mem --prefix apps/web` (`318` passed, `19` skipped)
 - Passed after fixes: `npx playwright test tests/e2e/specs-oauth/admin-instruments-aaa.spec.ts --config=tests/e2e/playwright.oauth.config.ts` from `apps/web`
@@ -125,6 +127,7 @@ superseded_by: null
 - Full OAuth E2E initially failed because `apps/web/tests/e2e/specs-oauth/admin-instruments-aaa.spec.ts` used broad `retired_by_admin` text matching after the drawer rendered the status both as a definition value and a disabled button label. Fixed by asserting the definition role value; verified with the focused OAuth spec and the full OAuth suite.
 - Live Vakwen Dev validation found that the AU market basis card rendered `Source eodhd` while only `ETPMAG` used an `EODHD stale` fallback and `QAU` stayed on the normal closed quote path. Fixed by rendering per-holding source composition plus fallback counts instead of a single market-wide representative source.
 - Codex review found that the analysis selected-detail basis note still used all selected series points while focused cards used the focused date. Fixed by aggregating basis metadata from focused points when a focus date is active.
+- Codex review found that the legacy/cached report fallback path used the freshest holding quote date even though server-side valuation basis is conservative. Fixed by deriving `quoteAsOf` as unavailable when any market row is missing an as-of date, otherwise the earliest market row date.
 
 ## References
 

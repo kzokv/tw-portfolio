@@ -1329,6 +1329,57 @@ describe("ReportsClient", () => {
     expect(allocationCard?.textContent).toContain("0 bucket(s)");
   });
 
+  it("keeps legacy valuation basis conservative when any market row is missing a quote date", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=all&range=1Y";
+    const baseRow = portfolioFixture.holdings.rows[0]!;
+    const legacyMissingBasisFixture: PortfolioReportDto = {
+      ...portfolioFixture,
+      diagnostics: {
+        ...portfolioFixture.diagnostics,
+        valuationBasis: undefined,
+        markets: [],
+      },
+      holdings: {
+        ...portfolioFixture.holdings,
+        total: 2,
+        rows: [
+          {
+            ...baseRow,
+            ticker: "QAU",
+            instrumentName: "BetaShares Gold Bullion ETF",
+            priceState: testPriceState({ asOfDate: "2026-07-03", source: "yahoo-finance-au" }),
+          },
+          {
+            ...baseRow,
+            ticker: "ETPMAG",
+            instrumentName: "Global X Physical Silver",
+            priceState: testPriceState({
+              asOfDate: null,
+              basis: "missing",
+              chipState: "missing",
+              source: null,
+              sourceKind: "missing",
+            }),
+          },
+        ],
+      },
+    };
+
+    act(() => {
+      root.render(<ReportsClient initialReport={legacyMissingBasisFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "all",
+        range: "1Y",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    const auBasis = document.querySelector("[data-testid='reports-basis-market-AU']")?.textContent;
+    expect(auBasis).toContain("Quote basis unavailable");
+    expect(auBasis).not.toContain("Quote Jul 3, 2026");
+  });
+
   it("shows ticker details and large-slice labels from the pie chart itself", async () => {
     searchParamsMock.value = "tab=portfolio&scope=all&range=1Y";
 
