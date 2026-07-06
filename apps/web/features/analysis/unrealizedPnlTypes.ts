@@ -126,6 +126,12 @@ export interface UnrealizedPnlPointMarker {
   label: string;
 }
 
+export interface UnrealizedPnlSnapshotPointBasis {
+  snapshotDate: string | null;
+  snapshotProviderSources: string[];
+  fxAsOfDate: string | null;
+}
+
 export interface UnrealizedPnlSeriesPoint {
   date: string;
   unrealizedPnl: number | null;
@@ -133,6 +139,7 @@ export interface UnrealizedPnlSeriesPoint {
   costBasis: number | null;
   quantity: number;
   closePrice?: number | null;
+  basis?: UnrealizedPnlSnapshotPointBasis;
   transactionContext: string;
 }
 
@@ -198,8 +205,22 @@ export interface UnrealizedPnlReportsPreview {
   openHref: string;
 }
 
+export interface UnrealizedPnlAnalysisBasis {
+  semantics: "snapshot_valuation" | "preview";
+  priceBasis: string;
+  fxBasis: string;
+  reportingCurrency: CurrencyCode | AccountDefaultCurrency;
+  startSnapshotDate: string | null;
+  endSnapshotDate: string | null;
+}
+
 export interface UnrealizedPnlAnalysisDto {
   query: UnrealizedPnlAnalysisResolvedFilters;
+  basis?: UnrealizedPnlAnalysisBasis;
+  diagnostics?: {
+    latestSnapshotDate: string | null;
+    firstSnapshotDate: string | null;
+  };
   availableFilters: UnrealizedPnlFilterOptions;
   requestedTickerAvailability: UnrealizedPnlRequestedTickerAvailability[];
   warningFacts: UnrealizedPnlWarningFacts;

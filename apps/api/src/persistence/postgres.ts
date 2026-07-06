@@ -217,6 +217,7 @@ import type {
   UpsertProviderOperationOutcomeInput,
   UpsertProviderUnresolvedItemInput,
   UpsertProviderResolutionMappingInput,
+  ResolvedFxRate,
   UserRole,
 } from "./types.js";
 // KZO-199: anonymous-share token cap and retention are now resolver-backed
@@ -6804,15 +6805,25 @@ export class PostgresPersistence implements Persistence {
   }
 
   async getFxRate(base: string, quote: string, asOfDate: string): Promise<number | null> {
-    if (base === quote) return 1.0;
+    return (await this.getResolvedFxRate(base, quote, asOfDate))?.rate ?? null;
+  }
+
+  async getResolvedFxRate(base: string, quote: string, asOfDate: string): Promise<ResolvedFxRate | null> {
+    if (base === quote) return { rate: 1.0, asOfDate };
     const pivot = "TWD";
     const result = await this.pool.query<{
       direct_rate: string | null;
+      direct_rate_date: string | null;
       inverse_rate: string | null;
+      inverse_rate_date: string | null;
       base_to_pivot_direct_rate: string | null;
+      base_to_pivot_direct_rate_date: string | null;
       pivot_to_base_rate: string | null;
+      pivot_to_base_rate_date: string | null;
       quote_to_pivot_direct_rate: string | null;
+      quote_to_pivot_direct_rate_date: string | null;
       pivot_to_quote_rate: string | null;
+      pivot_to_quote_rate_date: string | null;
     }>(
       `SELECT
          (
@@ -6821,40 +6832,70 @@ export class PostgresPersistence implements Persistence {
             ORDER BY date DESC LIMIT 1
          ) AS direct_rate,
          (
+           SELECT date::text FROM market_data.fx_rates
+            WHERE base_currency = $1 AND quote_currency = $2 AND date <= $3
+            ORDER BY date DESC LIMIT 1
+         ) AS direct_rate_date,
+         (
            SELECT rate::text FROM market_data.fx_rates
             WHERE base_currency = $2 AND quote_currency = $1 AND date <= $3
             ORDER BY date DESC LIMIT 1
          ) AS inverse_rate,
+         (
+           SELECT date::text FROM market_data.fx_rates
+            WHERE base_currency = $2 AND quote_currency = $1 AND date <= $3
+            ORDER BY date DESC LIMIT 1
+         ) AS inverse_rate_date,
          (
            SELECT rate::text FROM market_data.fx_rates
             WHERE base_currency = $1 AND quote_currency = $4 AND date <= $3
             ORDER BY date DESC LIMIT 1
          ) AS base_to_pivot_direct_rate,
          (
+           SELECT date::text FROM market_data.fx_rates
+            WHERE base_currency = $1 AND quote_currency = $4 AND date <= $3
+            ORDER BY date DESC LIMIT 1
+         ) AS base_to_pivot_direct_rate_date,
+         (
            SELECT rate::text FROM market_data.fx_rates
             WHERE base_currency = $4 AND quote_currency = $1 AND date <= $3
             ORDER BY date DESC LIMIT 1
          ) AS pivot_to_base_rate,
+         (
+           SELECT date::text FROM market_data.fx_rates
+            WHERE base_currency = $4 AND quote_currency = $1 AND date <= $3
+            ORDER BY date DESC LIMIT 1
+         ) AS pivot_to_base_rate_date,
          (
            SELECT rate::text FROM market_data.fx_rates
             WHERE base_currency = $2 AND quote_currency = $4 AND date <= $3
             ORDER BY date DESC LIMIT 1
          ) AS quote_to_pivot_direct_rate,
          (
+           SELECT date::text FROM market_data.fx_rates
+            WHERE base_currency = $2 AND quote_currency = $4 AND date <= $3
+            ORDER BY date DESC LIMIT 1
+         ) AS quote_to_pivot_direct_rate_date,
+         (
            SELECT rate::text FROM market_data.fx_rates
             WHERE base_currency = $4 AND quote_currency = $2 AND date <= $3
             ORDER BY date DESC LIMIT 1
-         ) AS pivot_to_quote_rate`,
+         ) AS pivot_to_quote_rate,
+         (
+           SELECT date::text FROM market_data.fx_rates
+            WHERE base_currency = $4 AND quote_currency = $2 AND date <= $3
+            ORDER BY date DESC LIMIT 1
+         ) AS pivot_to_quote_rate_date`,
       [base, quote, asOfDate, pivot],
     );
     const row = result.rows[0];
     if (!row) return null;
 
     const directRate = row.direct_rate === null ? null : Number(row.direct_rate);
-    if (directRate !== null) return directRate;
+    if (directRate !== null) return { rate: directRate, asOfDate: row.direct_rate_date ?? asOfDate };
 
     const inverseRate = row.inverse_rate === null ? null : Number(row.inverse_rate);
-    if (inverseRate !== null && inverseRate !== 0) return 1 / inverseRate;
+    if (inverseRate !== null && inverseRate !== 0) return { rate: 1 / inverseRate, asOfDate: row.inverse_rate_date ?? asOfDate };
 
     const baseToPivot = base === pivot
       ? 1.0
@@ -6864,7 +6905,26 @@ export class PostgresPersistence implements Persistence {
       : rateOrInverse(row.quote_to_pivot_direct_rate, row.pivot_to_quote_rate);
 
     if (baseToPivot !== null && quoteToPivot !== null && quoteToPivot !== 0) {
-      return baseToPivot / quoteToPivot;
+      const baseToPivotDate = base === pivot
+        ? asOfDate
+        : rateDateOrInverse(
+          row.base_to_pivot_direct_rate,
+          row.base_to_pivot_direct_rate_date,
+          row.pivot_to_base_rate,
+          row.pivot_to_base_rate_date,
+        );
+      const quoteToPivotDate = quote === pivot
+        ? asOfDate
+        : rateDateOrInverse(
+          row.quote_to_pivot_direct_rate,
+          row.quote_to_pivot_direct_rate_date,
+          row.pivot_to_quote_rate,
+          row.pivot_to_quote_rate_date,
+        );
+      return {
+        rate: baseToPivot / quoteToPivot,
+        asOfDate: minNullableIsoDate(baseToPivotDate, quoteToPivotDate) ?? asOfDate,
+      };
     }
     return null;
   }
@@ -7992,6 +8052,7 @@ export class PostgresPersistence implements Persistence {
       unrealized_pnl: string | null;
       unrealized_pnl_native: string | null;
       is_provisional: boolean;
+      provider_source: string | null;
     }>(
       `SELECT s.account_id,
               s.ticker,
@@ -8006,7 +8067,8 @@ export class PostgresPersistence implements Persistence {
               s.value_native::text,
               s.unrealized_pnl::text,
               s.unrealized_pnl_native::text,
-              s.is_provisional
+              s.is_provisional,
+              s.provider_source
          FROM daily_holding_snapshots s
         WHERE ${where.join(" AND ")}
         ORDER BY s.snapshot_date ASC, s.market_code ASC, s.ticker ASC, s.account_id ASC`,
@@ -8014,6 +8076,7 @@ export class PostgresPersistence implements Persistence {
     );
 
     const fxRateByKey = new Map<string, number | null>();
+    const fxRateDateByKey = new Map<string, string | null>();
     const fxPairs = [...new Map(result.rows
       .map((row) => {
         const nativeCurrency = row.currency.trim();
@@ -8026,6 +8089,7 @@ export class PostgresPersistence implements Persistence {
     const nonSelfPairs = fxPairs.filter((pair) => pair.base !== pair.quote);
     for (const pair of fxPairs.filter((item) => item.base === item.quote)) {
       fxRateByKey.set(`${pair.base}\0${pair.quote}\0${pair.as_of_date}`, 1);
+      fxRateDateByKey.set(`${pair.base}\0${pair.quote}\0${pair.as_of_date}`, pair.as_of_date);
     }
     if (nonSelfPairs.length > 0) {
       const pivot = "TWD";
@@ -8034,11 +8098,17 @@ export class PostgresPersistence implements Persistence {
         quote: string;
         as_of_date: string;
         direct_rate: string | null;
+        direct_rate_date: string | null;
         inverse_rate: string | null;
+        inverse_rate_date: string | null;
         base_to_pivot_direct_rate: string | null;
+        base_to_pivot_direct_rate_date: string | null;
         pivot_to_base_rate: string | null;
+        pivot_to_base_rate_date: string | null;
         quote_to_pivot_direct_rate: string | null;
+        quote_to_pivot_direct_rate_date: string | null;
         pivot_to_quote_rate: string | null;
+        pivot_to_quote_rate_date: string | null;
       }>(
         `WITH pairs AS (
            SELECT base, quote, as_of_date
@@ -8053,30 +8123,60 @@ export class PostgresPersistence implements Persistence {
                    ORDER BY date DESC LIMIT 1
                 ) AS direct_rate,
                 (
+                  SELECT date::text FROM market_data.fx_rates
+                   WHERE base_currency = p.base AND quote_currency = p.quote AND date <= p.as_of_date
+                   ORDER BY date DESC LIMIT 1
+                ) AS direct_rate_date,
+                (
                   SELECT rate::text FROM market_data.fx_rates
                    WHERE base_currency = p.quote AND quote_currency = p.base AND date <= p.as_of_date
                    ORDER BY date DESC LIMIT 1
                 ) AS inverse_rate,
+                (
+                  SELECT date::text FROM market_data.fx_rates
+                   WHERE base_currency = p.quote AND quote_currency = p.base AND date <= p.as_of_date
+                   ORDER BY date DESC LIMIT 1
+                ) AS inverse_rate_date,
                 (
                   SELECT rate::text FROM market_data.fx_rates
                    WHERE base_currency = p.base AND quote_currency = $2 AND date <= p.as_of_date
                    ORDER BY date DESC LIMIT 1
                 ) AS base_to_pivot_direct_rate,
                 (
+                  SELECT date::text FROM market_data.fx_rates
+                   WHERE base_currency = p.base AND quote_currency = $2 AND date <= p.as_of_date
+                   ORDER BY date DESC LIMIT 1
+                ) AS base_to_pivot_direct_rate_date,
+                (
                   SELECT rate::text FROM market_data.fx_rates
                    WHERE base_currency = $2 AND quote_currency = p.base AND date <= p.as_of_date
                    ORDER BY date DESC LIMIT 1
                 ) AS pivot_to_base_rate,
+                (
+                  SELECT date::text FROM market_data.fx_rates
+                   WHERE base_currency = $2 AND quote_currency = p.base AND date <= p.as_of_date
+                   ORDER BY date DESC LIMIT 1
+                ) AS pivot_to_base_rate_date,
                 (
                   SELECT rate::text FROM market_data.fx_rates
                    WHERE base_currency = p.quote AND quote_currency = $2 AND date <= p.as_of_date
                    ORDER BY date DESC LIMIT 1
                 ) AS quote_to_pivot_direct_rate,
                 (
+                  SELECT date::text FROM market_data.fx_rates
+                   WHERE base_currency = p.quote AND quote_currency = $2 AND date <= p.as_of_date
+                   ORDER BY date DESC LIMIT 1
+                ) AS quote_to_pivot_direct_rate_date,
+                (
                   SELECT rate::text FROM market_data.fx_rates
                    WHERE base_currency = $2 AND quote_currency = p.quote AND date <= p.as_of_date
                    ORDER BY date DESC LIMIT 1
-                ) AS pivot_to_quote_rate
+                ) AS pivot_to_quote_rate,
+                (
+                  SELECT date::text FROM market_data.fx_rates
+                   WHERE base_currency = $2 AND quote_currency = p.quote AND date <= p.as_of_date
+                   ORDER BY date DESC LIMIT 1
+                ) AS pivot_to_quote_rate_date
            FROM pairs p`,
         [JSON.stringify(nonSelfPairs), pivot],
       );
@@ -8089,10 +8189,29 @@ export class PostgresPersistence implements Persistence {
         const quoteToPivot = row.quote === pivot
           ? 1.0
           : rateOrInverse(row.quote_to_pivot_direct_rate, row.pivot_to_quote_rate);
-        const resolvedRate = directRate
-          ?? (inverseRate !== null && inverseRate !== 0 ? 1 / inverseRate : null)
-          ?? (baseToPivot !== null && quoteToPivot !== null && quoteToPivot !== 0 ? baseToPivot / quoteToPivot : null);
+        const directResolved = directRate !== null
+          ? { rate: directRate, asOfDate: row.direct_rate_date }
+          : null;
+        const inverseResolved = inverseRate !== null && inverseRate !== 0
+          ? { rate: 1 / inverseRate, asOfDate: row.inverse_rate_date }
+          : null;
+        const pivotResolved = baseToPivot !== null && quoteToPivot !== null && quoteToPivot !== 0
+          ? {
+              rate: baseToPivot / quoteToPivot,
+              asOfDate: minNullableIsoDate(
+                row.base === pivot
+                  ? row.quote_to_pivot_direct_rate_date ?? row.pivot_to_quote_rate_date
+                  : row.base_to_pivot_direct_rate_date ?? row.pivot_to_base_rate_date,
+                row.quote === pivot
+                  ? row.base_to_pivot_direct_rate_date ?? row.pivot_to_base_rate_date
+                  : row.quote_to_pivot_direct_rate_date ?? row.pivot_to_quote_rate_date,
+              ),
+            }
+          : null;
+        const resolved = directResolved ?? inverseResolved ?? pivotResolved;
+        const resolvedRate = resolved?.rate ?? null;
         fxRateByKey.set(`${row.base}\0${row.quote}\0${row.as_of_date}`, resolvedRate);
+        fxRateDateByKey.set(`${row.base}\0${row.quote}\0${row.as_of_date}`, resolved?.asOfDate ?? null);
       }
     }
 
@@ -8100,6 +8219,9 @@ export class PostgresPersistence implements Persistence {
     for (const row of result.rows) {
       const nativeCurrency = row.currency.trim();
       const fxRate = fxRateByKey.get(`${nativeCurrency}\0${options.reportingCurrency}\0${row.snapshot_date}`) ?? null;
+      const fxAsOfDate = nativeCurrency === options.reportingCurrency
+        ? row.snapshot_date
+        : fxRateDateByKey.get(`${nativeCurrency}\0${options.reportingCurrency}\0${row.snapshot_date}`) ?? null;
       const fxAvailable = fxRate !== null;
       translatedRows.push({
         accountId: row.account_id,
@@ -8108,6 +8230,7 @@ export class PostgresPersistence implements Persistence {
         snapshotDate: row.snapshot_date,
         quantity: Number(row.quantity),
         closePrice: row.close_price !== null ? Number(row.close_price) : null,
+        providerSource: row.provider_source,
         nativeCurrency,
         reportingCurrency: options.reportingCurrency,
         costBasisAmount: fxAvailable
@@ -8121,6 +8244,7 @@ export class PostgresPersistence implements Persistence {
           : null,
         isProvisional: row.is_provisional,
         fxAvailable,
+        fxAsOfDate,
       });
     }
 
@@ -18664,9 +18788,26 @@ function parseSnapshotContributorKeys(value: string | null): string[] {
   return value.split(",").filter(Boolean);
 }
 
+function minNullableIsoDate(left: string | null, right: string | null): string | null {
+  if (left === null) return right;
+  if (right === null) return left;
+  return left <= right ? left : right;
+}
+
 function rateOrInverse(directRateText: string | null, inverseRateText: string | null): number | null {
   if (directRateText !== null) return Number(directRateText);
   if (inverseRateText === null) return null;
   const inverseRate = Number(inverseRateText);
   return inverseRate === 0 ? null : 1 / inverseRate;
+}
+
+function rateDateOrInverse(
+  directRateText: string | null,
+  directDate: string | null,
+  inverseRateText: string | null,
+  inverseDate: string | null,
+): string | null {
+  if (directRateText !== null) return directDate;
+  if (inverseRateText === null) return null;
+  return Number(inverseRateText) === 0 ? null : inverseDate;
 }

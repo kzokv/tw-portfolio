@@ -132,6 +132,14 @@ describePostgres("getFxRate — Postgres integration (KZO-166)", () => {
     expect(result).toBeCloseTo(0.031, 6);
   });
 
+  it("resolved forward-fill returns the actual FX row date", async () => {
+    await seedRate("2026-04-20", "TWD", "USD", 0.031);
+
+    const result = await persistence!.getResolvedFxRate("TWD", "USD", "2026-04-25");
+    expect(result?.rate).toBeCloseTo(0.031, 6);
+    expect(result?.asOfDate).toBe("2026-04-20");
+  });
+
   it("forward-fill: returns the closest earlier date when multiple prior dates exist", async () => {
     // Three rates seeded; query a date after all of them → should return the most recent.
     await seedRate("2026-04-20", "TWD", "USD", 0.031);

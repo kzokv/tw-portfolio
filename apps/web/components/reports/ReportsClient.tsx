@@ -675,6 +675,7 @@ function ReportBody({
         </Alert>
       ) : null}
       <ReportMeta data={data} dict={uiDict} locale={locale} />
+      <ReportBasisStrip data={data} dict={uiDict} locale={locale} />
       <SummaryGrid
         dataHealth={data.dataHealth}
         summary={data.summary}
@@ -1047,6 +1048,266 @@ function ReportMeta({ data, dict, locale }: { data: AnyReportDto; dict: AppDicti
       <span>{formatDateLabel(data.query.asOf, locale)}</span>
     </div>
   );
+}
+
+function ReportBasisStrip({ data, dict, locale }: { data: AnyReportDto; dict: AppDictionary; locale: LocaleCode }) {
+  const marketSummaries = buildReportBasisMarketSummaries(data);
+  const fxSummary = buildReportBasisFxSummary(data, dict, locale);
+
+  return (
+    <section
+      aria-labelledby="reports-basis-strip-title"
+      className="rounded-lg border border-border/70 bg-muted/20 px-4 py-3"
+      data-testid="reports-basis-strip"
+    >
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="max-w-3xl">
+          <h2 id="reports-basis-strip-title" className="text-sm font-semibold text-foreground">{dict.reports.basisStripTitle}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{dict.reports.basisStripDescription}</p>
+        </div>
+        <div className="flex min-w-0 flex-wrap gap-2">
+          {marketSummaries.map((summary) => (
+            <div
+              key={summary.marketCode}
+              className="min-w-[16rem] rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground"
+              data-testid={`reports-basis-market-${summary.marketCode}`}
+            >
+              <p className="font-medium text-foreground">
+                {formatReportMessage(dict.reports.basisMarketLabel, { market: summary.marketCode })}
+              </p>
+              <p className="mt-1">
+                {summary.quoteAsOf
+                  ? formatReportMessage(dict.reports.basisMarketQuoteAsOf, { date: formatDateLabel(summary.quoteAsOf, locale) })
+                  : dict.reports.basisMarketUnavailable}
+              </p>
+              <p className="mt-1">
+                {summary.sources.length > 0
+                  ? formatReportBasisSourceSummary(summary, dict)
+                  : dict.reports.basisMarketUnavailable}
+              </p>
+              <p className="mt-1">
+                {formatReportBasisFallbackSummary(summary, dict)}
+              </p>
+              <p className="mt-1">
+                {summary.closureDate && summary.quoteAsOf && isConfirmedMarketClosure(summary.closureReason)
+                  ? formatReportMessage(dict.reports.basisMarketRollback, {
+                      actual: formatDateLabel(summary.quoteAsOf, locale),
+                      expected: formatReportClosureLabel(summary, locale),
+                      market: summary.marketCode,
+                    })
+                  : summary.expectedLatestValuationDate && summary.quoteAsOf && summary.quoteAsOf < summary.expectedLatestValuationDate
+                    ? formatReportMessage(dict.reports.basisMarketStaleQuote, {
+                        actual: formatDateLabel(summary.quoteAsOf, locale),
+                        expected: formatDateLabel(summary.expectedLatestValuationDate, locale),
+                        market: summary.marketCode,
+                      })
+                  : summary.quoteAsOf
+                    ? formatReportMessage(dict.reports.basisMarketCurrent, { date: formatDateLabel(summary.quoteAsOf, locale) })
+                    : dict.reports.basisMarketUnavailable}
+              </p>
+            </div>
+          ))}
+          <div className="min-w-[14rem] rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground" data-testid="reports-basis-fx">
+            <p className="font-medium text-foreground">{dict.reports.basisFxLabel}</p>
+            <p className="mt-1">{fxSummary}</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function buildReportBasisMarketSummaries(data: AnyReportDto): Array<{
+  marketCode: string;
+  quoteAsOf: string | null;
+  sources: string[];
+  fallbackUsed: boolean;
+  fallbackQuoteCount: number | null;
+  holdingCount: number | null;
+  expectedLatestValuationDate: string | null;
+  closureDate: string | null;
+  closureName: string | null;
+  closureReason: "market_holiday" | "weekend" | "calendar_unknown" | null;
+}> {
+  const holdings = collectReportHoldingRows(data);
+  const rowsByMarket = new Map<string, ReportHoldingRowDto[]>();
+  for (const row of holdings) {
+    const list = rowsByMarket.get(row.marketCode) ?? [];
+    list.push(row);
+    rowsByMarket.set(row.marketCode, list);
+  }
+
+  const valuationMarkets = data.diagnostics.valuationBasis?.markets;
+  if (valuationMarkets && valuationMarkets.length > 0) {
+    return valuationMarkets.map((market) => {
+      const rows = rowsByMarket.get(market.marketCode) ?? [];
+      const rowFallbackCount = rows.filter((row) => row.priceState.fallbackProvider || row.priceState.basis === "fallback_eod_close").length;
+      const fallbackQuoteCount = market.fallbackQuoteCount ?? (rows.length > 0 ? rowFallbackCount : null);
+      const holdingCount = market.holdingCount ?? (rows.length > 0 ? rows.length : null);
+      const quoteSources = uniqueSortedNonEmptyStrings([
+        ...(market.quoteSources ?? []),
+        ...rows.map((row) => row.priceState.source),
+        market.quoteSource,
+      ]);
+      const fallbackProviders = uniqueSortedNonEmptyStrings([
+        ...(market.fallbackProviders ?? []),
+        ...rows.map((row) => row.priceState.fallbackProvider),
+        market.fallbackProvider ?? null,
+      ]);
+      return {
+        marketCode: market.marketCode,
+        quoteAsOf: market.quoteAsOfDate,
+        sources: buildReportBasisSourceList(quoteSources, fallbackProviders, fallbackQuoteCount, holdingCount),
+        fallbackUsed: market.usesFallbackQuote,
+        fallbackQuoteCount,
+        holdingCount,
+        expectedLatestValuationDate: market.expectedLatestValuationDate,
+        closureDate: market.closureDate,
+        closureName: market.closureName,
+        closureReason: market.closureReason,
+      };
+    });
+  }
+
+  const marketCodes = data.diagnostics.markets.length > 0
+    ? data.diagnostics.markets.map((market) => market.marketCode)
+    : Array.from(rowsByMarket.keys());
+
+  return marketCodes.map((marketCode) => {
+    const market = data.diagnostics.markets.find((candidate) => candidate.marketCode === marketCode);
+    const rows = rowsByMarket.get(marketCode) ?? [];
+    const quoteAsOf = conservativeQuoteAsOfDate(rows.map((row) => row.priceState.asOfDate));
+    const fallbackQuoteCount = rows.filter((row) => row.priceState.fallbackProvider || row.priceState.basis === "fallback_eod_close").length;
+    const quoteSources = uniqueSortedNonEmptyStrings([
+      ...rows.map((row) => row.priceState.source),
+      ...(market?.providerSources ?? []),
+    ]);
+    const fallbackProviders = uniqueSortedNonEmptyStrings(rows.map((row) => row.priceState.fallbackProvider));
+    const sources = buildReportBasisSourceList(quoteSources, fallbackProviders, fallbackQuoteCount, rows.length);
+    const fallbackUsed = fallbackQuoteCount > 0;
+
+    return {
+      marketCode,
+      quoteAsOf,
+      sources,
+      fallbackUsed,
+      fallbackQuoteCount,
+      holdingCount: rows.length,
+      expectedLatestValuationDate: market?.expectedLatestValuationDate ?? null,
+      closureDate: market?.basis?.closureDate ?? null,
+      closureName: market?.basis?.closureName ?? null,
+      closureReason: market?.basis?.closureReason ?? null,
+    };
+  });
+}
+
+function buildReportBasisSourceList(
+  quoteSources: string[],
+  fallbackProviders: string[],
+  fallbackQuoteCount: number | null,
+  holdingCount: number | null,
+): string[] {
+  if (
+    fallbackQuoteCount !== null
+    && holdingCount !== null
+    && fallbackQuoteCount > 0
+    && fallbackQuoteCount === holdingCount
+    && fallbackProviders.length > 0
+  ) {
+    return fallbackProviders;
+  }
+  return uniqueSortedNonEmptyStrings([...quoteSources, ...fallbackProviders]);
+}
+
+function formatReportBasisSourceSummary(
+  summary: { sources: string[]; fallbackQuoteCount: number | null; holdingCount: number | null },
+  dict: AppDictionary,
+): string {
+  const source = summary.sources.join(", ");
+  const hasPartialFallback = summary.fallbackQuoteCount !== null
+    && summary.holdingCount !== null
+    && summary.fallbackQuoteCount > 0
+    && summary.fallbackQuoteCount < summary.holdingCount;
+  if (summary.sources.length > 1 || hasPartialFallback) {
+    return formatReportMessage(dict.reports.basisMarketSources, { sources: source });
+  }
+  return formatReportMessage(dict.reports.basisMarketSource, { source });
+}
+
+function formatReportBasisFallbackSummary(
+  summary: { fallbackUsed: boolean; fallbackQuoteCount: number | null; holdingCount: number | null },
+  dict: AppDictionary,
+): string {
+  if (!summary.fallbackUsed) return dict.reports.basisMarketFallbackNone;
+  if (
+    summary.fallbackQuoteCount !== null
+    && summary.holdingCount !== null
+    && summary.fallbackQuoteCount > 0
+    && summary.fallbackQuoteCount < summary.holdingCount
+  ) {
+    return formatReportMessage(dict.reports.basisMarketFallbackPartial, {
+      count: String(summary.fallbackQuoteCount),
+      total: String(summary.holdingCount),
+    });
+  }
+  return dict.reports.basisMarketFallbackUsed;
+}
+
+function isConfirmedMarketClosure(reason: "market_holiday" | "weekend" | "calendar_unknown" | null): boolean {
+  return reason === "market_holiday" || reason === "weekend";
+}
+
+function formatReportClosureLabel(
+  summary: { closureDate: string | null; closureName: string | null },
+  locale: LocaleCode,
+): string {
+  if (!summary.closureDate) return "-";
+  const date = formatDateLabel(summary.closureDate, locale);
+  return summary.closureName ? `${date} (${summary.closureName})` : date;
+}
+
+function buildReportBasisFxSummary(data: AnyReportDto, dict: AppDictionary, locale: LocaleCode): string {
+  if (data.fxStatus.nativeCurrencies.every((currency) => currency === data.fxStatus.reportingCurrency)) {
+    return dict.reports.basisFxNotRequired;
+  }
+  const rates = getOptionalFxRates(data.fxStatus, data.fxRates);
+  const dates = [...new Set(rates.flatMap((rate) => rate.asOf ? [rate.asOf] : []))].sort();
+  if (data.fxStatus.status !== "complete" || data.fxStatus.missingRatePairs.length > 0) {
+    const pairs = data.fxStatus.missingRatePairs.map((pair) => `${pair.from}->${pair.to}`).join(", ");
+    const unavailable = pairs
+      ? formatReportMessage(dict.reports.basisFxUnavailableForPairs, { pairs })
+      : dict.reports.basisFxUnavailable;
+    if (dates.length === 1) {
+      return `${unavailable}; ${formatReportMessage(dict.reports.basisFxAsOf, { date: formatDateLabel(dates[0]!, locale) })}`;
+    }
+    if (dates.length > 1) {
+      return `${unavailable}; ${formatReportMessage(dict.reports.basisFxDateRange, {
+        start: formatDateLabel(dates[0]!, locale),
+        end: formatDateLabel(dates.at(-1)!, locale),
+      })}`;
+    }
+    return unavailable;
+  }
+  if (dates.length === 1) {
+    return formatReportMessage(dict.reports.basisFxAsOf, { date: formatDateLabel(dates[0]!, locale) });
+  }
+  if (dates.length > 1) {
+    return formatReportMessage(dict.reports.basisFxDateRange, {
+      start: formatDateLabel(dates[0]!, locale),
+      end: formatDateLabel(dates.at(-1)!, locale),
+    });
+  }
+  return dict.reports.basisFxLatest;
+}
+
+function conservativeQuoteAsOfDate(values: Array<string | null | undefined>): string | null {
+  if (values.length === 0 || values.some((value) => !value)) return null;
+  return [...values].sort()[0] ?? null;
+}
+
+function uniqueSortedNonEmptyStrings(values: Array<string | null | undefined>): string[] {
+  return [...new Set(values.map((value) => value?.trim()).filter((value): value is string => Boolean(value)))]
+    .sort((left, right) => left.localeCompare(right));
 }
 
 type SummaryMetricItem = {

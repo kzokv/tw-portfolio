@@ -82,6 +82,26 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         latestRefreshFailed: "Latest refresh failed",
         reportingCurrencyBadge: "Reporting {currency}",
         fxStatusBadge: "FX {status}",
+        basisStripTitle: "Valuation basis",
+        basisStripDescription: "Reports stay on the current-valuation path. Quote timing, fallback use, and FX timing are shown here so report totals can be compared with snapshot-based analysis.",
+        basisMarketLabel: "Market {market}",
+        basisFxLabel: "FX",
+        basisMarketQuoteAsOf: "Quote {date}",
+        basisMarketSource: "Source {source}",
+        basisMarketSources: "Sources by holding: {sources}",
+        basisMarketFallbackUsed: "Fallback quote used",
+        basisMarketFallbackPartial: "Fallback quote used by {count}/{total} holdings",
+        basisMarketFallbackNone: "Primary quote path",
+        basisMarketRollback: "{market} closed {expected}: using {actual} close",
+        basisMarketStaleQuote: "Stale market data: {market} expected {expected}, using {actual} close",
+        basisMarketCurrent: "Current through {date}",
+        basisMarketUnavailable: "Quote basis unavailable",
+        basisFxAsOf: "FX as of {date}",
+        basisFxDateRange: "FX dates {start} to {end}",
+        basisFxLatest: "Latest available FX in report response",
+        basisFxUnavailable: "FX unavailable",
+        basisFxUnavailableForPairs: "FX unavailable for {pairs}",
+        basisFxNotRequired: "No FX conversion required",
         marketValue: "Market value",
         bookCost: "Book Cost",
         unrealizedPnl: "Unrealized P&L",
@@ -719,6 +739,314 @@ describe("ReportsClient", () => {
     expect(rowHref).toContain("reportingCurrency=USD");
   });
 
+  it("renders a valuation basis disclosure near the report meta header", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=all&range=1Y";
+    const basisFixture: PortfolioReportDto = {
+      ...portfolioFixture,
+      fxStatus: {
+        ...portfolioFixture.fxStatus,
+        nativeCurrencies: ["USD"],
+      },
+      fxRates: [{
+        fromCurrency: "USD",
+        toCurrency: "AUD",
+        rate: 1.52,
+        asOf: "2026-06-08",
+      }],
+      diagnostics: {
+        ...portfolioFixture.diagnostics,
+        markets: [{
+          marketCode: "AU",
+          expectedLatestValuationDate: "2026-06-08",
+          latestSnapshotDate: "2026-06-07",
+          missingProviderSourceCount: 0,
+          providerSources: ["Test Feed"],
+          knownGapReasons: [],
+        }],
+        valuationBasis: {
+          semantics: "current_report_valuation",
+          reportingCurrency: "AUD",
+          reportAsOf: "2026-06-08",
+          fxAsOfDate: "2026-06-08",
+          markets: [{
+            marketCode: "AU",
+            requestedAsOf: "2026-06-08",
+            expectedLatestValuationDate: "2026-06-08",
+            quoteAsOfDate: "2026-06-07",
+            quoteSource: "Test Feed",
+            quoteSourceKind: "primary_daily",
+            usesFallbackQuote: true,
+            fallbackProvider: "eodhd",
+            fallbackStale: null,
+            calendarStatus: null,
+            marketState: null,
+            marketStateReason: null,
+            marketLocalDate: "2026-06-08",
+            closureDate: "2026-06-08",
+            closureName: null,
+            closureReason: "market_holiday",
+            fxAsOfDate: "2026-06-08",
+            reportingCurrency: "AUD",
+          }],
+        },
+      },
+      holdings: {
+        ...portfolioFixture.holdings,
+        rows: portfolioFixture.holdings.rows.map((row) => ({
+          ...row,
+          priceState: testPriceState({
+            asOfDate: "2026-06-07",
+            basis: "fallback_eod_close",
+            fallbackProvider: "eodhd",
+            source: "Test Feed",
+          }),
+        })),
+      },
+      concentration: {
+        ...portfolioFixture.concentration,
+        topHoldings: portfolioFixture.concentration.topHoldings.map((row) => ({
+          ...row,
+          priceState: testPriceState({
+            asOfDate: "2026-06-07",
+            basis: "fallback_eod_close",
+            fallbackProvider: "eodhd",
+            source: "Test Feed",
+          }),
+        })),
+      },
+    };
+
+    act(() => {
+      root.render(<ReportsClient initialReport={basisFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "all",
+        range: "1Y",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    expect(document.querySelector("[data-testid='reports-basis-strip']")?.textContent).toContain("Valuation basis");
+    expect(document.querySelector("[data-testid='reports-basis-market-AU']")?.textContent).toContain("Quote Jun 7, 2026");
+    expect(document.querySelector("[data-testid='reports-basis-market-AU']")?.textContent).toContain("Source eodhd");
+    expect(document.querySelector("[data-testid='reports-basis-market-AU']")?.textContent).toContain("Fallback quote used");
+    expect(document.querySelector("[data-testid='reports-basis-market-AU']")?.textContent).toContain("AU closed Jun 8, 2026: using Jun 7, 2026 close");
+    expect(document.querySelector("[data-testid='reports-basis-fx']")?.textContent).toContain("FX as of Jun 8, 2026");
+  });
+
+  it("discloses mixed per-holding sources when only part of a market uses fallback quotes", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=all&range=1M";
+    const baseRow = portfolioFixture.holdings.rows[0]!;
+    const qauRow = {
+      ...baseRow,
+      ticker: "QAU",
+      instrumentName: "BetaShares Gold Bullion ETF",
+      priceState: testPriceState({
+        asOfDate: "2026-07-03",
+        basis: "today_close",
+        source: "yahoo-finance-au",
+      }),
+    };
+    const etpmagRow = {
+      ...baseRow,
+      ticker: "ETPMAG",
+      instrumentName: "Global X Physical Silver",
+      quantity: 23,
+      priceState: testPriceState({
+        asOfDate: "2026-07-03",
+        basis: "fallback_eod_close",
+        chipState: "stale",
+        source: "eodhd",
+        fallbackProvider: "eodhd",
+      }),
+    };
+    const mixedSourceFixture: PortfolioReportDto = {
+      ...portfolioFixture,
+      diagnostics: {
+        ...portfolioFixture.diagnostics,
+        markets: [{
+          marketCode: "AU",
+          expectedLatestValuationDate: "2026-07-03",
+          latestSnapshotDate: "2026-07-03",
+          missingProviderSourceCount: 0,
+          providerSources: ["yahoo-finance-au", "eodhd"],
+          knownGapReasons: ["non_current_price"],
+        }],
+        valuationBasis: {
+          semantics: "current_report_valuation",
+          reportingCurrency: "AUD",
+          reportAsOf: "2026-07-06",
+          fxAsOfDate: null,
+          markets: [{
+            marketCode: "AU",
+            requestedAsOf: "2026-07-06",
+            expectedLatestValuationDate: "2026-07-03",
+            quoteAsOfDate: "2026-07-03",
+            quoteSource: "eodhd",
+            quoteSources: ["eodhd", "yahoo-finance-au"],
+            quoteSourceKind: "eodhd_eod",
+            usesFallbackQuote: true,
+            fallbackQuoteCount: 1,
+            fallbackProvider: "eodhd",
+            fallbackProviders: ["eodhd"],
+            holdingCount: 2,
+            fallbackStale: true,
+            calendarStatus: null,
+            marketState: null,
+            marketStateReason: null,
+            marketLocalDate: "2026-07-06",
+            closureDate: null,
+            closureName: null,
+            closureReason: null,
+            fxAsOfDate: null,
+            reportingCurrency: "AUD",
+          }],
+        },
+      },
+      holdings: {
+        ...portfolioFixture.holdings,
+        total: 2,
+        rows: [qauRow, etpmagRow],
+      },
+      concentration: {
+        ...portfolioFixture.concentration,
+        topHoldings: [qauRow, etpmagRow],
+      },
+    };
+
+    act(() => {
+      root.render(<ReportsClient initialReport={mixedSourceFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "all",
+        range: "1M",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    const auBasis = document.querySelector("[data-testid='reports-basis-market-AU']")?.textContent;
+    expect(auBasis).toContain("Sources by holding: eodhd, yahoo-finance-au");
+    expect(auBasis).toContain("Fallback quote used by 1/2 holdings");
+    expect(auBasis).not.toContain("Source eodhdFallback quote used");
+  });
+
+  it("does not label missing FX as latest available in valuation basis disclosure", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=all&range=1Y";
+    const missingFxFixture: PortfolioReportDto = {
+      ...portfolioFixture,
+      fxStatus: {
+        ...portfolioFixture.fxStatus,
+        status: "missing",
+        nativeCurrencies: ["USD"],
+        missingRatePairs: [{ from: "USD", to: "AUD" }],
+      },
+      fxRates: [],
+    };
+
+    act(() => {
+      root.render(<ReportsClient initialReport={missingFxFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "all",
+        range: "1Y",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    const fxBasis = document.querySelector("[data-testid='reports-basis-fx']")?.textContent;
+    expect(fxBasis).toContain("FX unavailable for USD->AUD");
+    expect(fxBasis).not.toContain("Latest available FX in report response");
+  });
+
+  it("does not label stale or unknown-calendar quotes as market closures in valuation basis disclosure", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=all&range=1Y";
+    const staleQuoteFixture: PortfolioReportDto = {
+      ...portfolioFixture,
+      diagnostics: {
+        ...portfolioFixture.diagnostics,
+        valuationBasis: {
+          semantics: "current_report_valuation",
+          reportingCurrency: "AUD",
+          reportAsOf: "2026-07-06",
+          fxAsOfDate: null,
+          markets: [{
+            marketCode: "US",
+            requestedAsOf: "2026-07-06",
+            expectedLatestValuationDate: "2026-07-06",
+            quoteAsOfDate: "2026-07-02",
+            quoteSource: "test-us-close",
+            quoteSourceKind: "primary_daily",
+            usesFallbackQuote: false,
+            fallbackProvider: null,
+            fallbackStale: null,
+            calendarStatus: null,
+            marketState: null,
+            marketStateReason: null,
+            marketLocalDate: "2026-07-06",
+            closureDate: "2026-07-03",
+            closureName: null,
+            closureReason: "calendar_unknown",
+            fxAsOfDate: null,
+            reportingCurrency: "AUD",
+          }],
+        },
+      },
+    };
+
+    act(() => {
+      root.render(<ReportsClient initialReport={staleQuoteFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "all",
+        range: "1Y",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    const marketBasis = document.querySelector("[data-testid='reports-basis-market-US']")?.textContent;
+    expect(marketBasis).toContain("Stale market data: US expected Jul 6, 2026, using Jul 2, 2026 close");
+    expect(marketBasis).not.toContain("US closed");
+  });
+
+  it("surfaces missing FX pairs before resolved date summaries in valuation basis disclosure", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=all&range=1Y";
+    const partialFxFixture: PortfolioReportDto = {
+      ...portfolioFixture,
+      query: {
+        ...portfolioFixture.query,
+        currency: "TWD",
+        reportingCurrency: "TWD",
+      },
+      fxStatus: {
+        ...portfolioFixture.fxStatus,
+        status: "partial",
+        reportingCurrency: "TWD",
+        nativeCurrencies: ["USD", "AUD"],
+        missingRatePairs: [{ from: "AUD", to: "TWD" }],
+      },
+      fxRates: [{
+        fromCurrency: "USD",
+        toCurrency: "TWD",
+        rate: 32,
+        asOf: "2026-06-08",
+      }],
+    };
+
+    act(() => {
+      root.render(<ReportsClient initialReport={partialFxFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "all",
+        range: "1Y",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    const fxBasis = document.querySelector("[data-testid='reports-basis-fx']")?.textContent;
+    expect(fxBasis).toContain("FX unavailable for AUD->TWD");
+    expect(fxBasis).toContain("FX as of Jun 8, 2026");
+  });
+
   it("renders the ticker allocation card and persists chart preferences through holdings table settings", async () => {
     searchParamsMock.value = "tab=portfolio&scope=all&range=1Y";
     userPreferencesMock.value = {
@@ -999,6 +1327,57 @@ describe("ReportsClient", () => {
     const allocationCard = document.querySelector("[data-testid='reports-ticker-allocation-card']");
     expect(allocationCard?.textContent).toContain("Ticker allocation");
     expect(allocationCard?.textContent).toContain("0 bucket(s)");
+  });
+
+  it("keeps legacy valuation basis conservative when any market row is missing a quote date", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=all&range=1Y";
+    const baseRow = portfolioFixture.holdings.rows[0]!;
+    const legacyMissingBasisFixture: PortfolioReportDto = {
+      ...portfolioFixture,
+      diagnostics: {
+        ...portfolioFixture.diagnostics,
+        valuationBasis: undefined,
+        markets: [],
+      },
+      holdings: {
+        ...portfolioFixture.holdings,
+        total: 2,
+        rows: [
+          {
+            ...baseRow,
+            ticker: "QAU",
+            instrumentName: "BetaShares Gold Bullion ETF",
+            priceState: testPriceState({ asOfDate: "2026-07-03", source: "yahoo-finance-au" }),
+          },
+          {
+            ...baseRow,
+            ticker: "ETPMAG",
+            instrumentName: "Global X Physical Silver",
+            priceState: testPriceState({
+              asOfDate: null,
+              basis: "missing",
+              chipState: "missing",
+              source: null,
+              sourceKind: "missing",
+            }),
+          },
+        ],
+      },
+    };
+
+    act(() => {
+      root.render(<ReportsClient initialReport={legacyMissingBasisFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "all",
+        range: "1Y",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    const auBasis = document.querySelector("[data-testid='reports-basis-market-AU']")?.textContent;
+    expect(auBasis).toContain("Quote basis unavailable");
+    expect(auBasis).not.toContain("Quote Jul 3, 2026");
   });
 
   it("shows ticker details and large-slice labels from the pie chart itself", async () => {

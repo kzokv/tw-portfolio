@@ -2033,6 +2033,7 @@ export interface UnrealizedPnlAnalysisSnapshotRow {
   snapshotDate: string;
   quantity: number;
   closePrice: number | null;
+  providerSource: string | null;
   nativeCurrency: CurrencyCode;
   reportingCurrency: import("@vakwen/shared-types").AccountDefaultCurrency;
   costBasisAmount: number | null;
@@ -2040,6 +2041,12 @@ export interface UnrealizedPnlAnalysisSnapshotRow {
   unrealizedPnlAmount: number | null;
   isProvisional: boolean;
   fxAvailable: boolean;
+  fxAsOfDate: string | null;
+}
+
+export interface ResolvedFxRate {
+  rate: number;
+  asOfDate: string;
 }
 
 export interface McpReplayScopeRecord {
@@ -3149,6 +3156,7 @@ export interface Persistence {
    *   - Read-path callers (future dashboard JOINs) MAY degrade to native-only.
    */
   getFxRate(base: CurrencyCode, quote: CurrencyCode, asOfDate: string): Promise<number | null>;
+  getResolvedFxRate?(base: CurrencyCode, quote: CurrencyCode, asOfDate: string): Promise<ResolvedFxRate | null>;
   getFxTransferById(
     userId: string,
     fxTransferId: string,

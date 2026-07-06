@@ -107,6 +107,13 @@ test("[analysis-unrealized-pnl-B]: open reports summary deep-link → analysis r
   await appShell.actions.setViewport(1440, 960);
   await page.goto(new URL("/reports?tab=daily-review&scope=US&range=1M", TestEnv.appBaseUrl).href, { waitUntil: "domcontentloaded" });
 
+  const basisStrip = page.getByTestId("reports-basis-strip");
+  await basisStrip.waitFor({ state: "visible" });
+  await basisStrip.getByText("Valuation basis").waitFor({ state: "visible" });
+  await basisStrip.getByText("Reports stay on the current-valuation path.").waitFor({ state: "visible" });
+  await page.getByTestId("reports-basis-market-US").waitFor({ state: "visible" });
+  await page.getByTestId("reports-basis-fx").getByText("FX", { exact: true }).waitFor({ state: "visible" });
+
   const link = page.getByTestId("reports-summary-unrealized-pnl-analysis-link");
   await link.waitFor({ state: "visible" });
 
@@ -251,4 +258,32 @@ test("[analysis-unrealized-pnl-F]: failed filter refresh → stale result remain
   await page.getByTestId("analysis-chart-legend").getByText("NVIDIA Corporation").waitFor({ state: "visible" });
   await page.getByTestId("analysis-selected-detail").getByRole("link", { name: "US:NVDA" }).first().waitFor({ state: "visible" });
   await appShell.assert.mxAssertEqual(new URL(page.url()).searchParams.get("drivers"), "10", "failed refresh keeps immediate URL state");
+});
+
+test("[analysis-unrealized-pnl-G]: selected detail disclosure and total stay user-visible in preview fallback → scope copy is present", async ({
+  appShell,
+  page,
+}) => {
+  await openPreviewAnalysis(page);
+
+  const detail = page.getByTestId("analysis-selected-detail");
+  await detail.getByText("Selected ticker detail").waitFor({ state: "visible" });
+  await detail.getByText("Snapshot basis: selected detail uses holding snapshots and snapshot-date FX instead of the live report valuation path.").waitFor({ state: "visible" });
+  await detail.getByText("snapshot-date FX").waitFor({ state: "visible" });
+  await detail.getByText(/Snapshot sources:/).waitFor({ state: "visible" });
+  await detail.getByText(/Snapshot FX as of:/).waitFor({ state: "visible" });
+  await detail.getByText("Active selected end P&L").waitFor({ state: "visible" });
+  await detail.getByText("NT$1,020,000").waitFor({ state: "visible" });
+  await page.getByTestId("analysis-chart-y-axis-max").getByText(/Max/).waitFor({ state: "visible" });
+  await page.getByTestId("analysis-chart-y-axis-zero").getByText(/Zero/).waitFor({ state: "visible" });
+  await page.getByTestId("analysis-chart-y-axis-min").getByText(/Min/).waitFor({ state: "visible" });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await detail.getByText("Snapshot basis: selected detail uses holding snapshots and snapshot-date FX instead of the live report valuation path.").waitFor({ state: "visible" });
+  await detail.getByText("Active selected end P&L").waitFor({ state: "visible" });
+  await appShell.assert.mxAssertEqual(
+    await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
+    true,
+    "analysis basis disclosure does not introduce mobile horizontal overflow",
+  );
 });
