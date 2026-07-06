@@ -144,6 +144,11 @@ describe("DividendCalendarClient", () => {
     expect(container.textContent).toContain("1 open items.");
     expect(document.querySelector("[data-testid='dividends-action-queue']")?.textContent ?? "").toContain(dict.dividends.form.reconciliation.statusOpen);
     expect(document.querySelector("[data-testid='dividends-this-month']")?.textContent ?? "").toContain("2330");
+    expect(
+      Array.from(container.querySelectorAll<HTMLAnchorElement>("a")).some((link) => (
+        link.href.includes("view=ledger") && link.href.includes("month=2026-04")
+      )),
+    ).toBe(true);
 
     const markMatchedButton = document.querySelector("[data-testid='dividend-mark-matched-event-open']") as HTMLButtonElement;
     await act(async () => {

@@ -126,6 +126,10 @@ superseded_by: null
   - `npm run test:e2e:bypass:mem --prefix apps/web` passed: 321 passed, 19 skipped.
   - `npm run test:e2e:oauth:mem --prefix apps/web` passed: 121 passed.
   - `npm run test:http --prefix apps/api` passed: 301 passed, 2 skipped.
+- Post-PR Codex review fixes:
+  - Preserved active `month=YYYY-MM` in Overview-to-Review links so returning from Review restores the selected month.
+  - Added review query-key invalidation so opening Review with a different month/ticker/market filter refetches rows instead of reusing stale Review data.
+  - Focused validation passed: `npx eslint apps/web/components/dividends/DividendCalendarClient.tsx apps/web/components/dividends/DividendsTabsClient.tsx apps/web/test/features/dividends/DividendCalendarClient.test.tsx apps/web/test/components/dividends/DividendsTabsClient.test.tsx`; `npx tsc --noEmit -p apps/web/tsconfig.json --pretty false`; `cd apps/web && npx vitest run test/features/dividends/DividendCalendarClient.test.tsx test/components/dividends/DividendsTabsClient.test.tsx --config vitest.config.ts`.
 
 ## Explicit Out Of Scope
 

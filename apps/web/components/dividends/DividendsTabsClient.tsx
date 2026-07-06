@@ -85,6 +85,10 @@ export function buildOverviewTabUrl(search: string): { month: string; url: strin
   return { month, url: qs ? `/dividends?${qs}` : "/dividends" };
 }
 
+function reviewQueryKey(search: string): string {
+  return JSON.stringify(searchParamsToReviewQuery(new URLSearchParams(search)));
+}
+
 export function DividendsTabsClient({
   initialTab,
   calendarLabel,
@@ -104,6 +108,9 @@ export function DividendsTabsClient({
     initialCalendarSnapshot ? initialCalendarMonth : null,
   );
   const [reviewData, setReviewData] = useState<DividendLedgerReviewResponse | null>(initialReviewData);
+  const [reviewDataQueryKey, setReviewDataQueryKey] = useState<string | null>(
+    initialReviewData && typeof window !== "undefined" ? reviewQueryKey(window.location.search) : null,
+  );
   const [years, setYears] = useState<number[]>(initialYears);
   const [ledgerAccounts, setLedgerAccounts] = useState<AccountDto[]>(accounts);
   const [isCalendarLoading, setIsCalendarLoading] = useState(false);
@@ -127,6 +134,9 @@ export function DividendsTabsClient({
 
   useEffect(() => {
     setReviewData(initialReviewData);
+    setReviewDataQueryKey(
+      initialReviewData && typeof window !== "undefined" ? reviewQueryKey(window.location.search) : null,
+    );
   }, [initialReviewData]);
 
   useEffect(() => {
@@ -193,20 +203,28 @@ export function DividendsTabsClient({
   }, [activeTab, calendarMonth, calendarSnapshot]);
 
   useEffect(() => {
-    if (activeTab !== "ledger" || (reviewData && years.length > 0)) return;
+    if (activeTab !== "ledger") return;
+
+    const currentReviewQuery = searchParamsToReviewQuery(new URLSearchParams(window.location.search));
+    const currentReviewQueryKey = JSON.stringify(currentReviewQuery);
+    const needsReviewFetch = !reviewData || reviewDataQueryKey !== currentReviewQueryKey;
+    const needsYearsFetch = years.length === 0;
+
+    if (!needsReviewFetch && !needsYearsFetch) return;
 
     let cancelled = false;
     setLedgerError("");
     setIsLedgerLoading(true);
     void Promise.all([
-      reviewData
+      !needsReviewFetch && reviewData
         ? Promise.resolve(reviewData)
-        : fetchDividendLedgerReview(searchParamsToReviewQuery(new URLSearchParams(window.location.search))),
-      years.length > 0 ? Promise.resolve(years) : fetchDividendLedgerYears(),
+        : fetchDividendLedgerReview(currentReviewQuery),
+      !needsYearsFetch ? Promise.resolve(years) : fetchDividendLedgerYears(),
     ])
       .then(([nextReviewData, nextYears]) => {
         if (!cancelled) {
           setReviewData(nextReviewData);
+          setReviewDataQueryKey(currentReviewQueryKey);
           setYears(nextYears);
         }
       })
@@ -224,7 +242,7 @@ export function DividendsTabsClient({
     return () => {
       cancelled = true;
     };
-  }, [activeTab, reviewData, years]);
+  }, [activeTab, reviewData, reviewDataQueryKey, years]);
 
   useEffect(() => {
     if (activeTab !== "ledger" || ledgerAccounts.length > 0) return;

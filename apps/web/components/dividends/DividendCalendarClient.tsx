@@ -65,9 +65,15 @@ function monthBounds(anchor: Date): { fromPaymentDate: string; toPaymentDate: st
   };
 }
 
-function reviewHref(bounds: { fromPaymentDate: string; toPaymentDate: string }, ticker?: string, marketCode?: string): string {
+function reviewHref(
+  bounds: { fromPaymentDate: string; toPaymentDate: string },
+  month: string,
+  ticker?: string,
+  marketCode?: string,
+): string {
   const params = new URLSearchParams({
     view: "ledger",
+    month,
     fromPaymentDate: bounds.fromPaymentDate,
     toPaymentDate: bounds.toPaymentDate,
   });
@@ -318,7 +324,7 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
           </Button>
           <Link
             className="inline-flex min-h-10 items-center justify-center rounded-md border border-border px-3 text-sm font-semibold text-foreground hover:bg-muted"
-            href={reviewHref(bounds)}
+            href={reviewHref(bounds, activeMonthKey)}
           >
             {dict.dividends.viewAllLink}
           </Link>
@@ -336,7 +342,7 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
 
       <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
         <Card className="order-2 overflow-hidden rounded-lg border-border bg-card p-0 shadow-sm lg:order-1" data-testid="dividends-this-month">
-          <PanelHeading title={dict.dividends.overview.thisMonth} description={dict.dividends.overview.thisMonthDescription} action={<Link className="text-sm font-semibold text-primary hover:underline" href={reviewHref(bounds)}>{dict.dividends.overview.openReview}</Link>} />
+          <PanelHeading title={dict.dividends.overview.thisMonth} description={dict.dividends.overview.thisMonthDescription} action={<Link className="text-sm font-semibold text-primary hover:underline" href={reviewHref(bounds, activeMonthKey)}>{dict.dividends.overview.openReview}</Link>} />
           <div className="hidden border-t border-border bg-muted/30 px-4 py-3 text-[11px] font-semibold uppercase text-muted-foreground md:grid md:grid-cols-[minmax(190px,1.4fr)_110px_110px_120px_110px] md:gap-3">
             <div>{dict.dividends.review.table.ticker}</div>
             <div>{dict.dividends.overview.exDateLabel}</div>
@@ -367,7 +373,7 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
           ) : (
             <div className="divide-y divide-border border-t border-border px-4">
               {actionRows.map((row) => (
-                <ActionRow key={row.key} row={row} dict={dict} locale={locale} pending={pendingRowKey === row.key} onOpen={() => openDrawer(row)} onMarkMatched={() => void handleMarkMatched(row)} />
+                <ActionRow key={row.key} row={row} dict={dict} locale={locale} activeMonthKey={activeMonthKey} pending={pendingRowKey === row.key} onOpen={() => openDrawer(row)} onMarkMatched={() => void handleMarkMatched(row)} />
               ))}
             </div>
           )}
@@ -375,7 +381,7 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
       </section>
 
       <Card className="overflow-hidden rounded-lg border-border bg-card p-0 shadow-sm" data-testid="dividends-recent-receipts">
-        <PanelHeading title={dict.dividends.overview.recentReceipts} description={dict.dividends.overview.recentReceiptsDescription} action={<Link className="text-sm font-semibold text-primary hover:underline" href={reviewHref(bounds)}>{dict.dividends.overview.viewLedger}</Link>} />
+        <PanelHeading title={dict.dividends.overview.recentReceipts} description={dict.dividends.overview.recentReceiptsDescription} action={<Link className="text-sm font-semibold text-primary hover:underline" href={reviewHref(bounds, activeMonthKey)}>{dict.dividends.overview.viewLedger}</Link>} />
         <div className="hidden border-t border-border bg-muted/30 px-4 py-3 text-[11px] font-semibold uppercase text-muted-foreground md:grid md:grid-cols-[minmax(190px,1.4fr)_110px_130px_130px_110px] md:gap-3">
           <div>{dict.dividends.review.table.ticker}</div>
           <div>{dict.dividends.overview.postedLabel}</div>
@@ -487,7 +493,7 @@ function EventRow({ row, dict, locale, pending, onOpen, onMarkMatched }: { row: 
   );
 }
 
-function ActionRow({ row, dict, locale, pending, onOpen, onMarkMatched }: { row: DividendCalendarRow; dict: AppDictionary; locale: LocaleCode; pending: boolean; onOpen: () => void; onMarkMatched: () => void }) {
+function ActionRow({ row, dict, locale, activeMonthKey, pending, onOpen, onMarkMatched }: { row: DividendCalendarRow; dict: AppDictionary; locale: LocaleCode; activeMonthKey: string; pending: boolean; onOpen: () => void; onMarkMatched: () => void }) {
   const sourceGap = row.ledgerEntry?.sourceCompositionStatus === "unknown_pending_disclosure";
   return (
     <div className="grid gap-3 py-4 text-sm">
@@ -503,7 +509,7 @@ function ActionRow({ row, dict, locale, pending, onOpen, onMarkMatched }: { row:
           <Button size="sm" disabled={pending} onClick={onMarkMatched}>{dict.dividends.action.markMatched}</Button>
         ) : null}
         <Button size="sm" variant="secondary" onClick={onOpen}>{row.ledgerEntry ? dict.dividends.action.edit : dict.dividends.action.postDividend}</Button>
-        <Link className="inline-flex min-h-8 items-center rounded-md border border-border px-3 text-xs font-semibold text-foreground hover:bg-muted" href={reviewHref(monthBounds(parseMonthKey(row.event.paymentDate?.slice(0, 7) ?? monthKey(new Date()))), row.event.ticker, row.event.marketCode)}>
+        <Link className="inline-flex min-h-8 items-center rounded-md border border-border px-3 text-xs font-semibold text-foreground hover:bg-muted" href={reviewHref(monthBounds(parseMonthKey(row.event.paymentDate?.slice(0, 7) ?? monthKey(new Date()))), activeMonthKey, row.event.ticker, row.event.marketCode)}>
           {dict.dividends.overview.openReview}
         </Link>
       </div>

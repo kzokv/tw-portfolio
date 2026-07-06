@@ -32,6 +32,17 @@ const dict = getDictionary("en");
 const fetchDividendCalendarSnapshotMock = vi.mocked(fetchDividendCalendarSnapshot);
 const fetchDividendLedgerReviewMock = vi.mocked(fetchDividendLedgerReview);
 const fetchDividendLedgerYearsMock = vi.mocked(fetchDividendLedgerYears);
+const emptyReviewData = {
+  ledgerEntries: [],
+  total: 0,
+  aggregates: {
+    totalExpectedCashAmount: {},
+    totalReceivedCashAmount: {},
+    openCount: 0,
+    byMonth: {},
+    byTicker: {},
+  },
+};
 
 describe("DividendsTabsClient", () => {
   let container: HTMLDivElement;
@@ -80,17 +91,7 @@ describe("DividendsTabsClient", () => {
           accounts={[]}
           initialCalendarMonth="2026-07"
           initialCalendarSnapshot={null}
-          initialReviewData={{
-            ledgerEntries: [],
-            total: 0,
-            aggregates: {
-              totalExpectedCashAmount: {},
-              totalReceivedCashAmount: {},
-              openCount: 0,
-              byMonth: {},
-              byTicker: {},
-            },
-          }}
+          initialReviewData={emptyReviewData}
           initialYears={[2026]}
         />,
       );
@@ -115,17 +116,7 @@ describe("DividendsTabsClient", () => {
           accounts={[]}
           initialCalendarMonth="2026-07"
           initialCalendarSnapshot={null}
-          initialReviewData={{
-            ledgerEntries: [],
-            total: 0,
-            aggregates: {
-              totalExpectedCashAmount: {},
-              totalReceivedCashAmount: {},
-              openCount: 0,
-              byMonth: {},
-              byTicker: {},
-            },
-          }}
+          initialReviewData={emptyReviewData}
           initialYears={[2026]}
         />,
       );
@@ -162,6 +153,51 @@ describe("DividendsTabsClient", () => {
     });
   });
 
+  it("refetches review data after opening Review with a different ledger filter", async () => {
+    const calendarSnapshot = { events: [], ledgerEntries: [] };
+    const renderTabs = (initialTab: "calendar" | "ledger") => {
+      root.render(
+        <DividendsTabsClient
+          initialTab={initialTab}
+          calendarLabel={dict.dividends.tabs.calendar}
+          ledgerLabel={dict.dividends.tabs.review}
+          dict={dict}
+          locale="en"
+          accounts={[]}
+          initialCalendarMonth="2026-04"
+          initialCalendarSnapshot={calendarSnapshot}
+          initialReviewData={emptyReviewData}
+          initialYears={[2026]}
+        />,
+      );
+    };
+
+    window.history.replaceState(null, "", "/dividends?view=ledger&month=2026-04&fromPaymentDate=2026-04-01&toPaymentDate=2026-04-30");
+    act(() => {
+      renderTabs("ledger");
+    });
+    await act(async () => {});
+
+    expect(fetchDividendLedgerReviewMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      renderTabs("calendar");
+    });
+    window.history.replaceState(null, "", "/dividends?view=ledger&month=2026-05&fromPaymentDate=2026-05-01&toPaymentDate=2026-05-31&ticker=2330&marketCode=TW");
+    await act(async () => {
+      renderTabs("ledger");
+    });
+    await act(async () => {});
+
+    expect(fetchDividendLedgerReviewMock).toHaveBeenCalledTimes(1);
+    expect(fetchDividendLedgerReviewMock).toHaveBeenCalledWith(expect.objectContaining({
+      fromPaymentDate: "2026-05-01",
+      marketCode: "TW",
+      ticker: "2330",
+      toPaymentDate: "2026-05-31",
+    }));
+  });
+
   it("renders an error state when lazy calendar loading fails", async () => {
     fetchDividendCalendarSnapshotMock.mockRejectedValue(new Error("calendar unavailable"));
 
@@ -176,17 +212,7 @@ describe("DividendsTabsClient", () => {
           accounts={[]}
           initialCalendarMonth="2026-07"
           initialCalendarSnapshot={null}
-          initialReviewData={{
-            ledgerEntries: [],
-            total: 0,
-            aggregates: {
-              totalExpectedCashAmount: {},
-              totalReceivedCashAmount: {},
-              openCount: 0,
-              byMonth: {},
-              byTicker: {},
-            },
-          }}
+          initialReviewData={emptyReviewData}
           initialYears={[2026]}
         />,
       );
@@ -203,17 +229,7 @@ describe("DividendsTabsClient", () => {
           accounts={[]}
           initialCalendarMonth="2026-07"
           initialCalendarSnapshot={null}
-          initialReviewData={{
-            ledgerEntries: [],
-            total: 0,
-            aggregates: {
-              totalExpectedCashAmount: {},
-              totalReceivedCashAmount: {},
-              openCount: 0,
-              byMonth: {},
-              byTicker: {},
-            },
-          }}
+          initialReviewData={emptyReviewData}
           initialYears={[2026]}
         />,
       );
