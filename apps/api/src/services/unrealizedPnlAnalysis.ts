@@ -217,6 +217,9 @@ interface AggregatedPoint {
   fxAvailable: boolean;
   isProvisional: boolean;
   accountIds: string[];
+  snapshotDate: string | null;
+  snapshotProviderSources: string[];
+  fxAsOfDate: string | null;
 }
 
 interface TickerSeriesAggregate {
@@ -367,6 +370,8 @@ function aggregateBucketRows(
     closePrice: number | null;
     fxAvailable: boolean;
     isProvisional: boolean;
+    providerSource?: string | null;
+    fxAsOfDate?: string | null;
   }>,
   descriptors: readonly BucketDescriptor[],
   granularity: UnrealizedPnlGranularity,
@@ -404,6 +409,12 @@ function aggregateBucketRows(
       const accountIds = [...new Set(bucketRows.map((row) => row.accountId))].sort();
       const quantity = roundToDecimal(bucketRows.reduce((sum, row) => sum + row.quantity, 0), 6);
       const closePrice = bucketRows.find((row) => row.quantity !== 0 && row.closePrice !== null)?.closePrice ?? null;
+      const snapshotDate = maxNullableIsoDate(...bucketRows.map((row) => row.snapshotDate));
+      const fxAsOfDate = maxNullableIsoDate(...bucketRows.map((row) => row.fxAsOfDate ?? null));
+      const snapshotProviderSources = [...new Set(bucketRows
+        .map((row) => row.providerSource?.trim() ?? "")
+        .filter((source) => source.length > 0))]
+        .sort();
       return {
         date: descriptor.sortDate,
         unrealizedPnlAmount: !fxAvailable || isProvisional || hasNullAmounts
@@ -420,8 +431,20 @@ function aggregateBucketRows(
         fxAvailable,
         isProvisional,
         accountIds,
+        snapshotDate,
+        snapshotProviderSources,
+        fxAsOfDate,
       };
     });
+}
+
+function maxNullableIsoDate(...dates: Array<string | null | undefined>): string | null {
+  let latest: string | null = null;
+  for (const date of dates) {
+    if (!date) continue;
+    if (latest === null || date > latest) latest = date;
+  }
+  return latest;
 }
 
 function padSoldOutSeries(
@@ -445,6 +468,9 @@ function padSoldOutSeries(
       fxAvailable: true,
       isProvisional: false,
       accountIds: [...lastPoint.accountIds],
+      snapshotDate: null,
+      snapshotProviderSources: [],
+      fxAsOfDate: null,
     });
   }
   return padded.sort((left, right) => left.date.localeCompare(right.date));
@@ -738,6 +764,7 @@ export async function buildUnrealizedPnlAnalysis(
         tickerRows.map((row) => ({
           ...row,
           marketCode: row.marketCode,
+          fxAsOfDate: row.fxAsOfDate ?? null,
         })),
         bucketDescriptors,
         query.granularity,
@@ -799,6 +826,9 @@ export async function buildUnrealizedPnlAnalysis(
         latestCostBasisAmount: endPoint?.costBasisAmount ?? null,
         latestQuantity: series.latestQuantity,
         tradeMarkerCount: 0,
+        snapshotDate: endPoint?.snapshotDate ?? null,
+        snapshotProviderSources: endPoint?.snapshotProviderSources ?? [],
+        fxAsOfDate: endPoint?.fxAsOfDate ?? null,
       };
     })
     .sort(rankingSort);
@@ -861,6 +891,9 @@ export async function buildUnrealizedPnlAnalysis(
         closePrice: point.closePrice,
         fxAvailable: point.fxAvailable,
         isProvisional: point.isProvisional,
+        snapshotDate: point.snapshotDate,
+        snapshotProviderSources: point.snapshotProviderSources,
+        fxAsOfDate: point.fxAsOfDate,
         ticker: series.ticker,
         marketCode: series.marketCode,
         instrumentName: series.instrumentName,
@@ -883,6 +916,7 @@ export async function buildUnrealizedPnlAnalysis(
     portfolioSnapshotRows.map((row) => ({
       ...row,
       marketCode: row.marketCode,
+      fxAsOfDate: row.fxAsOfDate ?? null,
     })),
     descriptors,
     query.granularity,
@@ -895,6 +929,9 @@ export async function buildUnrealizedPnlAnalysis(
     quantity: point.quantity,
     fxAvailable: point.fxAvailable,
     isProvisional: point.isProvisional,
+    snapshotDate: point.snapshotDate,
+    snapshotProviderSources: point.snapshotProviderSources,
+    fxAsOfDate: point.fxAsOfDate,
   }));
 
   const summaryStartPoint = portfolioSeries[0] ?? null;
@@ -932,6 +969,9 @@ export async function buildUnrealizedPnlAnalysis(
         latestCostBasisAmount: endPoint?.costBasisAmount ?? null,
         latestQuantity: series.latestQuantity,
         contributionSharePercent,
+        snapshotDate: endPoint?.snapshotDate ?? null,
+        snapshotProviderSources: endPoint?.snapshotProviderSources ?? [],
+        fxAsOfDate: endPoint?.fxAsOfDate ?? null,
       };
     })
     .sort((left, right) => {
@@ -947,6 +987,14 @@ export async function buildUnrealizedPnlAnalysis(
   return {
     query,
     metadata,
+    basis: {
+      semantics: "snapshot_valuation",
+      priceBasis: "daily_holding_snapshots",
+      fxBasis: "snapshot_date_fx",
+      reportingCurrency: query.reportingCurrency,
+      startSnapshotDate: summaryStartPoint?.snapshotDate ?? summaryStartPoint?.date ?? null,
+      endSnapshotDate: summaryEndPoint?.snapshotDate ?? summaryEndPoint?.date ?? null,
+    },
     summary: {
       reportingCurrency: query.reportingCurrency,
       startDate: summaryStartPoint?.date ?? null,

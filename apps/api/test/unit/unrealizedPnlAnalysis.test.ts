@@ -5,7 +5,7 @@ import {
   buildUnrealizedPnlAnalysis,
   unrealizedPnlAnalysisRouteQuerySchema,
 } from "../../src/services/unrealizedPnlAnalysis.js";
-import type { HoldingSnapshot } from "../../src/persistence/types.js";
+import type { HoldingSnapshot, UnrealizedPnlAnalysisSnapshotRow } from "../../src/persistence/types.js";
 import type { MemoryPersistence } from "../../src/persistence/memory.js";
 import type { BookedTradeEvent, Store } from "../../src/types/store.js";
 import type { FxRate } from "../../src/services/market-data/types.js";
@@ -63,6 +63,27 @@ function makeSnapshot(overrides: Partial<HoldingSnapshot> = {}): HoldingSnapshot
     providerSource: "test",
     generatedAt: "2026-01-02T00:00:00.000Z",
     generationRunId: "run-1",
+    ...overrides,
+  };
+}
+
+function makeAnalysisSnapshotRow(overrides: Partial<UnrealizedPnlAnalysisSnapshotRow> = {}): UnrealizedPnlAnalysisSnapshotRow {
+  return {
+    accountId: "acc-1",
+    ticker: "2330",
+    marketCode: "TW",
+    snapshotDate: "2026-01-02",
+    quantity: 10,
+    closePrice: 100,
+    providerSource: "test",
+    nativeCurrency: "TWD",
+    reportingCurrency: "TWD",
+    costBasisAmount: 1000,
+    marketValueAmount: 1000,
+    unrealizedPnlAmount: 0,
+    isProvisional: false,
+    fxAvailable: true,
+    fxAsOfDate: "2026-01-02",
     ...overrides,
   };
 }
@@ -194,7 +215,20 @@ describe("buildUnrealizedPnlAnalysis", () => {
       unit: "reporting_currency",
       reportingCurrency: "TWD",
     });
+    expect(report.basis).toEqual({
+      semantics: "snapshot_valuation",
+      priceBasis: "daily_holding_snapshots",
+      fxBasis: "snapshot_date_fx",
+      reportingCurrency: "TWD",
+      startSnapshotDate: "2026-01-02",
+      endSnapshotDate: "2026-01-06",
+    });
     expect(report.rankings[0]).toEqual(expect.objectContaining({ positionStatus: "open_position" }));
+    expect(report.rankings[0]).toEqual(expect.objectContaining({
+      snapshotDate: "2026-01-06",
+      snapshotProviderSources: ["test"],
+      fxAsOfDate: "2026-01-06",
+    }));
     expect(report.tickerComposition).toEqual([
       expect.objectContaining({
         ticker: "2330",
@@ -206,6 +240,9 @@ describe("buildUnrealizedPnlAnalysis", () => {
         latestQuantity: 10,
         contributionSharePercent: 100,
         positionStatus: "open_position",
+        snapshotDate: "2026-01-06",
+        snapshotProviderSources: ["test"],
+        fxAsOfDate: "2026-01-06",
       }),
     ]);
     expect(report.tickerSeries.every((point) => point.positionStatus === "open_position")).toBe(true);
@@ -213,6 +250,82 @@ describe("buildUnrealizedPnlAnalysis", () => {
     expect(report.candidateTickers).toEqual([{ ticker: "2330", marketCode: "TW" }]);
     expect(report.tradeMarkers).toEqual([
       expect.objectContaining({ ticker: "2330", marketCode: "TW", date: "2026-01-02", kind: "buy" }),
+    ]);
+  });
+
+  it("preserves resolved FX dates when snapshot FX rolls back", async () => {
+    await seedInstrument({ ticker: "AVGO", marketCode: "US", instrumentType: "STOCK", name: "Broadcom" });
+    vi.spyOn(persistence, "listUnrealizedPnlAnalysisSnapshots").mockResolvedValue([
+      makeAnalysisSnapshotRow({
+        ticker: "AVGO",
+        marketCode: "US",
+        snapshotDate: "2026-07-02",
+        nativeCurrency: "USD",
+        reportingCurrency: "AUD",
+        fxAsOfDate: "2026-07-02",
+      }),
+      makeAnalysisSnapshotRow({
+        ticker: "AVGO",
+        marketCode: "US",
+        snapshotDate: "2026-07-05",
+        nativeCurrency: "USD",
+        reportingCurrency: "AUD",
+        costBasisAmount: 1000,
+        marketValueAmount: 1200,
+        unrealizedPnlAmount: 200,
+        fxAsOfDate: "2026-07-03",
+      }),
+    ]);
+
+    const report = await buildUnrealizedPnlAnalysis(app, "user-1", {
+      granularity: "daily",
+      fromDate: "2026-07-02",
+      toDate: "2026-07-05",
+      reportingCurrency: "AUD",
+    });
+
+    expect(report.portfolioSeries[report.portfolioSeries.length - 1]?.fxAsOfDate).toBe("2026-07-03");
+    expect(report.tickerSeries.find((point) => point.date === "2026-07-05")?.fxAsOfDate).toBe("2026-07-03");
+    expect(report.tickerComposition[0]?.fxAsOfDate).toBe("2026-07-03");
+    expect(report.rankings[0]?.fxAsOfDate).toBe("2026-07-03");
+  });
+
+  it("memory snapshot rows preserve resolved FX dates when FX rolls back", async () => {
+    await seedSnapshots([
+      makeSnapshot({
+        ticker: "AVGO",
+        marketCode: "US",
+        currency: "USD",
+        snapshotDate: "2026-07-05",
+        costBasis: 100,
+        costBasisNative: 100,
+        marketValue: 120,
+        valueNative: 120,
+        unrealizedPnl: 20,
+        unrealizedPnlNative: 20,
+      }),
+    ]);
+    await seedFxRates([{ date: "2026-07-03", baseCurrency: "USD", quoteCurrency: "AUD", rate: 1.5, source: "test" }]);
+
+    const rows = await persistence.listUnrealizedPnlAnalysisSnapshots("user-1", {
+      startDate: "2026-07-05",
+      endDate: "2026-07-05",
+      includeProvisional: false,
+      reportingCurrency: "AUD",
+    });
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        ticker: "AVGO",
+        marketCode: "US",
+        snapshotDate: "2026-07-05",
+        reportingCurrency: "AUD",
+        costBasisAmount: 150,
+        marketValueAmount: 180,
+        unrealizedPnlAmount: 30,
+        fxAvailable: true,
+        fxAsOfDate: "2026-07-03",
+      }),
     ]);
   });
 

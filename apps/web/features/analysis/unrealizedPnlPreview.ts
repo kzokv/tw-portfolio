@@ -238,6 +238,18 @@ export function buildPreviewUnrealizedPnlAnalysis(
       includeProvisional: state.includeProvisional,
       instrumentTypes: state.instrumentTypes,
     },
+    basis: {
+      semantics: "preview",
+      priceBasis: "daily_holding_snapshots",
+      fxBasis: "snapshot_date_fx",
+      reportingCurrency,
+      startSnapshotDate: PREVIEW_DATES[0] ?? null,
+      endSnapshotDate: PREVIEW_DATES.at(-1) ?? null,
+    },
+    diagnostics: {
+      latestSnapshotDate: PREVIEW_DATES.at(-1) ?? null,
+      firstSnapshotDate: PREVIEW_DATES[0] ?? null,
+    },
     availableFilters: {
       markets: ["TW", "US", "AU"].map((marketCode) => ({
         value: marketCode,
@@ -389,6 +401,11 @@ export function buildPreviewUnrealizedPnlAnalysis(
       costBasis: seed.costBasisSeries[index]!,
       quantity: seed.quantitySeries[index]!,
       closePrice: seed.closePriceSeries[index]!,
+      basis: {
+        snapshotDate: date,
+        snapshotProviderSources: [`preview-${seed.marketCode.toLowerCase()}`],
+        fxAsOfDate: date,
+      },
       transactionContext: seed.transactionContexts[index]!,
     };
   }

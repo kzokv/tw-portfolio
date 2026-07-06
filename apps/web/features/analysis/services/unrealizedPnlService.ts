@@ -123,6 +123,18 @@ function mapApiAnalysis(
       includeProvisional: response.query.includeProvisional,
       instrumentTypes: response.query.instrumentTypes,
     },
+    basis: {
+      semantics: response.basis?.semantics ?? "snapshot_valuation",
+      priceBasis: response.basis?.priceBasis ?? "daily_holding_snapshots",
+      fxBasis: response.basis?.fxBasis ?? "snapshot_date_fx",
+      reportingCurrency: response.basis?.reportingCurrency ?? response.summary.reportingCurrency,
+      startSnapshotDate: response.basis?.startSnapshotDate ?? response.summary.startDate,
+      endSnapshotDate: response.basis?.endSnapshotDate ?? response.summary.endDate,
+    },
+    diagnostics: {
+      latestSnapshotDate: response.diagnostics.latestSnapshotDate,
+      firstSnapshotDate: response.diagnostics.firstSnapshotDate,
+    },
     availableFilters: buildAvailableFilters(response),
     requestedTickerAvailability: response.requestedTickerAvailability.map((row) => ({
       tickerId: row.tickerId,
@@ -358,6 +370,11 @@ function groupSeries(
         costBasis: point.costBasisAmount,
         quantity: point.quantity,
         closePrice: point.closePrice,
+        basis: {
+          snapshotDate: point.snapshotDate ?? null,
+          snapshotProviderSources: point.snapshotProviderSources ?? [],
+          fxAsOfDate: point.fxAsOfDate ?? null,
+        },
         transactionContext: point.isSoldOut ? "Sold-out position carried as zero after exit." : "Open-position snapshot.",
       })),
       markers: markersBySeriesId.get(seriesId) ?? [],
