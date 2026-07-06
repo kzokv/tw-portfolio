@@ -82,6 +82,21 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         latestRefreshFailed: "Latest refresh failed",
         reportingCurrencyBadge: "Reporting {currency}",
         fxStatusBadge: "FX {status}",
+        basisStripTitle: "Valuation basis",
+        basisStripDescription: "Reports stay on the current-valuation path. Quote timing, fallback use, and FX timing are shown here so report totals can be compared with snapshot-based analysis.",
+        basisMarketLabel: "Market {market}",
+        basisFxLabel: "FX",
+        basisMarketQuoteAsOf: "Quote {date}",
+        basisMarketSource: "Source {source}",
+        basisMarketFallbackUsed: "Fallback quote used",
+        basisMarketFallbackNone: "Primary quote path",
+        basisMarketRollback: "{market} closed {expected}: using {actual} close",
+        basisMarketCurrent: "Current through {date}",
+        basisMarketUnavailable: "Quote basis unavailable",
+        basisFxAsOf: "FX as of {date}",
+        basisFxDateRange: "FX dates {start} to {end}",
+        basisFxLatest: "Latest available FX in report response",
+        basisFxNotRequired: "No FX conversion required",
         marketValue: "Market value",
         bookCost: "Book Cost",
         unrealizedPnl: "Unrealized P&L",
@@ -717,6 +732,75 @@ describe("ReportsClient", () => {
     expect(rowHref).toContain("tickerMode=custom");
     expect(rowHref).toContain("view=ticker-detail");
     expect(rowHref).toContain("reportingCurrency=USD");
+  });
+
+  it("renders a valuation basis disclosure near the report meta header", async () => {
+    searchParamsMock.value = "tab=portfolio&scope=all&range=1Y";
+    const basisFixture: PortfolioReportDto = {
+      ...portfolioFixture,
+      fxStatus: {
+        ...portfolioFixture.fxStatus,
+        nativeCurrencies: ["USD"],
+      },
+      fxRates: [{
+        fromCurrency: "USD",
+        toCurrency: "AUD",
+        rate: 1.52,
+        asOf: "2026-06-08",
+      }],
+      diagnostics: {
+        ...portfolioFixture.diagnostics,
+        markets: [{
+          marketCode: "AU",
+          expectedLatestValuationDate: "2026-06-08",
+          latestSnapshotDate: "2026-06-07",
+          missingProviderSourceCount: 0,
+          providerSources: ["Test Feed"],
+          knownGapReasons: [],
+        }],
+      },
+      holdings: {
+        ...portfolioFixture.holdings,
+        rows: portfolioFixture.holdings.rows.map((row) => ({
+          ...row,
+          priceState: testPriceState({
+            asOfDate: "2026-06-07",
+            basis: "fallback_eod_close",
+            fallbackProvider: "eodhd",
+            source: "Test Feed",
+          }),
+        })),
+      },
+      concentration: {
+        ...portfolioFixture.concentration,
+        topHoldings: portfolioFixture.concentration.topHoldings.map((row) => ({
+          ...row,
+          priceState: testPriceState({
+            asOfDate: "2026-06-07",
+            basis: "fallback_eod_close",
+            fallbackProvider: "eodhd",
+            source: "Test Feed",
+          }),
+        })),
+      },
+    };
+
+    act(() => {
+      root.render(<ReportsClient initialReport={basisFixture} initialState={parseReportRouteState({
+        tab: "portfolio",
+        scope: "all",
+        range: "1Y",
+      })} />);
+    });
+
+    await act(async () => {});
+
+    expect(document.querySelector("[data-testid='reports-basis-strip']")?.textContent).toContain("Valuation basis");
+    expect(document.querySelector("[data-testid='reports-basis-market-AU']")?.textContent).toContain("Quote Jun 7, 2026");
+    expect(document.querySelector("[data-testid='reports-basis-market-AU']")?.textContent).toContain("Source eodhd");
+    expect(document.querySelector("[data-testid='reports-basis-market-AU']")?.textContent).toContain("Fallback quote used");
+    expect(document.querySelector("[data-testid='reports-basis-market-AU']")?.textContent).toContain("AU closed Jun 8, 2026: using Jun 7, 2026 close");
+    expect(document.querySelector("[data-testid='reports-basis-fx']")?.textContent).toContain("FX as of Jun 8, 2026");
   });
 
   it("renders the ticker allocation card and persists chart preferences through holdings table settings", async () => {

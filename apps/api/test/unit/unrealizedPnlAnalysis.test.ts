@@ -194,7 +194,20 @@ describe("buildUnrealizedPnlAnalysis", () => {
       unit: "reporting_currency",
       reportingCurrency: "TWD",
     });
+    expect(report.basis).toEqual({
+      semantics: "snapshot_valuation",
+      priceBasis: "daily_holding_snapshots",
+      fxBasis: "snapshot_date_fx",
+      reportingCurrency: "TWD",
+      startSnapshotDate: "2026-01-02",
+      endSnapshotDate: "2026-01-06",
+    });
     expect(report.rankings[0]).toEqual(expect.objectContaining({ positionStatus: "open_position" }));
+    expect(report.rankings[0]).toEqual(expect.objectContaining({
+      snapshotDate: "2026-01-06",
+      snapshotProviderSources: ["test"],
+      fxAsOfDate: "2026-01-06",
+    }));
     expect(report.tickerComposition).toEqual([
       expect.objectContaining({
         ticker: "2330",
@@ -206,6 +219,9 @@ describe("buildUnrealizedPnlAnalysis", () => {
         latestQuantity: 10,
         contributionSharePercent: 100,
         positionStatus: "open_position",
+        snapshotDate: "2026-01-06",
+        snapshotProviderSources: ["test"],
+        fxAsOfDate: "2026-01-06",
       }),
     ]);
     expect(report.tickerSeries.every((point) => point.positionStatus === "open_position")).toBe(true);

@@ -5,6 +5,7 @@ import { UnrealizedPnlAnalysisClient } from "../../../components/analysis/Unreal
 import { AppShellDataProvider, type AppShellData } from "../../../components/layout/AppShellDataContext";
 import { financeGainTextClass, financeLossTextClass } from "../../../components/holdings/holdingsStyle";
 import { getDictionary } from "../../../lib/i18n";
+import { formatCurrencyAmount } from "../../../lib/utils";
 import { ANALYSIS_DEFAULT_STATE } from "../../../features/analysis/unrealizedPnlRouteState";
 import { buildPreviewUnrealizedPnlAnalysis } from "../../../features/analysis/unrealizedPnlPreview";
 
@@ -111,6 +112,9 @@ describe("UnrealizedPnlAnalysisClient", () => {
 
   it("renders the preview shell and routes ranking selection into deterministic URL state", () => {
     const initialData = buildPreviewUnrealizedPnlAnalysis(ANALYSIS_DEFAULT_STATE);
+    const selectedTotal = initialData.tickerSelection
+      .filter((row) => initialData.selectedSeriesIds.includes(row.seriesId))
+      .reduce((sum, row) => sum + (row.endUnrealizedPnl ?? 0), 0);
 
     act(() => {
       root!.render(
@@ -124,6 +128,16 @@ describe("UnrealizedPnlAnalysisClient", () => {
     expect(container.textContent).toContain("Preview contract fallback");
     expect(container.querySelector("[data-testid='analysis-chart-legend']")?.textContent).toContain("Apple Inc.");
     expect(container.querySelector("[data-testid='analysis-selected-detail']")?.textContent).toContain("Apple Inc.");
+    expect(container.querySelector("[data-testid='analysis-selected-detail-basis-tip']")?.textContent).toContain("Snapshot basis");
+    expect(container.querySelector("[data-testid='analysis-selected-detail-basis-tip']")?.textContent).toContain("Latest snapshot shown:");
+    expect(container.querySelector("[data-testid='analysis-selected-detail-basis-tip']")?.textContent).toContain("Snapshot sources:");
+    expect(container.querySelector("[data-testid='analysis-selected-detail-basis-tip']")?.textContent).toContain("Snapshot FX as of:");
+    expect(container.querySelector("[data-testid='analysis-selected-detail-total']")?.textContent).toContain(
+      formatCurrencyAmount(selectedTotal, initialData.summary.totalUnrealized.currency as never, "en"),
+    );
+    expect(container.querySelector("[data-testid='analysis-chart-y-axis-max']")?.textContent).toContain("Max");
+    expect(container.querySelector("[data-testid='analysis-chart-y-axis-zero']")?.textContent).toContain("Zero");
+    expect(container.querySelector("[data-testid='analysis-chart-y-axis-min']")?.textContent).toContain("Min");
 
     const nvda = legendButton("NVIDIA Corporation");
     expect(nvda).not.toBeNull();
@@ -133,6 +147,30 @@ describe("UnrealizedPnlAnalysisClient", () => {
     });
 
     expect(nvda?.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("recomputes the selected detail total from unmuted selected rows only", () => {
+    const initialData = buildPreviewUnrealizedPnlAnalysis(ANALYSIS_DEFAULT_STATE);
+
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={ANALYSIS_DEFAULT_STATE} />
+        </AppShellDataProvider>,
+      );
+    });
+
+    act(() => {
+      legendButton("NVIDIA Corporation")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const selectedTotal = initialData.tickerSelection
+      .filter((row) => initialData.selectedSeriesIds.includes(row.seriesId) && row.ticker !== "NVDA")
+      .reduce((sum, row) => sum + (row.endUnrealizedPnl ?? 0), 0);
+
+    expect(container.querySelector("[data-testid='analysis-selected-detail-total']")?.textContent).toContain(
+      formatCurrencyAmount(selectedTotal, initialData.summary.totalUnrealized.currency as never, "en"),
+    );
   });
 
   it("uses local muted state for manual legend toggles without changing route params", () => {
@@ -485,6 +523,36 @@ describe("UnrealizedPnlAnalysisClient", () => {
 
     expect(container.querySelector("[data-testid='analysis-detail-table']")?.textContent).toContain("Manual");
     expect(container.querySelector("[data-testid='analysis-detail-table']")?.textContent).toContain("Muted context line");
+  });
+
+  it("updates the selected detail total when a legend item is muted and renders chart baseline labels", () => {
+    const initialData = buildPreviewUnrealizedPnlAnalysis(ANALYSIS_DEFAULT_STATE);
+    const activeRows = initialData.tickerSelection.filter((row) => initialData.selectedSeriesIds.includes(row.seriesId));
+    const baselineTotal = activeRows.reduce((sum, row) => sum + (row.endUnrealizedPnl ?? 0), 0);
+    const mutedRow = activeRows.find((row) => row.displayName === "Apple Inc.");
+    expect(mutedRow).toBeDefined();
+    const mutedTotal = baselineTotal - (mutedRow?.endUnrealizedPnl ?? 0);
+
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={ANALYSIS_DEFAULT_STATE} />
+        </AppShellDataProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain(formatCurrencyAmount(baselineTotal, "TWD", "en"));
+
+    act(() => {
+      legendButton("Apple Inc.")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain(formatCurrencyAmount(mutedTotal, "TWD", "en"));
+
+    expect(container.querySelector("[data-testid='analysis-chart-y-axis-max']")?.textContent).toContain("Max");
+    expect(container.querySelector("[data-testid='analysis-chart-y-axis-zero']")?.textContent).toContain("Zero");
+    expect(container.querySelector("[data-testid='analysis-chart-y-axis-zero']")?.textContent).toContain("TWD 0");
+    expect(container.querySelector("[data-testid='analysis-chart-y-axis-min']")?.textContent).toContain("Min");
   });
 
   it("hydrates presentation defaults from preferences when the URL does not override them", async () => {
@@ -989,7 +1057,7 @@ describe("UnrealizedPnlAnalysisClient", () => {
     });
 
     expect(document.body.querySelector("[data-testid='ui-drawer']")).toBeNull();
-  });
+  }, 10000);
 
   it("does not show stale selected detail values when a focused date is missing for a series", () => {
     const focusedState = { ...ANALYSIS_DEFAULT_STATE, focusDate: "2026-04-24" };

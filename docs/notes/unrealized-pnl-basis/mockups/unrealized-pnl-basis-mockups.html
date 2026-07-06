@@ -1,0 +1,1102 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Unrealized P&L Basis Mockups</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --background: #f8fafc;
+      --surface: #ffffff;
+      --surface-soft: #f1f5f9;
+      --border: #d9e2ec;
+      --border-strong: #b6c3d1;
+      --text: #0f172a;
+      --muted: #64748b;
+      --muted-strong: #475569;
+      --primary: #4f46e5;
+      --primary-soft: #eef2ff;
+      --positive: #047857;
+      --positive-soft: #ecfdf5;
+      --negative: #b91c1c;
+      --warning: #a16207;
+      --warning-soft: #fef9c3;
+      --info: #0369a1;
+      --info-soft: #e0f2fe;
+      --shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: #e5e7eb;
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.35;
+    }
+
+    .mock-screen {
+      width: 1280px;
+      height: 900px;
+      margin: 24px auto;
+      overflow: hidden;
+      background: var(--background);
+      border: 1px solid #cbd5e1;
+      box-shadow: var(--shadow);
+    }
+
+    .app-shell {
+      display: grid;
+      grid-template-columns: 62px 1fr;
+      min-height: 900px;
+      background: var(--background);
+    }
+
+    .rail {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 18px;
+      padding: 14px 0;
+      border-right: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.82);
+    }
+
+    .avatar {
+      display: grid;
+      width: 36px;
+      height: 36px;
+      place-items: center;
+      border-radius: 8px;
+      background: var(--primary);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .rail-dot {
+      width: 22px;
+      height: 22px;
+      border-radius: 6px;
+      border: 1px solid transparent;
+      background: transparent;
+    }
+
+    .rail-dot.active {
+      border-color: var(--border);
+      background: var(--surface-soft);
+    }
+
+    .rail-line {
+      width: 18px;
+      height: 2px;
+      margin-top: 1px;
+      background: #334155;
+      box-shadow:
+        0 6px 0 #334155,
+        0 12px 0 #334155;
+    }
+
+    .content-shell {
+      display: grid;
+      grid-template-rows: 72px 1fr;
+      min-width: 0;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 0 34px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.92);
+    }
+
+    .crumbs {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: 16px;
+    }
+
+    .crumbs strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .round-action {
+      display: grid;
+      width: 38px;
+      height: 38px;
+      place-items: center;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--muted-strong);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .page {
+      width: 1060px;
+      margin: 0 auto;
+      padding: 42px 0 56px;
+    }
+
+    .eyebrow {
+      margin: 0 0 8px;
+      color: var(--primary);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: 34px;
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+
+    h2 {
+      font-size: 20px;
+      letter-spacing: 0;
+    }
+
+    h3 {
+      font-size: 16px;
+      letter-spacing: 0;
+    }
+
+    .subtle {
+      color: var(--muted);
+      font-size: 15px;
+    }
+
+    .meta-row,
+    .chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .meta-row {
+      margin-top: 18px;
+    }
+
+    .chip {
+      display: inline-flex;
+      min-height: 28px;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: var(--surface);
+      color: var(--muted-strong);
+      padding: 5px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .chip.primary {
+      border-color: #c7d2fe;
+      background: var(--primary-soft);
+      color: #3730a3;
+    }
+
+    .chip.info {
+      border-color: #bae6fd;
+      background: var(--info-soft);
+      color: var(--info);
+    }
+
+    .chip.warn {
+      border-color: #fde68a;
+      background: var(--warning-soft);
+      color: var(--warning);
+    }
+
+    .chip.positive {
+      border-color: #bbf7d0;
+      background: var(--positive-soft);
+      color: var(--positive);
+    }
+
+    .button {
+      display: inline-flex;
+      min-height: 38px;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      color: var(--text);
+      padding: 8px 14px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .button.primary {
+      border-color: var(--primary);
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .section-card {
+      margin-top: 22px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+    }
+
+    .section-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 20px 22px 14px;
+    }
+
+    .section-content {
+      padding: 0 22px 22px;
+    }
+
+    .basis-strip {
+      margin-top: 18px;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+      padding: 14px 16px;
+    }
+
+    .basis-strip.warning {
+      border-color: #fde68a;
+      background: linear-gradient(180deg, #fffbeb 0%, #ffffff 100%);
+    }
+
+    .basis-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+    }
+
+    .basis-title {
+      color: var(--text);
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .basis-body {
+      margin-top: 4px;
+      color: var(--muted-strong);
+      font-size: 13px;
+    }
+
+    .basis-grid {
+      display: grid;
+      grid-template-columns: 1.2fr 1fr;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .basis-item {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.86);
+      padding: 10px 12px;
+    }
+
+    .basis-item strong {
+      display: block;
+      margin-bottom: 3px;
+      font-size: 12px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .basis-item span {
+      display: block;
+      color: var(--muted-strong);
+      font-size: 13px;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .metric-card,
+    .holding-card,
+    .detail-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+    }
+
+    .metric-card {
+      padding: 14px 16px;
+    }
+
+    .metric-label {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .metric-value {
+      margin-top: 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 24px;
+      font-weight: 800;
+      letter-spacing: 0;
+      white-space: nowrap;
+    }
+
+    .metric-detail {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .positive-text {
+      color: var(--positive);
+    }
+
+    .negative-text {
+      color: var(--negative);
+    }
+
+    .filter-stack {
+      display: grid;
+      gap: 10px;
+      margin-top: 18px;
+    }
+
+    .input-like {
+      height: 44px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      color: var(--muted-strong);
+      padding: 11px 14px;
+      font-size: 14px;
+    }
+
+    .segments {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .segment {
+      min-height: 38px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      padding: 8px 12px;
+      color: var(--muted-strong);
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .segment.active {
+      border-color: var(--primary);
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .holdings-grid {
+      display: grid;
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .holding-card {
+      padding: 14px 16px;
+    }
+
+    .holding-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 12px;
+    }
+
+    .holding-title {
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    .holding-subtitle {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .holding-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+
+    .stat-box {
+      min-height: 74px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fbfdff;
+      padding: 10px 12px;
+    }
+
+    .stat-label {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .stat-value {
+      margin-top: 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 15px;
+      font-weight: 800;
+    }
+
+    .stat-note {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .analysis-layout {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      margin-top: 22px;
+    }
+
+    .control-panel {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      padding: 16px;
+    }
+
+    .control-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px 18px;
+    }
+
+    .control-label {
+      margin-bottom: 7px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .mini-buttons {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+
+    .mini-button {
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      background: var(--surface);
+      padding: 7px 10px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .mini-button.active {
+      border-color: var(--primary);
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .chart-shell {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      overflow: hidden;
+    }
+
+    .legend {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px 18px;
+      border-bottom: 1px solid var(--border);
+      background: #f8fafc;
+      padding: 10px 14px;
+      font-size: 12px;
+    }
+
+    .legend-item {
+      display: flex;
+      min-width: 0;
+      align-items: center;
+      gap: 7px;
+      color: var(--muted-strong);
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      flex: 0 0 auto;
+      border-radius: 999px;
+    }
+
+    .chart-body {
+      position: relative;
+      height: 390px;
+      padding: 20px 20px 22px 74px;
+    }
+
+    .axis-label {
+      position: absolute;
+      left: 18px;
+      width: 52px;
+      color: var(--muted-strong);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      text-align: right;
+    }
+
+    .axis-label.top {
+      top: 34px;
+    }
+
+    .axis-label.zero {
+      top: 194px;
+      color: var(--text);
+      font-weight: 800;
+    }
+
+    .axis-label.bottom {
+      bottom: 31px;
+    }
+
+    .chart-caption {
+      position: absolute;
+      right: 22px;
+      top: 18px;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .chart-body svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+    }
+
+    .focus-values {
+      margin-top: 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #f8fafc;
+      padding: 10px 12px;
+    }
+
+    .range-track {
+      height: 5px;
+      margin-top: 9px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--primary) 0 72%, #cbd5e1 72% 100%);
+    }
+
+    .detail-total {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 18px;
+      margin-top: 14px;
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+      background: var(--positive-soft);
+      padding: 13px 16px;
+    }
+
+    .detail-total .metric-value {
+      margin-top: 0;
+      color: var(--positive);
+      font-size: 22px;
+    }
+
+    .detail-table {
+      width: 100%;
+      margin-top: 14px;
+      border-collapse: collapse;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font-size: 13px;
+    }
+
+    .detail-table th,
+    .detail-table td {
+      border-top: 1px solid var(--border);
+      padding: 10px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .detail-table thead th {
+      border-top: 0;
+      background: #f8fafc;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .right {
+      text-align: right;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .nowrap {
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <section class="mock-screen" data-screen="reports-basis">
+    <div class="app-shell">
+      <aside class="rail">
+        <div class="avatar">V</div>
+        <div class="rail-dot"></div>
+        <div class="rail-dot"></div>
+        <div class="rail-dot active"><div class="rail-line"></div></div>
+        <div class="rail-dot"></div>
+        <div class="rail-dot"></div>
+        <div class="rail-dot"></div>
+      </aside>
+      <div class="content-shell">
+        <header class="topbar">
+          <div class="crumbs"><strong>Reports</strong></div>
+          <div class="top-actions">
+            <div class="round-action">⌕</div>
+            <div class="round-action">↻</div>
+            <div class="round-action">MK</div>
+          </div>
+        </header>
+        <main class="page">
+          <p class="eyebrow">Portfolio report</p>
+          <div class="basis-head">
+            <div>
+              <h1>Portfolio</h1>
+              <p class="subtle">Quote status, FX conversion, and price freshness. Allocation fallback appears when relevant.</p>
+              <div class="meta-row">
+                <span class="chip">All markets</span>
+                <span class="chip primary">Reporting currency AUD</span>
+                <span class="chip positive">FX complete</span>
+                <span class="chip">As of Jul 5, 2026</span>
+              </div>
+            </div>
+            <button class="button">Refresh</button>
+          </div>
+
+          <div class="basis-strip">
+            <div class="basis-head">
+              <div>
+                <div class="basis-title">Valuation basis</div>
+                <p class="basis-body">This report uses current open holdings, displayed quote resolution, and report FX. Unrealized P&amp;L analysis uses holding snapshots and snapshot-date FX, so the two totals can differ.</p>
+              </div>
+              <span class="chip primary">Report P&amp;L A$434,119.82</span>
+            </div>
+            <div class="chip-row" style="margin-top: 12px;">
+              <span class="chip warn">US closed Jul 3: Independence Day observed, using Jul 2 close</span>
+              <span class="chip info">AU open Jul 3: latest eligible close available</span>
+              <span class="chip info">TW open Jul 3: latest eligible close available</span>
+              <span class="chip">JP/KR basis checked by market calendar</span>
+              <span class="chip positive">FX: AUD report rate Jul 5</span>
+            </div>
+          </div>
+
+          <div class="summary-grid">
+            <div class="metric-card">
+              <div class="metric-label"><span>Market value</span><span>AUD</span></div>
+              <div class="metric-value">A$2.56m</div>
+              <div class="metric-detail">Current report valuation</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label"><span>Book cost</span><span>AUD</span></div>
+              <div class="metric-value">A$2.13m</div>
+              <div class="metric-detail">Current open positions</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label"><span>Unrealized</span><span>AUD</span></div>
+              <div class="metric-value positive-text">+A$434,119.82</div>
+              <div class="metric-detail">Displayed quotes + report FX</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label"><span>Daily change</span><span>AUD</span></div>
+              <div class="metric-value positive-text">+A$8,746</div>
+              <div class="metric-detail">Based on quote state</div>
+            </div>
+          </div>
+
+          <div class="filter-stack">
+            <div class="input-like">Ticker or market</div>
+            <div class="input-like">All markets</div>
+            <div class="segments">
+              <span class="segment active">Largest</span>
+              <span class="segment">Highest allocation</span>
+              <span class="segment">Worst P&amp;L first</span>
+              <span class="segment">Best P&amp;L first</span>
+              <span class="segment">Stale quotes</span>
+              <span class="segment">FX exposure</span>
+            </div>
+          </div>
+
+          <div class="holdings-grid">
+            <article class="holding-card">
+              <div class="holding-head">
+                <div>
+                  <div class="holding-title">AVGO</div>
+                  <div class="holding-subtitle">Broadcom Inc. Common Stock · US</div>
+                </div>
+                <span class="chip warn">US holiday rollback: quote Jul 2</span>
+              </div>
+              <div class="holding-stats">
+                <div class="stat-box"><div class="stat-label">Position</div><div class="stat-value">820 units</div><div class="stat-note">2 acct</div></div>
+                <div class="stat-box"><div class="stat-label">Price</div><div class="stat-value">US$360.45</div><div class="stat-note">finmind-us · Jul 2 close</div></div>
+                <div class="stat-box"><div class="stat-label">Unrealized</div><div class="stat-value positive-text">+A$221,904</div><div class="stat-note">Report FX Jul 5</div></div>
+                <div class="stat-box"><div class="stat-label">Basis</div><div class="stat-value">Quote state</div><div class="stat-note">Closed market, no Jul 3 bar</div></div>
+              </div>
+            </article>
+            <article class="holding-card">
+              <div class="holding-head">
+                <div>
+                  <div class="holding-title">ETPMAG</div>
+                  <div class="holding-subtitle">Global X Physical Silver · AU</div>
+                </div>
+                <span class="chip info">Fallback quote Jul 3 via eodhd-eod</span>
+              </div>
+              <div class="holding-stats">
+                <div class="stat-box"><div class="stat-label">Position</div><div class="stat-value">4,000 units</div><div class="stat-note">1 acct</div></div>
+                <div class="stat-box"><div class="stat-label">Price</div><div class="stat-value">A$82.44</div><div class="stat-note">Fallback quote · Jul 3</div></div>
+                <div class="stat-box"><div class="stat-label">Unrealized</div><div class="stat-value positive-text">+A$9,920</div><div class="stat-note">Report FX Jul 5</div></div>
+                <div class="stat-box"><div class="stat-label">Snapshot</div><div class="stat-value">Jul 2</div><div class="stat-note">Fallback does not backfill snapshots</div></div>
+              </div>
+            </article>
+          </div>
+        </main>
+      </div>
+    </div>
+  </section>
+
+  <section class="mock-screen" data-screen="analysis-details">
+    <div class="app-shell">
+      <aside class="rail">
+        <div class="avatar">V</div>
+        <div class="rail-dot"></div>
+        <div class="rail-dot active"><div class="rail-line"></div></div>
+        <div class="rail-dot"></div>
+        <div class="rail-dot"></div>
+        <div class="rail-dot"></div>
+      </aside>
+      <div class="content-shell">
+        <header class="topbar">
+          <div class="crumbs"><span>Analysis</span><span>›</span><strong>Unrealized P&amp;L</strong></div>
+          <div class="top-actions">
+            <div class="round-action">⌕</div>
+            <div class="round-action">↻</div>
+            <div class="round-action">MK</div>
+          </div>
+        </header>
+        <main class="page">
+          <p class="eyebrow">Analysis</p>
+          <div class="basis-head">
+            <div>
+              <h1>Unrealized P&amp;L Analysis</h1>
+              <p class="subtle">Portfolio-to-ticker decomposition with transaction-aware open-position P&amp;L.</p>
+            </div>
+            <div class="top-actions">
+              <button class="button">Reset</button>
+              <button class="button primary">Retry</button>
+            </div>
+          </div>
+
+          <div class="summary-grid">
+            <div class="metric-card">
+              <div class="metric-label"><span>Total unrealized</span><span>AUD</span></div>
+              <div class="metric-value positive-text">A$434,189.06</div>
+              <div class="metric-detail">Snapshot valuation</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label"><span>Period change</span><span>AUD</span></div>
+              <div class="metric-value">-</div>
+              <div class="metric-detail">Range 1Y · weekly</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label"><span>Best driver</span><span>AU</span></div>
+              <div class="metric-detail" style="margin-top: 10px; color: var(--text); font-size: 15px; font-weight: 700;">BetaShares Gold Bullion ETF</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-label"><span>Data health</span><span>Rows</span></div>
+              <div class="metric-detail" style="margin-top: 10px; color: var(--text); font-size: 15px; font-weight: 700;">1977 snapshots<br>372 unavailable</div>
+            </div>
+          </div>
+
+          <section class="section-card">
+            <div class="section-header">
+              <div>
+                <h2>Selected ticker detail</h2>
+                <p class="subtle">Checked tickers expand; unchecked tickers remain visible but collapsed.</p>
+              </div>
+              <div class="segments" style="margin-top: 0;">
+                <span class="segment active">Ranking</span>
+                <span class="segment">Name</span>
+                <span class="segment">End P&amp;L</span>
+                <span class="segment active">Auto</span>
+                <span class="segment">Cards</span>
+                <span class="segment">Table</span>
+              </div>
+            </div>
+            <div class="section-content">
+              <div class="basis-strip warning">
+                <div class="basis-title">Snapshot basis for selected details</div>
+                <p class="basis-body">End P&amp;L below uses holding snapshots and snapshot-date FX. It can differ from the Reports total, which uses displayed quote resolution and report FX.</p>
+                <div class="basis-grid">
+                  <div class="basis-item">
+                    <strong>Price snapshots</strong>
+                    <span>ETPMAG snapshot remains Jul 2 even when a Jul 3 fallback quote is available for Reports. AVGO remains Jul 2 because US was closed Jul 3.</span>
+                  </div>
+                  <div class="basis-item">
+                    <strong>FX basis</strong>
+                    <span>AUD values use each snapshot date's FX rate, not the latest/report-date FX rate.</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="detail-total">
+                <div>
+                  <div class="metric-label"><span>Selected end P&amp;L total</span><span>Active lines only</span></div>
+                  <div class="metric-detail">Sums selected, unmuted rows using endUnrealizedPnl. Rows with unavailable P&amp;L are excluded.</div>
+                </div>
+                <div class="metric-value">+A$434,189.06</div>
+              </div>
+
+              <table class="detail-table">
+                <thead>
+                  <tr>
+                    <th>Ticker</th>
+                    <th>Market</th>
+                    <th class="right">End P&amp;L</th>
+                    <th class="right">Period change</th>
+                    <th>Snapshot price basis</th>
+                    <th>Snapshot FX basis</th>
+                    <th>State</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>QAU</strong><br><span class="muted">BetaShares Gold Bullion ETF</span></td>
+                    <td>AU</td>
+                    <td class="right mono positive-text">+A$51,748.54</td>
+                    <td class="right mono positive-text">+A$51,748.54</td>
+                    <td>Jul 3 close · yahoo-finance-au</td>
+                    <td>Jul 3 AUD rate</td>
+                    <td><span class="chip positive">Complete</span></td>
+                  </tr>
+                  <tr>
+                    <td><strong>AVGO</strong><br><span class="muted">Broadcom Inc. Common Stock</span></td>
+                    <td>US</td>
+                    <td class="right mono positive-text">+A$221,904.00</td>
+                    <td class="right mono">-</td>
+                    <td>Jul 2 close · US closed Jul 3</td>
+                    <td>Jul 2 AUD rate</td>
+                    <td><span class="chip warn">Holiday rollback</span></td>
+                  </tr>
+                  <tr>
+                    <td><strong>ETPMAG</strong><br><span class="muted">Global X Physical Silver</span></td>
+                    <td>AU</td>
+                    <td class="right mono positive-text">+A$9,184.00</td>
+                    <td class="right mono positive-text">+A$2,004.00</td>
+                    <td>Jul 2 snapshot · fallback quote not in snapshot</td>
+                    <td>Jul 2 AUD rate</td>
+                    <td><span class="chip info">Snapshot lag</span></td>
+                  </tr>
+                  <tr>
+                    <td><strong>SK hynix Inc.</strong><br><span class="muted">Semiconductor holding</span></td>
+                    <td>KR</td>
+                    <td class="right mono positive-text">+A$151,352.52</td>
+                    <td class="right mono positive-text">+A$18,810.42</td>
+                    <td>Jul 3 close · provider snapshot</td>
+                    <td>Jul 3 AUD rate</td>
+                    <td><span class="chip positive">Complete</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+  </section>
+
+  <section class="mock-screen" data-screen="analysis-chart">
+    <div class="app-shell">
+      <aside class="rail">
+        <div class="avatar">V</div>
+        <div class="rail-dot"></div>
+        <div class="rail-dot active"><div class="rail-line"></div></div>
+        <div class="rail-dot"></div>
+        <div class="rail-dot"></div>
+        <div class="rail-dot"></div>
+      </aside>
+      <div class="content-shell">
+        <header class="topbar">
+          <div class="crumbs"><span>Analysis</span><span>›</span><strong>Unrealized P&amp;L</strong></div>
+          <div class="top-actions">
+            <div class="round-action">⌕</div>
+            <div class="round-action">↻</div>
+            <div class="round-action">MK</div>
+          </div>
+        </header>
+        <main class="page">
+          <p class="eyebrow">Analysis</p>
+          <h1>Unrealized P&amp;L Analysis</h1>
+          <p class="subtle">Portfolio-to-ticker decomposition with transaction-aware open-position P&amp;L.</p>
+
+          <div class="analysis-layout">
+            <div class="control-panel">
+              <div class="control-grid">
+                <div>
+                  <div class="control-label">Range</div>
+                  <div class="mini-buttons"><span class="mini-button">1M</span><span class="mini-button">3M</span><span class="mini-button">YTD</span><span class="mini-button active">1Y</span><span class="mini-button">3Y</span><span class="mini-button">5Y</span></div>
+                </div>
+                <div>
+                  <div class="control-label">Granularity</div>
+                  <div class="mini-buttons"><span class="mini-button">daily</span><span class="mini-button active">weekly</span><span class="mini-button">monthly</span><span class="mini-button">yearly</span></div>
+                </div>
+                <div>
+                  <div class="control-label">Markets</div>
+                  <div class="mini-buttons"><span class="mini-button">AU</span><span class="mini-button">JP</span><span class="mini-button">KR</span><span class="mini-button">TW</span><span class="mini-button">US</span></div>
+                </div>
+                <div>
+                  <div class="control-label">Currency</div>
+                  <div class="input-like" style="height: 36px; padding: 8px 10px;">AUD</div>
+                </div>
+              </div>
+            </div>
+            <div class="summary-grid" style="grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 0;">
+              <div class="metric-card">
+                <div class="metric-label"><span>Total unrealized</span><span>AUD</span></div>
+                <div class="metric-value positive-text">A$434,189.06</div>
+                <div class="metric-detail">Snapshot valuation</div>
+              </div>
+              <div class="metric-card">
+                <div class="metric-label"><span>Data health</span><span>Basis</span></div>
+                <div class="metric-detail" style="margin-top: 10px; color: var(--text); font-size: 15px; font-weight: 700;">Snapshot prices<br>Snapshot FX</div>
+              </div>
+            </div>
+          </div>
+
+          <section class="section-card">
+            <div class="section-header">
+              <div>
+                <h2>Portfolio-to-ticker decomposition</h2>
+                <p class="subtle">Selected lines stay prominent while unselected holdings remain muted for context. <span class="chip" style="margin-left: 8px;">cache fresh</span></p>
+              </div>
+            </div>
+            <div class="section-content">
+              <div class="chart-shell">
+                <div class="legend">
+                  <div class="legend-item"><span class="dot" style="background:#2563eb;"></span><span>BetaShares Gold Bullion ETF</span></div>
+                  <div class="legend-item"><span class="dot" style="background:#059669;"></span><span>SK hynix Inc.</span></div>
+                  <div class="legend-item"><span class="dot" style="background:#d97706;"></span><span>Broadcom Inc. Common Stock</span></div>
+                  <div class="legend-item"><span class="dot" style="background:#dc2626;"></span><span>富采</span></div>
+                </div>
+                <div class="chart-body">
+                  <div class="chart-caption">AUD end P&amp;L</div>
+                  <div class="axis-label top">A$450k</div>
+                  <div class="axis-label zero">A$0</div>
+                  <div class="axis-label bottom">-A$50k</div>
+                  <svg viewBox="0 0 930 330" preserveAspectRatio="none" aria-label="Mocked decomposition chart with y-axis labels">
+                    <defs>
+                      <linearGradient id="gridFade" x1="0" x2="1" y1="0" y2="0">
+                        <stop offset="0%" stop-color="#cbd5e1" stop-opacity="0.85"></stop>
+                        <stop offset="100%" stop-color="#cbd5e1" stop-opacity="0.28"></stop>
+                      </linearGradient>
+                    </defs>
+                    <line x1="0" x2="900" y1="40" y2="40" stroke="#e2e8f0" stroke-width="1"></line>
+                    <line x1="0" x2="900" y1="186" y2="186" stroke="#334155" stroke-width="2.5"></line>
+                    <line x1="0" x2="900" y1="186" y2="186" stroke="#f8fafc" stroke-dasharray="5 8" stroke-width="1.2"></line>
+                    <line x1="0" x2="900" y1="298" y2="298" stroke="#e2e8f0" stroke-width="1"></line>
+                    <line x1="4" x2="4" y1="26" y2="305" stroke="#94a3b8" stroke-width="1"></line>
+                    <path d="M4 186 C155 186 270 186 414 186 C500 186 574 186 624 183 C654 180 671 174 689 140 C707 104 720 62 737 76 C751 88 757 146 773 154 C793 164 810 111 830 118 C849 126 860 155 874 164" fill="none" stroke="#2563eb" stroke-linecap="round" stroke-linejoin="round" stroke-width="5"></path>
+                    <path d="M4 187 C200 187 405 187 614 187 C666 187 704 185 728 176 C756 162 780 137 806 122 C838 103 866 148 884 165" fill="none" stroke="#059669" stroke-linecap="round" stroke-linejoin="round" stroke-width="4.5"></path>
+                    <path d="M4 187 C198 187 380 187 575 187 C633 187 680 187 718 187 C747 187 761 222 782 212 C800 204 815 174 829 198 C843 226 856 231 884 237" fill="none" stroke="#d97706" stroke-linecap="round" stroke-linejoin="round" stroke-width="3.5"></path>
+                    <path d="M4 187 C164 187 302 187 470 187 C562 187 638 187 714 188 C780 190 838 190 884 187" fill="none" stroke="#dc2626" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" stroke-opacity="0.35"></path>
+                    <line x1="760" x2="760" y1="26" y2="305" stroke="#64748b" stroke-dasharray="5 5" stroke-width="1.3"></line>
+                    <circle cx="760" cy="146" r="6" fill="#2563eb" stroke="#fff" stroke-width="3"></circle>
+                    <circle cx="760" cy="151" r="6" fill="#059669" stroke="#fff" stroke-width="3"></circle>
+                    <rect x="776" y="118" width="126" height="24" rx="5" fill="#ffffff" stroke="#93c5fd"></rect>
+                    <text x="785" y="135" fill="#0f172a" font-size="13" font-weight="700">A$312.4k</text>
+                    <rect x="776" y="147" width="126" height="24" rx="5" fill="#ffffff" stroke="#86efac"></rect>
+                    <text x="785" y="164" fill="#0f172a" font-size="13" font-weight="700">A$221.9k</text>
+                    <text x="8" y="180" fill="#334155" font-size="12" font-weight="700">zero baseline</text>
+                    <text x="8" y="326" fill="#64748b" font-size="12">Jul 2025</text>
+                    <text x="440" y="326" fill="#64748b" font-size="12">Jan 2026</text>
+                    <text x="826" y="326" fill="#64748b" font-size="12">Jul 2026</text>
+                  </svg>
+                </div>
+              </div>
+
+              <div class="focus-values">
+                <div class="metric-label"><span>Focus scrub</span><span>Jul 2, 2026</span></div>
+                <div class="range-track"></div>
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+  </section>
+</body>
+</html>

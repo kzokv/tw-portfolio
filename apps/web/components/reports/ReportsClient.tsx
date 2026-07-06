@@ -675,6 +675,7 @@ function ReportBody({
         </Alert>
       ) : null}
       <ReportMeta data={data} dict={uiDict} locale={locale} />
+      <ReportBasisStrip data={data} dict={uiDict} locale={locale} />
       <SummaryGrid
         dataHealth={data.dataHealth}
         summary={data.summary}
@@ -1047,6 +1048,166 @@ function ReportMeta({ data, dict, locale }: { data: AnyReportDto; dict: AppDicti
       <span>{formatDateLabel(data.query.asOf, locale)}</span>
     </div>
   );
+}
+
+function ReportBasisStrip({ data, dict, locale }: { data: AnyReportDto; dict: AppDictionary; locale: LocaleCode }) {
+  const marketSummaries = buildReportBasisMarketSummaries(data);
+  const fxSummary = buildReportBasisFxSummary(data, dict, locale);
+
+  return (
+    <section
+      aria-labelledby="reports-basis-strip-title"
+      className="rounded-lg border border-border/70 bg-muted/20 px-4 py-3"
+      data-testid="reports-basis-strip"
+    >
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="max-w-3xl">
+          <h2 id="reports-basis-strip-title" className="text-sm font-semibold text-foreground">{dict.reports.basisStripTitle}</h2>
+          <p className="mt-1 text-sm text-muted-foreground">{dict.reports.basisStripDescription}</p>
+        </div>
+        <div className="flex min-w-0 flex-wrap gap-2">
+          {marketSummaries.map((summary) => (
+            <div
+              key={summary.marketCode}
+              className="min-w-[16rem] rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground"
+              data-testid={`reports-basis-market-${summary.marketCode}`}
+            >
+              <p className="font-medium text-foreground">
+                {formatReportMessage(dict.reports.basisMarketLabel, { market: summary.marketCode })}
+              </p>
+              <p className="mt-1">
+                {summary.quoteAsOf
+                  ? formatReportMessage(dict.reports.basisMarketQuoteAsOf, { date: formatDateLabel(summary.quoteAsOf, locale) })
+                  : dict.reports.basisMarketUnavailable}
+              </p>
+              <p className="mt-1">
+                {summary.source
+                  ? formatReportMessage(dict.reports.basisMarketSource, { source: summary.source })
+                  : dict.reports.basisMarketUnavailable}
+              </p>
+              <p className="mt-1">
+                {summary.fallbackUsed ? dict.reports.basisMarketFallbackUsed : dict.reports.basisMarketFallbackNone}
+              </p>
+              <p className="mt-1">
+                {summary.closureDate && summary.quoteAsOf
+                  ? formatReportMessage(dict.reports.basisMarketRollback, {
+                      actual: formatDateLabel(summary.quoteAsOf, locale),
+                      expected: formatReportClosureLabel(summary, locale),
+                      market: summary.marketCode,
+                    })
+                  : summary.expectedLatestValuationDate && summary.quoteAsOf && summary.quoteAsOf < summary.expectedLatestValuationDate
+                    ? formatReportMessage(dict.reports.basisMarketRollback, {
+                        actual: formatDateLabel(summary.quoteAsOf, locale),
+                        expected: formatDateLabel(summary.expectedLatestValuationDate, locale),
+                        market: summary.marketCode,
+                      })
+                  : summary.quoteAsOf
+                    ? formatReportMessage(dict.reports.basisMarketCurrent, { date: formatDateLabel(summary.quoteAsOf, locale) })
+                    : dict.reports.basisMarketUnavailable}
+              </p>
+            </div>
+          ))}
+          <div className="min-w-[14rem] rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground" data-testid="reports-basis-fx">
+            <p className="font-medium text-foreground">{dict.reports.basisFxLabel}</p>
+            <p className="mt-1">{fxSummary}</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function buildReportBasisMarketSummaries(data: AnyReportDto): Array<{
+  marketCode: string;
+  quoteAsOf: string | null;
+  source: string | null;
+  fallbackUsed: boolean;
+  expectedLatestValuationDate: string | null;
+  closureDate: string | null;
+  closureName: string | null;
+}> {
+  const valuationMarkets = data.diagnostics.valuationBasis?.markets;
+  if (valuationMarkets && valuationMarkets.length > 0) {
+    return valuationMarkets.map((market) => ({
+      marketCode: market.marketCode,
+      quoteAsOf: market.quoteAsOfDate,
+      source: firstNonEmptyString([market.fallbackProvider ?? null, market.quoteSource]),
+      fallbackUsed: market.usesFallbackQuote,
+      expectedLatestValuationDate: market.expectedLatestValuationDate,
+      closureDate: market.closureDate,
+      closureName: market.closureName,
+    }));
+  }
+
+  const holdings = collectReportHoldingRows(data);
+  const rowsByMarket = new Map<string, ReportHoldingRowDto[]>();
+  for (const row of holdings) {
+    const list = rowsByMarket.get(row.marketCode) ?? [];
+    list.push(row);
+    rowsByMarket.set(row.marketCode, list);
+  }
+
+  const marketCodes = data.diagnostics.markets.length > 0
+    ? data.diagnostics.markets.map((market) => market.marketCode)
+    : Array.from(rowsByMarket.keys());
+
+  return marketCodes.map((marketCode) => {
+    const market = data.diagnostics.markets.find((candidate) => candidate.marketCode === marketCode);
+    const rows = rowsByMarket.get(marketCode) ?? [];
+    const quoteAsOf = latestDate(rows.map((row) => row.priceState.asOfDate));
+    const source = firstNonEmptyString([
+      rows.find((row) => row.priceState.fallbackProvider)?.priceState.fallbackProvider ?? null,
+      rows.find((row) => row.priceState.source)?.priceState.source ?? null,
+      market?.providerSources[0] ?? null,
+    ]);
+    const fallbackUsed = rows.some((row) => row.priceState.fallbackProvider || row.priceState.basis === "fallback_eod_close");
+
+    return {
+      marketCode,
+      quoteAsOf,
+      source,
+      fallbackUsed,
+      expectedLatestValuationDate: market?.expectedLatestValuationDate ?? null,
+      closureDate: market?.basis?.closureDate ?? null,
+      closureName: market?.basis?.closureName ?? null,
+    };
+  });
+}
+
+function formatReportClosureLabel(
+  summary: { closureDate: string | null; closureName: string | null },
+  locale: LocaleCode,
+): string {
+  if (!summary.closureDate) return "-";
+  const date = formatDateLabel(summary.closureDate, locale);
+  return summary.closureName ? `${date} (${summary.closureName})` : date;
+}
+
+function buildReportBasisFxSummary(data: AnyReportDto, dict: AppDictionary, locale: LocaleCode): string {
+  if (data.fxStatus.nativeCurrencies.every((currency) => currency === data.fxStatus.reportingCurrency)) {
+    return dict.reports.basisFxNotRequired;
+  }
+  const rates = getOptionalFxRates(data.fxStatus, data.fxRates);
+  const dates = [...new Set(rates.flatMap((rate) => rate.asOf ? [rate.asOf] : []))].sort();
+  if (dates.length === 1) {
+    return formatReportMessage(dict.reports.basisFxAsOf, { date: formatDateLabel(dates[0]!, locale) });
+  }
+  if (dates.length > 1) {
+    return formatReportMessage(dict.reports.basisFxDateRange, {
+      start: formatDateLabel(dates[0]!, locale),
+      end: formatDateLabel(dates.at(-1)!, locale),
+    });
+  }
+  return dict.reports.basisFxLatest;
+}
+
+function latestDate(values: Array<string | null | undefined>): string | null {
+  const filtered = values.filter((value): value is string => Boolean(value)).sort();
+  return filtered.at(-1) ?? null;
+}
+
+function firstNonEmptyString(values: Array<string | null | undefined>): string | null {
+  return values.find((value): value is string => typeof value === "string" && value.trim().length > 0) ?? null;
 }
 
 type SummaryMetricItem = {

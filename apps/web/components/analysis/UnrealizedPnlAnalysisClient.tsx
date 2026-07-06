@@ -215,6 +215,27 @@ export function UnrealizedPnlAnalysisClient({
     };
     return [...rankedRows].sort(compareRows).concat([...manualRows].sort(compareRows));
   }, [data?.tickerSelection, detailSort]);
+  const selectedDetailTotal = useMemo(() => {
+    const activeRows = detailRows.filter((row) => selectedSet.has(row.seriesId));
+    const values = activeRows.flatMap((row) => row.endUnrealizedPnl === null ? [] : [row.endUnrealizedPnl]);
+    if (values.length === 0) return null;
+    return values.reduce((sum, value) => sum + value, 0);
+  }, [detailRows, selectedSet]);
+  const selectedDetailBasis = useMemo(() => {
+    const points = selectedSeries.flatMap((series) => series.points);
+    const snapshotDates = points.flatMap((point) => point.basis?.snapshotDate ? [point.basis.snapshotDate] : []);
+    const providerSources = [...new Set(points.flatMap((point) => point.basis?.snapshotProviderSources ?? [])
+      .map((source) => source.trim())
+      .filter(Boolean))]
+      .sort();
+    const fxDates = [...new Set(points.flatMap((point) => point.basis?.fxAsOfDate ? [point.basis.fxAsOfDate] : []))]
+      .sort();
+    return {
+      latestSnapshotDate: latestDate(snapshotDates) ?? data?.basis?.endSnapshotDate ?? data?.diagnostics?.latestSnapshotDate ?? null,
+      providerSources,
+      latestFxAsOfDate: latestDate(fxDates) ?? data?.basis?.endSnapshotDate ?? null,
+    };
+  }, [data?.basis?.endSnapshotDate, data?.diagnostics?.latestSnapshotDate, selectedSeries]);
   const focusedSelectedValues = useMemo(
     () => selectedSeries.map((series) => {
       const point = focusDate ? series.points.find((candidate) => candidate.date === focusDate) : undefined;
@@ -539,6 +560,12 @@ export function UnrealizedPnlAnalysisClient({
                   <>
                     <AnalysisSvgChart
                       ariaLabel={dict.chartAriaLabel}
+                      axisLabels={{
+                        max: dict.chartAxisMaxLabel,
+                        min: dict.chartAxisMinLabel,
+                        zero: dict.chartAxisZeroLabel,
+                      }}
+                      currency={responseCurrency}
                       dates={chartDates}
                       focusDate={focusDate}
                       locale={resolvedLocale}
@@ -606,6 +633,36 @@ export function UnrealizedPnlAnalysisClient({
                   value={state.detailLayout}
                   onChange={(detailLayout) => replaceState({ ...state, detailLayout })}
                 />
+              </div>
+              <div
+                className="mt-3 rounded-lg border border-primary/20 bg-primary/5 px-4 py-3"
+                data-testid="analysis-selected-detail-basis-tip"
+                role="note"
+              >
+                <p className="text-sm text-foreground">{dict.selectedDetailBasisTip}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {selectedDetailBasis.latestSnapshotDate
+                    ? dict.selectedDetailSnapshotAsOf.replace("{date}", formatDateLabel(selectedDetailBasis.latestSnapshotDate, resolvedLocale))
+                    : dict.selectedDetailSnapshotAsOf.replace("{date}", "-")}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {dict.selectedDetailSnapshotSources.replace("{sources}", selectedDetailBasis.providerSources.length > 0 ? selectedDetailBasis.providerSources.join(", ") : "-")}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {dict.selectedDetailSnapshotFxAsOf.replace("{date}", selectedDetailBasis.latestFxAsOfDate ? formatDateLabel(selectedDetailBasis.latestFxAsOfDate, resolvedLocale) : "-")}
+                </p>
+              </div>
+              <div
+                className="mt-3 flex flex-col gap-1 rounded-lg border border-border/70 bg-muted/20 px-4 py-3 sm:flex-row sm:items-end sm:justify-between"
+                data-testid="analysis-selected-detail-total"
+              >
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">{dict.selectedDetailTotalLabel}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{dict.selectedDetailTotalValueLabel}</p>
+                </div>
+                <p className={cn("text-xl font-semibold tabular-nums", holdingsFinanceToneClass(selectedDetailTotal, "text-foreground"))}>
+                  {formatNullableCurrency(selectedDetailTotal, responseCurrency, resolvedLocale)}
+                </p>
               </div>
               <div
                 className={cn("mt-3 grid gap-3 lg:grid-cols-2", state.detailLayout === "table" && "hidden", state.detailLayout === "responsive" && "lg:hidden")}
@@ -746,6 +803,10 @@ function collectChartDates(series: UnrealizedPnlSeries[]): string[] {
   return [...new Set(series.flatMap((item) => item.points.map((point) => point.date)))].sort();
 }
 
+function latestDate(values: readonly string[]): string | null {
+  return [...values].sort().at(-1) ?? null;
+}
+
 function TotalCompositionContent({
   composition,
   currency,
@@ -811,6 +872,8 @@ function formatPositionLabel(positionStatus: "open_position" | "closed_position"
 
 function AnalysisSvgChart({
   ariaLabel,
+  axisLabels,
+  currency,
   dates,
   focusDate,
   locale,
@@ -820,6 +883,12 @@ function AnalysisSvgChart({
   series,
 }: {
   ariaLabel: string;
+  axisLabels: {
+    max: string;
+    min: string;
+    zero: string;
+  };
+  currency: string;
   dates: string[];
   focusDate: string | null;
   locale: LocaleCode;
@@ -828,17 +897,29 @@ function AnalysisSvgChart({
   selectedSet: ReadonlySet<string>;
   series: UnrealizedPnlSeries[];
 }) {
-  const values = series.flatMap((item) => item.points.map((point) => point.unrealizedPnl))
+  const activeSeries = selectedSet.size > 0
+    ? series.filter((item) => selectedSet.has(item.seriesId))
+    : series;
+  const values = activeSeries.flatMap((item) => item.points.map((point) => point.unrealizedPnl))
     .filter((value): value is number => value !== null);
-  const min = Math.min(0, ...values);
-  const max = Math.max(1, ...values);
+  const min = values.length > 0 ? Math.min(0, ...values) : -1;
+  const max = values.length > 0 ? Math.max(0, ...values) : 1;
   const span = Math.max(1, max - min);
   const width = 920;
   const height = 280;
-  const pad = 28;
-  const xForDate = (date: string) => pad + (Math.max(0, dates.indexOf(date)) / Math.max(1, dates.length - 1)) * (width - pad * 2);
-  const yForValue = (value: number) => height - pad - ((value - min) / span) * (height - pad * 2);
+  const leftPad = 88;
+  const rightPad = 28;
+  const topPad = 28;
+  const bottomPad = 28;
+  const xForDate = (date: string) => leftPad + (Math.max(0, dates.indexOf(date)) / Math.max(1, dates.length - 1)) * (width - leftPad - rightPad);
+  const yForValue = (value: number) => height - bottomPad - ((value - min) / span) * (height - topPad - bottomPad);
   const focusX = focusDate ? xForDate(focusDate) : null;
+  const zeroY = yForValue(0);
+  const yAxisLabels = [
+    { id: "max", label: axisLabels.max, value: max, y: yForValue(max) },
+    { id: "zero", label: axisLabels.zero, value: 0, y: zeroY },
+    { id: "min", label: axisLabels.min, value: min, y: yForValue(min) },
+  ];
   const focusPoints = focusDate
     ? series
       .filter((item) => selectedSet.has(item.seriesId))
@@ -878,7 +959,31 @@ function AnalysisSvgChart({
         })}
       </div>
       <svg aria-label={ariaLabel} className="h-[280px] w-full" preserveAspectRatio="none" viewBox={`0 0 ${width} ${height}`}>
-        <line stroke="hsl(var(--border))" x1={pad} x2={width - pad} y1={yForValue(0)} y2={yForValue(0)} />
+        <g data-testid="analysis-chart-y-axis">
+          <line stroke="hsl(var(--border))" x1={leftPad} x2={leftPad} y1={topPad} y2={height - bottomPad} />
+          {yAxisLabels.map((item) => (
+            <g key={item.id} data-testid={`analysis-chart-y-axis-${item.id}`}>
+              <line
+                stroke={item.id === "zero" ? "hsl(var(--foreground))" : "hsl(var(--border))"}
+                strokeDasharray={item.id === "zero" ? undefined : "3 3"}
+                strokeOpacity={item.id === "zero" ? 0.55 : 1}
+                x1={leftPad - 6}
+                x2={width - rightPad}
+                y1={item.y}
+                y2={item.y}
+              />
+              <text
+                fill="hsl(var(--muted-foreground))"
+                fontSize={11}
+                textAnchor="start"
+                x={12}
+                y={item.y + 4}
+              >
+                {`${item.label} ${formatNullableCompactCurrency(item.value, currency, locale)}`}
+              </text>
+            </g>
+          ))}
+        </g>
         {series.map((item) => (
           <polyline
             key={item.seriesId}
@@ -897,14 +1002,14 @@ function AnalysisSvgChart({
             <title>{`${item.displayName} ${formatNullableCurrency(item.endUnrealizedPnl, item.currency, locale)}`}</title>
           </polyline>
         ))}
-        {focusDate && focusX !== null ? <line stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" x1={focusX} x2={focusX} y1={pad} y2={height - pad} /> : null}
+        {focusDate && focusX !== null ? <line stroke="hsl(var(--muted-foreground))" strokeDasharray="4 4" x1={focusX} x2={focusX} y1={topPad} y2={height - bottomPad} /> : null}
         {focusX !== null ? focusPoints.map((point, index) => {
-          const label = formatNullableCurrency(point.value, series[0]?.currency ?? "TWD", locale);
+          const label = formatNullableCurrency(point.value, currency, locale);
           const labelWidth = Math.min(150, Math.max(68, label.length * 7.2 + 16));
           const labelX = focusX > width - 190 ? focusX - labelWidth - 12 : focusX + 12;
           const labelY = point.y === null
-            ? pad + 18 + index * 24
-            : Math.max(pad + 12, Math.min(height - pad - 10, point.y - 8 + index * 4));
+            ? topPad + 18 + index * 24
+            : Math.max(topPad + 12, Math.min(height - bottomPad - 10, point.y - 8 + index * 4));
           return (
             <g key={`${point.displayName}-${index}`} className="hidden lg:block">
               {point.y !== null ? <circle cx={focusX} cy={point.y} fill={point.colorToken} r={5} stroke="white" strokeWidth={2} /> : null}

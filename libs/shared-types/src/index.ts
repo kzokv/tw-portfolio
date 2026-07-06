@@ -1262,6 +1262,35 @@ export interface ReportDataHealthDto {
   nonCurrentPriceCount: number;
 }
 
+export interface ReportMarketValuationBasisDto {
+  marketCode: MarketCode;
+  requestedAsOf: string;
+  expectedLatestValuationDate: string | null;
+  quoteAsOfDate: string | null;
+  quoteSource: string | null;
+  quoteSourceKind: PriceStateSourceKindDto | null;
+  usesFallbackQuote: boolean;
+  fallbackProvider?: QuoteFallbackProviderDto | null;
+  fallbackStale?: boolean | null;
+  calendarStatus: PriceStateCalendarStatusDto | null;
+  marketState: PriceStateMarketStateDto | null;
+  marketStateReason?: PriceStateMarketStateReasonDto | null;
+  marketLocalDate: string | null;
+  closureDate: string | null;
+  closureName: string | null;
+  closureReason: "market_holiday" | "weekend" | "calendar_unknown" | null;
+  fxAsOfDate: string | null;
+  reportingCurrency: AccountDefaultCurrency;
+}
+
+export interface ReportValuationBasisDto {
+  semantics: "current_report_valuation";
+  reportingCurrency: AccountDefaultCurrency;
+  reportAsOf: string;
+  fxAsOfDate: string | null;
+  markets: ReportMarketValuationBasisDto[];
+}
+
 export interface ReportDiagnosticsDto {
   scope: ReportScope;
   reportingCurrency: AccountDefaultCurrency;
@@ -1277,6 +1306,7 @@ export interface ReportDiagnosticsDto {
   nonCurrentPriceCount: number;
   missingFxCount: number;
   missingProviderSourceCount: number;
+  valuationBasis?: ReportValuationBasisDto;
   knownGapReasons: Array<
     | "missing_snapshot"
     | "stale_snapshot"
@@ -1292,6 +1322,7 @@ export interface ReportDiagnosticsDto {
     latestSnapshotDate: string | null;
     missingProviderSourceCount: number;
     providerSources: string[];
+    basis?: ReportMarketValuationBasisDto;
     knownGapReasons: Array<
       | "missing_snapshot"
       | "stale_snapshot"
@@ -1511,6 +1542,15 @@ export interface UnrealizedPnlAnalysisMetadataDto {
   metricDefinitions: UnrealizedPnlMetricDefinitionsDto;
 }
 
+export interface UnrealizedPnlAnalysisBasisDto {
+  semantics: "snapshot_valuation";
+  priceBasis: "daily_holding_snapshots";
+  fxBasis: "snapshot_date_fx";
+  reportingCurrency: AccountDefaultCurrency;
+  startSnapshotDate: string | null;
+  endSnapshotDate: string | null;
+}
+
 export interface UnrealizedPnlTickerRefDto {
   ticker: string;
   marketCode: MarketCode;
@@ -1571,6 +1611,9 @@ export interface UnrealizedPnlPortfolioSeriesPointDto {
   quantity: number;
   fxAvailable: boolean;
   isProvisional: boolean;
+  snapshotDate?: string | null;
+  snapshotProviderSources?: string[];
+  fxAsOfDate?: string | null;
 }
 
 export interface UnrealizedPnlTickerSeriesPointDto extends UnrealizedPnlPortfolioSeriesPointDto {
@@ -1616,6 +1659,9 @@ export interface UnrealizedPnlRankingRowDto {
   latestCostBasisAmount: number | null;
   latestQuantity: number;
   tradeMarkerCount: number;
+  snapshotDate?: string | null;
+  snapshotProviderSources?: string[];
+  fxAsOfDate?: string | null;
 }
 
 export interface UnrealizedPnlTickerCompositionRowDto {
@@ -1633,6 +1679,9 @@ export interface UnrealizedPnlTickerCompositionRowDto {
   latestCostBasisAmount: number | null;
   latestQuantity: number;
   contributionSharePercent: number | null;
+  snapshotDate?: string | null;
+  snapshotProviderSources?: string[];
+  fxAsOfDate?: string | null;
 }
 
 export interface UnrealizedPnlAnalysisDataHealthDto {
@@ -1655,6 +1704,7 @@ export interface UnrealizedPnlAnalysisDiagnosticsDto {
 export interface UnrealizedPnlAnalysisDto {
   query: UnrealizedPnlAnalysisQueryStateDto;
   metadata: UnrealizedPnlAnalysisMetadataDto;
+  basis?: UnrealizedPnlAnalysisBasisDto;
   summary: UnrealizedPnlAnalysisSummaryDto;
   portfolioSeries: UnrealizedPnlPortfolioSeriesPointDto[];
   tickerSeries: UnrealizedPnlTickerSeriesPointDto[];

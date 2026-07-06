@@ -2033,6 +2033,7 @@ export interface UnrealizedPnlAnalysisSnapshotRow {
   snapshotDate: string;
   quantity: number;
   closePrice: number | null;
+  providerSource: string | null;
   nativeCurrency: CurrencyCode;
   reportingCurrency: import("@vakwen/shared-types").AccountDefaultCurrency;
   costBasisAmount: number | null;
@@ -2040,6 +2041,7 @@ export interface UnrealizedPnlAnalysisSnapshotRow {
   unrealizedPnlAmount: number | null;
   isProvisional: boolean;
   fxAvailable: boolean;
+  fxAsOfDate: string | null;
 }
 
 export interface McpReplayScopeRecord {

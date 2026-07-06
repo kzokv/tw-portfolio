@@ -94,6 +94,9 @@ test.describe("admin market-data instruments", () => {
     await drawer.getByText("Support controls").waitFor({ state: "visible" });
     const retiredButton = drawer.getByRole("button", { name: "retired_by_admin" });
     await retiredButton.click();
-    await drawer.getByText("retired_by_admin").waitFor({ state: "visible" });
+    await drawer
+      .getByRole("definition")
+      .filter({ hasText: "retired_by_admin" })
+      .waitFor({ state: "visible" });
   });
 });

@@ -22,6 +22,7 @@ import {
   type ReportScope,
   type ReportSummaryTotalsDto,
   type ReportTickerAllocationRowDto,
+  type ReportValuationBasisDto,
 } from "@vakwen/shared-types";
 import { buildDashboardOverview, buildOverviewHoldingGroups } from "./dashboard.js";
 import {
@@ -79,6 +80,7 @@ interface PreparedReportData {
   asOf: string;
   snapshotDiagnostics: Awaited<ReturnType<Persistence["getLatestSnapshotDiagnostics"]>>;
   expectedValuationDatesByMarket: Map<MarketCode, string | null>;
+  valuationBasis: ReportValuationBasisDto;
 }
 
 type MissingFxRatePair = HistoricalFxMissingRatePair;
@@ -99,6 +101,7 @@ type ReportMarketDiagnostics = Array<{
   latestSnapshotDate: string | null;
   missingProviderSourceCount: number;
   providerSources: string[];
+  basis?: ReportValuationBasisDto["markets"][number];
   knownGapReasons: ReportKnownGapReason[];
 }>;
 
@@ -354,35 +357,38 @@ async function prepareReportData(
     ...trailingDividendIncome.missingRatePairs,
   ]);
   const fxStatus = await buildFxStatus(app, scopedStore, context.reportingCurrency, asOf, historicalMissingRatePairs, rangeBounds);
+  const fxRates = await buildFxConversionRateRows(
+    app.persistence,
+    fxStatus.nativeCurrencies,
+    context.reportingCurrency,
+    asOf,
+  );
   const snapshotScopePairs = buildSnapshotScopePairs(context.scope, scopedStore);
   const snapshotDiagnostics = snapshotScopePairs && snapshotScopePairs.length === 0
     ? { latestSnapshotDate: null, missingProviderSourceCount: 0, markets: [] }
     : await app.persistence.getLatestSnapshotDiagnostics(userId, snapshotScopePairs);
   const expectedValuationDatesByMarket = await buildExpectedValuationDatesByMarket(app, scopedStore, asOf);
+  const basisExpectedValuationDatesByMarket = await buildExpectedValuationDatesByMarket(app, scopedStore, asOf, context.scope);
+  const reportQuery = {
+    scope: context.scope,
+    currencyMode: context.currencyMode,
+    currency: context.currency,
+    reportingCurrency: context.reportingCurrency,
+    nativeCurrency: context.nativeCurrency,
+    range,
+    rangeStartDate: rangeBounds.startDate,
+    rangeEndDate: rangeBounds.endDate,
+    asOf,
+  };
   return {
-    reportQuery: {
-      scope: context.scope,
-      currencyMode: context.currencyMode,
-      currency: context.currency,
-      reportingCurrency: context.reportingCurrency,
-      nativeCurrency: context.nativeCurrency,
-      range,
-      rangeStartDate: rangeBounds.startDate,
-      rangeEndDate: rangeBounds.endDate,
-      asOf,
-    },
+    reportQuery,
     translatedSummary,
     translatedHoldingGroups,
     dailyCompatibleCurrentValueAmount,
     quotes,
     dataHealth: buildDataHealth(translatedHoldingGroups, historicalMissingRatePairs.length),
     fxStatus,
-    fxRates: await buildFxConversionRateRows(
-      app.persistence,
-      fxStatus.nativeCurrencies,
-      context.reportingCurrency,
-      asOf,
-    ),
+    fxRates,
     realizedPnl,
     trailingDividendIncome,
     store,
@@ -390,6 +396,13 @@ async function prepareReportData(
     asOf,
     snapshotDiagnostics,
     expectedValuationDatesByMarket,
+    valuationBasis: await buildReportValuationBasis(
+      app.persistence,
+      translatedHoldingGroups,
+      basisExpectedValuationDatesByMarket,
+      reportQuery,
+      fxRates,
+    ),
   };
 }
 
@@ -716,6 +729,139 @@ function buildMarketHealthGapReasons(
   return reasonsByMarket;
 }
 
+async function buildReportValuationBasis(
+  persistence: Persistence,
+  groups: Awaited<ReturnType<typeof translateOverviewHoldingGroups>>,
+  expectedValuationDatesByMarket: ReadonlyMap<MarketCode, string | null>,
+  reportQuery: ReportQueryStateDto,
+  fxRates: readonly FxConversionRateDto[],
+): Promise<ReportValuationBasisDto> {
+  const groupsByMarket = new Map<MarketCode, typeof groups>();
+  for (const group of groups) {
+    const marketGroups = groupsByMarket.get(group.marketCode) ?? [];
+    marketGroups.push(group);
+    groupsByMarket.set(group.marketCode, marketGroups);
+  }
+  for (const marketCode of expectedValuationDatesByMarket.keys()) {
+    if (!groupsByMarket.has(marketCode)) groupsByMarket.set(marketCode, []);
+  }
+
+  const fxAsOfDate = latestFxAsOfDate(fxRates, reportQuery.asOf);
+  const markets = await Promise.all([...groupsByMarket.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(async ([marketCode, marketGroups]) => {
+      const priceStates = marketGroups.map((group) => group.priceState);
+      const quoteAsOfDate = maxNullableDateFromValues(priceStates.map((state) => state.asOfDate));
+      const representative = pickRepresentativePriceState(priceStates, quoteAsOfDate);
+      const closure = await findFirstMarketClosureAfterQuote(
+        persistence,
+        marketCode,
+        quoteAsOfDate,
+        reportQuery.asOf,
+      );
+      return {
+        marketCode,
+        requestedAsOf: reportQuery.asOf,
+        expectedLatestValuationDate: expectedValuationDatesByMarket.get(marketCode) ?? null,
+        quoteAsOfDate,
+        quoteSource: representative?.source ?? null,
+        quoteSourceKind: representative?.sourceKind ?? null,
+        usesFallbackQuote: priceStates.some((state) => state.basis === "fallback_eod_close"),
+        fallbackProvider: representative?.fallbackProvider ?? null,
+        fallbackStale: representative?.fallbackStale ?? null,
+        calendarStatus: representative?.calendarStatus ?? null,
+        marketState: representative?.marketState ?? null,
+        marketStateReason: representative?.marketStateReason ?? null,
+        marketLocalDate: representative?.marketLocalDate ?? representative?.localMarketDate ?? null,
+        closureDate: closure.closureDate,
+        closureName: closure.closureName,
+        closureReason: closure.closureReason,
+        fxAsOfDate,
+        reportingCurrency: reportQuery.reportingCurrency,
+      };
+    }));
+
+  return {
+    semantics: "current_report_valuation",
+    reportingCurrency: reportQuery.reportingCurrency,
+    reportAsOf: reportQuery.asOf,
+    fxAsOfDate,
+    markets,
+  };
+}
+
+function latestFxAsOfDate(fxRates: readonly FxConversionRateDto[], fallback: string): string | null {
+  if (fxRates.length === 0) return fallback;
+  return maxNullableDateFromValues(fxRates.map((rate) => rate.asOf));
+}
+
+function pickRepresentativePriceState(
+  priceStates: Awaited<ReturnType<typeof translateOverviewHoldingGroups>>[number]["priceState"][],
+  quoteAsOfDate: string | null,
+): Awaited<ReturnType<typeof translateOverviewHoldingGroups>>[number]["priceState"] | null {
+  if (priceStates.length === 0) return null;
+  const withLatestDate = quoteAsOfDate
+    ? priceStates.filter((state) => state.asOfDate === quoteAsOfDate)
+    : priceStates;
+  return [...withLatestDate].sort((left, right) =>
+    priceStateBasisDisclosureRank(right) - priceStateBasisDisclosureRank(left)
+    || (right.source ?? "").localeCompare(left.source ?? ""),
+  )[0] ?? null;
+}
+
+function priceStateBasisDisclosureRank(state: Awaited<ReturnType<typeof translateOverviewHoldingGroups>>[number]["priceState"]): number {
+  if (state.basis === "fallback_eod_close") return 4;
+  if (state.basis === "stale_close") return 3;
+  if (state.basis === "previous_close" || state.basis === "pending_today_close") return 2;
+  if (state.basis === "missing") return 1;
+  return 0;
+}
+
+async function findFirstMarketClosureAfterQuote(
+  persistence: Persistence,
+  marketCode: MarketCode,
+  quoteAsOfDate: string | null,
+  requestedAsOf: string,
+): Promise<Pick<ReportValuationBasisDto["markets"][number], "closureDate" | "closureName" | "closureReason">> {
+  if (quoteAsOfDate === null || quoteAsOfDate >= requestedAsOf) {
+    return { closureDate: null, closureName: null, closureReason: null };
+  }
+  let current = addDaysIsoDate(quoteAsOfDate, 1);
+  while (current <= requestedAsOf) {
+    const version = await persistence.getActiveMarketCalendarVersion(marketCode, Number(current.slice(0, 4)));
+    if (!version) {
+      return { closureDate: current, closureName: null, closureReason: "calendar_unknown" };
+    }
+    const exception = version.exceptions.find((candidate) => candidate.date === current);
+    if (exception?.status === "closed") {
+      return {
+        closureDate: current,
+        closureName: exception.name,
+        closureReason: "market_holiday",
+      };
+    }
+    if (!exception && isWeekendIsoDate(current)) {
+      return { closureDate: current, closureName: null, closureReason: "weekend" };
+    }
+    current = addDaysIsoDate(current, 1);
+  }
+  return { closureDate: null, closureName: null, closureReason: null };
+}
+
+function addDaysIsoDate(date: string, days: number): string {
+  const oneDayMs = 24 * 60 * 60 * 1000;
+  return new Date(new Date(`${date}T00:00:00.000Z`).getTime() + days * oneDayMs).toISOString().slice(0, 10);
+}
+
+function isWeekendIsoDate(date: string): boolean {
+  const day = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+  return day === 0 || day === 6;
+}
+
+function maxNullableDateFromValues(values: readonly (string | null | undefined)[]): string | null {
+  return values.reduce<string | null>((latest, value) => value ? maxNullableDate(latest, value) : latest, null);
+}
+
 function addKnownGapReason(reasons: ReportKnownGapReason[], reason: ReportKnownGapReason): void {
   if (!reasons.includes(reason)) reasons.push(reason);
 }
@@ -780,6 +926,7 @@ function buildReportDiagnostics(
     nonCurrentPriceCount: prepared.dataHealth.nonCurrentPriceCount,
     missingFxCount: prepared.dataHealth.missingFxCount,
     missingProviderSourceCount: prepared.snapshotDiagnostics.missingProviderSourceCount,
+    valuationBasis: prepared.valuationBasis,
     knownGapReasons,
     markets,
     ...(options.snapshotGapHoldings ? { snapshotGapHoldings: options.snapshotGapHoldings } : {}),
@@ -934,6 +1081,9 @@ function latestStaleMarketSnapshotDate(markets: ReportMarketDiagnostics): string
 
 function resolveReportMarketDiagnostics(prepared: PreparedReportData): ReportMarketDiagnostics {
   const healthGapReasonsByMarket = buildMarketHealthGapReasons(prepared.translatedHoldingGroups);
+  const valuationBasisByMarket = new Map(
+    prepared.valuationBasis.markets.map((market) => [market.marketCode, market] as const),
+  );
   const seededMarketsByCode = new Map<MarketCode, {
     marketCode: MarketCode;
     latestSnapshotDate: string | null;
@@ -982,6 +1132,7 @@ function resolveReportMarketDiagnostics(prepared: PreparedReportData): ReportMar
         latestSnapshotDate: market.latestSnapshotDate,
         missingProviderSourceCount: market.missingProviderSourceCount,
         providerSources: market.providerSources,
+        basis: valuationBasisByMarket.get(market.marketCode),
         knownGapReasons,
       };
     })
@@ -1169,8 +1320,18 @@ async function buildExpectedValuationDatesByMarket(
   app: FastifyInstance,
   store: Store,
   asOf: string,
+  scope?: ReportScope,
 ): Promise<Map<MarketCode, string | null>> {
   const markets = new Set<MarketCode>();
+  if (scope) {
+    if (scope === "all") {
+      for (const marketCode of MARKET_CODES) {
+        markets.add(marketCode);
+      }
+    } else {
+      markets.add(scope);
+    }
+  }
   for (const holding of store.accounting.projections.holdings) {
     markets.add(marketCodeFor(holding.currency));
   }
