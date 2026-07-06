@@ -764,7 +764,7 @@ export async function buildUnrealizedPnlAnalysis(
         tickerRows.map((row) => ({
           ...row,
           marketCode: row.marketCode,
-          fxAsOfDate: row.snapshotDate,
+          fxAsOfDate: row.fxAsOfDate ?? null,
         })),
         bucketDescriptors,
         query.granularity,
@@ -916,7 +916,7 @@ export async function buildUnrealizedPnlAnalysis(
     portfolioSnapshotRows.map((row) => ({
       ...row,
       marketCode: row.marketCode,
-      fxAsOfDate: row.snapshotDate,
+      fxAsOfDate: row.fxAsOfDate ?? null,
     })),
     descriptors,
     query.granularity,

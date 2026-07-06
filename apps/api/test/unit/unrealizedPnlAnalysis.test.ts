@@ -5,7 +5,7 @@ import {
   buildUnrealizedPnlAnalysis,
   unrealizedPnlAnalysisRouteQuerySchema,
 } from "../../src/services/unrealizedPnlAnalysis.js";
-import type { HoldingSnapshot } from "../../src/persistence/types.js";
+import type { HoldingSnapshot, UnrealizedPnlAnalysisSnapshotRow } from "../../src/persistence/types.js";
 import type { MemoryPersistence } from "../../src/persistence/memory.js";
 import type { BookedTradeEvent, Store } from "../../src/types/store.js";
 import type { FxRate } from "../../src/services/market-data/types.js";
@@ -63,6 +63,27 @@ function makeSnapshot(overrides: Partial<HoldingSnapshot> = {}): HoldingSnapshot
     providerSource: "test",
     generatedAt: "2026-01-02T00:00:00.000Z",
     generationRunId: "run-1",
+    ...overrides,
+  };
+}
+
+function makeAnalysisSnapshotRow(overrides: Partial<UnrealizedPnlAnalysisSnapshotRow> = {}): UnrealizedPnlAnalysisSnapshotRow {
+  return {
+    accountId: "acc-1",
+    ticker: "2330",
+    marketCode: "TW",
+    snapshotDate: "2026-01-02",
+    quantity: 10,
+    closePrice: 100,
+    providerSource: "test",
+    nativeCurrency: "TWD",
+    reportingCurrency: "TWD",
+    costBasisAmount: 1000,
+    marketValueAmount: 1000,
+    unrealizedPnlAmount: 0,
+    isProvisional: false,
+    fxAvailable: true,
+    fxAsOfDate: "2026-01-02",
     ...overrides,
   };
 }
@@ -230,6 +251,43 @@ describe("buildUnrealizedPnlAnalysis", () => {
     expect(report.tradeMarkers).toEqual([
       expect.objectContaining({ ticker: "2330", marketCode: "TW", date: "2026-01-02", kind: "buy" }),
     ]);
+  });
+
+  it("preserves resolved FX dates when snapshot FX rolls back", async () => {
+    await seedInstrument({ ticker: "AVGO", marketCode: "US", instrumentType: "STOCK", name: "Broadcom" });
+    vi.spyOn(persistence, "listUnrealizedPnlAnalysisSnapshots").mockResolvedValue([
+      makeAnalysisSnapshotRow({
+        ticker: "AVGO",
+        marketCode: "US",
+        snapshotDate: "2026-07-02",
+        nativeCurrency: "USD",
+        reportingCurrency: "AUD",
+        fxAsOfDate: "2026-07-02",
+      }),
+      makeAnalysisSnapshotRow({
+        ticker: "AVGO",
+        marketCode: "US",
+        snapshotDate: "2026-07-05",
+        nativeCurrency: "USD",
+        reportingCurrency: "AUD",
+        costBasisAmount: 1000,
+        marketValueAmount: 1200,
+        unrealizedPnlAmount: 200,
+        fxAsOfDate: "2026-07-03",
+      }),
+    ]);
+
+    const report = await buildUnrealizedPnlAnalysis(app, "user-1", {
+      granularity: "daily",
+      fromDate: "2026-07-02",
+      toDate: "2026-07-05",
+      reportingCurrency: "AUD",
+    });
+
+    expect(report.portfolioSeries[report.portfolioSeries.length - 1]?.fxAsOfDate).toBe("2026-07-03");
+    expect(report.tickerSeries.find((point) => point.date === "2026-07-05")?.fxAsOfDate).toBe("2026-07-03");
+    expect(report.tickerComposition[0]?.fxAsOfDate).toBe("2026-07-03");
+    expect(report.rankings[0]?.fxAsOfDate).toBe("2026-07-03");
   });
 
   it("excludes sold-out tickers by default and keeps them with markers when requested", async () => {
