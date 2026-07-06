@@ -1089,7 +1089,7 @@ function ReportBasisStrip({ data, dict, locale }: { data: AnyReportDto; dict: Ap
                 {summary.fallbackUsed ? dict.reports.basisMarketFallbackUsed : dict.reports.basisMarketFallbackNone}
               </p>
               <p className="mt-1">
-                {summary.closureDate && summary.quoteAsOf
+                {summary.closureDate && summary.quoteAsOf && isConfirmedMarketClosure(summary.closureReason)
                   ? formatReportMessage(dict.reports.basisMarketRollback, {
                       actual: formatDateLabel(summary.quoteAsOf, locale),
                       expected: formatReportClosureLabel(summary, locale),
@@ -1125,6 +1125,7 @@ function buildReportBasisMarketSummaries(data: AnyReportDto): Array<{
   expectedLatestValuationDate: string | null;
   closureDate: string | null;
   closureName: string | null;
+  closureReason: "market_holiday" | "weekend" | "calendar_unknown" | null;
 }> {
   const valuationMarkets = data.diagnostics.valuationBasis?.markets;
   if (valuationMarkets && valuationMarkets.length > 0) {
@@ -1136,6 +1137,7 @@ function buildReportBasisMarketSummaries(data: AnyReportDto): Array<{
       expectedLatestValuationDate: market.expectedLatestValuationDate,
       closureDate: market.closureDate,
       closureName: market.closureName,
+      closureReason: market.closureReason,
     }));
   }
 
@@ -1170,8 +1172,13 @@ function buildReportBasisMarketSummaries(data: AnyReportDto): Array<{
       expectedLatestValuationDate: market?.expectedLatestValuationDate ?? null,
       closureDate: market?.basis?.closureDate ?? null,
       closureName: market?.basis?.closureName ?? null,
+      closureReason: market?.basis?.closureReason ?? null,
     };
   });
+}
+
+function isConfirmedMarketClosure(reason: "market_holiday" | "weekend" | "calendar_unknown" | null): boolean {
+  return reason === "market_holiday" || reason === "weekend";
 }
 
 function formatReportClosureLabel(

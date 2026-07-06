@@ -751,7 +751,8 @@ async function buildReportValuationBasis(
     .sort(([left], [right]) => left.localeCompare(right))
     .map(async ([marketCode, marketGroups]) => {
       const priceStates = marketGroups.map((group) => group.priceState);
-      const quoteAsOfDate = minNullableDateFromValues(priceStates.map((state) => state.asOfDate));
+      const hasMissingQuote = priceStates.some((state) => state.asOfDate === null);
+      const quoteAsOfDate = hasMissingQuote ? null : minNullableDateFromValues(priceStates.map((state) => state.asOfDate));
       const representative = pickRepresentativePriceState(priceStates, quoteAsOfDate);
       const marketFxAsOfDate = latestFxAsOfDateForMarket(marketGroups, fxRates, reportQuery.reportingCurrency);
       const closure = await findFirstMarketClosureAfterQuote(

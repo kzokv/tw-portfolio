@@ -860,7 +860,7 @@ describe("ReportsClient", () => {
     expect(fxBasis).not.toContain("Latest available FX in report response");
   });
 
-  it("does not label stale quotes as market closures in valuation basis disclosure", async () => {
+  it("does not label stale or unknown-calendar quotes as market closures in valuation basis disclosure", async () => {
     searchParamsMock.value = "tab=portfolio&scope=all&range=1Y";
     const staleQuoteFixture: PortfolioReportDto = {
       ...portfolioFixture,
@@ -885,9 +885,9 @@ describe("ReportsClient", () => {
             marketState: null,
             marketStateReason: null,
             marketLocalDate: "2026-07-06",
-            closureDate: null,
+            closureDate: "2026-07-03",
             closureName: null,
-            closureReason: null,
+            closureReason: "calendar_unknown",
             fxAsOfDate: null,
             reportingCurrency: "AUD",
           }],

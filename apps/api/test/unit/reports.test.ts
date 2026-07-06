@@ -46,6 +46,7 @@ async function seedReportHolding(input: {
   costBasisAmount?: number;
   tradeDate?: string;
   source?: string;
+  seedBar?: boolean;
 }): Promise<void> {
   const store = await app.persistence.loadStore(userId);
   const account = store.accounts[0];
@@ -105,18 +106,20 @@ async function seedReportHolding(input: {
     marketCode: input.marketCode,
     barsBackfillStatus: "ready",
   });
-  memoryPersistence._seedDailyBars?.([{
-    ticker: input.ticker,
-    marketCode: input.marketCode,
-    barDate: input.barDate,
-    open: input.close,
-    high: input.close,
-    low: input.close,
-    close: input.close,
-    volume: 1_000,
-    source: input.source ?? `test-${input.marketCode.toLowerCase()}-close`,
-    ingestedAt: `${input.barDate}T21:00:00.000Z`,
-  }]);
+  if (input.seedBar !== false) {
+    memoryPersistence._seedDailyBars?.([{
+      ticker: input.ticker,
+      marketCode: input.marketCode,
+      barDate: input.barDate,
+      open: input.close,
+      high: input.close,
+      low: input.close,
+      close: input.close,
+      volume: 1_000,
+      source: input.source ?? `test-${input.marketCode.toLowerCase()}-close`,
+      ingestedAt: `${input.barDate}T21:00:00.000Z`,
+    }]);
+  }
 }
 
 describe("buildPortfolioReport", () => {
@@ -522,6 +525,46 @@ describe("buildPortfolioReport", () => {
       quoteAsOfDate: "2026-07-01",
       quoteSource: "test-us-stale-close",
     }));
+  });
+
+  it("marks market quote basis unavailable when any holding quote is missing", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
+    await seedReportHolding({
+      ticker: "AVGO",
+      marketCode: "US",
+      instrumentType: "STOCK",
+      name: "Broadcom",
+      currency: "USD",
+      barDate: "2026-07-02",
+      close: 212,
+      quantity: 2,
+      source: "test-us-close",
+    });
+    await seedReportHolding({
+      ticker: "MSFT",
+      marketCode: "US",
+      instrumentType: "STOCK",
+      name: "Microsoft",
+      currency: "USD",
+      barDate: "2026-07-02",
+      close: 500,
+      quantity: 1,
+      seedBar: false,
+    });
+    await app.persistence.upsertFxRates([
+      { date: "2026-07-02", baseCurrency: "USD", quoteCurrency: "TWD", rate: 32, source: "test-fx" },
+    ]);
+
+    const report = await buildPortfolioReport(app, userId, { scope: "all", currencyMode: "specified", currency: "TWD" });
+    const usBasis = report.diagnostics.valuationBasis?.markets.find((market) => market.marketCode === "US");
+
+    expect(usBasis).toEqual(expect.objectContaining({
+      quoteAsOfDate: null,
+      quoteSource: null,
+      quoteSourceKind: "missing",
+    }));
+    expect(report.diagnostics.markets.find((market) => market.marketCode === "US")?.knownGapReasons).toContain("missing_quote");
   });
 
   it("uses per-market FX dates in valuation basis", async () => {
