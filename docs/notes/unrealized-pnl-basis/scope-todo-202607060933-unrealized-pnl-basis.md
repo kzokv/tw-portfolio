@@ -79,11 +79,14 @@ superseded_by: null
 - Backend/shared contracts:
   - `libs/shared-types/src/index.ts` adds report valuation basis and analysis snapshot-basis DTO fields.
   - `apps/api/src/services/reports.ts` attaches `diagnostics.valuationBasis` without changing report valuation semantics; scope seeding covers `TW`, `US`, `AU`, `KR`, and `JP` for `all`, and the requested market for single-market reports.
+  - Report valuation basis now carries per-market quote source composition (`quoteSources`, `fallbackProviders`, `fallbackQuoteCount`, `holdingCount`) so one fallback-priced holding does not make the entire market look like it used that fallback source.
   - `apps/api/src/services/unrealizedPnlAnalysis.ts` surfaces snapshot valuation basis, snapshot dates, provider sources, and snapshot FX dates.
   - `apps/api/src/persistence/memory.ts` and `apps/api/src/persistence/postgres.ts` preserve provider/source and FX-as-of metadata for analysis snapshot rows.
 - UI:
   - `apps/web/components/reports/ReportsClient.tsx` renders the report valuation basis strip under report meta/header.
+  - The report valuation basis strip renders mixed per-holding quote sources and partial fallback counts, for example when one AU holding uses `eodhd` while another AU holding stays on the primary quote path.
   - `apps/web/components/analysis/UnrealizedPnlAnalysisClient.tsx` renders the selected-detail basis note, active selected end P&L total, zero baseline, and max/zero/min y-axis amount labels.
+  - The analysis selected-detail basis note follows the focused chart date when a user scrubs/focuses an earlier point instead of falling back to the latest snapshot date.
   - English and zh-TW copy was added in `apps/web/features/analysis/i18n.ts`, `apps/web/features/dashboard/i18n.ts`, and `apps/web/lib/i18n/types.ts`.
 - Mockups:
   - `docs/notes/unrealized-pnl-basis/mockups/reports-basis-disclosure.png`
@@ -104,6 +107,9 @@ superseded_by: null
 - Passed after fixes: `npx playwright test tests/e2e/specs/unrealized-pnl-analysis-aaa.spec.ts --config=tests/e2e/playwright.config.ts --grep "analysis-unrealized-pnl-G"` from `apps/web`
 - Passed: `npm run test --prefix apps/web`
 - Passed: `npm run test --prefix apps/api`
+- Passed after final mixed-source/focused-basis fixes: `npm run test --prefix apps/api -- --run test/unit/reports.test.ts test/unit/unrealizedPnlAnalysis.test.ts`
+- Passed after final mixed-source/focused-basis fixes: `npx vitest run test/components/reports/ReportsClient.test.tsx test/components/analysis/UnrealizedPnlAnalysisClient.test.tsx` from `apps/web`
+- Passed after final mixed-source/focused-basis fixes: `npm run typecheck`
 - Passed after fixes: `npm run test:integration:full:host` (`95` files, `966` passed, `1` skipped)
 - Passed: `npm run test:e2e:bypass:mem --prefix apps/web` (`318` passed, `19` skipped)
 - Passed after fixes: `npx playwright test tests/e2e/specs-oauth/admin-instruments-aaa.spec.ts --config=tests/e2e/playwright.oauth.config.ts` from `apps/web`
@@ -117,6 +123,8 @@ superseded_by: null
 - First E2E pass failed because `scope=US` reports did not render a `reports-basis-market-US` card for an empty scoped report. Fixed by seeding report valuation basis with the requested market even when no holdings are present; verified with API unit and report E2E reruns.
 - Second E2E pass failed due to a strict Playwright text locator where `FX` matched both the heading and `No FX conversion required`. Fixed with exact text matching and reran the E2E.
 - Full OAuth E2E initially failed because `apps/web/tests/e2e/specs-oauth/admin-instruments-aaa.spec.ts` used broad `retired_by_admin` text matching after the drawer rendered the status both as a definition value and a disabled button label. Fixed by asserting the definition role value; verified with the focused OAuth spec and the full OAuth suite.
+- Live Vakwen Dev validation found that the AU market basis card rendered `Source eodhd` while only `ETPMAG` used an `EODHD stale` fallback and `QAU` stayed on the normal closed quote path. Fixed by rendering per-holding source composition plus fallback counts instead of a single market-wide representative source.
+- Codex review found that the analysis selected-detail basis note still used all selected series points while focused cards used the focused date. Fixed by aggregating basis metadata from focused points when a focus date is active.
 
 ## References
 
