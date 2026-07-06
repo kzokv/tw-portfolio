@@ -470,6 +470,60 @@ describe("buildPortfolioReport", () => {
     }));
   });
 
+  it("uses the conservative quote date when market holdings have mixed quote dates", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));
+
+    const preview = await previewAdminMarketCalendarImport(app.persistence, "US", {
+      calendarYear: 2026,
+      retrievedAt: "2026-07-05T00:00:00.000Z",
+      coverage: { scope: "full_year", evidence: "Unit test confirmed coverage." },
+      exceptions: [
+        {
+          date: "2026-07-03",
+          status: "closed",
+          name: "Independence Day observed",
+          evidence: "Unit test holiday",
+          overrideReason: "unit_test",
+        },
+      ],
+    });
+    await confirmAdminMarketCalendarImport(app.persistence, "US", preview.previewToken);
+    await seedReportHolding({
+      ticker: "AVGO",
+      marketCode: "US",
+      instrumentType: "STOCK",
+      name: "Broadcom",
+      currency: "USD",
+      barDate: "2026-07-02",
+      close: 212,
+      quantity: 2,
+      source: "test-us-latest-close",
+    });
+    await seedReportHolding({
+      ticker: "MSFT",
+      marketCode: "US",
+      instrumentType: "STOCK",
+      name: "Microsoft",
+      currency: "USD",
+      barDate: "2026-07-01",
+      close: 500,
+      quantity: 1,
+      source: "test-us-stale-close",
+    });
+    await app.persistence.upsertFxRates([
+      { date: "2026-07-02", baseCurrency: "USD", quoteCurrency: "TWD", rate: 32, source: "test-fx" },
+    ]);
+
+    const report = await buildPortfolioReport(app, userId, { scope: "all", currencyMode: "specified", currency: "TWD" });
+    const usBasis = report.diagnostics.valuationBasis?.markets.find((market) => market.marketCode === "US");
+
+    expect(usBasis).toEqual(expect.objectContaining({
+      quoteAsOfDate: "2026-07-01",
+      quoteSource: "test-us-stale-close",
+    }));
+  });
+
   it("uses per-market FX dates in valuation basis", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-05T12:00:00.000Z"));

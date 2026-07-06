@@ -233,7 +233,7 @@ export function UnrealizedPnlAnalysisClient({
     return {
       latestSnapshotDate: latestDate(snapshotDates) ?? data?.basis?.endSnapshotDate ?? data?.diagnostics?.latestSnapshotDate ?? null,
       providerSources,
-      latestFxAsOfDate: latestDate(fxDates) ?? data?.basis?.endSnapshotDate ?? null,
+      latestFxAsOfDate: latestDate(fxDates),
     };
   }, [data?.basis?.endSnapshotDate, data?.diagnostics?.latestSnapshotDate, selectedSeries]);
   const focusedSelectedValues = useMemo(

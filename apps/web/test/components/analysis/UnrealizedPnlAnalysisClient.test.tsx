@@ -173,6 +173,31 @@ describe("UnrealizedPnlAnalysisClient", () => {
     );
   });
 
+  it("does not invent an FX basis date when selected points have unresolved FX", () => {
+    const initialData = buildPreviewUnrealizedPnlAnalysis(ANALYSIS_DEFAULT_STATE);
+    const missingFxData = {
+      ...initialData,
+      tickerSeries: initialData.tickerSeries.map((series) => ({
+        ...series,
+        points: series.points.map((point) => ({
+          ...point,
+          basis: point.basis ? { ...point.basis, fxAsOfDate: null } : point.basis,
+        })),
+      })),
+    };
+
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData()}>
+          <UnrealizedPnlAnalysisClient initialData={missingFxData} initialState={ANALYSIS_DEFAULT_STATE} />
+        </AppShellDataProvider>,
+      );
+    });
+
+    expect(container.querySelector("[data-testid='analysis-selected-detail-basis-tip']")?.textContent)
+      .toContain("Snapshot FX as of: -");
+  });
+
   it("uses local muted state for manual legend toggles without changing route params", () => {
     const initialState = {
       ...ANALYSIS_DEFAULT_STATE,

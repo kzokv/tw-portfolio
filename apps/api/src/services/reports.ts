@@ -751,7 +751,7 @@ async function buildReportValuationBasis(
     .sort(([left], [right]) => left.localeCompare(right))
     .map(async ([marketCode, marketGroups]) => {
       const priceStates = marketGroups.map((group) => group.priceState);
-      const quoteAsOfDate = maxNullableDateFromValues(priceStates.map((state) => state.asOfDate));
+      const quoteAsOfDate = minNullableDateFromValues(priceStates.map((state) => state.asOfDate));
       const representative = pickRepresentativePriceState(priceStates, quoteAsOfDate);
       const marketFxAsOfDate = latestFxAsOfDateForMarket(marketGroups, fxRates, reportQuery.reportingCurrency);
       const closure = await findFirstMarketClosureAfterQuote(
@@ -888,6 +888,10 @@ function isAccountDefaultCurrency(currency: string): currency is AccountDefaultC
 
 function maxNullableDateFromValues(values: readonly (string | null | undefined)[]): string | null {
   return values.reduce<string | null>((latest, value) => value ? maxNullableDate(latest, value) : latest, null);
+}
+
+function minNullableDateFromValues(values: readonly (string | null | undefined)[]): string | null {
+  return values.reduce<string | null>((earliest, value) => value ? minNullableDate(earliest, value) : earliest, null);
 }
 
 function addKnownGapReason(reasons: ReportKnownGapReason[], reason: ReportKnownGapReason): void {
