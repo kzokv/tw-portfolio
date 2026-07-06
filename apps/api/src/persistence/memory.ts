@@ -4077,9 +4077,10 @@ export class MemoryPersistence implements Persistence {
 
     const result: import("./types.js").UnrealizedPnlAnalysisSnapshotRow[] = [];
     for (const row of rows) {
-      const fxRate = row.currency === options.reportingCurrency
-        ? 1
-        : await this.getFxRate(row.currency, options.reportingCurrency, row.snapshotDate);
+      const fxResolution = row.currency === options.reportingCurrency
+        ? { rate: 1, asOfDate: row.snapshotDate }
+        : await this.getResolvedFxRate(row.currency, options.reportingCurrency, row.snapshotDate);
+      const fxRate = fxResolution?.rate ?? null;
       const fxAvailable = fxRate !== null;
       result.push({
         accountId: row.accountId,
@@ -4100,7 +4101,7 @@ export class MemoryPersistence implements Persistence {
           : null,
         isProvisional: row.isProvisional,
         fxAvailable,
-        fxAsOfDate: fxAvailable ? row.snapshotDate : null,
+        fxAsOfDate: fxResolution?.asOfDate ?? null,
       });
     }
     return result;

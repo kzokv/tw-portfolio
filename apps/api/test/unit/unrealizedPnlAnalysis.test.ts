@@ -290,6 +290,45 @@ describe("buildUnrealizedPnlAnalysis", () => {
     expect(report.rankings[0]?.fxAsOfDate).toBe("2026-07-03");
   });
 
+  it("memory snapshot rows preserve resolved FX dates when FX rolls back", async () => {
+    await seedSnapshots([
+      makeSnapshot({
+        ticker: "AVGO",
+        marketCode: "US",
+        currency: "USD",
+        snapshotDate: "2026-07-05",
+        costBasis: 100,
+        costBasisNative: 100,
+        marketValue: 120,
+        valueNative: 120,
+        unrealizedPnl: 20,
+        unrealizedPnlNative: 20,
+      }),
+    ]);
+    await seedFxRates([{ date: "2026-07-03", baseCurrency: "USD", quoteCurrency: "AUD", rate: 1.5, source: "test" }]);
+
+    const rows = await persistence.listUnrealizedPnlAnalysisSnapshots("user-1", {
+      startDate: "2026-07-05",
+      endDate: "2026-07-05",
+      includeProvisional: false,
+      reportingCurrency: "AUD",
+    });
+
+    expect(rows).toEqual([
+      expect.objectContaining({
+        ticker: "AVGO",
+        marketCode: "US",
+        snapshotDate: "2026-07-05",
+        reportingCurrency: "AUD",
+        costBasisAmount: 150,
+        marketValueAmount: 180,
+        unrealizedPnlAmount: 30,
+        fxAvailable: true,
+        fxAsOfDate: "2026-07-03",
+      }),
+    ]);
+  });
+
   it("excludes sold-out tickers by default and keeps them with markers when requested", async () => {
     await seedInstrument({ ticker: "2330", marketCode: "TW", instrumentType: "STOCK", name: "TSMC" });
     const store = await persistence.loadStore("user-1");
