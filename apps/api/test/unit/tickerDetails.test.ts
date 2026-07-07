@@ -187,8 +187,8 @@ describe("buildTickerDetails", () => {
     store.feeProfiles.push(usdFeeProfile, audFeeProfile);
     setStoreInstruments(store, [
       ...store.instruments,
-      { ticker: "BHP", type: "STOCK", marketCode: "US", isProvisional: false },
-      { ticker: "BHP", type: "STOCK", marketCode: "AU", isProvisional: false },
+      { ticker: "BHP", name: "BHP Group ADR", type: "STOCK", marketCode: "US", isProvisional: false },
+      { ticker: "BHP", name: "BHP Group", type: "STOCK", marketCode: "AU", isProvisional: false },
     ]);
     store.accounting.projections.holdings.push(
       {
@@ -389,6 +389,18 @@ describe("buildTickerDetails", () => {
         stockDividendPerShare: 0,
         source: "test",
       },
+      {
+        id: "bhp-au-paid-upcoming-dividend",
+        ticker: "BHP",
+        marketCode: "AU",
+        eventType: "CASH",
+        exDividendDate: "2026-07-15",
+        paymentDate: "2026-08-01",
+        cashDividendPerShare: 3,
+        cashDividendCurrency: "USD",
+        stockDividendPerShare: 0,
+        source: "test",
+      },
     );
     store.accounting.facts.dividendLedgerEntries.push(
       {
@@ -416,10 +428,25 @@ describe("buildTickerDetails", () => {
         receivedCashAmount: 6,
         receivedStockQuantity: 0,
         postingStatus: "posted",
-        reconciliationStatus: "matched",
+        reconciliationStatus: "open",
         version: 1,
         sourceCompositionStatus: "provided",
         bookedAt: "2026-04-11T00:00:00.000Z",
+      },
+      {
+        id: "bhp-au-adjusted-dividend",
+        accountId: "acc-au",
+        dividendEventId: "bhp-au-dividend",
+        eligibleQuantity: 3,
+        expectedCashAmount: 6,
+        expectedStockQuantity: 0,
+        receivedCashAmount: 5,
+        receivedStockQuantity: 0,
+        postingStatus: "adjusted",
+        reconciliationStatus: "open",
+        version: 2,
+        sourceCompositionStatus: "provided",
+        bookedAt: "2026-04-12T00:00:00.000Z",
       },
     );
 
@@ -468,20 +495,48 @@ describe("buildTickerDetails", () => {
     expect(details.accountBreakdown[0]).toEqual(expect.objectContaining({
       instrumentName: "BHP AU",
     }));
-    expect(details.dividends.upcoming).toEqual([
+    expect(details.dividends.upcoming).toEqual(expect.arrayContaining([
       expect.objectContaining({
         accountId: "acc-au",
+        tickerName: "BHP Group",
+        marketCode: "AU",
         currency: "USD",
         expectedAmount: 7.5,
+        paymentDate: null,
       }),
-    ]);
+      expect.objectContaining({
+        accountId: "acc-au",
+        tickerName: "BHP Group",
+        marketCode: "AU",
+        currency: "USD",
+        expectedAmount: 9,
+        paymentDate: "2026-08-01",
+      }),
+    ]));
+    expect(details.dividends.upcomingCount).toBe(2);
+    expect(details.dividends.nextPaymentDate).toBe("2026-08-01");
     expect(details.dividends.recent).toEqual([
       expect.objectContaining({
         accountId: "acc-au",
+        tickerName: "BHP Group",
+        marketCode: "AU",
+        dividendLedgerEntryId: "bhp-au-adjusted-dividend",
+        reconciliationStatus: "open",
+        currency: "USD",
+        grossAmount: 5,
+      }),
+      expect.objectContaining({
+        accountId: "acc-au",
+        tickerName: "BHP Group",
+        marketCode: "AU",
+        dividendLedgerEntryId: "bhp-au-posted-dividend",
+        reconciliationStatus: "open",
         currency: "USD",
         grossAmount: 6,
       }),
     ]);
+    expect(details.dividends.lastPostedDate).toBe("2026-04-12T00:00:00.000Z");
+    expect(details.dividends.openReconciliationCount).toBe(2);
   });
 
   it("scopes ticker transactions and realized P&L to requested account ids", async () => {

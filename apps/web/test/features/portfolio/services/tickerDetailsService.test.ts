@@ -99,6 +99,87 @@ describe("fetchTickerDetails", () => {
     warnSpy.mockRestore();
   });
 
+  it("filters fallback dividend rows by the resolved ticker market", () => {
+    const details = buildPrimaryTickerDetails({
+      ticker: "BHP",
+      marketCode: "AU",
+      dashboard: buildDashboard({
+        upcoming: [
+          {
+            accountId: "acc-au",
+            ticker: "BHP",
+            marketCode: "AU",
+            exDividendDate: "2026-03-01",
+            paymentDate: "2026-03-25",
+            expectedAmount: 120,
+            currency: "AUD",
+            status: "declared",
+          },
+          {
+            accountId: "acc-us",
+            ticker: "BHP",
+            marketCode: "US",
+            exDividendDate: "2026-04-01",
+            paymentDate: "2026-04-25",
+            expectedAmount: 90,
+            currency: "USD",
+            status: "declared",
+          },
+        ],
+        recent: [
+          {
+            accountId: "acc-au",
+            ticker: "BHP",
+            marketCode: "AU",
+            paymentDate: "2026-01-25",
+            postedAt: "2026-01-26",
+            netAmount: 110,
+            grossAmount: 120,
+            deductionAmount: 10,
+            currency: "AUD",
+            sourceSummary: "AU dividend",
+            reconciliationStatus: "open",
+            status: "unreconciled",
+          },
+          {
+            accountId: "acc-us",
+            ticker: "BHP",
+            marketCode: "US",
+            paymentDate: "2026-02-25",
+            postedAt: "2026-02-26",
+            netAmount: 80,
+            grossAmount: 90,
+            deductionAmount: 10,
+            currency: "USD",
+            sourceSummary: "US dividend",
+            reconciliationStatus: "matched",
+            status: "posted",
+          },
+        ],
+      }),
+      transactions: [],
+      instrument: {
+        ticker: "BHP",
+        marketCode: "AU",
+        instrumentType: "STOCK",
+        name: "BHP Group",
+      } as never,
+    });
+
+    expect(details.dividends).toMatchObject({
+      upcomingCount: 1,
+      nextPaymentDate: "2026-03-25",
+      lastPostedDate: "2026-01-26",
+      openReconciliationCount: 1,
+    });
+    expect(details.dividends.upcoming).toEqual([
+      expect.objectContaining({ ticker: "BHP", marketCode: "AU", currency: "AUD" }),
+    ]);
+    expect(details.dividends.recent).toEqual([
+      expect.objectContaining({ ticker: "BHP", marketCode: "AU", currency: "AUD" }),
+    ]);
+  });
+
   it("merges partial API payloads over fallback data without fabricating missing fields", async () => {
     getJsonMock.mockResolvedValue({
       quote: {

@@ -18,6 +18,7 @@ import type {
   AccountingStore,
   BookedTradeEvent,
   CashLedgerEntry,
+  InstrumentDef,
   LotAllocationProjection,
   MarketDataFacts,
   Store,
@@ -73,6 +74,7 @@ import type {
   DeleteTradeEventResult,
   DividendLedgerListOptions,
   DividendLedgerListResult,
+  DividendCalendarSnapshotOptions,
   DividendReviewListResult,
   DividendReviewRowWithDetails,
   InviteRecord,
@@ -254,6 +256,18 @@ interface MemoryInstrument {
   delistedAt?: string;
   /** KZO-196 — GICS industry-group label (AU only); null on non-AU and pre-sync rows. */
   gicsIndustryGroup?: string | null;
+}
+
+function memoryInstrumentToDef(instrument: MemoryInstrument): InstrumentDef {
+  return {
+    ticker: instrument.ticker,
+    name: instrument.name,
+    type: instrument.instrumentType as InstrumentType | null,
+    marketCode: instrument.marketCode as MarketCode,
+    typeRaw: instrument.typeRaw ?? null,
+    industryCategoryRaw: instrument.industryCategoryRaw ?? null,
+    lastSyncedAt: null,
+  };
 }
 
 type MemoryDailyBar = DailyBar & { marketCode: MarketCode };
@@ -2117,6 +2131,10 @@ export class MemoryPersistence implements Persistence {
     store.userId = userId;
     store.settings.userId = userId;
     store.accounts = store.accounts.map((account) => ({ ...account, userId }));
+    const userCatalog = this.instrumentsByUser.get(userId);
+    if (userCatalog && userCatalog.size > 0) {
+      setStoreInstruments(store, [...userCatalog.values()].map(memoryInstrumentToDef));
+    }
 
     // Surface displayName from identity resolution (if user was bootstrapped via resolveOrCreateUser)
     const memUser = [...this.usersByEmail.values()].find((u) => u.id === userId);
@@ -2405,13 +2423,121 @@ export class MemoryPersistence implements Persistence {
     fromPaymentDate?: string,
     toPaymentDate?: string,
     limit: number = 500,
+    marketCode?: MarketCode,
   ) {
     const store = await this.loadStore(userId);
     void userId;
     return store.marketData.dividendEvents
       .filter((event) => matchesNullableDateRange(event.paymentDate, fromPaymentDate, toPaymentDate))
+      .filter((event) => !marketCode || (event.marketCode ?? marketCodeFor(event.cashDividendCurrency)) === marketCode)
       .sort(compareNullablePaymentDates)
       .slice(0, limit);
+  }
+
+  async listDividendCalendarSnapshot(
+    userId: string,
+    opts: DividendCalendarSnapshotOptions,
+  ) {
+    const store = await this.loadStore(userId);
+    const reversedIds = new Set(
+      store.accounting.facts.dividendLedgerEntries
+        .map((entry) => entry.reversalOfDividendLedgerEntryId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    const reversedTradeIds = new Set(
+      store.accounting.facts.tradeEvents
+        .map((trade) => trade.reversalOfTradeEventId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    const eligibleAccountIds = store.accounts
+      .filter((account) => account.userId === userId)
+      .filter((account) => !opts.accountId || account.id === opts.accountId)
+      .map((account) => account.id);
+    const accountHasCalendarEvent = (event: Store["marketData"]["dividendEvents"][number]): boolean => {
+      if (eligibleAccountIds.length === 0) return false;
+      const hasActiveLedgerEntry = store.accounting.facts.dividendLedgerEntries.some((entry) =>
+        eligibleAccountIds.includes(entry.accountId) &&
+        entry.dividendEventId === event.id &&
+        !entry.reversalOfDividendLedgerEntryId &&
+        !entry.supersededAt &&
+        !reversedIds.has(entry.id),
+      );
+      if (hasActiveLedgerEntry) return true;
+      const eventMarketCode = dividendEventMarketCode(event);
+      return eligibleAccountIds.some((accountId) => {
+        const eligibleQuantity = store.accounting.facts.tradeEvents
+          .filter((trade) => trade.accountId === accountId)
+          .filter((trade) => trade.ticker === event.ticker && trade.marketCode === eventMarketCode)
+          .filter((trade) => trade.tradeDate < event.exDividendDate)
+          .filter((trade) => !trade.reversalOfTradeEventId)
+          .filter((trade) => !reversedTradeIds.has(trade.id))
+          .reduce((sum, trade) => sum + (trade.type === "BUY" ? trade.quantity : -trade.quantity), 0);
+        return eligibleQuantity > 0;
+      });
+    };
+    const dividendEvents = store.marketData.dividendEvents
+      .filter((event) => event.paymentDate != null)
+      .filter((event) => matchesDateRange(event.paymentDate!, opts.fromPaymentDate, opts.toPaymentDate))
+      .filter((event) => !opts.marketCode || dividendEventMarketCode(event) === opts.marketCode)
+      .filter((event) => accountHasCalendarEvent(event))
+      .sort(compareNullablePaymentDates)
+      .slice(0, opts.limit);
+    const eventIds = new Set(dividendEvents.map((event) => event.id));
+
+    const receivedByLedgerId = new Map<string, number>();
+    for (const cashEntry of store.accounting.facts.cashLedgerEntries) {
+      if (cashEntry.entryType !== "DIVIDEND_RECEIPT") continue;
+      const ledgerId = cashEntry.relatedDividendLedgerEntryId;
+      if (!ledgerId) continue;
+      receivedByLedgerId.set(ledgerId, (receivedByLedgerId.get(ledgerId) ?? 0) + cashEntry.amount);
+    }
+
+    const ledgerEntries = store.accounting.facts.dividendLedgerEntries
+      .filter((entry) => {
+        if (!eventIds.has(entry.dividendEventId)) return false;
+        if (entry.reversalOfDividendLedgerEntryId) return false;
+        if (entry.supersededAt) return false;
+        if (reversedIds.has(entry.id)) return false;
+        if (opts.accountId && entry.accountId !== opts.accountId) return false;
+        return true;
+      })
+      .sort((left, right) => {
+        const leftEvent = dividendEvents.find((event) => event.id === left.dividendEventId);
+        const rightEvent = dividendEvents.find((event) => event.id === right.dividendEventId);
+        return compareNullablePaymentDates(leftEvent, rightEvent) || left.id.localeCompare(right.id);
+      })
+      .map((entry) => ({
+        ...entry,
+        receivedCashAmount: receivedByLedgerId.get(entry.id) ?? 0,
+        deductions: store.accounting.facts.dividendDeductionEntries.filter(
+          (deduction) => deduction.dividendLedgerEntryId === entry.id,
+        ),
+        sourceLines: store.accounting.facts.dividendSourceLines.filter(
+          (line) => line.dividendLedgerEntryId === entry.id,
+        ),
+      }));
+
+    const eventPairs = new Set(dividendEvents.map((event) => `${dividendEventMarketCode(event)}:${event.ticker}`));
+    const maxExDividendDate = dividendEvents.reduce<string | null>(
+      (max, event) => (max == null || event.exDividendDate > max ? event.exDividendDate : max),
+      null,
+    );
+    const accountIds = opts.accountId ? new Set([opts.accountId]) : new Set(store.accounts.map((account) => account.id));
+
+    return {
+      dividendEvents,
+      ledgerEntries,
+      accounts: store.accounts.filter((account) => accountIds.has(account.id)),
+      instruments: store.instruments.filter((instrument) => eventPairs.has(`${instrument.marketCode}:${instrument.ticker}`)),
+      tradeEvents: maxExDividendDate
+        ? store.accounting.facts.tradeEvents
+          .filter((trade) => accountIds.has(trade.accountId))
+          .filter((trade) => eventPairs.has(`${trade.marketCode}:${trade.ticker}`))
+          .filter((trade) => trade.tradeDate < maxExDividendDate)
+          .filter((trade) => !trade.reversalOfTradeEventId)
+          .filter((trade) => !reversedTradeIds.has(trade.id))
+        : [],
+    };
   }
 
   async listDividendLedgerEntries(
@@ -2446,6 +2572,7 @@ export class MemoryPersistence implements Persistence {
       if (reversedIds.has(entry.id)) return false;
       if (opts.accountId && entry.accountId !== opts.accountId) return false;
       const event = eventById.get(entry.dividendEventId);
+      if (opts.marketCode && (!event || dividendEventMarketCode(event) !== opts.marketCode)) return false;
       const hasDates = opts.fromPaymentDate != null || opts.toPaymentDate != null;
       if (hasDates) {
         if (!matchesNullableDateRange(event?.paymentDate ?? null, opts.fromPaymentDate, opts.toPaymentDate)) return false;
@@ -2595,6 +2722,10 @@ export class MemoryPersistence implements Persistence {
         return "STOCK";
       }
     };
+    const instrumentNameFor = (ticker: string, marketCode: MarketCode): string | null =>
+      store.instruments.find((instrument) => instrument.ticker === ticker && instrument.marketCode === marketCode)?.name
+      ?? store.marketData.instruments.find((instrument) => instrument.ticker === ticker && instrument.marketCode === marketCode)?.name
+      ?? null;
 
     const dateFilterActive = opts.fromPaymentDate != null || opts.toPaymentDate != null;
     const matchesDateFilter = (paymentDate: string | null | undefined): boolean => {
@@ -2608,12 +2739,16 @@ export class MemoryPersistence implements Persistence {
       if (opts.postingStatus && entry.postingStatus !== opts.postingStatus) return [];
       const event = eventById.get(entry.dividendEventId);
       if (!event) return [];
+      const eventMarketCode = dividendEventMarketCode(event);
+      if (opts.marketCode && eventMarketCode !== opts.marketCode) return [];
       if (!matchesDateFilter(event.paymentDate)) return [];
       if (opts.ticker && event.ticker !== opts.ticker) return [];
       return [{
         ...entry,
         rowKind: "ledger",
         ticker: event.ticker,
+        tickerName: instrumentNameFor(event.ticker, eventMarketCode),
+        marketCode: eventMarketCode,
         instrumentType: instrumentTypeFor(event.ticker, event.cashDividendCurrency),
         eventType: event.eventType,
         exDividendDate: event.exDividendDate,
@@ -2637,11 +2772,12 @@ export class MemoryPersistence implements Persistence {
       for (const event of store.marketData.dividendEvents) {
         let eventMarketCode: MarketCode;
         try {
-          eventMarketCode = marketCodeFor(event.cashDividendCurrency);
+          eventMarketCode = dividendEventMarketCode(event);
         } catch {
           continue;
         }
         if (account.defaultCurrency !== event.cashDividendCurrency) continue;
+        if (opts.marketCode && eventMarketCode !== opts.marketCode) continue;
         if (!matchesDateFilter(event.paymentDate)) continue;
         if (opts.ticker && event.ticker !== opts.ticker) continue;
         if (opts.reconciliationStatus && opts.reconciliationStatus !== "open") continue;
@@ -2671,6 +2807,8 @@ export class MemoryPersistence implements Persistence {
           accountId: account.id,
           dividendEventId: event.id,
           ticker: event.ticker,
+          tickerName: instrumentNameFor(event.ticker, eventMarketCode),
+          marketCode: eventMarketCode,
           instrumentType: instrumentTypeFor(event.ticker, event.cashDividendCurrency),
           eventType: event.eventType,
           exDividendDate: event.exDividendDate,
@@ -6137,6 +6275,13 @@ export class MemoryPersistence implements Persistence {
       }
       this._seedInstrument(instrument, userId);
     }
+    if (userId) {
+      const store = this.stores.get(userId);
+      if (store) {
+        setStoreInstruments(store, [...catalog.values()].map(memoryInstrumentToDef));
+        this.stores.set(userId, store);
+      }
+    }
   }
 
   private _catalogForUser(userId?: string): Map<string, MemoryInstrument> {
@@ -8086,6 +8231,18 @@ function matchesNullableDateRange(value: string | null | undefined, fromDate?: s
   if (fromDate && value < fromDate) return false;
   if (toDate && value > toDate) return false;
   return true;
+}
+
+function matchesDateRange(value: string, fromDate?: string, toDate?: string): boolean {
+  if (fromDate && value < fromDate) return false;
+  if (toDate && value > toDate) return false;
+  return true;
+}
+
+function dividendEventMarketCode(
+  event: Pick<Store["marketData"]["dividendEvents"][number], "marketCode" | "cashDividendCurrency">,
+): MarketCode {
+  return event.marketCode ?? marketCodeFor(event.cashDividendCurrency);
 }
 
 function compareNullablePaymentDates(

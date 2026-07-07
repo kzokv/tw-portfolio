@@ -16,6 +16,42 @@ export class DividendsAssert extends BaseAssert {
   }
 
   @Step()
+  async monthInputHasValue(value: string): Promise<void> {
+    await expect(this.el.monthInput).toHaveValue(value);
+  }
+
+  @Step()
+  async monthControlsAreEnabled(): Promise<void> {
+    await expect(this.el.monthInput).toBeEnabled();
+    await expect(this.el.previousMonthButton).toBeEnabled();
+    await expect(this.el.nextMonthButton).toBeEnabled();
+  }
+
+  @Step()
+  async actionQueueContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.actionQueue).toContainText(text);
+  }
+
+  @Step()
+  async thisMonthContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.thisMonth).toContainText(text);
+  }
+
+  @Step()
+  async recentReceiptsContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.recentReceipts).toContainText(text);
+  }
+
+  @Step()
+  async actionQueueAppearsBeforeThisMonth(): Promise<void> {
+    await expect.poll(async () => {
+      const actionBox = await this.el.actionQueue.boundingBox();
+      const thisMonthBox = await this.el.thisMonth.boundingBox();
+      return (actionBox?.y ?? Number.POSITIVE_INFINITY) < (thisMonthBox?.y ?? Number.NEGATIVE_INFINITY);
+    }).toBe(true);
+  }
+
+  @Step()
   async rowBadgeContains(eventId: string, text: string | RegExp): Promise<void> {
     await expect(this.el.badge(eventId)).toContainText(text);
   }
@@ -28,6 +64,16 @@ export class DividendsAssert extends BaseAssert {
   @Step()
   async tbdSectionIsVisible(): Promise<void> {
     await expect(this.el.tbdSection).toBeVisible();
+  }
+
+  @Step()
+  async tbdSectionIsHidden(): Promise<void> {
+    await expect(this.el.tbdSection).not.toBeVisible();
+  }
+
+  @Step()
+  async rowIsHidden(eventId: string): Promise<void> {
+    await expect(this.el.row(eventId)).not.toBeVisible();
   }
 
   @Step()

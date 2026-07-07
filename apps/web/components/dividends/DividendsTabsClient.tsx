@@ -20,7 +20,8 @@ import type { AccountDto, LocaleCode } from "@vakwen/shared-types";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/shadcn/tabs";
 import type { AppDictionary } from "../../lib/i18n";
 import {
-  currentMonthQuery,
+  calendarMonthFromSearchParams,
+  monthQuery,
   searchParamsToReviewQuery,
 } from "./dividendsPageQuery";
 import { DividendCalendarClient } from "./DividendCalendarClient";
@@ -45,6 +46,7 @@ interface DividendsTabsClientProps {
   dict: AppDictionary;
   locale: LocaleCode;
   accounts: AccountDto[];
+  initialCalendarMonth: string;
   initialCalendarSnapshot: DividendCalendarSnapshot | null;
   initialReviewData: DividendLedgerReviewResponse | null;
   initialYears: number[];
@@ -73,6 +75,20 @@ function ErrorPanel({ message }: { message: string }) {
   );
 }
 
+export function buildOverviewTabUrl(search: string): { month: string; url: string } {
+  const params = new URLSearchParams(search);
+  for (const key of LEDGER_ONLY_PARAMS) params.delete(key);
+  params.delete("view");
+  const month = calendarMonthFromSearchParams(params);
+  params.set("month", month);
+  const qs = params.toString();
+  return { month, url: qs ? `/dividends?${qs}` : "/dividends" };
+}
+
+function reviewQueryKey(search: string): string {
+  return JSON.stringify(searchParamsToReviewQuery(new URLSearchParams(search)));
+}
+
 export function DividendsTabsClient({
   initialTab,
   calendarLabel,
@@ -80,40 +96,47 @@ export function DividendsTabsClient({
   dict,
   locale,
   accounts,
+  initialCalendarMonth,
   initialCalendarSnapshot,
   initialReviewData,
   initialYears,
 }: DividendsTabsClientProps) {
   const [activeTab, setActiveTab] = useState<DividendsTabValue>(initialTab);
+  const [calendarMonth, setCalendarMonth] = useState(initialCalendarMonth);
   const [calendarSnapshot, setCalendarSnapshot] = useState<DividendCalendarSnapshot | null>(initialCalendarSnapshot);
+  const [calendarSnapshotMonth, setCalendarSnapshotMonth] = useState<string | null>(
+    initialCalendarSnapshot ? initialCalendarMonth : null,
+  );
   const [reviewData, setReviewData] = useState<DividendLedgerReviewResponse | null>(initialReviewData);
+  const [reviewDataQueryKey, setReviewDataQueryKey] = useState<string | null>(
+    initialReviewData && typeof window !== "undefined" ? reviewQueryKey(window.location.search) : null,
+  );
   const [years, setYears] = useState<number[]>(initialYears);
   const [ledgerAccounts, setLedgerAccounts] = useState<AccountDto[]>(accounts);
   const [isCalendarLoading, setIsCalendarLoading] = useState(false);
   const [isLedgerLoading, setIsLedgerLoading] = useState(false);
   const [calendarError, setCalendarError] = useState("");
   const [ledgerError, setLedgerError] = useState("");
-  const prioritizeLedger = (initialReviewData?.aggregates.openCount ?? 0) > 0;
-  const orderedTabs = prioritizeLedger
-    ? [
-      { value: "ledger" as const, label: ledgerLabel, testId: "dividends-tab-ledger" },
-      { value: "calendar" as const, label: calendarLabel, testId: "dividends-tab-calendar" },
-    ]
-    : [
-      { value: "calendar" as const, label: calendarLabel, testId: "dividends-tab-calendar" },
-      { value: "ledger" as const, label: ledgerLabel, testId: "dividends-tab-ledger" },
-    ];
+  const orderedTabs = [
+    { value: "calendar" as const, label: calendarLabel, testId: "dividends-tab-calendar" },
+    { value: "ledger" as const, label: ledgerLabel, testId: "dividends-tab-ledger" },
+  ];
 
   useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);
 
   useEffect(() => {
+    setCalendarMonth(initialCalendarMonth);
     setCalendarSnapshot(initialCalendarSnapshot);
-  }, [initialCalendarSnapshot]);
+    setCalendarSnapshotMonth(initialCalendarSnapshot ? initialCalendarMonth : null);
+  }, [initialCalendarMonth, initialCalendarSnapshot]);
 
   useEffect(() => {
     setReviewData(initialReviewData);
+    setReviewDataQueryKey(
+      initialReviewData && typeof window !== "undefined" ? reviewQueryKey(window.location.search) : null,
+    );
   }, [initialReviewData]);
 
   useEffect(() => {
@@ -128,21 +151,26 @@ export function DividendsTabsClient({
     (next: string) => {
       const value = next as DividendsTabValue;
       const params = new URLSearchParams(window.location.search);
+      let url: string;
 
       if (value === "calendar") {
-        for (const key of LEDGER_ONLY_PARAMS) params.delete(key);
-        params.delete("view");
+        const nextOverview = buildOverviewTabUrl(window.location.search);
+        setCalendarMonth(nextOverview.month);
+        if (calendarSnapshotMonth !== nextOverview.month) {
+          setCalendarSnapshot(null);
+          setCalendarSnapshotMonth(null);
+        }
+        url = nextOverview.url;
       } else {
         params.set("view", "ledger");
+        const qs = params.toString();
+        url = qs ? `/dividends?${qs}` : "/dividends";
       }
-
-      const qs = params.toString();
-      const url = qs ? `/dividends?${qs}` : "/dividends";
 
       window.history.replaceState(null, "", url);
       setActiveTab(value);
     },
-    [],
+    [calendarSnapshotMonth],
   );
 
   useEffect(() => {
@@ -151,10 +179,11 @@ export function DividendsTabsClient({
     let cancelled = false;
     setCalendarError("");
     setIsCalendarLoading(true);
-    void fetchDividendCalendarSnapshot(currentMonthQuery())
+    void fetchDividendCalendarSnapshot(monthQuery(calendarMonth))
       .then((snapshot) => {
         if (!cancelled) {
           setCalendarSnapshot(snapshot);
+          setCalendarSnapshotMonth(calendarMonth);
         }
       })
       .catch((error) => {
@@ -171,23 +200,31 @@ export function DividendsTabsClient({
     return () => {
       cancelled = true;
     };
-  }, [activeTab, calendarSnapshot]);
+  }, [activeTab, calendarMonth, calendarSnapshot]);
 
   useEffect(() => {
-    if (activeTab !== "ledger" || (reviewData && years.length > 0)) return;
+    if (activeTab !== "ledger") return;
+
+    const currentReviewQuery = searchParamsToReviewQuery(new URLSearchParams(window.location.search));
+    const currentReviewQueryKey = JSON.stringify(currentReviewQuery);
+    const needsReviewFetch = !reviewData || reviewDataQueryKey !== currentReviewQueryKey;
+    const needsYearsFetch = years.length === 0;
+
+    if (!needsReviewFetch && !needsYearsFetch) return;
 
     let cancelled = false;
     setLedgerError("");
     setIsLedgerLoading(true);
     void Promise.all([
-      reviewData
+      !needsReviewFetch && reviewData
         ? Promise.resolve(reviewData)
-        : fetchDividendLedgerReview(searchParamsToReviewQuery(new URLSearchParams(window.location.search))),
-      years.length > 0 ? Promise.resolve(years) : fetchDividendLedgerYears(),
+        : fetchDividendLedgerReview(currentReviewQuery),
+      !needsYearsFetch ? Promise.resolve(years) : fetchDividendLedgerYears(),
     ])
       .then(([nextReviewData, nextYears]) => {
         if (!cancelled) {
           setReviewData(nextReviewData);
+          setReviewDataQueryKey(currentReviewQueryKey);
           setYears(nextYears);
         }
       })
@@ -205,7 +242,7 @@ export function DividendsTabsClient({
     return () => {
       cancelled = true;
     };
-  }, [activeTab, reviewData, years]);
+  }, [activeTab, reviewData, reviewDataQueryKey, years]);
 
   useEffect(() => {
     if (activeTab !== "ledger" || ledgerAccounts.length > 0) return;
@@ -249,7 +286,17 @@ export function DividendsTabsClient({
           when not needed. The Tabs value drives which slot is in DOM. */}
       <TabsContent value="calendar" data-testid="dividends-tabpanel-calendar">
         {calendarSnapshot ? (
-          <DividendCalendarClient initialSnapshot={calendarSnapshot} dict={dict} locale={locale} />
+          <DividendCalendarClient
+            initialSnapshot={calendarSnapshot}
+            initialMonth={calendarMonth}
+            dict={dict}
+            locale={locale}
+            onSnapshotChange={(nextSnapshot, nextMonth) => {
+              setCalendarMonth(nextMonth);
+              setCalendarSnapshot(nextSnapshot);
+              setCalendarSnapshotMonth(nextMonth);
+            }}
+          />
         ) : isCalendarLoading ? (
           <LoadingPanel label={calendarLabel} />
         ) : calendarError ? (

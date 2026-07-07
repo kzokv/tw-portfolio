@@ -926,6 +926,7 @@ export interface AppDictionary {
       currentPriceLabel: string;
       tabsAriaLabel: string;
       overviewTabLabel: string;
+      dividendsTabLabel: string;
       fundamentalsTabLabel: string;
       transactionsTabLabel: string;
       chartTitle: string;
@@ -1330,6 +1331,77 @@ export interface AppDictionary {
     paymentDateTbdSection: string;
     viewAllLink: string;
     eligibleSharesLabel: string;
+    overview: {
+      eyebrow: string;
+      expected: string;
+      received: string;
+      needsAction: string;
+      coverage: string;
+      eventsScheduled: string;
+      receiptsPosted: string;
+      actionItems: string;
+      tickerNamesResolved: string;
+      thisMonth: string;
+      thisMonthDescription: string;
+      recentReceipts: string;
+      recentReceiptsDescription: string;
+      openReview: string;
+      viewLedger: string;
+      accountLabel: string;
+      exDateLabel: string;
+      payDateLabel: string;
+      amountLabel: string;
+      postedLabel: string;
+      statusLabel: string;
+      netAmountLabel: string;
+      sourceGap: string;
+      queued: string;
+      openItemsSummary: string;
+      noActionItems: string;
+      noReceipts: string;
+      monthInputLabel: string;
+    };
+    ticker: {
+      eyebrow: string;
+      description: string;
+      openReview: string;
+      filteredLedger: string;
+      openRowReview: string;
+      summary: {
+        upcoming: string;
+        upcomingDetail: string;
+        noUpcoming: string;
+        lastPosted: string;
+        lastPostedDetail: string;
+        noPosted: string;
+        openReconciliation: string;
+        openReconciliationDetail: string;
+        noOpenReconciliation: string;
+        nextPayment: string;
+        nextPaymentDetail: string;
+      };
+      upcoming: {
+        title: string;
+        description: string;
+        empty: string;
+      };
+      postedHistory: {
+        title: string;
+        description: string;
+        empty: string;
+        entryFallback: string;
+        accountLabel: string;
+      };
+      reconciliation: {
+        title: string;
+        description: string;
+        empty: string;
+        openReceipt: string;
+        openReceiptDetail: string;
+        marketContextTitle: string;
+        marketContextDetail: string;
+      };
+    };
     badge: {
       unposted: string;
       pendingReview: string;

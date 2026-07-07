@@ -1,4 +1,4 @@
-import type { DividendLedgerAggregates } from "@vakwen/shared-types";
+import type { DividendLedgerAggregates, MarketCode } from "@vakwen/shared-types";
 import { getJson, patchJson, postJson } from "../../../lib/api";
 import type {
   DividendCalendarSnapshot,
@@ -14,6 +14,7 @@ export interface DividendQuery {
   toPaymentDate?: string;
   accountId?: string;
   limit?: number;
+  marketCode?: MarketCode;
 }
 
 export interface DividendReviewQuery {
@@ -21,12 +22,17 @@ export interface DividendReviewQuery {
   toPaymentDate?: string;
   accountId?: string;
   ticker?: string;
+  marketCode?: MarketCode;
   postingStatus?: string;
   reconciliationStatus?: string;
   sortBy?: string;
   sortOrder?: "asc" | "desc";
   page?: number;
   limit?: number;
+}
+
+interface DividendRequestOptions {
+  signal?: AbortSignal;
 }
 
 export interface DividendLedgerReviewResponse {
@@ -50,6 +56,9 @@ function buildQuery(params: DividendQuery): string {
   if (params.accountId) {
     query.set("accountId", params.accountId);
   }
+  if (params.marketCode) {
+    query.set("marketCode", params.marketCode);
+  }
 
   return query.toString();
 }
@@ -61,6 +70,7 @@ function buildReviewQuery(params: DividendReviewQuery): string {
   if (params.toPaymentDate) query.set("toPaymentDate", params.toPaymentDate);
   if (params.accountId) query.set("accountId", params.accountId);
   if (params.ticker) query.set("ticker", params.ticker);
+  if (params.marketCode) query.set("marketCode", params.marketCode);
   if (params.postingStatus) query.set("postingStatus", params.postingStatus);
   if (params.reconciliationStatus) query.set("reconciliationStatus", params.reconciliationStatus);
   if (params.sortBy) query.set("sortBy", params.sortBy);
@@ -105,11 +115,13 @@ export async function fetchDividendLedger(params: DividendQuery): Promise<Divide
   return unwrapLedger(payload);
 }
 
-export async function fetchDividendCalendarSnapshot(params: DividendQuery): Promise<DividendCalendarSnapshot> {
-  const [events, ledgerEntries] = await Promise.all([
-    fetchDividendEvents(params),
-    fetchDividendLedger(params),
-  ]);
+export async function fetchDividendCalendarSnapshot(
+  params: DividendQuery,
+  options: DividendRequestOptions = {},
+): Promise<DividendCalendarSnapshot> {
+  const payload = await getJson<unknown>(`/portfolio/dividends/calendar?${buildQuery(params)}`, { signal: options.signal });
+  const events = unwrapEvents(payload);
+  const ledgerEntries = unwrapLedger(payload);
 
   return { events, ledgerEntries };
 }

@@ -48,6 +48,9 @@ export interface DividendLedgerEntryDetails {
   accountId: string;
   accountName?: string | null;
   ticker: string;
+  tickerName?: string | null;
+  marketCode: string;
+  bookedAt?: string;
   instrumentType: InstrumentType;
   eventType: DividendEventType;
   paymentDate: string | null;
@@ -83,6 +86,8 @@ export interface DividendEventListItem {
   accountId: string;
   accountName?: string | null;
   ticker: string;
+  tickerName?: string | null;
+  marketCode: string;
   instrumentType: InstrumentType;
   eventType: DividendEventType;
   exDividendDate: string;

@@ -90,6 +90,7 @@ describe("DividendsTabsClient", () => {
           dict={dict}
           locale="en"
           accounts={[]}
+          initialCalendarMonth="2026-07"
           initialCalendarSnapshot={{ events: [], ledgerEntries: [] }}
           initialReviewData={null}
           initialYears={[]}
@@ -117,6 +118,7 @@ describe("DividendsTabsClient", () => {
           dict={dict}
           locale="en"
           accounts={[]}
+          initialCalendarMonth="2026-07"
           initialCalendarSnapshot={null}
           initialReviewData={null}
           initialYears={[]}
@@ -132,5 +134,36 @@ describe("DividendsTabsClient", () => {
     expect(fetchShellPortfolioConfig).toHaveBeenCalledTimes(1);
     expect(container.querySelector('[data-testid="mock-review-client"]')?.getAttribute("data-accounts-count")).toBe("1");
     expect(fetchDividendCalendarSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("loads the requested initial calendar month when the snapshot is missing", async () => {
+    const dict = getDictionary("en");
+
+    act(() => {
+      root.render(
+        <DividendsTabsClient
+          initialTab="calendar"
+          calendarLabel={dict.dividends.tabs.calendar}
+          ledgerLabel={dict.dividends.tabs.review}
+          dict={dict}
+          locale="en"
+          accounts={[]}
+          initialCalendarMonth="2026-07"
+          initialCalendarSnapshot={null}
+          initialReviewData={null}
+          initialYears={[]}
+        />,
+      );
+    });
+
+    await act(async () => {});
+    await act(async () => {});
+
+    expect(fetchDividendCalendarSnapshot).toHaveBeenCalledWith({
+      fromPaymentDate: "2026-07-01",
+      toPaymentDate: "2026-07-31",
+      limit: 500,
+    });
+    expect(fetchDividendLedgerReview).not.toHaveBeenCalled();
   });
 });

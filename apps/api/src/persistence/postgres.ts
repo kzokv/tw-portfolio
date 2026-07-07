@@ -28,7 +28,7 @@ import {
   rebuildHoldingProjection,
   syncTradeEventRealizedPnl,
 } from "../services/accountingStore.js";
-import { instrumentRefToDef } from "../services/store.js";
+import { createDefaultFeeProfile, instrumentRefToDef } from "../services/store.js";
 import { createDefaultInstruments, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
 import type {
   AccountingStore,
@@ -108,6 +108,7 @@ import type {
   DeleteTradeEventResult,
   DividendLedgerListOptions,
   DividendLedgerListResult,
+  DividendCalendarSnapshotOptions,
   DividendReviewListResult,
   DividendReviewRowWithDetails,
   InstrumentRow,
@@ -5993,7 +5994,14 @@ export class PostgresPersistence implements Persistence {
         dividendEvents,
         instruments,
       },
-      instruments: instruments.map(instrumentRefToDef),
+      instruments: instruments.map((instrument) => ({
+        ticker: instrument.ticker,
+        name: instrument.name ?? null,
+        type: instrument.instrumentType,
+        marketCode: instrument.marketCode,
+        isProvisional: instrument.isProvisional,
+        lastSyncedAt: instrument.lastSyncedAt ?? null,
+      })),
       recomputeJobs,
       idempotencyKeys: new Set<string>(),
     };
@@ -9645,27 +9653,30 @@ export class PostgresPersistence implements Persistence {
     fromPaymentDate?: string,
     toPaymentDate?: string,
     limit: number = 500,
+    marketCode?: MarketCode,
   ): Promise<Store["marketData"]["dividendEvents"]> {
     await this.ensureDefaultPortfolioData(userId);
     const result = await this.pool.query(
-      `SELECT id, ticker, event_type, ex_dividend_date, payment_date,
+      `SELECT id, ticker, market_code, event_type, ex_dividend_date, payment_date,
               cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
               source, source_reference, ingested_at AS created_at,
               fiscal_year_period, announcement_date, total_distribution_shares
        FROM market_data.dividend_events
-       WHERE payment_date IS NULL
+       WHERE ($4::text IS NULL OR market_code = $4::text)
+         AND (payment_date IS NULL
           OR (
             ($1::date IS NULL OR payment_date >= $1::date)
             AND ($2::date IS NULL OR payment_date <= $2::date)
-          )
+          ))
        ORDER BY payment_date NULLS FIRST, ex_dividend_date, id
        LIMIT $3`,
-      [fromPaymentDate ?? null, toPaymentDate ?? null, limit],
+      [fromPaymentDate ?? null, toPaymentDate ?? null, limit, marketCode ?? null],
     );
 
     return result.rows.map((row) => ({
       id: row.id,
       ticker: row.ticker,
+      marketCode: row.market_code ?? undefined,
       eventType: row.event_type,
       exDividendDate: normalizeDate(String(row.ex_dividend_date)),
       paymentDate: row.payment_date ? normalizeDate(String(row.payment_date)) : null,
@@ -9679,6 +9690,299 @@ export class PostgresPersistence implements Persistence {
       announcementDate: row.announcement_date ? normalizeDate(row.announcement_date) : undefined,
       totalDistributionShares: row.total_distribution_shares != null ? Number(row.total_distribution_shares) : undefined,
     }));
+  }
+
+  async listDividendCalendarSnapshot(
+    userId: string,
+    opts: DividendCalendarSnapshotOptions,
+  ) {
+    await this.ensureDefaultPortfolioData(userId);
+    const eventsResult = await this.pool.query(
+      `SELECT event.id, event.ticker, event.market_code, event.event_type, event.ex_dividend_date, event.payment_date,
+              cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
+              source, source_reference, ingested_at AS created_at,
+              fiscal_year_period, announcement_date, total_distribution_shares
+       FROM market_data.dividend_events AS event
+       WHERE event.payment_date IS NOT NULL
+         AND ($2::date IS NULL OR event.payment_date >= $2::date)
+         AND ($3::date IS NULL OR event.payment_date <= $3::date)
+         AND ($5::text IS NULL OR event.market_code = $5::text)
+         AND EXISTS (
+           SELECT 1
+           FROM accounts AS candidate_account
+           WHERE candidate_account.user_id = $1
+             AND candidate_account.deleted_at IS NULL
+             AND ($6::text IS NULL OR candidate_account.id = $6)
+             AND (
+               EXISTS (
+                 SELECT 1
+                 FROM dividend_ledger_entries AS dle
+                 WHERE dle.account_id = candidate_account.id
+                   AND dle.dividend_event_id = event.id
+                   AND dle.superseded_at IS NULL
+                   AND dle.reversal_of_dividend_ledger_entry_id IS NULL
+                   AND NOT EXISTS (
+                     SELECT 1
+                     FROM dividend_ledger_entries AS reversal
+                     WHERE reversal.reversal_of_dividend_ledger_entry_id = dle.id
+                   )
+               )
+               OR COALESCE((
+                 SELECT SUM(CASE WHEN trade.trade_type = 'BUY' THEN trade.quantity ELSE -trade.quantity END)
+                 FROM trade_events AS trade
+                 WHERE trade.user_id = $1
+                   AND trade.account_id = candidate_account.id
+                   AND trade.ticker = event.ticker
+                   AND trade.market_code = event.market_code
+                   AND trade.trade_date < event.ex_dividend_date
+                   AND trade.reversal_of_trade_event_id IS NULL
+                   AND NOT EXISTS (
+                     SELECT 1
+                     FROM trade_events AS reversal
+                     WHERE reversal.reversal_of_trade_event_id = trade.id
+                   )
+               ), 0) > 0
+             )
+         )
+       ORDER BY event.payment_date, event.ex_dividend_date, event.id
+       LIMIT $4`,
+      [
+        userId,
+        opts.fromPaymentDate ?? null,
+        opts.toPaymentDate ?? null,
+        opts.limit,
+        opts.marketCode ?? null,
+        opts.accountId ?? null,
+      ],
+    );
+
+    const dividendEvents = eventsResult.rows.map((row) => ({
+      id: row.id,
+      ticker: row.ticker,
+      marketCode: row.market_code ?? undefined,
+      eventType: row.event_type,
+      exDividendDate: normalizeDate(String(row.ex_dividend_date)),
+      paymentDate: normalizeDate(String(row.payment_date)),
+      cashDividendPerShare: Number(row.cash_dividend_per_share),
+      cashDividendCurrency: row.cash_dividend_currency,
+      stockDividendPerShare: Number(row.stock_dividend_per_share),
+      source: row.source,
+      sourceReference: row.source_reference ?? undefined,
+      createdAt: normalizeDateTime(row.created_at),
+      fiscalYearPeriod: row.fiscal_year_period ?? undefined,
+      announcementDate: row.announcement_date ? normalizeDate(row.announcement_date) : undefined,
+      totalDistributionShares: row.total_distribution_shares != null ? Number(row.total_distribution_shares) : undefined,
+    }));
+    const eventIds = dividendEvents.map((event) => event.id);
+
+    if (eventIds.length === 0) {
+      return { dividendEvents, ledgerEntries: [], accounts: [], instruments: [], tradeEvents: [] };
+    }
+
+    const eventMarketCodes = dividendEvents.map((event) => event.marketCode ?? marketCodeFor(event.cashDividendCurrency));
+    const eventTickers = dividendEvents.map((event) => event.ticker);
+    const maxExDividendDate = dividendEvents.reduce(
+      (max, event) => (max == null || event.exDividendDate > max ? event.exDividendDate : max),
+      null as string | null,
+    );
+
+    const [accountsResult, instrumentsResult, tradesResult, ledgerResult] = await Promise.all([
+      this.pool.query(
+        `SELECT id, user_id, name, fee_profile_id, default_currency, account_type
+         FROM accounts
+         WHERE user_id = $1
+           AND deleted_at IS NULL
+           AND ($2::text IS NULL OR id = $2)
+         ORDER BY id`,
+        [userId, opts.accountId ?? null],
+      ),
+      this.pool.query(
+        `WITH requested(market_code, ticker) AS (
+           SELECT DISTINCT *
+           FROM unnest($1::text[], $2::text[])
+         )
+         SELECT DISTINCT ON (i.market_code, i.ticker)
+                i.ticker, i.name, i.instrument_type, i.market_code, i.is_provisional, i.last_synced_at
+         FROM market_data.instruments AS i
+         JOIN requested AS r
+           ON r.market_code = i.market_code
+          AND r.ticker = i.ticker
+         ORDER BY i.market_code, i.ticker`,
+        [eventMarketCodes, eventTickers],
+      ),
+      maxExDividendDate
+        ? this.pool.query(
+            `WITH requested(market_code, ticker) AS (
+               SELECT DISTINCT *
+               FROM unnest($2::text[], $3::text[])
+             )
+             SELECT trade.id, trade.user_id, trade.account_id, trade.ticker, trade.market_code,
+                    trade.instrument_type, trade.trade_type, trade.quantity, trade.unit_price,
+                    trade.price_currency, trade.trade_date, trade.trade_timestamp,
+                    trade.booking_sequence, trade.commission_amount, trade.tax_amount,
+                    trade.is_day_trade, trade.source, trade.source_reference, trade.booked_at,
+                    trade.reversal_of_trade_event_id, trade.fees_source
+             FROM trade_events AS trade
+             JOIN accounts AS account
+               ON account.id = trade.account_id
+             JOIN requested AS requested
+               ON requested.market_code = trade.market_code
+              AND requested.ticker = trade.ticker
+             WHERE trade.user_id = $1
+               AND account.user_id = $1
+               AND account.deleted_at IS NULL
+               AND ($4::text IS NULL OR trade.account_id = $4)
+               AND trade.trade_date < $5::date
+               AND trade.reversal_of_trade_event_id IS NULL
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM trade_events AS reversal
+                 WHERE reversal.reversal_of_trade_event_id = trade.id
+               )
+             ORDER BY trade.trade_date, trade.booking_sequence, trade.id`,
+            [userId, eventMarketCodes, eventTickers, opts.accountId ?? null, maxExDividendDate],
+          )
+        : Promise.resolve({ rows: [] as Record<string, unknown>[] }),
+      this.pool.query(
+      `SELECT dle.id, dle.account_id, dle.dividend_event_id, dle.eligible_quantity,
+              dle.expected_cash_amount, dle.expected_stock_quantity, dle.received_stock_quantity,
+              dle.posting_status, dle.reconciliation_status, dle.version,
+              dle.source_composition_status, dle.reconciliation_note, dle.booked_at,
+              dle.reversal_of_dividend_ledger_entry_id, dle.superseded_at,
+              COALESCE(receipts.received_cash_amount, 0) AS received_cash_amount
+       FROM dividend_ledger_entries AS dle
+       JOIN accounts AS account
+         ON account.id = dle.account_id
+       LEFT JOIN (
+         SELECT related_dividend_ledger_entry_id,
+                SUM(amount) FILTER (WHERE entry_type = 'DIVIDEND_RECEIPT') AS received_cash_amount
+         FROM cash_ledger_entries
+         WHERE user_id = $1
+         GROUP BY related_dividend_ledger_entry_id
+       ) AS receipts
+         ON receipts.related_dividend_ledger_entry_id = dle.id
+       WHERE account.user_id = $1
+         AND account.deleted_at IS NULL
+         AND dle.dividend_event_id = ANY($2::text[])
+         AND ($3::text IS NULL OR dle.account_id = $3)
+         AND dle.superseded_at IS NULL
+         AND dle.reversal_of_dividend_ledger_entry_id IS NULL
+         AND NOT EXISTS (
+           SELECT 1
+           FROM dividend_ledger_entries AS reversal
+           WHERE reversal.reversal_of_dividend_ledger_entry_id = dle.id
+         )
+       ORDER BY array_position($2::text[], dle.dividend_event_id), dle.id ASC`,
+      [userId, eventIds, opts.accountId ?? null],
+      ),
+    ]);
+
+    const ledgerIds = ledgerResult.rows.map((row) => row.id);
+    const [deductionsResult, sourceLinesResult] = ledgerIds.length
+      ? await Promise.all([
+          this.pool.query(
+            `SELECT id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
+                    withheld_at_source, source, source_reference, note, booked_at
+             FROM dividend_deduction_entries
+             WHERE dividend_ledger_entry_id = ANY($1)
+             ORDER BY dividend_ledger_entry_id, booked_at, id`,
+            [ledgerIds],
+          ),
+          this.pool.query(
+            `SELECT id, dividend_ledger_entry_id, source_bucket, amount, currency_code,
+                    source, source_reference, note, booked_at
+             FROM dividend_source_lines
+             WHERE dividend_ledger_entry_id = ANY($1)
+             ORDER BY dividend_ledger_entry_id, booked_at, id`,
+            [ledgerIds],
+          ),
+        ])
+      : [{ rows: [] as Record<string, unknown>[] }, { rows: [] as Record<string, unknown>[] }];
+
+    const deductionsByLedgerId = groupRowsByKey(deductionsResult.rows, "dividend_ledger_entry_id");
+    const sourceLinesByLedgerId = groupRowsByKey(sourceLinesResult.rows, "dividend_ledger_entry_id");
+
+    const ledgerEntries = ledgerResult.rows.map((row) => ({
+      ...mapDividendLedgerEntryRow(row),
+      deductions: (deductionsByLedgerId.get(String(row.id)) ?? []).map((deduction) => ({
+        id: String(deduction.id),
+        dividendLedgerEntryId: String(deduction.dividend_ledger_entry_id),
+        deductionType: String(deduction.deduction_type) as DividendDeductionEntry["deductionType"],
+        amount: Number(deduction.amount),
+        currencyCode: String(deduction.currency_code),
+        withheldAtSource: Boolean(deduction.withheld_at_source),
+        source: String(deduction.source),
+        sourceReference: deduction.source_reference ? String(deduction.source_reference) : undefined,
+        note: deduction.note ? String(deduction.note) : undefined,
+        bookedAt: deduction.booked_at ? normalizeDateTime(String(deduction.booked_at)) : undefined,
+      })),
+      sourceLines: (sourceLinesByLedgerId.get(String(row.id)) ?? []).map((sourceLine) => ({
+        id: String(sourceLine.id),
+        dividendLedgerEntryId: String(sourceLine.dividend_ledger_entry_id),
+        sourceBucket: String(sourceLine.source_bucket) as DividendSourceLine["sourceBucket"],
+        amount: Number(sourceLine.amount),
+        currencyCode: String(sourceLine.currency_code),
+        source: String(sourceLine.source),
+        sourceReference: sourceLine.source_reference ? String(sourceLine.source_reference) : undefined,
+        note: sourceLine.note ? String(sourceLine.note) : undefined,
+        bookedAt: sourceLine.booked_at ? normalizeDateTime(String(sourceLine.booked_at)) : undefined,
+      })),
+    }));
+
+    return {
+      dividendEvents,
+      ledgerEntries,
+      accounts: accountsResult.rows.map((row) => ({
+        id: String(row.id),
+        userId: String(row.user_id),
+        name: String(row.name),
+        feeProfileId: String(row.fee_profile_id),
+        defaultCurrency: String(row.default_currency) as Store["accounts"][number]["defaultCurrency"],
+        accountType: String(row.account_type) as Store["accounts"][number]["accountType"],
+      })),
+      instruments: instrumentsResult.rows
+        .filter((row) => isPersistedInstrumentTicker(String(row.ticker), String(row.market_code)))
+        .map((row): InstrumentDef => ({
+          ticker: String(row.ticker),
+          name: row.name ? String(row.name) : null,
+          type: row.instrument_type ? String(row.instrument_type) as InstrumentDef["type"] : null,
+          marketCode: String(row.market_code) as InstrumentDef["marketCode"],
+          isProvisional: Boolean(row.is_provisional),
+          lastSyncedAt: row.last_synced_at ? normalizeDateTime(String(row.last_synced_at)) : null,
+          typeRaw: null,
+          industryCategoryRaw: null,
+          finmindDate: null,
+        })),
+      tradeEvents: tradesResult.rows.map((row): BookedTradeEvent => ({
+        id: String(row.id),
+        userId: String(row.user_id),
+        accountId: String(row.account_id),
+        ticker: String(row.ticker),
+        marketCode: String(row.market_code) as BookedTradeEvent["marketCode"],
+        instrumentType: String(row.instrument_type) as BookedTradeEvent["instrumentType"],
+        type: String(row.trade_type) as BookedTradeEvent["type"],
+        quantity: Number(row.quantity),
+        unitPrice: Number(row.unit_price),
+        priceCurrency: String(row.price_currency) as BookedTradeEvent["priceCurrency"],
+        tradeDate: normalizeDate(row.trade_date as string | Date),
+        tradeTimestamp: row.trade_timestamp ? normalizeDateTime(row.trade_timestamp as string | Date) : undefined,
+        bookingSequence: row.booking_sequence == null ? undefined : Number(row.booking_sequence),
+        commissionAmount: Number(row.commission_amount),
+        taxAmount: Number(row.tax_amount),
+        isDayTrade: Boolean(row.is_day_trade),
+        feeSnapshot: createDefaultFeeProfile(
+          String(row.account_id),
+          String(row.price_currency) as FeeProfile["commissionCurrency"],
+          `calendar-snapshot-fee:${String(row.id)}`,
+        ),
+        source: String(row.source),
+        sourceReference: row.source_reference ? String(row.source_reference) : undefined,
+        bookedAt: row.booked_at ? normalizeDateTime(row.booked_at as string | Date) : undefined,
+        realizedPnlCurrency: String(row.price_currency) as BookedTradeEvent["priceCurrency"],
+        reversalOfTradeEventId: row.reversal_of_trade_event_id ? String(row.reversal_of_trade_event_id) : undefined,
+        feesSource: row.fees_source ? String(row.fees_source) as BookedTradeEvent["feesSource"] : undefined,
+      })),
+    };
   }
 
   async listDividendLedgerEntries(
@@ -9712,6 +10016,7 @@ export class PostgresPersistence implements Persistence {
       opts.reconciliationStatus ?? null, // $5
       opts.postingStatus ?? null, // $6
       opts.ticker ?? null, // $7
+      opts.marketCode ?? null, // $8
     ];
 
     // Re-usable WHERE clause and FROM join shared by every query below.
@@ -9764,6 +10069,7 @@ export class PostgresPersistence implements Persistence {
         AND ($5::text IS NULL OR dle.reconciliation_status = $5)
         AND ($6::text IS NULL OR dle.posting_status = $6)
         AND ($7::text IS NULL OR event.ticker = $7)
+        AND ($8::text IS NULL OR event.market_code = $8)
     `;
 
     // Query A — total count + openCount (single row).
@@ -9817,7 +10123,7 @@ export class PostgresPersistence implements Persistence {
              COALESCE(receipts.received_cash_amount, 0) AS received_cash_amount
       ${fromAndWhere}
       ORDER BY ${sortColumn} ${sortDirection} ${sortDirection === "ASC" ? "NULLS FIRST" : "NULLS LAST"}, dle.id ASC
-      LIMIT $8 OFFSET $9
+      LIMIT $9 OFFSET $10
     `;
 
     // Run all five queries inside a REPEATABLE READ transaction so that
@@ -9967,6 +10273,7 @@ export class PostgresPersistence implements Persistence {
       opts.reconciliationStatus ?? null,
       opts.postingStatus ?? null,
       opts.ticker ?? null,
+      opts.marketCode ?? null,
     ];
 
     const dateClause = `AND (
@@ -9997,6 +10304,8 @@ export class PostgresPersistence implements Persistence {
           account.name AS account_name,
           dle.dividend_event_id,
           event.ticker,
+          instrument.name AS ticker_name,
+          event.market_code,
           COALESCE(instrument.instrument_type, 'STOCK') AS instrument_type,
           event.event_type,
           event.ex_dividend_date,
@@ -10039,6 +10348,7 @@ export class PostgresPersistence implements Persistence {
           AND ($5::text IS NULL OR dle.reconciliation_status = $5)
           AND ($6::text IS NULL OR dle.posting_status = $6)
           AND ($7::text IS NULL OR event.ticker = $7)
+          AND ($8::text IS NULL OR event.market_code = $8)
       ),
       expected_rows AS (
         SELECT
@@ -10048,6 +10358,8 @@ export class PostgresPersistence implements Persistence {
           account.name AS account_name,
           event.id AS dividend_event_id,
           event.ticker,
+          instrument.name AS ticker_name,
+          event.market_code,
           COALESCE(instrument.instrument_type, 'STOCK') AS instrument_type,
           event.event_type,
           event.ex_dividend_date,
@@ -10097,6 +10409,7 @@ export class PostgresPersistence implements Persistence {
           AND ($5::text IS NULL OR $5 = 'open')
           AND ($6::text IS NULL OR $6 = 'expected')
           AND ($7::text IS NULL OR event.ticker = $7)
+          AND ($8::text IS NULL OR event.market_code = $8)
           AND NOT EXISTS (
             SELECT 1
             FROM dividend_ledger_entries AS existing
@@ -10126,7 +10439,7 @@ export class PostgresPersistence implements Persistence {
         SELECT *
         FROM base
         ORDER BY ${sortColumn} ${sortDirection} ${sortDirection === "ASC" ? "NULLS FIRST" : "NULLS LAST"}, id ASC
-        LIMIT $8 OFFSET $9
+        LIMIT $9 OFFSET $10
       ),
       summary AS (
         SELECT COUNT(*)::int AS total,
@@ -10266,6 +10579,8 @@ export class PostgresPersistence implements Persistence {
       ...mapDividendLedgerEntryRow(row),
       rowKind: String(row.row_kind) as DividendReviewRowWithDetails["rowKind"],
       ticker: String(row.ticker),
+      tickerName: row.ticker_name ? String(row.ticker_name) : null,
+      marketCode: String(row.market_code) as DividendReviewRowWithDetails["marketCode"],
       instrumentType: String(row.instrument_type) as InstrumentType,
       eventType: String(row.event_type) as DividendReviewRowWithDetails["eventType"],
       exDividendDate: normalizeDate(String(row.ex_dividend_date)),
