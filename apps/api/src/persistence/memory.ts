@@ -74,6 +74,7 @@ import type {
   DeleteTradeEventResult,
   DividendLedgerListOptions,
   DividendLedgerListResult,
+  DividendCalendarSnapshotOptions,
   DividendReviewListResult,
   DividendReviewRowWithDetails,
   InviteRecord,
@@ -2431,6 +2432,61 @@ export class MemoryPersistence implements Persistence {
       .filter((event) => !marketCode || (event.marketCode ?? marketCodeFor(event.cashDividendCurrency)) === marketCode)
       .sort(compareNullablePaymentDates)
       .slice(0, limit);
+  }
+
+  async listDividendCalendarSnapshot(
+    userId: string,
+    opts: DividendCalendarSnapshotOptions,
+  ) {
+    const store = await this.loadStore(userId);
+    const dividendEvents = store.marketData.dividendEvents
+      .filter((event) => event.paymentDate != null)
+      .filter((event) => matchesDateRange(event.paymentDate!, opts.fromPaymentDate, opts.toPaymentDate))
+      .filter((event) => !opts.marketCode || dividendEventMarketCode(event) === opts.marketCode)
+      .sort(compareNullablePaymentDates)
+      .slice(0, opts.limit);
+    const eventIds = new Set(dividendEvents.map((event) => event.id));
+
+    const receivedByLedgerId = new Map<string, number>();
+    for (const cashEntry of store.accounting.facts.cashLedgerEntries) {
+      if (cashEntry.entryType !== "DIVIDEND_RECEIPT") continue;
+      const ledgerId = cashEntry.relatedDividendLedgerEntryId;
+      if (!ledgerId) continue;
+      receivedByLedgerId.set(ledgerId, (receivedByLedgerId.get(ledgerId) ?? 0) + cashEntry.amount);
+    }
+
+    const reversedIds = new Set(
+      store.accounting.facts.dividendLedgerEntries
+        .map((entry) => entry.reversalOfDividendLedgerEntryId)
+        .filter((id): id is string => Boolean(id)),
+    );
+
+    const ledgerEntries = store.accounting.facts.dividendLedgerEntries
+      .filter((entry) => {
+        if (!eventIds.has(entry.dividendEventId)) return false;
+        if (entry.reversalOfDividendLedgerEntryId) return false;
+        if (entry.supersededAt) return false;
+        if (reversedIds.has(entry.id)) return false;
+        if (opts.accountId && entry.accountId !== opts.accountId) return false;
+        return true;
+      })
+      .sort((left, right) => {
+        const leftEvent = dividendEvents.find((event) => event.id === left.dividendEventId);
+        const rightEvent = dividendEvents.find((event) => event.id === right.dividendEventId);
+        return compareNullablePaymentDates(leftEvent, rightEvent) || left.id.localeCompare(right.id);
+      })
+      .map((entry) => ({
+        ...entry,
+        receivedCashAmount: receivedByLedgerId.get(entry.id) ?? 0,
+        deductions: store.accounting.facts.dividendDeductionEntries.filter(
+          (deduction) => deduction.dividendLedgerEntryId === entry.id,
+        ),
+        sourceLines: store.accounting.facts.dividendSourceLines.filter(
+          (line) => line.dividendLedgerEntryId === entry.id,
+        ),
+      }));
+
+    return { dividendEvents, ledgerEntries };
   }
 
   async listDividendLedgerEntries(
@@ -8112,6 +8168,12 @@ function deriveInviteStatus(invite: { usedAt: string | null; revokedAt: string |
 
 function matchesNullableDateRange(value: string | null | undefined, fromDate?: string, toDate?: string): boolean {
   if (value == null) return true;
+  if (fromDate && value < fromDate) return false;
+  if (toDate && value > toDate) return false;
+  return true;
+}
+
+function matchesDateRange(value: string, fromDate?: string, toDate?: string): boolean {
   if (fromDate && value < fromDate) return false;
   if (toDate && value > toDate) return false;
   return true;

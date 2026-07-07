@@ -20,6 +20,11 @@ export class DividendsActions extends AppBaseActions {
   }
 
   @Step()
+  async navigateToCalendarMonth(month: string): Promise<void> {
+    await this.mxNavigateToRoute(`/dividends?view=calendar&month=${encodeURIComponent(month)}`, TestEnv.appBaseUrl);
+  }
+
+  @Step()
   async navigateToLedgerTab(): Promise<void> {
     await this.mxNavigateToRoute("/dividends?view=ledger", TestEnv.appBaseUrl);
   }
@@ -37,6 +42,16 @@ export class DividendsActions extends AppBaseActions {
   @Step()
   async setOverviewMonth(month: string): Promise<void> {
     await this.uiActions.fill.perform(this.el.monthInput, month);
+  }
+
+  @Step()
+  async clickPreviousMonth(): Promise<void> {
+    await this.uiActions.click.perform(this.el.previousMonthButton);
+  }
+
+  @Step()
+  async clickNextMonth(): Promise<void> {
+    await this.uiActions.click.perform(this.el.nextMonthButton);
   }
 
   @Step()

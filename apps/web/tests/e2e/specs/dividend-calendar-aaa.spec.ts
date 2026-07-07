@@ -16,7 +16,60 @@ function seededEventId(seedBody: Record<string, unknown>): string {
 }
 
 test.describe("dividend calendar", () => {
-  test("dividend calendar: current month rows render → tbd bucket and stock edit button enabled", async ({
+  test("dividend calendar: month navigation remains latest-wins and direct month picker loads target month", async ({
+    dividends,
+  }) => {
+    const janSeed = await dividends.arrange.seedDividendEvent({
+      ticker: "2330",
+      exDividendDate: "2026-01-10",
+      paymentDate: "2026-01-20",
+      cashDividendPerShare: 10,
+      eligibleQuantity: 10,
+    });
+    const aprSeed = await dividends.arrange.seedDividendEvent({
+      ticker: "2330",
+      exDividendDate: "2026-04-10",
+      paymentDate: "2026-04-20",
+      cashDividendPerShare: 11,
+      eligibleQuantity: 10,
+    });
+    const julSeed = await dividends.arrange.seedDividendEvent({
+      ticker: "2330",
+      exDividendDate: "2026-07-10",
+      paymentDate: "2026-07-20",
+      cashDividendPerShare: 12,
+      eligibleQuantity: 10,
+    });
+    await dividends.arrange.seedDividendEvent({
+      ticker: "2330",
+      exDividendDate: "2026-03-10",
+      paymentDate: null,
+      cashDividendPerShare: 9,
+      eligibleQuantity: 10,
+    });
+    const janEventId = seededEventId(janSeed);
+    const aprEventId = seededEventId(aprSeed);
+    const julEventId = seededEventId(julSeed);
+
+    await dividends.actions.navigateToCalendarMonth("2026-07");
+    await dividends.assert.calendarLoaded();
+    await dividends.assert.monthControlsAreEnabled();
+    await dividends.assert.monthInputHasValue("2026-07");
+    await dividends.assert.rowContains(julEventId, /2330/);
+
+    await dividends.actions.clickPreviousMonth();
+    await dividends.actions.clickPreviousMonth();
+    await dividends.actions.clickPreviousMonth();
+    await dividends.assert.monthInputHasValue("2026-04");
+    await dividends.assert.monthControlsAreEnabled();
+    await dividends.assert.rowContains(aprEventId, /Apr 20, 2026/);
+
+    await dividends.actions.setOverviewMonth("2026-01");
+    await dividends.assert.monthInputHasValue("2026-01");
+    await dividends.assert.rowContains(janEventId, /Jan 20, 2026/);
+  });
+
+  test("dividend calendar: current month rows render → TBD rows excluded and stock edit button enabled", async ({
     dividends,
   }) => {
     const stockSeed = await dividends.arrange.seedPostedDividend({
@@ -42,13 +95,10 @@ test.describe("dividend calendar", () => {
 
     await dividends.actions.navigateToCalendar();
     await dividends.assert.calendarLoaded();
-    await dividends.assert.tbdSectionIsVisible();
+    await dividends.assert.tbdSectionIsHidden();
+    await dividends.assert.rowIsHidden(seededEventId(tbdSeed));
     // KZO-32: stock edit button is now always enabled (reconcile-only mode inside drawer)
     await dividends.assert.editButtonIsEnabled(stockSeed.dividendEventId);
-    await dividends.assert.rowBadgeContains(
-      seededEventId(tbdSeed),
-      /Unposted|未入帳/,
-    );
   });
 
   test("dividend calendar: cash posting → pending review and inline mark matched → Matched badge", async ({

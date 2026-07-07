@@ -1156,6 +1156,19 @@ export interface DividendLedgerListResult {
   aggregates: DividendLedgerAggregates;
 }
 
+export interface DividendCalendarSnapshotOptions {
+  accountId?: string;
+  fromPaymentDate?: string;
+  toPaymentDate?: string;
+  marketCode?: MarketCode;
+  limit: number;
+}
+
+export interface DividendCalendarSnapshotResult {
+  dividendEvents: Store["marketData"]["dividendEvents"];
+  ledgerEntries: DividendLedgerEntryWithDetails[];
+}
+
 export type DividendReviewRowKind = "ledger" | "expected";
 
 export type DividendReviewRowWithDetails = DividendLedgerEntryWithDetails & {
@@ -2656,6 +2669,10 @@ export interface Persistence {
     limit?: number,
     marketCode?: MarketCode,
   ): Promise<Store["marketData"]["dividendEvents"]>;
+  listDividendCalendarSnapshot(
+    userId: string,
+    opts: DividendCalendarSnapshotOptions,
+  ): Promise<DividendCalendarSnapshotResult>;
   listDividendLedgerEntries(
     userId: string,
     opts: DividendLedgerListOptions,

@@ -195,20 +195,39 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
   const bounds = useMemo(() => monthBounds(visibleMonth), [visibleMonth]);
   const query = useMemo<DividendQuery>(() => ({ ...bounds, limit: 500 }), [bounds]);
   const initialQueryKey = useRef(JSON.stringify(query));
+  const requestSequenceRef = useRef(0);
+  const activeRequestRef = useRef<AbortController | null>(null);
+  const onSnapshotChangeRef = useRef(onSnapshotChange);
 
-  const refreshSnapshot = useCallback(async () => {
+  useEffect(() => {
+    onSnapshotChangeRef.current = onSnapshotChange;
+  }, [onSnapshotChange]);
+
+  const refreshSnapshot = useCallback(async (requestedQuery: DividendQuery, requestedMonthKey: string) => {
+    activeRequestRef.current?.abort();
+    const requestId = ++requestSequenceRef.current;
+    const controller = new AbortController();
+    activeRequestRef.current = controller;
     setIsLoading(true);
     setErrorMessage("");
     try {
-      const nextSnapshot = await fetchDividendCalendarSnapshot(query);
+      const nextSnapshot = await fetchDividendCalendarSnapshot(requestedQuery, { signal: controller.signal });
+      if (requestSequenceRef.current !== requestId) return;
       setSnapshot(nextSnapshot);
-      onSnapshotChange?.(nextSnapshot, activeMonthKey);
+      onSnapshotChangeRef.current?.(nextSnapshot, requestedMonthKey);
     } catch (error) {
+      if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+        return;
+      }
+      if (requestSequenceRef.current !== requestId) return;
       setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
-      setIsLoading(false);
+      if (requestSequenceRef.current === requestId) {
+        setIsLoading(false);
+        activeRequestRef.current = null;
+      }
     }
-  }, [activeMonthKey, onSnapshotChange, query]);
+  }, []);
 
   useEffect(() => {
     setSnapshot(initialSnapshot);
@@ -222,8 +241,14 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
   useEffect(() => {
     const queryKey = JSON.stringify(query);
     if (queryKey === initialQueryKey.current) return;
-    void refreshSnapshot();
-  }, [query, refreshSnapshot]);
+    void refreshSnapshot(query, activeMonthKey);
+  }, [activeMonthKey, query, refreshSnapshot]);
+
+  useEffect(() => () => {
+    requestSequenceRef.current += 1;
+    activeRequestRef.current?.abort();
+    activeRequestRef.current = null;
+  }, []);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -238,7 +263,7 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
     enabled: true,
     eventTypes: ["dividend_posted", "dividend_updated", "dividend_reconciliation_changed"],
     onEvent: () => {
-      void refreshSnapshot();
+      void refreshSnapshot(query, activeMonthKey);
     },
   });
 
@@ -272,7 +297,7 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
     setErrorMessage("");
     try {
       await updateDividendReconciliation(row.ledgerEntry.id, "matched");
-      await refreshSnapshot();
+      await refreshSnapshot(query, activeMonthKey);
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : String(error));
     } finally {
@@ -295,7 +320,14 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
           <div className="flex min-h-10 items-center rounded-lg border border-border bg-card p-1 shadow-sm" data-testid="dividends-month-picker">
-            <Button type="button" size="sm" variant="ghost" aria-label={dict.dividends.previousMonth} onClick={() => setVisibleMonth((current) => addMonths(current, -1))}>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              aria-label={dict.dividends.previousMonth}
+              data-testid="dividends-previous-month"
+              onClick={() => setVisibleMonth((current) => addMonths(current, -1))}
+            >
               <ChevronLeft className="h-4 w-4" />
             </Button>
             <input
@@ -308,7 +340,14 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
               }}
               data-testid="dividends-month-input"
             />
-            <Button type="button" size="sm" variant="ghost" aria-label={dict.dividends.nextMonth} onClick={() => setVisibleMonth((current) => addMonths(current, 1))}>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              aria-label={dict.dividends.nextMonth}
+              data-testid="dividends-next-month"
+              onClick={() => setVisibleMonth((current) => addMonths(current, 1))}
+            >
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
@@ -429,7 +468,7 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
               setIsDrawerDirty(false);
             }}
             onSaved={async () => {
-              await refreshSnapshot();
+              await refreshSnapshot(query, activeMonthKey);
               setDrawerRow(null);
               setIsDrawerDirty(false);
             }}

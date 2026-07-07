@@ -25,16 +25,18 @@ describe("dividendService calendar snapshot", () => {
   });
 
   it("reads the combined calendar endpoint", async () => {
+    const signal = new AbortController().signal;
     const snapshot = await fetchDividendCalendarSnapshot({
       fromPaymentDate: "2026-07-01",
       toPaymentDate: "2026-07-31",
       accountId: "acc-1",
       marketCode: "TW",
       limit: 50,
-    });
+    }, { signal });
 
     expect(getJson).toHaveBeenCalledWith(
       "/portfolio/dividends/calendar?limit=50&fromPaymentDate=2026-07-01&toPaymentDate=2026-07-31&accountId=acc-1&marketCode=TW",
+      { signal },
     );
     expect(snapshot).toEqual({
       events: [{ id: "event-1", ticker: "2330" }],

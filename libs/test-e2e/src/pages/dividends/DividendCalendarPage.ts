@@ -5,6 +5,8 @@ import { DividendPostingDrawerComponent, type TDividendPostingDrawerElements } f
 export interface TDividendCalendarElements {
   calendarPage: Locator;
   monthInput: Locator;
+  previousMonthButton: Locator;
+  nextMonthButton: Locator;
   actionQueue: Locator;
   thisMonth: Locator;
   recentReceipts: Locator;
@@ -28,6 +30,8 @@ export class DividendCalendarPage extends BasePage<TDividendCalendarElements> {
     this._elements = {
       calendarPage: this.locate("dividends-calendar-page", "Dividend Calendar Page"),
       monthInput: this.locate("dividends-month-input", "Dividends Month Input"),
+      previousMonthButton: this.locate("dividends-previous-month", "Dividends Previous Month Button"),
+      nextMonthButton: this.locate("dividends-next-month", "Dividends Next Month Button"),
       actionQueue: this.locate("dividends-action-queue", "Dividends Action Queue"),
       thisMonth: this.locate("dividends-this-month", "Dividends This Month Section"),
       recentReceipts: this.locate("dividends-recent-receipts", "Dividends Recent Receipts Section"),

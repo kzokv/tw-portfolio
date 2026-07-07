@@ -35,6 +35,21 @@ async function seedBuy(quantity: number = 10) {
   });
 }
 
+async function seedBuyAtDate(tradeDate: string, quantity: number = 10) {
+  await app.inject({
+    method: "POST",
+    url: "/portfolio/transactions",
+    headers: { "idempotency-key": `buy-${quantity}-${tradeDate}-${Math.random()}` },
+    payload: transactionPayload({
+      quantity,
+      unitPrice: 100,
+      tradeDate,
+      commissionAmount: 0,
+      taxAmount: 0,
+    }),
+  });
+}
+
 async function seedDividendEvent(
   overrides: Record<string, unknown> = {},
 ): Promise<ReturnType<typeof createDividendEvent>> {
@@ -404,6 +419,135 @@ describe("dividends", () => {
         paymentDate: "2026-02-21",
       }),
     ]);
+  });
+
+  it("returns only paid January 2026 rows for the month-scoped calendar snapshot", async () => {
+    await seedInstrument();
+    await seedBuyAtDate("2025-12-15");
+    await seedDividendEvent({
+      ticker: "2330",
+      eventType: "CASH",
+      exDividendDate: "2026-01-10",
+      paymentDate: "2026-01-20",
+      cashDividendPerShare: 10,
+    });
+    await seedDividendEvent({
+      ticker: "2330",
+      eventType: "CASH",
+      exDividendDate: "2026-03-10",
+      paymentDate: null,
+      cashDividendPerShare: 9,
+    });
+    await seedDividendEvent({
+      ticker: "2330",
+      eventType: "CASH",
+      exDividendDate: "2026-04-10",
+      paymentDate: "2026-04-20",
+      cashDividendPerShare: 12,
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/calendar?fromPaymentDate=2026-01-01&toPaymentDate=2026-01-31&limit=20",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      events: [
+        expect.objectContaining({
+          ticker: "2330",
+          tickerName: "TSMC",
+          paymentDate: "2026-01-20",
+          expectedCashAmount: 100,
+        }),
+      ],
+      ledgerEntries: [],
+    });
+    expect(response.json().events).toHaveLength(1);
+    expect(response.json().events.every((event: { paymentDate: string | null }) => event.paymentDate !== null)).toBe(true);
+  });
+
+  it("returns only paid April 2026 rows for the month-scoped calendar snapshot", async () => {
+    await seedInstrument();
+    await seedBuyAtDate("2025-12-15");
+    const aprilDividend = await seedDividendEvent({
+      ticker: "2330",
+      eventType: "CASH",
+      exDividendDate: "2026-04-10",
+      paymentDate: "2026-04-20",
+      cashDividendPerShare: 11,
+    });
+    await seedDividendEvent({
+      ticker: "2330",
+      eventType: "CASH",
+      exDividendDate: "2026-01-10",
+      paymentDate: "2026-01-20",
+      cashDividendPerShare: 10,
+    });
+    await seedDividendEvent({
+      ticker: "2330",
+      eventType: "CASH",
+      exDividendDate: "2026-03-10",
+      paymentDate: null,
+      cashDividendPerShare: 9,
+    });
+
+    const postingResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/postings",
+      headers: { "idempotency-key": "calendar-april-posting" },
+      payload: dividendPostingPayload({
+        dividendEventId: aprilDividend.id,
+        receivedCashAmount: 99,
+        sourceLines: [
+          {
+            sourceBucket: "DIVIDEND_INCOME",
+            amount: 110,
+            currencyCode: "TWD",
+            source: "issuer_statement",
+            sourceReference: "stmt-2026-04",
+          },
+        ],
+        deductions: [
+          {
+            deductionType: "NHI_SUPPLEMENTAL_PREMIUM",
+            amount: 11,
+            currencyCode: "TWD",
+            withheldAtSource: true,
+            source: "dividend_posting",
+          },
+        ],
+      }),
+    });
+    expect(postingResponse.statusCode).toBe(200);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/calendar?fromPaymentDate=2026-04-01&toPaymentDate=2026-04-30&limit=20",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      events: [
+        expect.objectContaining({
+          ticker: "2330",
+          tickerName: "TSMC",
+          paymentDate: "2026-04-20",
+          hasPostedLedgerEntry: true,
+        }),
+      ],
+      ledgerEntries: [
+        expect.objectContaining({
+          ticker: "2330",
+          tickerName: "TSMC",
+          paymentDate: "2026-04-20",
+          receivedCashAmount: 99,
+        }),
+      ],
+    });
+    expect(response.json().events).toHaveLength(1);
+    expect(response.json().ledgerEntries).toHaveLength(1);
+    expect(response.json().events.every((event: { paymentDate: string | null }) => event.paymentDate !== null)).toBe(true);
   });
 
   it("updates posted cash dividends in place and emits dividend events", async () => {

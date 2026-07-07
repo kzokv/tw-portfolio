@@ -6275,29 +6275,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.get("/portfolio/dividends/calendar", async (req) => {
     const query = dividendLedgerQuerySchema.parse(req.query);
     const { userId, store } = await loadUserStore(app, req);
-    const [dividendEvents, ledgerResult] = await Promise.all([
-      app.persistence.listDividendEventsByPaymentDate(
-        userId,
-        query.fromPaymentDate,
-        query.toPaymentDate,
-        query.limit,
-        query.marketCode,
-      ),
-      app.persistence.listDividendLedgerEntries(userId, {
-        accountId: query.accountId,
-        fromPaymentDate: query.fromPaymentDate,
-        toPaymentDate: query.toPaymentDate,
-        marketCode: query.marketCode,
-        limit: query.limit,
-        page: 1,
-        sortBy: "paymentDate",
-        sortOrder: "asc",
-      }),
-    ]);
+    const snapshot = await app.persistence.listDividendCalendarSnapshot(userId, {
+      accountId: query.accountId,
+      fromPaymentDate: query.fromPaymentDate,
+      toPaymentDate: query.toPaymentDate,
+      marketCode: query.marketCode,
+      limit: query.limit,
+    });
 
     return {
-      events: buildDividendEventListItems(store, dividendEvents),
-      ledgerEntries: buildDividendLedgerEntryDetails(store, ledgerResult.ledgerEntries, { preserveOrder: true }),
+      events: buildDividendEventListItems(store, snapshot.dividendEvents),
+      ledgerEntries: buildDividendLedgerEntryDetails(store, snapshot.ledgerEntries, { preserveOrder: true }),
     };
   });
 

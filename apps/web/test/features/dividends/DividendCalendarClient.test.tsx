@@ -25,6 +25,16 @@ beforeAll(() => {
 
 const dict = getDictionary("en");
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function buildEvent(overrides: Partial<DividendEventListItem>): DividendEventListItem {
   return {
     id: overrides.id ?? "event-1",
@@ -216,7 +226,154 @@ describe("DividendCalendarClient", () => {
       fromPaymentDate: "2026-05-01",
       toPaymentDate: "2026-05-31",
       limit: 500,
+    }, { signal: expect.any(AbortSignal) });
+  });
+
+  it("keeps the latest month snapshot when earlier requests resolve out of order", async () => {
+    const initialSnapshot: DividendCalendarSnapshot = {
+      events: [buildEvent({ id: "event-july", ticker: "JULY" })],
+      ledgerEntries: [],
+    };
+    const juneSnapshot: DividendCalendarSnapshot = {
+      events: [buildEvent({ id: "event-june", ticker: "JUNE", paymentDate: "2026-06-20", exDividendDate: "2026-06-10" })],
+      ledgerEntries: [],
+    };
+    const maySnapshot: DividendCalendarSnapshot = {
+      events: [buildEvent({ id: "event-may", ticker: "MAY", paymentDate: "2026-05-20", exDividendDate: "2026-05-10" })],
+      ledgerEntries: [],
+    };
+    const juneRequest = createDeferred<DividendCalendarSnapshot>();
+    const mayRequest = createDeferred<DividendCalendarSnapshot>();
+    const onSnapshotChange = vi.fn();
+
+    vi.mocked(fetchDividendCalendarSnapshot)
+      .mockImplementationOnce(() => juneRequest.promise)
+      .mockImplementationOnce(() => mayRequest.promise);
+
+    act(() => {
+      root.render(
+        <DividendCalendarClient
+          initialSnapshot={initialSnapshot}
+          initialMonth="2026-07"
+          dict={dict}
+          locale="en"
+          onSnapshotChange={onSnapshotChange}
+        />,
+      );
     });
+    await act(async () => {});
+
+    const previousMonthButton = document.querySelector("[aria-label='Previous month']") as HTMLButtonElement;
+    await act(async () => {
+      previousMonthButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      previousMonthButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    await act(async () => {
+      mayRequest.resolve(maySnapshot);
+    });
+
+    expect(window.location.search).toContain("month=2026-05");
+    expect(container.textContent).toContain("MAY");
+    expect(onSnapshotChange).toHaveBeenCalledWith(maySnapshot, "2026-05");
+
+    await act(async () => {
+      juneRequest.resolve(juneSnapshot);
+    });
+
+    expect(window.location.search).toContain("month=2026-05");
+    expect(container.textContent).toContain("MAY");
+    expect(container.textContent).not.toContain("JUNE");
+    expect(onSnapshotChange).toHaveBeenCalledTimes(1);
+    expect(document.querySelector("[role='status']")).toBeNull();
+  });
+
+  it("aborts superseded requests, ignores AbortError, and preserves rapid July to April navigation", async () => {
+    const initialSnapshot: DividendCalendarSnapshot = {
+      events: [buildEvent({ id: "event-july", ticker: "JULY", paymentDate: "2026-07-20", exDividendDate: "2026-07-10" })],
+      ledgerEntries: [],
+    };
+    const aprilSnapshot: DividendCalendarSnapshot = {
+      events: [buildEvent({ id: "event-april", ticker: "APRIL", paymentDate: "2026-04-20", exDividendDate: "2026-04-10" })],
+      ledgerEntries: [],
+    };
+    const juneRequest = createDeferred<DividendCalendarSnapshot>();
+    const mayRequest = createDeferred<DividendCalendarSnapshot>();
+    const aprilRequest = createDeferred<DividendCalendarSnapshot>();
+    const capturedSignals: AbortSignal[] = [];
+    const onSnapshotChange = vi.fn();
+
+    vi.mocked(fetchDividendCalendarSnapshot).mockImplementation((_, options?: { signal?: AbortSignal }) => {
+      const signal = options?.signal;
+      if (!signal) {
+        throw new Error("expected abort signal");
+      }
+      capturedSignals.push(signal);
+      const deferred = [juneRequest, mayRequest, aprilRequest][capturedSignals.length - 1];
+      signal.addEventListener("abort", () => {
+        deferred.reject(Object.assign(new Error("Request aborted"), { name: "AbortError" }));
+      }, { once: true });
+      return deferred.promise;
+    });
+
+    act(() => {
+      root.render(
+        <DividendCalendarClient
+          initialSnapshot={initialSnapshot}
+          initialMonth="2026-07"
+          dict={dict}
+          locale="en"
+          onSnapshotChange={onSnapshotChange}
+        />,
+      );
+    });
+    await act(async () => {});
+
+    const previousMonthButton = document.querySelector("[aria-label='Previous month']") as HTMLButtonElement;
+    expect(previousMonthButton.disabled).toBe(false);
+
+    await act(async () => {
+      previousMonthButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      previousMonthButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      previousMonthButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(previousMonthButton.disabled).toBe(false);
+    expect(window.location.search).toContain("month=2026-04");
+    expect(fetchDividendCalendarSnapshot).toHaveBeenNthCalledWith(1, {
+      fromPaymentDate: "2026-06-01",
+      toPaymentDate: "2026-06-30",
+      limit: 500,
+    }, { signal: expect.any(AbortSignal) });
+    expect(fetchDividendCalendarSnapshot).toHaveBeenNthCalledWith(2, {
+      fromPaymentDate: "2026-05-01",
+      toPaymentDate: "2026-05-31",
+      limit: 500,
+    }, { signal: expect.any(AbortSignal) });
+    expect(fetchDividendCalendarSnapshot).toHaveBeenNthCalledWith(3, {
+      fromPaymentDate: "2026-04-01",
+      toPaymentDate: "2026-04-30",
+      limit: 500,
+    }, { signal: expect.any(AbortSignal) });
+    expect(capturedSignals[0]?.aborted).toBe(true);
+    expect(capturedSignals[1]?.aborted).toBe(true);
+    expect(capturedSignals[2]?.aborted).toBe(false);
+
+    await act(async () => {
+      aprilRequest.resolve(aprilSnapshot);
+    });
+
+    expect(window.location.search).toContain("month=2026-04");
+    expect(container.textContent).toContain("APRIL");
+    expect(container.textContent).not.toContain("Request aborted");
+    expect(onSnapshotChange).toHaveBeenCalledTimes(1);
+    expect(onSnapshotChange).toHaveBeenCalledWith(aprilSnapshot, "2026-04");
   });
 
   it("prompts before discarding unsaved changes when Cancel is clicked", async () => {

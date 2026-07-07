@@ -31,6 +31,10 @@ export interface DividendReviewQuery {
   limit?: number;
 }
 
+interface DividendRequestOptions {
+  signal?: AbortSignal;
+}
+
 export interface DividendLedgerReviewResponse {
   ledgerEntries: DividendLedgerEntryDetails[];
   reviewRows?: DividendLedgerEntryDetails[];
@@ -111,8 +115,11 @@ export async function fetchDividendLedger(params: DividendQuery): Promise<Divide
   return unwrapLedger(payload);
 }
 
-export async function fetchDividendCalendarSnapshot(params: DividendQuery): Promise<DividendCalendarSnapshot> {
-  const payload = await getJson<unknown>(`/portfolio/dividends/calendar?${buildQuery(params)}`);
+export async function fetchDividendCalendarSnapshot(
+  params: DividendQuery,
+  options: DividendRequestOptions = {},
+): Promise<DividendCalendarSnapshot> {
+  const payload = await getJson<unknown>(`/portfolio/dividends/calendar?${buildQuery(params)}`, { signal: options.signal });
   const events = unwrapEvents(payload);
   const ledgerEntries = unwrapLedger(payload);
 

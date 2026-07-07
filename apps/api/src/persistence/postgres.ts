@@ -108,6 +108,7 @@ import type {
   DeleteTradeEventResult,
   DividendLedgerListOptions,
   DividendLedgerListResult,
+  DividendCalendarSnapshotOptions,
   DividendReviewListResult,
   DividendReviewRowWithDetails,
   InstrumentRow,
@@ -9689,6 +9690,137 @@ export class PostgresPersistence implements Persistence {
       announcementDate: row.announcement_date ? normalizeDate(row.announcement_date) : undefined,
       totalDistributionShares: row.total_distribution_shares != null ? Number(row.total_distribution_shares) : undefined,
     }));
+  }
+
+  async listDividendCalendarSnapshot(
+    userId: string,
+    opts: DividendCalendarSnapshotOptions,
+  ) {
+    await this.ensureDefaultPortfolioData(userId);
+    const eventsResult = await this.pool.query(
+      `SELECT id, ticker, market_code, event_type, ex_dividend_date, payment_date,
+              cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
+              source, source_reference, ingested_at AS created_at,
+              fiscal_year_period, announcement_date, total_distribution_shares
+       FROM market_data.dividend_events
+       WHERE payment_date IS NOT NULL
+         AND ($1::date IS NULL OR payment_date >= $1::date)
+         AND ($2::date IS NULL OR payment_date <= $2::date)
+         AND ($4::text IS NULL OR market_code = $4::text)
+       ORDER BY payment_date, ex_dividend_date, id
+       LIMIT $3`,
+      [opts.fromPaymentDate ?? null, opts.toPaymentDate ?? null, opts.limit, opts.marketCode ?? null],
+    );
+
+    const dividendEvents = eventsResult.rows.map((row) => ({
+      id: row.id,
+      ticker: row.ticker,
+      marketCode: row.market_code ?? undefined,
+      eventType: row.event_type,
+      exDividendDate: normalizeDate(String(row.ex_dividend_date)),
+      paymentDate: normalizeDate(String(row.payment_date)),
+      cashDividendPerShare: Number(row.cash_dividend_per_share),
+      cashDividendCurrency: row.cash_dividend_currency,
+      stockDividendPerShare: Number(row.stock_dividend_per_share),
+      source: row.source,
+      sourceReference: row.source_reference ?? undefined,
+      createdAt: normalizeDateTime(row.created_at),
+      fiscalYearPeriod: row.fiscal_year_period ?? undefined,
+      announcementDate: row.announcement_date ? normalizeDate(row.announcement_date) : undefined,
+      totalDistributionShares: row.total_distribution_shares != null ? Number(row.total_distribution_shares) : undefined,
+    }));
+    const eventIds = dividendEvents.map((event) => event.id);
+
+    if (eventIds.length === 0) {
+      return { dividendEvents, ledgerEntries: [] };
+    }
+
+    const ledgerResult = await this.pool.query(
+      `SELECT dle.id, dle.account_id, dle.dividend_event_id, dle.eligible_quantity,
+              dle.expected_cash_amount, dle.expected_stock_quantity, dle.received_stock_quantity,
+              dle.posting_status, dle.reconciliation_status, dle.version,
+              dle.source_composition_status, dle.reconciliation_note, dle.booked_at,
+              dle.reversal_of_dividend_ledger_entry_id, dle.superseded_at,
+              COALESCE(receipts.received_cash_amount, 0) AS received_cash_amount
+       FROM dividend_ledger_entries AS dle
+       JOIN accounts AS account
+         ON account.id = dle.account_id
+       LEFT JOIN (
+         SELECT related_dividend_ledger_entry_id,
+                SUM(amount) FILTER (WHERE entry_type = 'DIVIDEND_RECEIPT') AS received_cash_amount
+         FROM cash_ledger_entries
+         WHERE user_id = $1
+         GROUP BY related_dividend_ledger_entry_id
+       ) AS receipts
+         ON receipts.related_dividend_ledger_entry_id = dle.id
+       WHERE account.user_id = $1
+         AND account.deleted_at IS NULL
+         AND dle.dividend_event_id = ANY($2::text[])
+         AND ($3::text IS NULL OR dle.account_id = $3)
+         AND dle.superseded_at IS NULL
+         AND dle.reversal_of_dividend_ledger_entry_id IS NULL
+         AND NOT EXISTS (
+           SELECT 1
+           FROM dividend_ledger_entries AS reversal
+           WHERE reversal.reversal_of_dividend_ledger_entry_id = dle.id
+         )
+       ORDER BY array_position($2::text[], dle.dividend_event_id), dle.id ASC`,
+      [userId, eventIds, opts.accountId ?? null],
+    );
+
+    const ledgerIds = ledgerResult.rows.map((row) => row.id);
+    const [deductionsResult, sourceLinesResult] = ledgerIds.length
+      ? await Promise.all([
+          this.pool.query(
+            `SELECT id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
+                    withheld_at_source, source, source_reference, note, booked_at
+             FROM dividend_deduction_entries
+             WHERE dividend_ledger_entry_id = ANY($1)
+             ORDER BY dividend_ledger_entry_id, booked_at, id`,
+            [ledgerIds],
+          ),
+          this.pool.query(
+            `SELECT id, dividend_ledger_entry_id, source_bucket, amount, currency_code,
+                    source, source_reference, note, booked_at
+             FROM dividend_source_lines
+             WHERE dividend_ledger_entry_id = ANY($1)
+             ORDER BY dividend_ledger_entry_id, booked_at, id`,
+            [ledgerIds],
+          ),
+        ])
+      : [{ rows: [] as Record<string, unknown>[] }, { rows: [] as Record<string, unknown>[] }];
+
+    const deductionsByLedgerId = groupRowsByKey(deductionsResult.rows, "dividend_ledger_entry_id");
+    const sourceLinesByLedgerId = groupRowsByKey(sourceLinesResult.rows, "dividend_ledger_entry_id");
+
+    const ledgerEntries = ledgerResult.rows.map((row) => ({
+      ...mapDividendLedgerEntryRow(row),
+      deductions: (deductionsByLedgerId.get(String(row.id)) ?? []).map((deduction) => ({
+        id: String(deduction.id),
+        dividendLedgerEntryId: String(deduction.dividend_ledger_entry_id),
+        deductionType: String(deduction.deduction_type) as DividendDeductionEntry["deductionType"],
+        amount: Number(deduction.amount),
+        currencyCode: String(deduction.currency_code),
+        withheldAtSource: Boolean(deduction.withheld_at_source),
+        source: String(deduction.source),
+        sourceReference: deduction.source_reference ? String(deduction.source_reference) : undefined,
+        note: deduction.note ? String(deduction.note) : undefined,
+        bookedAt: deduction.booked_at ? normalizeDateTime(String(deduction.booked_at)) : undefined,
+      })),
+      sourceLines: (sourceLinesByLedgerId.get(String(row.id)) ?? []).map((sourceLine) => ({
+        id: String(sourceLine.id),
+        dividendLedgerEntryId: String(sourceLine.dividend_ledger_entry_id),
+        sourceBucket: String(sourceLine.source_bucket) as DividendSourceLine["sourceBucket"],
+        amount: Number(sourceLine.amount),
+        currencyCode: String(sourceLine.currency_code),
+        source: String(sourceLine.source),
+        sourceReference: sourceLine.source_reference ? String(sourceLine.source_reference) : undefined,
+        note: sourceLine.note ? String(sourceLine.note) : undefined,
+        bookedAt: sourceLine.booked_at ? normalizeDateTime(String(sourceLine.booked_at)) : undefined,
+      })),
+    }));
+
+    return { dividendEvents, ledgerEntries };
   }
 
   async listDividendLedgerEntries(

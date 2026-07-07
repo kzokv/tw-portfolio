@@ -21,6 +21,13 @@ export class DividendsAssert extends BaseAssert {
   }
 
   @Step()
+  async monthControlsAreEnabled(): Promise<void> {
+    await expect(this.el.monthInput).toBeEnabled();
+    await expect(this.el.previousMonthButton).toBeEnabled();
+    await expect(this.el.nextMonthButton).toBeEnabled();
+  }
+
+  @Step()
   async actionQueueContains(text: string | RegExp): Promise<void> {
     await expect(this.el.actionQueue).toContainText(text);
   }
@@ -57,6 +64,16 @@ export class DividendsAssert extends BaseAssert {
   @Step()
   async tbdSectionIsVisible(): Promise<void> {
     await expect(this.el.tbdSection).toBeVisible();
+  }
+
+  @Step()
+  async tbdSectionIsHidden(): Promise<void> {
+    await expect(this.el.tbdSection).not.toBeVisible();
+  }
+
+  @Step()
+  async rowIsHidden(eventId: string): Promise<void> {
+    await expect(this.el.row(eventId)).not.toBeVisible();
   }
 
   @Step()
