@@ -261,7 +261,7 @@ export async function buildTickerDetails(
     transactions: filteredTransactions.map((trade) => mapTransactionHistoryItem(trade, accountById, buildRealizedPnlBreakdown)),
     dividends: {
       upcomingCount: upcomingDividends.length,
-      nextPaymentDate: minNullableDate(upcomingDividends.map((dividend) => dividend.paymentDate ?? dividend.exDividendDate)),
+      nextPaymentDate: minNullableDate(upcomingDividends.map((dividend) => dividend.paymentDate)),
       lastPostedDate: maxNullableDate(recentDividends.map((dividend) => dividend.postedAt)),
       openReconciliationCount: recentDividends.filter((dividend) => dividend.reconciliationStatus === "open").length,
       upcoming: upcomingDividends,

@@ -389,6 +389,18 @@ describe("buildTickerDetails", () => {
         stockDividendPerShare: 0,
         source: "test",
       },
+      {
+        id: "bhp-au-paid-upcoming-dividend",
+        ticker: "BHP",
+        marketCode: "AU",
+        eventType: "CASH",
+        exDividendDate: "2026-07-15",
+        paymentDate: "2026-08-01",
+        cashDividendPerShare: 3,
+        cashDividendCurrency: "USD",
+        stockDividendPerShare: 0,
+        source: "test",
+      },
     );
     store.accounting.facts.dividendLedgerEntries.push(
       {
@@ -468,17 +480,26 @@ describe("buildTickerDetails", () => {
     expect(details.accountBreakdown[0]).toEqual(expect.objectContaining({
       instrumentName: "BHP AU",
     }));
-    expect(details.dividends.upcoming).toEqual([
+    expect(details.dividends.upcoming).toEqual(expect.arrayContaining([
       expect.objectContaining({
         accountId: "acc-au",
         tickerName: "BHP Group",
         marketCode: "AU",
         currency: "USD",
         expectedAmount: 7.5,
+        paymentDate: null,
       }),
-    ]);
-    expect(details.dividends.upcomingCount).toBe(1);
-    expect(details.dividends.nextPaymentDate).toBe("2026-05-01");
+      expect.objectContaining({
+        accountId: "acc-au",
+        tickerName: "BHP Group",
+        marketCode: "AU",
+        currency: "USD",
+        expectedAmount: 9,
+        paymentDate: "2026-08-01",
+      }),
+    ]));
+    expect(details.dividends.upcomingCount).toBe(2);
+    expect(details.dividends.nextPaymentDate).toBe("2026-08-01");
     expect(details.dividends.recent).toEqual([
       expect.objectContaining({
         accountId: "acc-au",
