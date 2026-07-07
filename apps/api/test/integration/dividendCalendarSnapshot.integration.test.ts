@@ -235,4 +235,20 @@ describePostgres("PostgresPersistence.listDividendCalendarSnapshot", () => {
     expect(snapshot.dividendEvents.map((event) => event.id)).toEqual([heldEventId]);
     expect(snapshot.tradeEvents.map((event) => event.ticker)).toEqual(["2330"]);
   });
+
+  it("applies all-account eligibility before limiting snapshot events", async () => {
+    await insertDividendEvent("2026-02-05", "2026-02-02", { ticker: "1111" });
+    await insertDividendEvent("2026-02-06", "2026-02-03", { ticker: "2222" });
+    const heldEventId = await insertDividendEvent("2026-02-07", "2026-02-04", { ticker: "2330" });
+    await insertTrade({ tradeDate: "2026-02-01", ticker: "2330" });
+
+    const snapshot = await persistence.listDividendCalendarSnapshot(userId, {
+      fromPaymentDate: "2026-02-01",
+      toPaymentDate: "2026-02-28",
+      limit: 2,
+    });
+
+    expect(snapshot.dividendEvents.map((event) => event.id)).toEqual([heldEventId]);
+    expect(snapshot.tradeEvents.map((event) => event.ticker)).toEqual(["2330"]);
+  });
 });

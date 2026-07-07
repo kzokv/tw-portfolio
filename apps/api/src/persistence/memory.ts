@@ -2449,10 +2449,14 @@ export class MemoryPersistence implements Persistence {
         .map((trade) => trade.reversalOfTradeEventId)
         .filter((id): id is string => Boolean(id)),
     );
+    const eligibleAccountIds = store.accounts
+      .filter((account) => account.userId === userId)
+      .filter((account) => !opts.accountId || account.id === opts.accountId)
+      .map((account) => account.id);
     const accountHasCalendarEvent = (event: Store["marketData"]["dividendEvents"][number]): boolean => {
-      if (!opts.accountId) return true;
+      if (eligibleAccountIds.length === 0) return false;
       const hasActiveLedgerEntry = store.accounting.facts.dividendLedgerEntries.some((entry) =>
-        entry.accountId === opts.accountId &&
+        eligibleAccountIds.includes(entry.accountId) &&
         entry.dividendEventId === event.id &&
         !entry.reversalOfDividendLedgerEntryId &&
         !entry.supersededAt &&
@@ -2460,14 +2464,16 @@ export class MemoryPersistence implements Persistence {
       );
       if (hasActiveLedgerEntry) return true;
       const eventMarketCode = dividendEventMarketCode(event);
-      const eligibleQuantity = store.accounting.facts.tradeEvents
-        .filter((trade) => trade.accountId === opts.accountId)
-        .filter((trade) => trade.ticker === event.ticker && trade.marketCode === eventMarketCode)
-        .filter((trade) => trade.tradeDate < event.exDividendDate)
-        .filter((trade) => !trade.reversalOfTradeEventId)
-        .filter((trade) => !reversedTradeIds.has(trade.id))
-        .reduce((sum, trade) => sum + (trade.type === "BUY" ? trade.quantity : -trade.quantity), 0);
-      return eligibleQuantity > 0;
+      return eligibleAccountIds.some((accountId) => {
+        const eligibleQuantity = store.accounting.facts.tradeEvents
+          .filter((trade) => trade.accountId === accountId)
+          .filter((trade) => trade.ticker === event.ticker && trade.marketCode === eventMarketCode)
+          .filter((trade) => trade.tradeDate < event.exDividendDate)
+          .filter((trade) => !trade.reversalOfTradeEventId)
+          .filter((trade) => !reversedTradeIds.has(trade.id))
+          .reduce((sum, trade) => sum + (trade.type === "BUY" ? trade.quantity : -trade.quantity), 0);
+        return eligibleQuantity > 0;
+      });
     };
     const dividendEvents = store.marketData.dividendEvents
       .filter((event) => event.paymentDate != null)

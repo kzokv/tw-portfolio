@@ -9707,44 +9707,42 @@ export class PostgresPersistence implements Persistence {
          AND ($2::date IS NULL OR event.payment_date >= $2::date)
          AND ($3::date IS NULL OR event.payment_date <= $3::date)
          AND ($5::text IS NULL OR event.market_code = $5::text)
-         AND (
-           $6::text IS NULL
-           OR EXISTS (
-             SELECT 1
-             FROM dividend_ledger_entries AS dle
-             JOIN accounts AS account
-               ON account.id = dle.account_id
-             WHERE account.user_id = $1
-               AND account.deleted_at IS NULL
-               AND dle.account_id = $6
-               AND dle.dividend_event_id = event.id
-               AND dle.superseded_at IS NULL
-               AND dle.reversal_of_dividend_ledger_entry_id IS NULL
-               AND NOT EXISTS (
+         AND EXISTS (
+           SELECT 1
+           FROM accounts AS candidate_account
+           WHERE candidate_account.user_id = $1
+             AND candidate_account.deleted_at IS NULL
+             AND ($6::text IS NULL OR candidate_account.id = $6)
+             AND (
+               EXISTS (
                  SELECT 1
-                 FROM dividend_ledger_entries AS reversal
-                 WHERE reversal.reversal_of_dividend_ledger_entry_id = dle.id
+                 FROM dividend_ledger_entries AS dle
+                 WHERE dle.account_id = candidate_account.id
+                   AND dle.dividend_event_id = event.id
+                   AND dle.superseded_at IS NULL
+                   AND dle.reversal_of_dividend_ledger_entry_id IS NULL
+                   AND NOT EXISTS (
+                     SELECT 1
+                     FROM dividend_ledger_entries AS reversal
+                     WHERE reversal.reversal_of_dividend_ledger_entry_id = dle.id
+                   )
                )
-           )
-           OR COALESCE((
-             SELECT SUM(CASE WHEN trade.trade_type = 'BUY' THEN trade.quantity ELSE -trade.quantity END)
-             FROM trade_events AS trade
-             JOIN accounts AS account
-               ON account.id = trade.account_id
-             WHERE trade.user_id = $1
-               AND account.user_id = $1
-               AND account.deleted_at IS NULL
-               AND trade.account_id = $6
-               AND trade.ticker = event.ticker
-               AND trade.market_code = event.market_code
-               AND trade.trade_date < event.ex_dividend_date
-               AND trade.reversal_of_trade_event_id IS NULL
-               AND NOT EXISTS (
-                 SELECT 1
-                 FROM trade_events AS reversal
-                 WHERE reversal.reversal_of_trade_event_id = trade.id
-               )
-           ), 0) > 0
+               OR COALESCE((
+                 SELECT SUM(CASE WHEN trade.trade_type = 'BUY' THEN trade.quantity ELSE -trade.quantity END)
+                 FROM trade_events AS trade
+                 WHERE trade.user_id = $1
+                   AND trade.account_id = candidate_account.id
+                   AND trade.ticker = event.ticker
+                   AND trade.market_code = event.market_code
+                   AND trade.trade_date < event.ex_dividend_date
+                   AND trade.reversal_of_trade_event_id IS NULL
+                   AND NOT EXISTS (
+                     SELECT 1
+                     FROM trade_events AS reversal
+                     WHERE reversal.reversal_of_trade_event_id = trade.id
+                   )
+               ), 0) > 0
+             )
          )
        ORDER BY event.payment_date, event.ex_dividend_date, event.id
        LIMIT $4`,

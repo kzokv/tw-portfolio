@@ -182,7 +182,7 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
     await seedBuy(accountId, "2330", 1000, "2024-05-20", {
       reversalOfTradeEventId: original.id,
     });
-    const event = await seedDividendEvent();
+    await seedDividendEvent();
 
     const snapshot = await app.persistence.listDividendCalendarSnapshot(USER_ID, {
       fromPaymentDate: "2024-07-01",
@@ -190,7 +190,7 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
       limit: 20,
     });
 
-    expect(snapshot.dividendEvents.map((entry) => entry.id)).toEqual([event.id]);
+    expect(snapshot.dividendEvents).toEqual([]);
     expect(snapshot.tradeEvents).toEqual([]);
   });
 
@@ -220,6 +220,38 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
       accountId,
       fromPaymentDate: "2024-07-01",
       toPaymentDate: "2024-07-31",
+      limit: 2,
+    });
+
+    expect(snapshot.dividendEvents.map((entry) => entry.id)).toEqual([heldEvent.id]);
+    expect(snapshot.tradeEvents.map((entry) => entry.ticker)).toEqual(["2330"]);
+  });
+
+  it("applies all-account eligibility before limiting dividend calendar snapshot events", async () => {
+    const accountId = await seedTwdAccount();
+    await seedDividendEvent({
+      ticker: "1111",
+      marketCode: "TW",
+      paymentDate: "2024-08-01",
+      exDividendDate: "2024-07-01",
+    });
+    await seedDividendEvent({
+      ticker: "2222",
+      marketCode: "TW",
+      paymentDate: "2024-08-02",
+      exDividendDate: "2024-07-02",
+    });
+    const heldEvent = await seedDividendEvent({
+      ticker: "2330",
+      marketCode: "TW",
+      paymentDate: "2024-08-03",
+      exDividendDate: "2024-07-03",
+    });
+    await seedBuy(accountId, "2330", 1000, "2024-06-20");
+
+    const snapshot = await app.persistence.listDividendCalendarSnapshot(USER_ID, {
+      fromPaymentDate: "2024-08-01",
+      toPaymentDate: "2024-08-31",
       limit: 2,
     });
 

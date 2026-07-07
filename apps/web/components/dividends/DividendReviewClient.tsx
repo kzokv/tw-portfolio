@@ -304,7 +304,13 @@ export function DividendReviewClient({
   }, [applyFilters, dict]);
 
   const handleTickerApply = useCallback((ticker: string) => {
-    applyFilters({ ...filters, ticker, page: 1 });
+    const nextTicker = ticker.trim();
+    applyFilters({
+      ...filters,
+      ticker: nextTicker,
+      marketCode: nextTicker ? filters.marketCode : "",
+      page: 1,
+    });
   }, [filters, applyFilters]);
 
   const handleAccountChange = useCallback((accountId: string) => {
