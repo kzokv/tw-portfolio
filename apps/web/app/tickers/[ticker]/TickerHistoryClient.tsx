@@ -1880,6 +1880,7 @@ export function TickerHistoryClient({
               dividends={detailsState.dividends}
               onMarkMatched={handleTickerDividendMarkMatched}
               pendingLedgerEntryId={pendingDividendLedgerEntryId}
+              canWriteDividends={canWriteTransactions}
             />
           </TabsContent>
 

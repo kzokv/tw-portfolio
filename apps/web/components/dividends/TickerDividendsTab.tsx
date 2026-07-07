@@ -27,6 +27,7 @@ interface TickerDividendsTabProps {
   };
   onMarkMatched: (dividendLedgerEntryId: string) => void;
   pendingLedgerEntryId: string | null;
+  canWriteDividends: boolean;
 }
 
 function buildDividendReviewHref(ticker: string, marketCode: string, extra?: Record<string, string>): string {
@@ -139,6 +140,7 @@ export function TickerDividendsTab({
   dividends,
   onMarkMatched,
   pendingLedgerEntryId,
+  canWriteDividends,
 }: TickerDividendsTabProps) {
   const openReviewHref = buildDividendReviewHref(ticker, marketCode);
   const upcomingEvents = dividends.upcoming;
@@ -286,7 +288,7 @@ export function TickerDividendsTab({
             ) : (
               <div className="divide-y divide-slate-200">
                 {postedHistory.map((item, index) => {
-                  const canMarkMatched = item.reconciliationStatus === "open" && item.dividendLedgerEntryId;
+                  const canMarkMatched = canWriteDividends && item.reconciliationStatus === "open" && item.dividendLedgerEntryId;
                   const rowReviewHref = buildDividendReviewHref(
                     ticker,
                     marketCode,
@@ -371,7 +373,7 @@ export function TickerDividendsTab({
                       </span>
                     </div>
                     <div className="mt-4 flex flex-wrap gap-2">
-                      {item.dividendLedgerEntryId ? (
+                      {canWriteDividends && item.dividendLedgerEntryId ? (
                         <Button
                           size="sm"
                           onClick={() => onMarkMatched(item.dividendLedgerEntryId!)}

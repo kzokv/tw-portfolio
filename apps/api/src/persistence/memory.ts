@@ -2439,10 +2439,41 @@ export class MemoryPersistence implements Persistence {
     opts: DividendCalendarSnapshotOptions,
   ) {
     const store = await this.loadStore(userId);
+    const reversedIds = new Set(
+      store.accounting.facts.dividendLedgerEntries
+        .map((entry) => entry.reversalOfDividendLedgerEntryId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    const reversedTradeIds = new Set(
+      store.accounting.facts.tradeEvents
+        .map((trade) => trade.reversalOfTradeEventId)
+        .filter((id): id is string => Boolean(id)),
+    );
+    const accountHasCalendarEvent = (event: Store["marketData"]["dividendEvents"][number]): boolean => {
+      if (!opts.accountId) return true;
+      const hasActiveLedgerEntry = store.accounting.facts.dividendLedgerEntries.some((entry) =>
+        entry.accountId === opts.accountId &&
+        entry.dividendEventId === event.id &&
+        !entry.reversalOfDividendLedgerEntryId &&
+        !entry.supersededAt &&
+        !reversedIds.has(entry.id),
+      );
+      if (hasActiveLedgerEntry) return true;
+      const eventMarketCode = dividendEventMarketCode(event);
+      const eligibleQuantity = store.accounting.facts.tradeEvents
+        .filter((trade) => trade.accountId === opts.accountId)
+        .filter((trade) => trade.ticker === event.ticker && trade.marketCode === eventMarketCode)
+        .filter((trade) => trade.tradeDate < event.exDividendDate)
+        .filter((trade) => !trade.reversalOfTradeEventId)
+        .filter((trade) => !reversedTradeIds.has(trade.id))
+        .reduce((sum, trade) => sum + (trade.type === "BUY" ? trade.quantity : -trade.quantity), 0);
+      return eligibleQuantity > 0;
+    };
     const dividendEvents = store.marketData.dividendEvents
       .filter((event) => event.paymentDate != null)
       .filter((event) => matchesDateRange(event.paymentDate!, opts.fromPaymentDate, opts.toPaymentDate))
       .filter((event) => !opts.marketCode || dividendEventMarketCode(event) === opts.marketCode)
+      .filter((event) => accountHasCalendarEvent(event))
       .sort(compareNullablePaymentDates)
       .slice(0, opts.limit);
     const eventIds = new Set(dividendEvents.map((event) => event.id));
@@ -2454,12 +2485,6 @@ export class MemoryPersistence implements Persistence {
       if (!ledgerId) continue;
       receivedByLedgerId.set(ledgerId, (receivedByLedgerId.get(ledgerId) ?? 0) + cashEntry.amount);
     }
-
-    const reversedIds = new Set(
-      store.accounting.facts.dividendLedgerEntries
-        .map((entry) => entry.reversalOfDividendLedgerEntryId)
-        .filter((id): id is string => Boolean(id)),
-    );
 
     const ledgerEntries = store.accounting.facts.dividendLedgerEntries
       .filter((entry) => {
@@ -2492,11 +2517,6 @@ export class MemoryPersistence implements Persistence {
       null,
     );
     const accountIds = opts.accountId ? new Set([opts.accountId]) : new Set(store.accounts.map((account) => account.id));
-    const reversedTradeIds = new Set(
-      store.accounting.facts.tradeEvents
-        .map((trade) => trade.reversalOfTradeEventId)
-        .filter((id): id is string => Boolean(id)),
-    );
 
     return {
       dividendEvents,

@@ -9698,18 +9698,64 @@ export class PostgresPersistence implements Persistence {
   ) {
     await this.ensureDefaultPortfolioData(userId);
     const eventsResult = await this.pool.query(
-      `SELECT id, ticker, market_code, event_type, ex_dividend_date, payment_date,
+      `SELECT event.id, event.ticker, event.market_code, event.event_type, event.ex_dividend_date, event.payment_date,
               cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
               source, source_reference, ingested_at AS created_at,
               fiscal_year_period, announcement_date, total_distribution_shares
-       FROM market_data.dividend_events
-       WHERE payment_date IS NOT NULL
-         AND ($1::date IS NULL OR payment_date >= $1::date)
-         AND ($2::date IS NULL OR payment_date <= $2::date)
-         AND ($4::text IS NULL OR market_code = $4::text)
-       ORDER BY payment_date, ex_dividend_date, id
-       LIMIT $3`,
-      [opts.fromPaymentDate ?? null, opts.toPaymentDate ?? null, opts.limit, opts.marketCode ?? null],
+       FROM market_data.dividend_events AS event
+       WHERE event.payment_date IS NOT NULL
+         AND ($2::date IS NULL OR event.payment_date >= $2::date)
+         AND ($3::date IS NULL OR event.payment_date <= $3::date)
+         AND ($5::text IS NULL OR event.market_code = $5::text)
+         AND (
+           $6::text IS NULL
+           OR EXISTS (
+             SELECT 1
+             FROM dividend_ledger_entries AS dle
+             JOIN accounts AS account
+               ON account.id = dle.account_id
+             WHERE account.user_id = $1
+               AND account.deleted_at IS NULL
+               AND dle.account_id = $6
+               AND dle.dividend_event_id = event.id
+               AND dle.superseded_at IS NULL
+               AND dle.reversal_of_dividend_ledger_entry_id IS NULL
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM dividend_ledger_entries AS reversal
+                 WHERE reversal.reversal_of_dividend_ledger_entry_id = dle.id
+               )
+           )
+           OR COALESCE((
+             SELECT SUM(CASE WHEN trade.trade_type = 'BUY' THEN trade.quantity ELSE -trade.quantity END)
+             FROM trade_events AS trade
+             JOIN accounts AS account
+               ON account.id = trade.account_id
+             WHERE trade.user_id = $1
+               AND account.user_id = $1
+               AND account.deleted_at IS NULL
+               AND trade.account_id = $6
+               AND trade.ticker = event.ticker
+               AND trade.market_code = event.market_code
+               AND trade.trade_date < event.ex_dividend_date
+               AND trade.reversal_of_trade_event_id IS NULL
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM trade_events AS reversal
+                 WHERE reversal.reversal_of_trade_event_id = trade.id
+               )
+           ), 0) > 0
+         )
+       ORDER BY event.payment_date, event.ex_dividend_date, event.id
+       LIMIT $4`,
+      [
+        userId,
+        opts.fromPaymentDate ?? null,
+        opts.toPaymentDate ?? null,
+        opts.limit,
+        opts.marketCode ?? null,
+        opts.accountId ?? null,
+      ],
     );
 
     const dividendEvents = eventsResult.rows.map((row) => ({

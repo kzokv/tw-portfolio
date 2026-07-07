@@ -51,6 +51,7 @@ describe("TickerDividendsTab", () => {
         }}
         onMarkMatched={() => {}}
         pendingLedgerEntryId={null}
+        canWriteDividends
       />,
     );
 
@@ -87,10 +88,55 @@ describe("TickerDividendsTab", () => {
         }}
         onMarkMatched={() => {}}
         pendingLedgerEntryId={null}
+        canWriteDividends
       />,
     );
 
     expect(html).toContain(dict.dividends.paymentDateTbdSection);
     expect(html).not.toContain(dict.dividends.ticker.summary.noUpcoming);
+  });
+
+  it("hides Mark matched actions when dividend writes are disabled", () => {
+    const html = renderToStaticMarkup(
+      <TickerDividendsTab
+        dict={dict}
+        locale="en"
+        marketCode="TW"
+        ticker="2330"
+        tickerName="TSMC"
+        dividends={{
+          upcomingCount: 0,
+          nextPaymentDate: null,
+          lastPostedDate: "2024-07-12",
+          openReconciliationCount: 1,
+          upcoming: [],
+          recent: [{
+            accountId: "acc-1",
+            accountName: "Main",
+            ticker: "2330",
+            tickerName: "TSMC",
+            marketCode: "TW",
+            dividendLedgerEntryId: "ledger-readonly",
+            paymentDate: "2024-07-12",
+            postedAt: "2026-01-02T12:00:00.000Z",
+            netAmount: 96,
+            grossAmount: 120,
+            deductionAmount: 24,
+            currency: "TWD",
+            sourceSummary: "Cash dividend",
+            reconciliationStatus: "open",
+            status: "unreconciled",
+          }],
+        }}
+        onMarkMatched={() => {}}
+        pendingLedgerEntryId={null}
+        canWriteDividends={false}
+      />,
+    );
+
+    expect(html).not.toContain("ticker-dividends-mark-matched-ledger-readonly");
+    expect(html).not.toContain("ticker-reconciliation-mark-matched-ledger-readonly");
+    expect(html).toContain("ticker-posted-dividend-review-0");
+    expect(html).toContain("ticker-open-reconciliation-review-0");
   });
 });

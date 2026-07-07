@@ -55,14 +55,29 @@ describePostgres("PostgresPersistence.listDividendCalendarSnapshot", () => {
     await pool.end();
   });
 
-  async function insertDividendEvent(paymentDate: string | null, exDividendDate: string): Promise<string> {
+  async function insertDividendEvent(
+    paymentDate: string | null,
+    exDividendDate: string,
+    overrides: {
+      ticker?: string;
+      marketCode?: string;
+      cashDividendCurrency?: string;
+    } = {},
+  ): Promise<string> {
     const id = randomUUID();
     await pool.query(
       `INSERT INTO market_data.dividend_events
          (id, ticker, market_code, event_type, ex_dividend_date, payment_date,
           cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share, source)
-       VALUES ($1, '2330', 'TW', 'CASH', $2, $3, 1, 'TWD', 0, 'test_seed')`,
-      [id, exDividendDate, paymentDate],
+       VALUES ($1, $2, $3, 'CASH', $4, $5, 1, $6, 0, 'test_seed')`,
+      [
+        id,
+        overrides.ticker ?? "2330",
+        overrides.marketCode ?? "TW",
+        exDividendDate,
+        paymentDate,
+        overrides.cashDividendCurrency ?? "TWD",
+      ],
     );
     return id;
   }
@@ -202,5 +217,22 @@ describePostgres("PostgresPersistence.listDividendCalendarSnapshot", () => {
 
     expect(snapshot.dividendEvents.map((event) => event.id)).toEqual([eventId]);
     expect(snapshot.tradeEvents).toEqual([]);
+  });
+
+  it("applies account eligibility before limiting snapshot events", async () => {
+    await insertDividendEvent("2026-01-05", "2026-01-02", { ticker: "1111" });
+    await insertDividendEvent("2026-01-06", "2026-01-03", { ticker: "2222" });
+    const heldEventId = await insertDividendEvent("2026-01-07", "2026-01-04", { ticker: "2330" });
+    await insertTrade({ tradeDate: "2026-01-01", ticker: "2330" });
+
+    const snapshot = await persistence.listDividendCalendarSnapshot(userId, {
+      accountId,
+      fromPaymentDate: "2026-01-01",
+      toPaymentDate: "2026-01-31",
+      limit: 2,
+    });
+
+    expect(snapshot.dividendEvents.map((event) => event.id)).toEqual([heldEventId]);
+    expect(snapshot.tradeEvents.map((event) => event.ticker)).toEqual(["2330"]);
   });
 });

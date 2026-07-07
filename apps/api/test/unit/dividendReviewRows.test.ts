@@ -194,6 +194,39 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
     expect(snapshot.tradeEvents).toEqual([]);
   });
 
+  it("applies account eligibility before limiting dividend calendar snapshot events", async () => {
+    const accountId = await seedTwdAccount();
+    await seedDividendEvent({
+      ticker: "1111",
+      marketCode: "TW",
+      paymentDate: "2024-07-01",
+      exDividendDate: "2024-06-01",
+    });
+    await seedDividendEvent({
+      ticker: "2222",
+      marketCode: "TW",
+      paymentDate: "2024-07-02",
+      exDividendDate: "2024-06-02",
+    });
+    const heldEvent = await seedDividendEvent({
+      ticker: "2330",
+      marketCode: "TW",
+      paymentDate: "2024-07-03",
+      exDividendDate: "2024-06-03",
+    });
+    await seedBuy(accountId, "2330", 1000, "2024-05-20");
+
+    const snapshot = await app.persistence.listDividendCalendarSnapshot(USER_ID, {
+      accountId,
+      fromPaymentDate: "2024-07-01",
+      toPaymentDate: "2024-07-31",
+      limit: 2,
+    });
+
+    expect(snapshot.dividendEvents.map((entry) => entry.id)).toEqual([heldEvent.id]);
+    expect(snapshot.tradeEvents.map((entry) => entry.ticker)).toEqual(["2330"]);
+  });
+
   it("excludes expected-only rows from posted open reconciliation filters", async () => {
     const accountId = await seedTwdAccount();
     await seedBuy(accountId, "2330", 1000, "2024-05-20");
