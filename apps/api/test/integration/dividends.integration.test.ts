@@ -421,6 +421,62 @@ describe("dividends", () => {
     ]);
   });
 
+  it("applies the calendar account filter to dividend event rows", async () => {
+    await seedInstrument();
+    await seedBuyAtDate("2026-01-15");
+    const accountResponse = await app.inject({
+      method: "POST",
+      url: "/accounts",
+      payload: {
+        name: "Second TW Account",
+        defaultCurrency: "TWD",
+        accountType: "broker",
+      },
+    });
+    expect(accountResponse.statusCode).toBe(200);
+    const secondAccount = accountResponse.json() as { id: string };
+    const secondTradeResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "calendar-second-account-position" },
+      payload: transactionPayload({
+        accountId: secondAccount.id,
+        ticker: "2330",
+        marketCode: "TW",
+        quantity: 20,
+        unitPrice: 100,
+        priceCurrency: "TWD",
+        tradeDate: "2026-01-15",
+      }),
+    });
+    expect(secondTradeResponse.statusCode).toBe(200);
+    await seedDividendEvent({
+      ticker: "2330",
+      eventType: "CASH",
+      exDividendDate: "2026-02-01",
+      paymentDate: "2026-02-20",
+      cashDividendPerShare: 12,
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/calendar?accountId=acc-1&fromPaymentDate=2026-02-01&toPaymentDate=2026-02-28&limit=20",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().events).toEqual([
+      expect.objectContaining({
+        accountId: "acc-1",
+        ticker: "2330",
+        tickerName: "TSMC",
+        paymentDate: "2026-02-20",
+        eligibleQuantity: 10,
+        expectedCashAmount: 120,
+      }),
+    ]);
+    expect(response.json().events).toHaveLength(1);
+  });
+
   it("returns only paid January 2026 rows for the month-scoped calendar snapshot", async () => {
     await seedInstrument();
     await seedBuyAtDate("2025-12-15");

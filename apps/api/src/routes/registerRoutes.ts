@@ -6282,9 +6282,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       marketCode: query.marketCode,
       limit: query.limit,
     });
+    const eventStore = query.accountId
+      ? { ...store, accounts: store.accounts.filter((account) => account.id === query.accountId) }
+      : store;
 
     return {
-      events: buildDividendEventListItems(store, snapshot.dividendEvents),
+      events: buildDividendEventListItems(eventStore, snapshot.dividendEvents),
       ledgerEntries: buildDividendLedgerEntryDetails(store, snapshot.ledgerEntries, { preserveOrder: true }),
     };
   });
