@@ -1177,6 +1177,8 @@ export type DividendReviewRowKind = "ledger" | "expected";
 export type DividendReviewRowWithDetails = DividendLedgerEntryWithDetails & {
   rowKind: DividendReviewRowKind;
   ticker: string;
+  tickerName: string | null;
+  marketCode: MarketCode;
   instrumentType: InstrumentType;
   eventType: Store["marketData"]["dividendEvents"][number]["eventType"];
   exDividendDate: string;

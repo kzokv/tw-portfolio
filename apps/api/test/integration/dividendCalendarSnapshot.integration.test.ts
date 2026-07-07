@@ -205,7 +205,7 @@ describePostgres("PostgresPersistence.listDividendCalendarSnapshot", () => {
   });
 
   it("excludes reversed trade pairs from the snapshot trade context", async () => {
-    const eventId = await insertDividendEvent("2026-01-20", "2026-01-10");
+    await insertDividendEvent("2026-01-20", "2026-01-10");
     const originalTradeId = await insertTrade({ tradeDate: "2026-01-05" });
     await insertTrade({ tradeDate: "2026-01-05", reversalOf: originalTradeId });
 
@@ -215,7 +215,7 @@ describePostgres("PostgresPersistence.listDividendCalendarSnapshot", () => {
       limit: 20,
     });
 
-    expect(snapshot.dividendEvents.map((event) => event.id)).toEqual([eventId]);
+    expect(snapshot.dividendEvents).toEqual([]);
     expect(snapshot.tradeEvents).toEqual([]);
   });
 

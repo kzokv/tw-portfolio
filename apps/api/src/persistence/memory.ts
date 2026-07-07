@@ -2722,6 +2722,10 @@ export class MemoryPersistence implements Persistence {
         return "STOCK";
       }
     };
+    const instrumentNameFor = (ticker: string, marketCode: MarketCode): string | null =>
+      store.instruments.find((instrument) => instrument.ticker === ticker && instrument.marketCode === marketCode)?.name
+      ?? store.marketData.instruments.find((instrument) => instrument.ticker === ticker && instrument.marketCode === marketCode)?.name
+      ?? null;
 
     const dateFilterActive = opts.fromPaymentDate != null || opts.toPaymentDate != null;
     const matchesDateFilter = (paymentDate: string | null | undefined): boolean => {
@@ -2735,13 +2739,16 @@ export class MemoryPersistence implements Persistence {
       if (opts.postingStatus && entry.postingStatus !== opts.postingStatus) return [];
       const event = eventById.get(entry.dividendEventId);
       if (!event) return [];
-      if (opts.marketCode && dividendEventMarketCode(event) !== opts.marketCode) return [];
+      const eventMarketCode = dividendEventMarketCode(event);
+      if (opts.marketCode && eventMarketCode !== opts.marketCode) return [];
       if (!matchesDateFilter(event.paymentDate)) return [];
       if (opts.ticker && event.ticker !== opts.ticker) return [];
       return [{
         ...entry,
         rowKind: "ledger",
         ticker: event.ticker,
+        tickerName: instrumentNameFor(event.ticker, eventMarketCode),
+        marketCode: eventMarketCode,
         instrumentType: instrumentTypeFor(event.ticker, event.cashDividendCurrency),
         eventType: event.eventType,
         exDividendDate: event.exDividendDate,
@@ -2800,6 +2807,8 @@ export class MemoryPersistence implements Persistence {
           accountId: account.id,
           dividendEventId: event.id,
           ticker: event.ticker,
+          tickerName: instrumentNameFor(event.ticker, eventMarketCode),
+          marketCode: eventMarketCode,
           instrumentType: instrumentTypeFor(event.ticker, event.cashDividendCurrency),
           eventType: event.eventType,
           exDividendDate: event.exDividendDate,

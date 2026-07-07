@@ -103,7 +103,6 @@ import { resolveAccountDisplayName } from "../services/mcpAccountHelpers.js";
 import {
   buildDividendEventListItems,
   buildDividendLedgerEntryDetails,
-  buildDividendReviewRowDetails,
   createDividendEvent,
   postDividend,
   preparePostedCashDividendUpdate,
@@ -6301,7 +6300,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/portfolio/dividends/review", async (req) => {
     const query = dividendLedgerQuerySchema.parse(req.query);
-    const { userId, store } = await loadUserStore(app, req);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
     const result = await app.persistence.listDividendReviewRows(userId, {
       accountId: query.accountId,
       fromPaymentDate: query.fromPaymentDate,
@@ -6317,7 +6316,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     });
 
     return {
-      reviewRows: buildDividendReviewRowDetails(store, result.rows),
+      reviewRows: result.rows,
       total: result.total,
       aggregates: result.aggregates,
     };
