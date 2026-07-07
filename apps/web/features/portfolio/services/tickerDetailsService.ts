@@ -206,6 +206,17 @@ function findScopedCatalogInstrument(
   return instrument?.ticker === ticker && instrument.marketCode === marketCode ? instrument : null;
 }
 
+function matchesDividendScope(
+  dividend: DashboardOverviewUpcomingDividendDto | DashboardOverviewRecentDividendDto,
+  ticker: string,
+  marketCode: string,
+  accountId?: string,
+): boolean {
+  return dividend.ticker === ticker
+    && dividend.marketCode === marketCode
+    && (!accountId || dividend.accountId === accountId);
+}
+
 function buildFallbackFundamentals(
   instrument: InstrumentCatalogItemDto | null,
   holding: DashboardOverviewHoldingDto | DashboardOverviewHoldingGroupDto | undefined,
@@ -299,10 +310,10 @@ export function buildPrimaryTickerDetails({
   const scopedCatalogInstrument = findScopedCatalogInstrument(ticker, resolvedMarketCode, instrument);
   const currency = holding?.currency ?? transactions[0]?.priceCurrency ?? "TWD";
   const upcomingDividends = dashboard.dividends.upcoming.filter(
-    (dividend) => dividend.ticker === ticker && (!accountId || dividend.accountId === accountId),
+    (dividend) => matchesDividendScope(dividend, ticker, resolvedMarketCode, accountId),
   );
   const recentDividends = dashboard.dividends.recent.filter(
-    (dividend) => dividend.ticker === ticker && (!accountId || dividend.accountId === accountId),
+    (dividend) => matchesDividendScope(dividend, ticker, resolvedMarketCode, accountId),
   );
 
   return {
