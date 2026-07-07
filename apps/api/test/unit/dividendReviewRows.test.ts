@@ -176,6 +176,24 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
     expect(review.total).toBe(0);
   });
 
+  it("excludes reversed trade pairs from dividend calendar snapshot trade context", async () => {
+    const accountId = await seedTwdAccount();
+    const original = await seedBuy(accountId, "2330", 1000, "2024-05-20");
+    await seedBuy(accountId, "2330", 1000, "2024-05-20", {
+      reversalOfTradeEventId: original.id,
+    });
+    const event = await seedDividendEvent();
+
+    const snapshot = await app.persistence.listDividendCalendarSnapshot(USER_ID, {
+      fromPaymentDate: "2024-07-01",
+      toPaymentDate: "2024-07-31",
+      limit: 20,
+    });
+
+    expect(snapshot.dividendEvents.map((entry) => entry.id)).toEqual([event.id]);
+    expect(snapshot.tradeEvents).toEqual([]);
+  });
+
   it("excludes expected-only rows from posted open reconciliation filters", async () => {
     const accountId = await seedTwdAccount();
     await seedBuy(accountId, "2330", 1000, "2024-05-20");

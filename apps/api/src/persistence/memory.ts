@@ -2492,6 +2492,11 @@ export class MemoryPersistence implements Persistence {
       null,
     );
     const accountIds = opts.accountId ? new Set([opts.accountId]) : new Set(store.accounts.map((account) => account.id));
+    const reversedTradeIds = new Set(
+      store.accounting.facts.tradeEvents
+        .map((trade) => trade.reversalOfTradeEventId)
+        .filter((id): id is string => Boolean(id)),
+    );
 
     return {
       dividendEvents,
@@ -2503,6 +2508,8 @@ export class MemoryPersistence implements Persistence {
           .filter((trade) => accountIds.has(trade.accountId))
           .filter((trade) => eventPairs.has(`${trade.marketCode}:${trade.ticker}`))
           .filter((trade) => trade.tradeDate < maxExDividendDate)
+          .filter((trade) => !trade.reversalOfTradeEventId)
+          .filter((trade) => !reversedTradeIds.has(trade.id))
         : [],
     };
   }

@@ -9789,6 +9789,12 @@ export class PostgresPersistence implements Persistence {
                AND account.deleted_at IS NULL
                AND ($4::text IS NULL OR trade.account_id = $4)
                AND trade.trade_date < $5::date
+               AND trade.reversal_of_trade_event_id IS NULL
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM trade_events AS reversal
+                 WHERE reversal.reversal_of_trade_event_id = trade.id
+               )
              ORDER BY trade.trade_date, trade.booking_sequence, trade.id`,
             [userId, eventMarketCodes, eventTickers, opts.accountId ?? null, maxExDividendDate],
           )

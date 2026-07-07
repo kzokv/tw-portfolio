@@ -84,6 +84,62 @@ describePostgres("PostgresPersistence.listDividendCalendarSnapshot", () => {
     return id;
   }
 
+  async function insertTrade(params: {
+    tradeDate: string;
+    ticker?: string;
+    marketCode?: string;
+    priceCurrency?: string;
+    quantity?: number;
+    reversalOf?: string | null;
+  }): Promise<string> {
+    const id = randomUUID();
+    const bookedAt = `${params.tradeDate}T00:00:00.000Z`;
+    const feePolicySnapshotId = `calendar-snapshot-fee:${id}`;
+    await pool.query(
+      `INSERT INTO trade_fee_policy_snapshots (
+         id, user_id, profile_id_at_booking, profile_name_at_booking, board_commission_rate,
+         commission_discount_percent, minimum_commission_amount, commission_currency,
+         commission_rounding_mode, tax_rounding_mode, stock_sell_tax_rate_bps,
+         stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps,
+         commission_charge_mode, booked_at
+       ) VALUES (
+         $1, $2, 'fp-default', 'Default Broker', 1.425,
+         0, 20, $3,
+         'FLOOR', 'FLOOR', 30,
+         15, 10, 0,
+         'CHARGED_UPFRONT', $4
+       )`,
+      [feePolicySnapshotId, userId, params.priceCurrency ?? "TWD", bookedAt],
+    );
+    await pool.query(
+      `INSERT INTO trade_events (
+         id, user_id, account_id, ticker, market_code, instrument_type, trade_type,
+         quantity, unit_price, price_currency, trade_date, trade_timestamp, booking_sequence,
+         commission_amount, tax_amount, is_day_trade, fee_policy_snapshot_id,
+         source, source_reference, booked_at, reversal_of_trade_event_id
+       ) VALUES (
+         $1, $2, $3, $4, $5, 'STOCK', 'BUY',
+         $6, 100, $7, $8, $9, 1,
+         0, 0, false, $10,
+         'test_seed', $1, $9, $11
+       )`,
+      [
+        id,
+        userId,
+        accountId,
+        params.ticker ?? "2330",
+        params.marketCode ?? "TW",
+        params.quantity ?? 10,
+        params.priceCurrency ?? "TWD",
+        params.tradeDate,
+        bookedAt,
+        feePolicySnapshotId,
+        params.reversalOf ?? null,
+      ],
+    );
+    return id;
+  }
+
   async function seedSnapshotFixture(): Promise<{
     januaryEventId: string;
     januaryLedgerId: string;
@@ -131,5 +187,20 @@ describePostgres("PostgresPersistence.listDividendCalendarSnapshot", () => {
     expect(snapshot.dividendEvents.map((event) => event.paymentDate)).toEqual(["2026-04-20"]);
     expect(snapshot.ledgerEntries.map((entry) => entry.id)).toEqual([fixture.aprilLedgerId]);
     expect(snapshot.ledgerEntries.every((entry) => entry.dividendEventId === fixture.aprilEventId)).toBe(true);
+  });
+
+  it("excludes reversed trade pairs from the snapshot trade context", async () => {
+    const eventId = await insertDividendEvent("2026-01-20", "2026-01-10");
+    const originalTradeId = await insertTrade({ tradeDate: "2026-01-05" });
+    await insertTrade({ tradeDate: "2026-01-05", reversalOf: originalTradeId });
+
+    const snapshot = await persistence.listDividendCalendarSnapshot(userId, {
+      fromPaymentDate: "2026-01-01",
+      toPaymentDate: "2026-01-31",
+      limit: 20,
+    });
+
+    expect(snapshot.dividendEvents.map((event) => event.id)).toEqual([eventId]);
+    expect(snapshot.tradeEvents).toEqual([]);
   });
 });
