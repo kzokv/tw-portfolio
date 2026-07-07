@@ -6274,7 +6274,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/portfolio/dividends/calendar", async (req) => {
     const query = dividendLedgerQuerySchema.parse(req.query);
-    const { userId, store } = await loadUserStore(app, req);
+    const { contextUserId: userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
     const snapshot = await app.persistence.listDividendCalendarSnapshot(userId, {
       accountId: query.accountId,
       fromPaymentDate: query.fromPaymentDate,
@@ -6282,13 +6282,20 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       marketCode: query.marketCode,
       limit: query.limit,
     });
-    const eventStore = query.accountId
-      ? { ...store, accounts: store.accounts.filter((account) => account.id === query.accountId) }
-      : store;
+    const snapshotStore = createStore();
+    snapshotStore.userId = userId;
+    snapshotStore.settings.userId = userId;
+    snapshotStore.accounts = snapshot.accounts;
+    snapshotStore.marketData.dividendEvents = snapshot.dividendEvents;
+    snapshotStore.accounting.facts.tradeEvents = snapshot.tradeEvents;
+    snapshotStore.accounting.facts.dividendLedgerEntries = snapshot.ledgerEntries;
+    snapshotStore.accounting.facts.dividendDeductionEntries = snapshot.ledgerEntries.flatMap((entry) => entry.deductions);
+    snapshotStore.accounting.facts.dividendSourceLines = snapshot.ledgerEntries.flatMap((entry) => entry.sourceLines);
+    setStoreInstruments(snapshotStore, snapshot.instruments);
 
     return {
-      events: buildDividendEventListItems(eventStore, snapshot.dividendEvents),
-      ledgerEntries: buildDividendLedgerEntryDetails(store, snapshot.ledgerEntries, { preserveOrder: true }),
+      events: buildDividendEventListItems(snapshotStore, snapshot.dividendEvents),
+      ledgerEntries: buildDividendLedgerEntryDetails(snapshotStore, snapshot.ledgerEntries, { preserveOrder: true }),
     };
   });
 

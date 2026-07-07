@@ -1076,7 +1076,7 @@ function buildRecentDividends(
   }
 
   return listDividendLedgerEntries(store)
-    .filter((entry) => entry.postingStatus === "posted" && !entry.reversalOfDividendLedgerEntryId)
+    .filter((entry) => ["posted", "adjusted"].includes(entry.postingStatus) && !entry.reversalOfDividendLedgerEntryId)
     .filter((entry) => scopedAccountIds.has(entry.accountId))
     .flatMap((entry): DashboardOverviewRecentDividendDto[] => {
       const event = eventById.get(entry.dividendEventId);

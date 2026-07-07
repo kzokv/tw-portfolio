@@ -28,7 +28,7 @@ import {
   rebuildHoldingProjection,
   syncTradeEventRealizedPnl,
 } from "../services/accountingStore.js";
-import { instrumentRefToDef } from "../services/store.js";
+import { createDefaultFeeProfile, instrumentRefToDef } from "../services/store.js";
 import { createDefaultInstruments, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
 import type {
   AccountingStore,
@@ -9732,10 +9732,68 @@ export class PostgresPersistence implements Persistence {
     const eventIds = dividendEvents.map((event) => event.id);
 
     if (eventIds.length === 0) {
-      return { dividendEvents, ledgerEntries: [] };
+      return { dividendEvents, ledgerEntries: [], accounts: [], instruments: [], tradeEvents: [] };
     }
 
-    const ledgerResult = await this.pool.query(
+    const eventMarketCodes = dividendEvents.map((event) => event.marketCode ?? marketCodeFor(event.cashDividendCurrency));
+    const eventTickers = dividendEvents.map((event) => event.ticker);
+    const maxExDividendDate = dividendEvents.reduce(
+      (max, event) => (max == null || event.exDividendDate > max ? event.exDividendDate : max),
+      null as string | null,
+    );
+
+    const [accountsResult, instrumentsResult, tradesResult, ledgerResult] = await Promise.all([
+      this.pool.query(
+        `SELECT id, user_id, name, fee_profile_id, default_currency, account_type
+         FROM accounts
+         WHERE user_id = $1
+           AND deleted_at IS NULL
+           AND ($2::text IS NULL OR id = $2)
+         ORDER BY id`,
+        [userId, opts.accountId ?? null],
+      ),
+      this.pool.query(
+        `WITH requested(market_code, ticker) AS (
+           SELECT DISTINCT *
+           FROM unnest($1::text[], $2::text[])
+         )
+         SELECT DISTINCT ON (i.market_code, i.ticker)
+                i.ticker, i.name, i.instrument_type, i.market_code, i.is_provisional, i.last_synced_at
+         FROM market_data.instruments AS i
+         JOIN requested AS r
+           ON r.market_code = i.market_code
+          AND r.ticker = i.ticker
+         ORDER BY i.market_code, i.ticker`,
+        [eventMarketCodes, eventTickers],
+      ),
+      maxExDividendDate
+        ? this.pool.query(
+            `WITH requested(market_code, ticker) AS (
+               SELECT DISTINCT *
+               FROM unnest($2::text[], $3::text[])
+             )
+             SELECT trade.id, trade.user_id, trade.account_id, trade.ticker, trade.market_code,
+                    trade.instrument_type, trade.trade_type, trade.quantity, trade.unit_price,
+                    trade.price_currency, trade.trade_date, trade.trade_timestamp,
+                    trade.booking_sequence, trade.commission_amount, trade.tax_amount,
+                    trade.is_day_trade, trade.source, trade.source_reference, trade.booked_at,
+                    trade.reversal_of_trade_event_id, trade.fees_source
+             FROM trade_events AS trade
+             JOIN accounts AS account
+               ON account.id = trade.account_id
+             JOIN requested AS requested
+               ON requested.market_code = trade.market_code
+              AND requested.ticker = trade.ticker
+             WHERE trade.user_id = $1
+               AND account.user_id = $1
+               AND account.deleted_at IS NULL
+               AND ($4::text IS NULL OR trade.account_id = $4)
+               AND trade.trade_date < $5::date
+             ORDER BY trade.trade_date, trade.booking_sequence, trade.id`,
+            [userId, eventMarketCodes, eventTickers, opts.accountId ?? null, maxExDividendDate],
+          )
+        : Promise.resolve({ rows: [] as Record<string, unknown>[] }),
+      this.pool.query(
       `SELECT dle.id, dle.account_id, dle.dividend_event_id, dle.eligible_quantity,
               dle.expected_cash_amount, dle.expected_stock_quantity, dle.received_stock_quantity,
               dle.posting_status, dle.reconciliation_status, dle.version,
@@ -9766,7 +9824,8 @@ export class PostgresPersistence implements Persistence {
          )
        ORDER BY array_position($2::text[], dle.dividend_event_id), dle.id ASC`,
       [userId, eventIds, opts.accountId ?? null],
-    );
+      ),
+    ]);
 
     const ledgerIds = ledgerResult.rows.map((row) => row.id);
     const [deductionsResult, sourceLinesResult] = ledgerIds.length
@@ -9820,7 +9879,60 @@ export class PostgresPersistence implements Persistence {
       })),
     }));
 
-    return { dividendEvents, ledgerEntries };
+    return {
+      dividendEvents,
+      ledgerEntries,
+      accounts: accountsResult.rows.map((row) => ({
+        id: String(row.id),
+        userId: String(row.user_id),
+        name: String(row.name),
+        feeProfileId: String(row.fee_profile_id),
+        defaultCurrency: String(row.default_currency) as Store["accounts"][number]["defaultCurrency"],
+        accountType: String(row.account_type) as Store["accounts"][number]["accountType"],
+      })),
+      instruments: instrumentsResult.rows
+        .filter((row) => isPersistedInstrumentTicker(String(row.ticker), String(row.market_code)))
+        .map((row): InstrumentDef => ({
+          ticker: String(row.ticker),
+          name: row.name ? String(row.name) : null,
+          type: row.instrument_type ? String(row.instrument_type) as InstrumentDef["type"] : null,
+          marketCode: String(row.market_code) as InstrumentDef["marketCode"],
+          isProvisional: Boolean(row.is_provisional),
+          lastSyncedAt: row.last_synced_at ? normalizeDateTime(String(row.last_synced_at)) : null,
+          typeRaw: null,
+          industryCategoryRaw: null,
+          finmindDate: null,
+        })),
+      tradeEvents: tradesResult.rows.map((row): BookedTradeEvent => ({
+        id: String(row.id),
+        userId: String(row.user_id),
+        accountId: String(row.account_id),
+        ticker: String(row.ticker),
+        marketCode: String(row.market_code) as BookedTradeEvent["marketCode"],
+        instrumentType: String(row.instrument_type) as BookedTradeEvent["instrumentType"],
+        type: String(row.trade_type) as BookedTradeEvent["type"],
+        quantity: Number(row.quantity),
+        unitPrice: Number(row.unit_price),
+        priceCurrency: String(row.price_currency) as BookedTradeEvent["priceCurrency"],
+        tradeDate: normalizeDate(row.trade_date as string | Date),
+        tradeTimestamp: row.trade_timestamp ? normalizeDateTime(row.trade_timestamp as string | Date) : undefined,
+        bookingSequence: row.booking_sequence == null ? undefined : Number(row.booking_sequence),
+        commissionAmount: Number(row.commission_amount),
+        taxAmount: Number(row.tax_amount),
+        isDayTrade: Boolean(row.is_day_trade),
+        feeSnapshot: createDefaultFeeProfile(
+          String(row.account_id),
+          String(row.price_currency) as FeeProfile["commissionCurrency"],
+          `calendar-snapshot-fee:${String(row.id)}`,
+        ),
+        source: String(row.source),
+        sourceReference: row.source_reference ? String(row.source_reference) : undefined,
+        bookedAt: row.booked_at ? normalizeDateTime(row.booked_at as string | Date) : undefined,
+        realizedPnlCurrency: String(row.price_currency) as BookedTradeEvent["priceCurrency"],
+        reversalOfTradeEventId: row.reversal_of_trade_event_id ? String(row.reversal_of_trade_event_id) : undefined,
+        feesSource: row.fees_source ? String(row.fees_source) as BookedTradeEvent["feesSource"] : undefined,
+      })),
+    };
   }
 
   async listDividendLedgerEntries(

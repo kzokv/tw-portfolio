@@ -433,6 +433,21 @@ describe("buildTickerDetails", () => {
         sourceCompositionStatus: "provided",
         bookedAt: "2026-04-11T00:00:00.000Z",
       },
+      {
+        id: "bhp-au-adjusted-dividend",
+        accountId: "acc-au",
+        dividendEventId: "bhp-au-dividend",
+        eligibleQuantity: 3,
+        expectedCashAmount: 6,
+        expectedStockQuantity: 0,
+        receivedCashAmount: 5,
+        receivedStockQuantity: 0,
+        postingStatus: "adjusted",
+        reconciliationStatus: "open",
+        version: 2,
+        sourceCompositionStatus: "provided",
+        bookedAt: "2026-04-12T00:00:00.000Z",
+      },
     );
 
     const { details, marketCode } = await buildTickerDetails({
@@ -505,14 +520,23 @@ describe("buildTickerDetails", () => {
         accountId: "acc-au",
         tickerName: "BHP Group",
         marketCode: "AU",
+        dividendLedgerEntryId: "bhp-au-adjusted-dividend",
+        reconciliationStatus: "open",
+        currency: "USD",
+        grossAmount: 5,
+      }),
+      expect.objectContaining({
+        accountId: "acc-au",
+        tickerName: "BHP Group",
+        marketCode: "AU",
         dividendLedgerEntryId: "bhp-au-posted-dividend",
         reconciliationStatus: "open",
         currency: "USD",
         grossAmount: 6,
       }),
     ]);
-    expect(details.dividends.lastPostedDate).toBe("2026-04-11T00:00:00.000Z");
-    expect(details.dividends.openReconciliationCount).toBe(1);
+    expect(details.dividends.lastPostedDate).toBe("2026-04-12T00:00:00.000Z");
+    expect(details.dividends.openReconciliationCount).toBe(2);
   });
 
   it("scopes ticker transactions and realized P&L to requested account ids", async () => {

@@ -322,6 +322,35 @@ describe("smooth page read paths", () => {
     }));
   });
 
+  it("serves dividend calendar snapshots without loading the full user store", async () => {
+    const snapshotSpy = vi.spyOn(app.persistence, "listDividendCalendarSnapshot").mockResolvedValue({
+      dividendEvents: [],
+      ledgerEntries: [],
+      accounts: [],
+      instruments: [],
+      tradeEvents: [],
+    });
+    const loadStoreSpy = vi.spyOn(app.persistence, "loadStore").mockRejectedValue(
+      new Error("calendar route should use listDividendCalendarSnapshot instead of loadStore"),
+    );
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/calendar?fromPaymentDate=2026-02-01&toPaymentDate=2026-02-28&limit=20",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ events: [], ledgerEntries: [] });
+    expect(snapshotSpy).toHaveBeenCalledWith("user-1", {
+      accountId: undefined,
+      fromPaymentDate: "2026-02-01",
+      toPaymentDate: "2026-02-28",
+      marketCode: undefined,
+      limit: 20,
+    });
+    expect(loadStoreSpy).not.toHaveBeenCalled();
+  });
+
   it("does not label mixed-currency dashboard primary totals as reporting currency", async () => {
     const store = await app.persistence.loadStore("user-1");
     store.accounting.projections.holdings.push({

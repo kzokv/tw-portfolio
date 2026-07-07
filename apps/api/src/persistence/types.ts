@@ -1167,6 +1167,9 @@ export interface DividendCalendarSnapshotOptions {
 export interface DividendCalendarSnapshotResult {
   dividendEvents: Store["marketData"]["dividendEvents"];
   ledgerEntries: DividendLedgerEntryWithDetails[];
+  accounts: Store["accounts"];
+  instruments: Store["instruments"];
+  tradeEvents: Store["accounting"]["facts"]["tradeEvents"];
 }
 
 export type DividendReviewRowKind = "ledger" | "expected";

@@ -2486,7 +2486,25 @@ export class MemoryPersistence implements Persistence {
         ),
       }));
 
-    return { dividendEvents, ledgerEntries };
+    const eventPairs = new Set(dividendEvents.map((event) => `${dividendEventMarketCode(event)}:${event.ticker}`));
+    const maxExDividendDate = dividendEvents.reduce<string | null>(
+      (max, event) => (max == null || event.exDividendDate > max ? event.exDividendDate : max),
+      null,
+    );
+    const accountIds = opts.accountId ? new Set([opts.accountId]) : new Set(store.accounts.map((account) => account.id));
+
+    return {
+      dividendEvents,
+      ledgerEntries,
+      accounts: store.accounts.filter((account) => accountIds.has(account.id)),
+      instruments: store.instruments.filter((instrument) => eventPairs.has(`${instrument.marketCode}:${instrument.ticker}`)),
+      tradeEvents: maxExDividendDate
+        ? store.accounting.facts.tradeEvents
+          .filter((trade) => accountIds.has(trade.accountId))
+          .filter((trade) => eventPairs.has(`${trade.marketCode}:${trade.ticker}`))
+          .filter((trade) => trade.tradeDate < maxExDividendDate)
+        : [],
+    };
   }
 
   async listDividendLedgerEntries(
