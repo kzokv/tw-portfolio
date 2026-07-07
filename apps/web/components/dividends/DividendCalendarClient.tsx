@@ -195,6 +195,7 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
   const bounds = useMemo(() => monthBounds(visibleMonth), [visibleMonth]);
   const query = useMemo<DividendQuery>(() => ({ ...bounds, limit: 500 }), [bounds]);
   const initialQueryKey = useRef(JSON.stringify(query));
+  const didSkipInitialQueryRef = useRef(false);
   const requestSequenceRef = useRef(0);
   const activeRequestRef = useRef<AbortController | null>(null);
   const onSnapshotChangeRef = useRef(onSnapshotChange);
@@ -240,7 +241,10 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
 
   useEffect(() => {
     const queryKey = JSON.stringify(query);
-    if (queryKey === initialQueryKey.current) return;
+    if (!didSkipInitialQueryRef.current && queryKey === initialQueryKey.current) {
+      didSkipInitialQueryRef.current = true;
+      return;
+    }
     void refreshSnapshot(query, activeMonthKey);
   }, [activeMonthKey, query, refreshSnapshot]);
 

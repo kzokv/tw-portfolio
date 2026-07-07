@@ -293,6 +293,65 @@ describe("DividendCalendarClient", () => {
     expect(document.querySelector("[role='status']")).toBeNull();
   });
 
+  it("refreshes when navigating back to the initial month after showing another month", async () => {
+    const initialSnapshot: DividendCalendarSnapshot = {
+      events: [buildEvent({ id: "event-july-initial", ticker: "JULY-INITIAL", paymentDate: "2026-07-20", exDividendDate: "2026-07-10" })],
+      ledgerEntries: [],
+    };
+    const juneSnapshot: DividendCalendarSnapshot = {
+      events: [buildEvent({ id: "event-june", ticker: "JUNE", paymentDate: "2026-06-20", exDividendDate: "2026-06-10" })],
+      ledgerEntries: [],
+    };
+    const refreshedJulySnapshot: DividendCalendarSnapshot = {
+      events: [buildEvent({ id: "event-july-refreshed", ticker: "JULY-REFRESHED", paymentDate: "2026-07-25", exDividendDate: "2026-07-15" })],
+      ledgerEntries: [],
+    };
+    const onSnapshotChange = vi.fn();
+
+    vi.mocked(fetchDividendCalendarSnapshot)
+      .mockResolvedValueOnce(juneSnapshot)
+      .mockResolvedValueOnce(refreshedJulySnapshot);
+
+    act(() => {
+      root.render(
+        <DividendCalendarClient
+          initialSnapshot={initialSnapshot}
+          initialMonth="2026-07"
+          dict={dict}
+          locale="en"
+          onSnapshotChange={onSnapshotChange}
+        />,
+      );
+    });
+    await act(async () => {});
+
+    const previousMonthButton = document.querySelector("[aria-label='Previous month']") as HTMLButtonElement;
+    const nextMonthButton = document.querySelector("[aria-label='Next month']") as HTMLButtonElement;
+
+    await act(async () => {
+      previousMonthButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {});
+
+    expect(container.textContent).toContain("JUNE");
+    expect(container.textContent).not.toContain("JULY-INITIAL");
+
+    await act(async () => {
+      nextMonthButton.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {});
+
+    expect(fetchDividendCalendarSnapshot).toHaveBeenNthCalledWith(2, {
+      fromPaymentDate: "2026-07-01",
+      toPaymentDate: "2026-07-31",
+      limit: 500,
+    }, { signal: expect.any(AbortSignal) });
+    expect(window.location.search).toContain("month=2026-07");
+    expect(container.textContent).toContain("JULY-REFRESHED");
+    expect(container.textContent).not.toContain("JUNE");
+    expect(onSnapshotChange).toHaveBeenLastCalledWith(refreshedJulySnapshot, "2026-07");
+  });
+
   it("aborts superseded requests, ignores AbortError, and preserves rapid July to April navigation", async () => {
     const initialSnapshot: DividendCalendarSnapshot = {
       events: [buildEvent({ id: "event-july", ticker: "JULY", paymentDate: "2026-07-20", exDividendDate: "2026-07-10" })],
