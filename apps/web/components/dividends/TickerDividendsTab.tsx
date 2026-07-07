@@ -144,6 +144,22 @@ export function TickerDividendsTab({
   const upcomingEvents = dividends.upcoming;
   const postedHistory = dividends.recent;
   const openRows = postedHistory.filter((row) => row.reconciliationStatus === "open" && row.dividendLedgerEntryId);
+  const hasUpcomingRows = dividends.upcomingCount > 0 || upcomingEvents.length > 0;
+  const upcomingDetail = dividends.nextPaymentDate
+    ? dict.dividends.ticker.summary.upcomingDetail.replace("{date}", formatDateLabel(dividends.nextPaymentDate, locale))
+    : hasUpcomingRows
+      ? dict.dividends.paymentDateTbdSection
+      : dict.dividends.ticker.summary.noUpcoming;
+  const nextPaymentValue = dividends.nextPaymentDate
+    ? formatDateLabel(dividends.nextPaymentDate, locale)
+    : hasUpcomingRows
+      ? dict.dividends.paymentDateTbdSection
+      : dict.tickerHistory.noHoldingData;
+  const nextPaymentDetail = dividends.nextPaymentDate
+    ? dict.dividends.ticker.summary.nextPaymentDetail
+    : hasUpcomingRows
+      ? dict.dividends.paymentDateTbdSection
+      : dict.dividends.ticker.summary.noUpcoming;
   const resolvedTickerName = tickerName
     ?? upcomingEvents.find((row) => row.tickerName?.trim())?.tickerName?.trim()
     ?? postedHistory.find((row) => row.tickerName?.trim())?.tickerName?.trim()
@@ -171,9 +187,7 @@ export function TickerDividendsTab({
         <SummaryCard
           eyebrow={dict.dividends.ticker.summary.upcoming}
           value={formatNumber(dividends.upcomingCount, locale)}
-          detail={dividends.nextPaymentDate
-            ? dict.dividends.ticker.summary.upcomingDetail.replace("{date}", formatDateLabel(dividends.nextPaymentDate, locale))
-            : dict.dividends.ticker.summary.noUpcoming}
+          detail={upcomingDetail}
           badge={dividends.upcomingCount > 0 ? String(dividends.upcomingCount) : undefined}
           testId="ticker-dividends-summary-upcoming"
         />
@@ -199,10 +213,8 @@ export function TickerDividendsTab({
         />
         <SummaryCard
           eyebrow={dict.dividends.ticker.summary.nextPayment}
-          value={dividends.nextPaymentDate ? formatDateLabel(dividends.nextPaymentDate, locale) : dict.tickerHistory.noHoldingData}
-          detail={dividends.nextPaymentDate
-            ? dict.dividends.ticker.summary.nextPaymentDetail
-            : dict.dividends.ticker.summary.noUpcoming}
+          value={nextPaymentValue}
+          detail={nextPaymentDetail}
           testId="ticker-dividends-summary-next-payment"
         />
       </div>

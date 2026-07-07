@@ -122,6 +122,7 @@ describe("DividendCalendarClient", () => {
         buildEvent({ id: "event-resolved", ticker: "2891", hasPostedLedgerEntry: true, dividendLedgerEntryId: "ledger-resolved" }),
         buildEvent({ id: "event-stock", ticker: "2603", eventType: "STOCK", paymentDate: "2026-04-18", expectedCashAmount: 0, expectedStockQuantity: 50, hasPostedLedgerEntry: true, dividendLedgerEntryId: "ledger-stock" }),
         buildEvent({ id: "event-expected", ticker: "1199", hasPostedLedgerEntry: true, dividendLedgerEntryId: "ledger-expected" }),
+        buildEvent({ id: "event-unposted", ticker: "2882", hasPostedLedgerEntry: false, dividendLedgerEntryId: null }),
         buildEvent({ id: "event-tbd", ticker: "1101", paymentDate: null, hasPostedLedgerEntry: false }),
       ],
       ledgerEntries: [
@@ -155,8 +156,10 @@ describe("DividendCalendarClient", () => {
     await act(async () => {});
 
     expect(container.textContent).toContain("NT$");
-    expect(container.textContent).toContain("1 open items.");
+    expect(container.textContent).toContain("2 open items.");
     expect(document.querySelector("[data-testid='dividends-action-queue']")?.textContent ?? "").toContain(dict.dividends.form.reconciliation.statusOpen);
+    expect(document.querySelector("[data-testid='dividends-action-queue']")?.textContent ?? "").toContain(dict.dividends.badge.unposted);
+    expect(document.querySelector("[data-testid='dividends-action-queue']")?.textContent ?? "").toContain(dict.dividends.action.postDividend);
     expect(document.querySelector("[data-testid='dividends-this-month']")?.textContent ?? "").toContain("2330");
     expect(document.querySelector("[data-testid='dividends-recent-receipts']")?.textContent ?? "").not.toContain("ledger-expected");
     expect(

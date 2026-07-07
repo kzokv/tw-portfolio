@@ -277,6 +277,7 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
       return rightDate.localeCompare(leftDate);
     });
   const actionRows = rows.filter((row) =>
+    (!row.ledgerEntry && row.event.paymentDate !== null) ||
     row.ledgerEntry?.reconciliationStatus === "open" ||
     row.ledgerEntry?.sourceCompositionStatus === "unknown_pending_disclosure",
   );
@@ -534,6 +535,7 @@ function EventRow({ row, dict, locale, pending, onOpen, onMarkMatched }: { row: 
 
 function ActionRow({ row, dict, locale, activeMonthKey, pending, onOpen, onMarkMatched }: { row: DividendCalendarRow; dict: AppDictionary; locale: LocaleCode; activeMonthKey: string; pending: boolean; onOpen: () => void; onMarkMatched: () => void }) {
   const sourceGap = row.ledgerEntry?.sourceCompositionStatus === "unknown_pending_disclosure";
+  const badge = sourceGap ? null : resolveBadge(row);
   return (
     <div className="grid gap-3 py-4 text-sm">
       <div className="flex items-start justify-between gap-3">
@@ -541,7 +543,10 @@ function ActionRow({ row, dict, locale, activeMonthKey, pending, onOpen, onMarkM
           <p className="break-words font-semibold text-foreground">{tickerLabel(row.event)}</p>
           <p className="mt-1 text-muted-foreground">{eventAccountLabel(row.event)} · {row.event.paymentDate ? formatDateLabel(row.event.paymentDate, locale) : dict.dividends.paymentDateTbdSection}</p>
         </div>
-        <StatusBadge label={sourceGap ? dict.dividends.overview.sourceGap : dict.dividends.form.reconciliation.statusOpen} className={sourceGap ? "bg-amber-50 text-amber-700" : "bg-rose-50 text-rose-700"} />
+        <StatusBadge
+          label={sourceGap ? dict.dividends.overview.sourceGap : resolveBadgeLabel(dict, badge ?? "pendingReview")}
+          className={sourceGap ? "bg-amber-50 text-amber-700" : badgeClassName(badge ?? "pendingReview")}
+        />
       </div>
       <div className="flex flex-wrap gap-2">
         {row.ledgerEntry?.reconciliationStatus === "open" ? (

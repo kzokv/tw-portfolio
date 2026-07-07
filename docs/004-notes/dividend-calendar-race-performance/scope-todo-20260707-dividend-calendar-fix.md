@@ -72,3 +72,6 @@ superseded_by: null
 - Final full lint: `npx eslint .` exited 0 with six unrelated pre-existing warnings in AI connector E2E specs.
 - Final full typecheck: `npm run typecheck` passed.
 - Diff hygiene: `git diff --check` passed.
+- Codex review follow-up: `cd apps/web && npx vitest run test/features/dividends/DividendCalendarClient.test.tsx test/components/dividends/TickerDividendsTab.test.tsx` passed 9 tests after counting scheduled unposted events as action items and showing TBD payment-date summary copy for upcoming ticker dividends.
+- Codex review follow-up lint: `npx eslint apps/web/components/dividends/DividendCalendarClient.tsx apps/web/components/dividends/TickerDividendsTab.tsx apps/web/test/features/dividends/DividendCalendarClient.test.tsx apps/web/test/components/dividends/TickerDividendsTab.test.tsx` passed.
+- Codex review follow-up typecheck: `npm run typecheck` passed.

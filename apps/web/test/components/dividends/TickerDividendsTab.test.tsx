@@ -57,4 +57,40 @@ describe("TickerDividendsTab", () => {
     expect(html).toContain("fromPaymentDate=2027-01-01&amp;toPaymentDate=2027-12-31");
     expect(html).toContain("fromPaymentDate=2024-01-01&amp;toPaymentDate=2024-12-31");
   });
+
+  it("shows a TBD summary instead of no-upcoming copy when upcoming rows have no payment date", () => {
+    const html = renderToStaticMarkup(
+      <TickerDividendsTab
+        dict={dict}
+        locale="en"
+        marketCode="TW"
+        ticker="2330"
+        tickerName="TSMC"
+        dividends={{
+          upcomingCount: 1,
+          nextPaymentDate: null,
+          lastPostedDate: null,
+          openReconciliationCount: 0,
+          upcoming: [{
+            accountId: "acc-1",
+            accountName: "Main",
+            ticker: "2330",
+            tickerName: "TSMC",
+            marketCode: "TW",
+            exDividendDate: "2027-02-20",
+            paymentDate: null,
+            expectedAmount: 120,
+            currency: "TWD",
+            status: "declared",
+          }],
+          recent: [],
+        }}
+        onMarkMatched={() => {}}
+        pendingLedgerEntryId={null}
+      />,
+    );
+
+    expect(html).toContain(dict.dividends.paymentDateTbdSection);
+    expect(html).not.toContain(dict.dividends.ticker.summary.noUpcoming);
+  });
 });
