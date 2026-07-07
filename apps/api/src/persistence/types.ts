@@ -1138,6 +1138,7 @@ export interface DividendLedgerListOptions {
   reconciliationStatus?: DividendLedgerEntry["reconciliationStatus"];
   postingStatus?: DividendPostingStatus;
   ticker?: string;
+  marketCode?: MarketCode;
   page: number;
   limit: number;
   sortBy: DividendLedgerSortColumn;
@@ -1155,11 +1156,29 @@ export interface DividendLedgerListResult {
   aggregates: DividendLedgerAggregates;
 }
 
+export interface DividendCalendarSnapshotOptions {
+  accountId?: string;
+  fromPaymentDate?: string;
+  toPaymentDate?: string;
+  marketCode?: MarketCode;
+  limit: number;
+}
+
+export interface DividendCalendarSnapshotResult {
+  dividendEvents: Store["marketData"]["dividendEvents"];
+  ledgerEntries: DividendLedgerEntryWithDetails[];
+  accounts: Store["accounts"];
+  instruments: Store["instruments"];
+  tradeEvents: Store["accounting"]["facts"]["tradeEvents"];
+}
+
 export type DividendReviewRowKind = "ledger" | "expected";
 
 export type DividendReviewRowWithDetails = DividendLedgerEntryWithDetails & {
   rowKind: DividendReviewRowKind;
   ticker: string;
+  tickerName: string | null;
+  marketCode: MarketCode;
   instrumentType: InstrumentType;
   eventType: Store["marketData"]["dividendEvents"][number]["eventType"];
   exDividendDate: string;
@@ -2653,7 +2672,12 @@ export interface Persistence {
     fromPaymentDate?: string,
     toPaymentDate?: string,
     limit?: number,
+    marketCode?: MarketCode,
   ): Promise<Store["marketData"]["dividendEvents"]>;
+  listDividendCalendarSnapshot(
+    userId: string,
+    opts: DividendCalendarSnapshotOptions,
+  ): Promise<DividendCalendarSnapshotResult>;
   listDividendLedgerEntries(
     userId: string,
     opts: DividendLedgerListOptions,

@@ -5,6 +5,10 @@ import {
   DIVIDENDS_LEDGER_ONLY_PARAMS,
   resolveInitialDividendsTab,
 } from "../../components/dividends/dividendsTabsUtils";
+import {
+  calendarMonthFromSearchParams,
+  calendarQueryFromSearchParams,
+} from "../../components/dividends/dividendsPageQuery";
 import { DashboardLoading } from "../../components/dashboard/DashboardLoading";
 import { AppShell } from "../../components/layout/AppShell";
 import { getRouteLoadingLabels } from "../../components/layout/i18n";
@@ -12,6 +16,7 @@ import { requireSession } from "../../lib/auth";
 import { getJson } from "../../lib/api";
 import { readSidebarStateCookie } from "../../lib/sidebar-cookie";
 import { getDictionary } from "../../lib/i18n";
+import { fetchDividendCalendarSnapshot } from "../../features/dividends/services/dividendService";
 import type { ProfileWithImpersonationDto } from "../../features/profile/hooks/useProfile";
 
 interface DividendsPageProps {
@@ -49,11 +54,17 @@ export default async function DividendsPage({ searchParams }: DividendsPageProps
   const dict = getDictionary(locale);
   const loadingCopy = getRouteLoadingLabels(locale).dividends;
   const initialTab = hasExplicitDividendsView(sp) ? resolvedInitialTab : "calendar";
-  const accounts: AccountDto[] = initialTab === "ledger"
-    ? await getJson<ShellPortfolioConfigDto>("/settings/fee-config")
-      .then((config) => config.accounts)
-      .catch(() => [])
-    : [];
+  const initialCalendarMonth = calendarMonthFromSearchParams(sp);
+  const [accounts, initialCalendarSnapshot] = await Promise.all([
+    initialTab === "ledger"
+      ? getJson<ShellPortfolioConfigDto>("/settings/fee-config")
+        .then((config) => config.accounts)
+        .catch(() => [] as AccountDto[])
+      : Promise.resolve([] as AccountDto[]),
+    initialTab === "calendar"
+      ? fetchDividendCalendarSnapshot(calendarQueryFromSearchParams(sp)).catch(() => null)
+      : Promise.resolve(null),
+  ]);
 
   return (
     <Suspense fallback={<DashboardLoading standalone locale={locale} loadingCopy={loadingCopy} />}>
@@ -72,7 +83,8 @@ export default async function DividendsPage({ searchParams }: DividendsPageProps
           dict={dict}
           locale={locale}
           accounts={accounts}
-          initialCalendarSnapshot={null}
+          initialCalendarMonth={initialCalendarMonth}
+          initialCalendarSnapshot={initialCalendarSnapshot}
           initialReviewData={null}
           initialYears={[]}
         />

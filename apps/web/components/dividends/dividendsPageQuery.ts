@@ -1,22 +1,59 @@
 import { resolvePresetDates, type DatePreset } from "./dividendReviewUtils";
-import type { DividendReviewQuery } from "../../features/dividends/services/dividendService";
+import type { DividendQuery, DividendReviewQuery } from "../../features/dividends/services/dividendService";
 
 export type DividendsSearchParamsRecord = Record<string, string | string[] | undefined>;
 
-export function currentMonthQuery(): {
+function currentMonthKey(): string {
+  const now = new Date();
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function isValidMonthKey(value: string | undefined): value is string {
+  if (!value || !/^\d{4}-\d{2}$/.test(value)) return false;
+  const month = Number(value.slice(5, 7));
+  return month >= 1 && month <= 12;
+}
+
+export function calendarMonthFromSearchParams(
+  searchParams: DividendsSearchParamsRecord | URLSearchParams,
+): string {
+  const requestedMonth = getValue(searchParams, "month");
+  return isValidMonthKey(requestedMonth) ? requestedMonth : currentMonthKey();
+}
+
+export function monthQuery(monthKey: string): DividendQuery & {
   fromPaymentDate: string;
   toPaymentDate: string;
   limit: number;
 } {
-  const now = new Date();
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0));
+  const year = Number(monthKey.slice(0, 4));
+  const monthIndex = Number(monthKey.slice(5, 7)) - 1;
+  const start = new Date(Date.UTC(year, monthIndex, 1));
+  const end = new Date(Date.UTC(year, monthIndex + 1, 0));
 
   return {
     fromPaymentDate: start.toISOString().slice(0, 10),
     toPaymentDate: end.toISOString().slice(0, 10),
     limit: 500,
   };
+}
+
+export function currentMonthQuery(): DividendQuery & {
+  fromPaymentDate: string;
+  toPaymentDate: string;
+  limit: number;
+} {
+  return monthQuery(currentMonthKey());
+}
+
+export function calendarQueryFromSearchParams(
+  searchParams: DividendsSearchParamsRecord | URLSearchParams,
+): DividendQuery & {
+  fromPaymentDate: string;
+  toPaymentDate: string;
+  limit: number;
+} {
+  return monthQuery(calendarMonthFromSearchParams(searchParams));
 }
 
 function getValue(
@@ -45,6 +82,7 @@ export function searchParamsToReviewQuery(
   const sortOrder = (getValue(searchParams, "sortOrder") ?? "desc") as "asc" | "desc";
   const page = parseInt(getValue(searchParams, "page") ?? "1", 10) || 1;
   const ticker = getValue(searchParams, "ticker");
+  const marketCode = getValue(searchParams, "marketCode");
   const accountId = getValue(searchParams, "accountId");
 
   let postingStatus: string | undefined;
@@ -60,6 +98,7 @@ export function searchParamsToReviewQuery(
     fromPaymentDate: fromDate || undefined,
     toPaymentDate: toDate || undefined,
     ticker: ticker || undefined,
+    marketCode: marketCode as DividendReviewQuery["marketCode"] | undefined,
     accountId: accountId || undefined,
     ...(postingStatus ? { postingStatus } : {}),
     ...(reconciliationStatus ? { reconciliationStatus } : {}),

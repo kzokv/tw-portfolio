@@ -112,11 +112,29 @@ describe("DividendsPage", () => {
       searchParams: Promise.resolve({}),
     });
 
-    expect(fetchDividendCalendarSnapshotMock).not.toHaveBeenCalled();
+    expect(fetchDividendCalendarSnapshotMock).toHaveBeenCalledWith({
+      fromPaymentDate: expect.stringMatching(/^\d{4}-\d{2}-01$/),
+      toPaymentDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      limit: 500,
+    });
     expect(fetchDividendLedgerReviewMock).not.toHaveBeenCalled();
     expect(fetchDividendLedgerYearsMock).not.toHaveBeenCalled();
     expect(getJsonMock).not.toHaveBeenCalledWith("/settings/fee-config");
     expect(result).toBeTruthy();
+  });
+
+  it("calendar route server-prefetches the requested month and passes it to the tabs client", async () => {
+    const result = await DividendsPage({
+      searchParams: Promise.resolve({ month: "2026-07" }),
+    });
+    const html = renderToStaticMarkup(result);
+
+    expect(fetchDividendCalendarSnapshotMock).toHaveBeenCalledWith({
+      fromPaymentDate: "2026-07-01",
+      toPaymentDate: "2026-07-31",
+      limit: 500,
+    });
+    expect(html).toContain('data-has-calendar-snapshot="true"');
   });
 
   it("ledger route preserves the requested tab without server-side dividend reads", async () => {
@@ -152,7 +170,7 @@ describe("DividendsPage", () => {
 
     expect(fetchDividendLedgerReviewMock).not.toHaveBeenCalled();
     expect(fetchDividendLedgerYearsMock).not.toHaveBeenCalled();
-    expect(fetchDividendCalendarSnapshotMock).not.toHaveBeenCalled();
+    expect(fetchDividendCalendarSnapshotMock).toHaveBeenCalledTimes(1);
     expect(result).toBeTruthy();
   });
 });

@@ -58,7 +58,16 @@ export function setStoreInstruments(store: Pick<Store, "marketData" | "instrumen
 }
 
 export function syncInstruments(store: Pick<Store, "marketData" | "instruments">): void {
-  store.instruments = store.marketData.instruments.map(instrumentRefToDef);
+  const previousByKey = new Map(
+    store.instruments.map((instrument) => [`${instrument.marketCode}:${instrument.ticker}`, instrument] as const),
+  );
+  store.instruments = store.marketData.instruments.map((instrumentRef) => {
+    const next = instrumentRefToDef(instrumentRef);
+    const previous = previousByKey.get(`${next.marketCode}:${next.ticker}`);
+    return previous
+      ? { ...previous, ...next, name: previous.name ?? null }
+      : next;
+  });
 }
 
 export function createStore(): Store {

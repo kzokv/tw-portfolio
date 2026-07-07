@@ -34,6 +34,32 @@ export class TickerDetailActions extends AppBaseActions {
   }
 
   @Step()
+  async openDividendsTab(): Promise<void> {
+    await this.uiActions.click.perform(this.el.dividendsTab);
+  }
+
+  @Step()
+  async openDividendsTabFromMobileSelect(): Promise<void> {
+    if (await this.el.dividendsTab.isVisible().catch(() => false)) {
+      await this.openDividendsTab();
+      return;
+    }
+    await this.uiActions.click.perform(this.el.tabSelect);
+    await this.uiActions.click.perform(this.el.dividendsTabOption);
+  }
+
+  @Step()
+  async clickDividendReconciliationMarkMatched(dividendLedgerEntryId: string): Promise<import("@playwright/test").Response> {
+    const responsePromise = this.mxWaitForResponse(
+      (response) =>
+        response.request().method() === "PATCH"
+        && response.url().includes(`/portfolio/dividends/postings/${dividendLedgerEntryId}/reconciliation`),
+    );
+    await this.uiActions.click.perform(this.el.dividendsReconciliationMarkMatched(dividendLedgerEntryId));
+    return responsePromise;
+  }
+
+  @Step()
   async selectChartMetric(metricLabel: "Current Price" | "Unrealized P&L"): Promise<void> {
     const button = this.el.chartMetricButton(metricLabel);
     await this.uiActions.click.perform(button);

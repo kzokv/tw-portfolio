@@ -466,6 +466,7 @@ const dividendLedgerQuerySchema = z.object({
   reconciliationStatus: z.enum(["open", "matched", "explained", "resolved"]).optional(),
   postingStatus: z.enum(["expected", "posted", "adjusted"]).optional(),
   ticker: tickerSchema.optional(),
+  marketCode: marketCodeSchema.optional(),
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(500).default(50),
   sortBy: z
@@ -6270,6 +6271,33 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  app.get("/portfolio/dividends/calendar", async (req) => {
+    const query = dividendLedgerQuerySchema.parse(req.query);
+    const { contextUserId: userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const snapshot = await app.persistence.listDividendCalendarSnapshot(userId, {
+      accountId: query.accountId,
+      fromPaymentDate: query.fromPaymentDate,
+      toPaymentDate: query.toPaymentDate,
+      marketCode: query.marketCode,
+      limit: query.limit,
+    });
+    const snapshotStore = createStore();
+    snapshotStore.userId = userId;
+    snapshotStore.settings.userId = userId;
+    snapshotStore.accounts = snapshot.accounts;
+    snapshotStore.marketData.dividendEvents = snapshot.dividendEvents;
+    snapshotStore.accounting.facts.tradeEvents = snapshot.tradeEvents;
+    snapshotStore.accounting.facts.dividendLedgerEntries = snapshot.ledgerEntries;
+    snapshotStore.accounting.facts.dividendDeductionEntries = snapshot.ledgerEntries.flatMap((entry) => entry.deductions);
+    snapshotStore.accounting.facts.dividendSourceLines = snapshot.ledgerEntries.flatMap((entry) => entry.sourceLines);
+    setStoreInstruments(snapshotStore, snapshot.instruments);
+
+    return {
+      events: buildDividendEventListItems(snapshotStore, snapshot.dividendEvents),
+      ledgerEntries: buildDividendLedgerEntryDetails(snapshotStore, snapshot.ledgerEntries, { preserveOrder: true }),
+    };
+  });
+
   app.get("/portfolio/dividends/review", async (req) => {
     const query = dividendLedgerQuerySchema.parse(req.query);
     const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
@@ -6280,6 +6308,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       reconciliationStatus: query.reconciliationStatus,
       postingStatus: query.postingStatus,
       ticker: query.ticker,
+      marketCode: query.marketCode,
       page: query.page,
       limit: query.limit,
       sortBy: query.sortBy,
@@ -6303,6 +6332,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       reconciliationStatus: query.reconciliationStatus,
       postingStatus: query.postingStatus,
       ticker: query.ticker,
+      marketCode: query.marketCode,
       page: query.page,
       limit: query.limit,
       sortBy: query.sortBy,

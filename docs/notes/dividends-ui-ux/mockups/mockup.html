@@ -1,0 +1,1312 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dividends UI/UX Mockups</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f7fa;
+        --surface: #ffffff;
+        --surface-muted: #f8fafc;
+        --line: #d8e0ea;
+        --line-strong: #b8c4d3;
+        --text: #14202e;
+        --muted: #5a6a7e;
+        --soft: #7c8ca0;
+        --brand: #1668c7;
+        --brand-soft: #e9f2ff;
+        --green: #117a55;
+        --green-soft: #e8f7f0;
+        --amber: #996400;
+        --amber-soft: #fff5d8;
+        --red: #b42318;
+        --red-soft: #fff0ee;
+        --purple: #6840a6;
+        --purple-soft: #f2ecff;
+        --shadow: 0 10px 28px rgba(20, 32, 46, 0.08);
+        --radius: 8px;
+        --font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--font);
+        letter-spacing: 0;
+      }
+
+      body {
+        font-size: 14px;
+        line-height: 1.45;
+      }
+
+      button,
+      input,
+      select {
+        font: inherit;
+        letter-spacing: 0;
+      }
+
+      .screen {
+        display: none;
+        min-height: 100vh;
+      }
+
+      body[data-view="dashboard"] #dashboard-progress,
+      body[data-view="dividends"] #dividends-overview,
+      body[data-view="ticker"] #ticker-dividends {
+        display: block;
+      }
+
+      .mock-shell {
+        width: min(1280px, calc(100vw - 48px));
+        margin: 0 auto;
+        padding: 22px 0 44px;
+      }
+
+      .app-bar {
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        min-height: 56px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: max-content;
+        font-weight: 800;
+        font-size: 18px;
+      }
+
+      .brand-mark {
+        display: grid;
+        width: 28px;
+        height: 28px;
+        place-items: center;
+        border-radius: 7px;
+        background: var(--text);
+        color: #fff;
+        font-size: 13px;
+      }
+
+      .main-nav {
+        display: flex;
+        gap: 4px;
+        min-width: 0;
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+
+      .main-nav::-webkit-scrollbar {
+        display: none;
+      }
+
+      .nav-item {
+        border: 0;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--muted);
+        padding: 8px 11px;
+        white-space: nowrap;
+      }
+
+      .nav-item.active {
+        background: var(--brand-soft);
+        color: var(--brand);
+        font-weight: 700;
+      }
+
+      .user-pill {
+        margin-left: auto;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--surface);
+        color: var(--muted);
+        padding: 7px 12px;
+        white-space: nowrap;
+      }
+
+      .page-header {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 18px;
+        align-items: end;
+        padding: 28px 0 18px;
+      }
+
+      .eyebrow {
+        margin: 0 0 5px;
+        color: var(--brand);
+        font-size: 12px;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        margin-bottom: 7px;
+        font-size: 32px;
+        line-height: 1.12;
+      }
+
+      h2 {
+        margin-bottom: 0;
+        font-size: 18px;
+      }
+
+      h3 {
+        margin-bottom: 0;
+        font-size: 15px;
+      }
+
+      .page-copy {
+        max-width: 640px;
+        margin-bottom: 0;
+        color: var(--muted);
+      }
+
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .segmented,
+      .month-picker,
+      .quick-filter {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        min-width: 0;
+        min-height: 38px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface);
+        padding: 3px;
+        box-shadow: 0 1px 1px rgba(20, 32, 46, 0.02);
+      }
+
+      .segment,
+      .icon-button,
+      .text-button,
+      .primary-button {
+        min-height: 32px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--muted);
+        padding: 6px 10px;
+        white-space: nowrap;
+      }
+
+      .segment.active {
+        background: var(--text);
+        color: #fff;
+        font-weight: 700;
+      }
+
+      .icon-button {
+        width: 32px;
+        padding: 0;
+        font-weight: 800;
+      }
+
+      .month-value {
+        min-width: 108px;
+        border: 0;
+        border-left: 1px solid var(--line);
+        border-right: 1px solid var(--line);
+        background: transparent;
+        color: var(--text);
+        padding: 0 10px;
+        text-align: center;
+        font-weight: 800;
+      }
+
+      .primary-button {
+        background: var(--brand);
+        color: #fff;
+        font-weight: 800;
+      }
+
+      .text-button {
+        border: 1px solid var(--line);
+        background: var(--surface);
+        color: var(--text);
+        font-weight: 700;
+      }
+
+      .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin-bottom: 14px;
+      }
+
+      .metric-card {
+        min-height: 112px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface);
+        padding: 14px;
+        box-shadow: var(--shadow);
+      }
+
+      .metric-label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 10px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
+      .metric-value {
+        font-size: 25px;
+        font-weight: 850;
+        line-height: 1.15;
+      }
+
+      .metric-note {
+        margin-top: 7px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .trend {
+        border-radius: 999px;
+        padding: 3px 7px;
+        background: var(--green-soft);
+        color: var(--green);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .trend.warn {
+        background: var(--amber-soft);
+        color: var(--amber);
+      }
+
+      .trend.alert {
+        background: var(--red-soft);
+        color: var(--red);
+      }
+
+      .operations-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 360px;
+        gap: 14px;
+        align-items: start;
+      }
+
+      .panel {
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface);
+        box-shadow: var(--shadow);
+      }
+
+      .event-panel {
+        order: 1;
+      }
+
+      .action-panel {
+        order: 2;
+      }
+
+      .receipt-panel {
+        grid-column: 1 / -1;
+        order: 3;
+      }
+
+      .panel-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        min-height: 56px;
+        border-bottom: 1px solid var(--line);
+        padding: 13px 15px;
+      }
+
+      .panel-subtitle {
+        margin: 3px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .table-head,
+      .event-row,
+      .receipt-row {
+        display: grid;
+        grid-template-columns: minmax(190px, 1.4fr) 110px 110px 108px 112px;
+        gap: 12px;
+        align-items: center;
+        padding: 12px 15px;
+      }
+
+      .receipt-row {
+        grid-template-columns: minmax(190px, 1.4fr) 120px 120px 124px 104px;
+      }
+
+      .table-head {
+        color: var(--soft);
+        font-size: 12px;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
+      .event-row,
+      .receipt-row,
+      .action-row,
+      .history-row {
+        border-top: 1px solid var(--line);
+      }
+
+      .event-row:first-of-type,
+      .receipt-row:first-of-type,
+      .action-row:first-of-type,
+      .history-row:first-of-type {
+        border-top: 0;
+      }
+
+      .ticker-title {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: baseline;
+        gap: 6px;
+        min-width: 0;
+      }
+
+      .ticker-code {
+        font-weight: 850;
+      }
+
+      .ticker-name {
+        color: var(--muted);
+        font-weight: 650;
+      }
+
+      .meta-line {
+        margin-top: 3px;
+        color: var(--soft);
+        font-size: 13px;
+      }
+
+      .amount {
+        font-weight: 850;
+      }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        width: max-content;
+        max-width: 100%;
+        border-radius: 999px;
+        padding: 4px 8px;
+        background: var(--surface-muted);
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 800;
+        white-space: nowrap;
+      }
+
+      .status.ok {
+        background: var(--green-soft);
+        color: var(--green);
+      }
+
+      .status.warn {
+        background: var(--amber-soft);
+        color: var(--amber);
+      }
+
+      .status.open {
+        background: var(--red-soft);
+        color: var(--red);
+      }
+
+      .status.info {
+        background: var(--brand-soft);
+        color: var(--brand);
+      }
+
+      .action-list,
+      .history-list {
+        padding: 2px 15px 15px;
+      }
+
+      .action-row,
+      .history-row {
+        display: grid;
+        gap: 10px;
+        padding: 13px 0;
+      }
+
+      .action-top,
+      .history-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .action-title,
+      .history-title {
+        font-weight: 850;
+      }
+
+      .action-copy,
+      .history-copy {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .action-buttons {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .mini-button {
+        min-height: 30px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: var(--surface);
+        color: var(--text);
+        padding: 5px 9px;
+        font-size: 13px;
+        font-weight: 800;
+        white-space: nowrap;
+      }
+
+      .mini-button.primary {
+        border-color: var(--brand);
+        background: var(--brand);
+        color: #fff;
+      }
+
+      .ticker-hero {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 18px;
+        align-items: end;
+        padding: 26px 0 14px;
+      }
+
+      .ticker-symbol-line {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 6px;
+      }
+
+      .ticker-symbol-line h1 {
+        margin-bottom: 0;
+      }
+
+      .market-badge {
+        display: inline-flex;
+        align-items: center;
+        min-height: 26px;
+        border-radius: 999px;
+        background: var(--green-soft);
+        color: var(--green);
+        padding: 3px 8px;
+        font-size: 12px;
+        font-weight: 850;
+      }
+
+      .ticker-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 390px;
+        gap: 14px;
+        align-items: start;
+      }
+
+      .ticker-main {
+        display: grid;
+        gap: 14px;
+      }
+
+      .upcoming-list {
+        display: grid;
+        gap: 0;
+      }
+
+      .history-card {
+        display: grid;
+        gap: 0;
+      }
+
+      .history-row {
+        grid-template-columns: 1fr auto;
+        align-items: center;
+        padding-left: 15px;
+        padding-right: 15px;
+      }
+
+      .deep-link {
+        color: var(--brand);
+        font-weight: 850;
+        text-decoration: none;
+      }
+
+      .dashboard-layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 390px;
+        gap: 14px;
+        align-items: start;
+      }
+
+      .dashboard-main {
+        display: grid;
+        gap: 14px;
+      }
+
+      .dashboard-stat-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .progress-list {
+        display: grid;
+        gap: 0;
+      }
+
+      .progress-row {
+        display: grid;
+        grid-template-columns: minmax(220px, 1.4fr) 118px 118px 122px 104px;
+        gap: 12px;
+        align-items: center;
+        border-top: 1px solid var(--line);
+        padding: 13px 15px;
+      }
+
+      .progress-row:first-child {
+        border-top: 0;
+      }
+
+      .progress-bar {
+        height: 8px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: var(--surface-muted);
+      }
+
+      .progress-fill {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: var(--brand);
+      }
+
+      .dashboard-side-list {
+        padding: 4px 15px 15px;
+      }
+
+      @media (max-width: 860px) {
+        .mock-shell {
+          width: min(100vw - 24px, 560px);
+          padding: 12px 0 28px;
+        }
+
+        .app-bar {
+          gap: 12px;
+          min-height: 52px;
+        }
+
+        .brand {
+          font-size: 16px;
+        }
+
+        .brand-mark {
+          width: 26px;
+          height: 26px;
+        }
+
+        .user-pill {
+          display: none;
+        }
+
+        .page-header,
+        .ticker-hero {
+          grid-template-columns: 1fr;
+          gap: 12px;
+          padding: 20px 0 14px;
+        }
+
+        h1 {
+          font-size: 25px;
+        }
+
+        .toolbar {
+          justify-content: stretch;
+        }
+
+        .segmented,
+        .month-picker,
+        .quick-filter,
+        .primary-button,
+        .text-button {
+          width: 100%;
+        }
+
+        .segmented {
+          overflow-x: auto;
+          justify-content: flex-start;
+        }
+
+        .month-picker {
+          justify-content: space-between;
+        }
+
+        .month-value {
+          flex: 1;
+        }
+
+        .summary-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
+        }
+
+        .metric-card {
+          min-height: 102px;
+          padding: 12px;
+        }
+
+        .metric-value {
+          font-size: 21px;
+        }
+
+        .operations-layout,
+        .ticker-layout,
+        .dashboard-layout {
+          grid-template-columns: 1fr;
+        }
+
+        .dashboard-stat-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .action-panel {
+          order: 1;
+        }
+
+        .event-panel {
+          order: 2;
+        }
+
+        .receipt-panel {
+          order: 3;
+        }
+
+        .panel-heading {
+          align-items: flex-start;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .table-head {
+          display: none;
+        }
+
+        .event-row,
+        .receipt-row,
+        .progress-row {
+          grid-template-columns: 1fr;
+          gap: 7px;
+          padding: 13px 14px;
+        }
+
+        .event-row > div,
+        .receipt-row > div,
+        .progress-row > div {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+        }
+
+        .event-row > div:first-child,
+        .receipt-row > div:first-child,
+        .progress-row > div:first-child {
+          display: block;
+        }
+
+        .event-row > div::before,
+        .receipt-row > div::before,
+        .progress-row > div::before {
+          content: attr(data-label);
+          color: var(--soft);
+          font-size: 12px;
+          font-weight: 800;
+          text-transform: uppercase;
+        }
+
+        .event-row > div:first-child::before,
+        .receipt-row > div:first-child::before,
+        .progress-row > div:first-child::before {
+          content: "";
+          display: none;
+        }
+
+        .action-top,
+        .history-top,
+        .history-row {
+          grid-template-columns: 1fr;
+          flex-direction: column;
+          align-items: stretch;
+        }
+
+        .history-row {
+          display: grid;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main id="dashboard-progress" class="screen">
+      <div class="mock-shell">
+        <header class="app-bar">
+          <div class="brand"><span class="brand-mark">V</span> Vakwen</div>
+          <nav class="main-nav" aria-label="Primary">
+            <button class="nav-item active">Dashboard</button>
+            <button class="nav-item">Portfolio</button>
+            <button class="nav-item">Dividends</button>
+            <button class="nav-item">Tickers</button>
+            <button class="nav-item">Settings</button>
+          </nav>
+          <div class="user-pill">Lume</div>
+        </header>
+
+        <section class="page-header">
+          <div>
+            <p class="eyebrow">Dashboard</p>
+            <h1>Income Snapshot</h1>
+            <p class="page-copy">Dividend progress identifies each event with ticker code, display name, account, and market context.</p>
+          </div>
+          <div class="toolbar">
+            <button class="text-button">This month</button>
+            <button class="primary-button">Open Dividends</button>
+          </div>
+        </section>
+
+        <section class="dashboard-layout">
+          <div class="dashboard-main">
+            <section class="dashboard-stat-grid" aria-label="Dashboard dividend summary">
+              <article class="metric-card">
+                <div class="metric-label">Expected <span class="trend">July</span></div>
+                <div class="metric-value">TWD 48,320</div>
+                <div class="metric-note">Across 11 upcoming events.</div>
+              </article>
+              <article class="metric-card">
+                <div class="metric-label">Received <span class="trend">45%</span></div>
+                <div class="metric-value">TWD 21,840</div>
+                <div class="metric-note">6 receipts posted.</div>
+              </article>
+              <article class="metric-card">
+                <div class="metric-label">Open Recon <span class="trend alert">4</span></div>
+                <div class="metric-value">TWD 13,050</div>
+                <div class="metric-note">Needs review before close.</div>
+              </article>
+            </section>
+
+            <article class="panel">
+              <div class="panel-heading">
+                <div>
+                  <h2>Dividend Progress</h2>
+                  <p class="panel-subtitle">Rows show display names next to ticker codes.</p>
+                </div>
+                <a class="deep-link" href="#">View all</a>
+              </div>
+              <div class="table-head">
+                <div>Dividend</div>
+                <div>Pay Date</div>
+                <div>Account</div>
+                <div>Expected</div>
+                <div>Status</div>
+              </div>
+              <div class="progress-list">
+                <div class="progress-row">
+                  <div>
+                    <div class="ticker-title"><span class="ticker-code">2330</span><span class="ticker-name">台積電</span></div>
+                    <div class="meta-line">TW common stock - next event Jul 18</div>
+                  </div>
+                  <div data-label="Pay Date">Jul 18</div>
+                  <div data-label="Account">Core Growth</div>
+                  <div class="amount" data-label="Expected">TWD 12,500</div>
+                  <div data-label="Status"><span class="status info">Expected</span></div>
+                </div>
+                <div class="progress-row">
+                  <div>
+                    <div class="ticker-title"><span class="ticker-code">006208</span><span class="ticker-name">富邦台50</span></div>
+                    <div class="meta-line">TW ETF - receipt posted Jul 04</div>
+                  </div>
+                  <div data-label="Pay Date">Jul 04</div>
+                  <div data-label="Account">ETF Sleeve</div>
+                  <div class="amount" data-label="Expected">TWD 6,180</div>
+                  <div data-label="Status"><span class="status ok">Matched</span></div>
+                </div>
+                <div class="progress-row">
+                  <div>
+                    <div class="ticker-title"><span class="ticker-code">2881</span><span class="ticker-name">富邦金</span></div>
+                    <div class="meta-line">TW financials - source composition pending</div>
+                  </div>
+                  <div data-label="Pay Date">Jul 24</div>
+                  <div data-label="Account">Income</div>
+                  <div class="amount" data-label="Expected">TWD 8,750</div>
+                  <div data-label="Status"><span class="status warn">Source gap</span></div>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <aside class="panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Month Close</h2>
+                <p class="panel-subtitle">Quick context without hiding ticker names.</p>
+              </div>
+            </div>
+            <div class="dashboard-side-list">
+              <div class="action-row">
+                <div class="action-top">
+                  <div>
+                    <div class="action-title">July collection</div>
+                    <p class="action-copy">TWD 21,840 of TWD 48,320 received.</p>
+                  </div>
+                  <span class="status info">45%</span>
+                </div>
+                <div class="progress-bar"><span class="progress-fill" style="width: 45%"></span></div>
+              </div>
+              <div class="action-row">
+                <div class="action-top">
+                  <div>
+                    <div class="action-title">Display-name coverage</div>
+                    <p class="action-copy">Current dashboard rows resolve instrument names.</p>
+                  </div>
+                  <span class="status ok">100%</span>
+                </div>
+                <div class="progress-bar"><span class="progress-fill" style="width: 100%"></span></div>
+              </div>
+            </div>
+          </aside>
+        </section>
+      </div>
+    </main>
+
+    <main id="dividends-overview" class="screen">
+      <div class="mock-shell">
+        <header class="app-bar">
+          <div class="brand"><span class="brand-mark">V</span> Vakwen</div>
+          <nav class="main-nav" aria-label="Primary">
+            <button class="nav-item">Dashboard</button>
+            <button class="nav-item">Portfolio</button>
+            <button class="nav-item active">Dividends</button>
+            <button class="nav-item">Tickers</button>
+            <button class="nav-item">Settings</button>
+          </nav>
+          <div class="user-pill">Lume</div>
+        </header>
+
+        <section class="page-header">
+          <div>
+            <p class="eyebrow">Income Operations</p>
+            <h1>Dividends</h1>
+            <p class="page-copy">
+              Expected income, ledger receipts, and reconciliation work for July 2026.
+            </p>
+          </div>
+          <div class="toolbar">
+            <div class="segmented" role="tablist" aria-label="Dividend views">
+              <button class="segment active">Overview</button>
+              <button class="segment">Review</button>
+              <button class="segment">Ledger</button>
+            </div>
+            <div class="month-picker" aria-label="Month picker">
+              <button class="icon-button" aria-label="Previous month">&lt;</button>
+              <input class="month-value" value="2026-07" aria-label="Selected month" />
+              <button class="icon-button" aria-label="Next month">&gt;</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="summary-grid" aria-label="Dividend summary">
+          <article class="metric-card">
+            <div class="metric-label">Expected <span class="trend">+8.6%</span></div>
+            <div class="metric-value">TWD 48,320</div>
+            <div class="metric-note">11 events scheduled for July.</div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-label">Received <span class="trend">On track</span></div>
+            <div class="metric-value">TWD 21,840</div>
+            <div class="metric-note">6 receipts posted this month.</div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-label">Needs Action <span class="trend alert">4 open</span></div>
+            <div class="metric-value">TWD 13,050</div>
+            <div class="metric-note">Matching and source gaps.</div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-label">Coverage <span class="trend warn">2 gaps</span></div>
+            <div class="metric-value">82%</div>
+            <div class="metric-note">Ticker names resolved on current rows.</div>
+          </article>
+        </section>
+
+        <section class="operations-layout">
+          <article class="panel event-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>This Month</h2>
+                <p class="panel-subtitle">Events for the selected month with account and market context.</p>
+              </div>
+              <a class="deep-link" href="#">Open Review</a>
+            </div>
+            <div class="table-head">
+              <div>Dividend</div>
+              <div>Ex Date</div>
+              <div>Pay Date</div>
+              <div>Amount</div>
+              <div>Status</div>
+            </div>
+            <div class="event-row">
+              <div>
+                <div class="ticker-title"><span class="ticker-code">2330</span><span class="ticker-name">台積電</span></div>
+                <div class="meta-line">Core Growth - TW</div>
+              </div>
+              <div data-label="Ex Date">Jul 09</div>
+              <div data-label="Pay Date">Jul 18</div>
+              <div class="amount" data-label="Amount">TWD 12,500</div>
+              <div data-label="Status"><span class="status info">Expected</span></div>
+            </div>
+            <div class="event-row">
+              <div>
+                <div class="ticker-title"><span class="ticker-code">2881</span><span class="ticker-name">富邦金</span></div>
+                <div class="meta-line">Income Account - TW</div>
+              </div>
+              <div data-label="Ex Date">Jul 11</div>
+              <div data-label="Pay Date">Jul 24</div>
+              <div class="amount" data-label="Amount">TWD 8,750</div>
+              <div data-label="Status"><span class="status warn">Source gap</span></div>
+            </div>
+            <div class="event-row">
+              <div>
+                <div class="ticker-title"><span class="ticker-code">006208</span><span class="ticker-name">富邦台50</span></div>
+                <div class="meta-line">ETF Sleeve - TW</div>
+              </div>
+              <div data-label="Ex Date">Jul 16</div>
+              <div data-label="Pay Date">Jul 31</div>
+              <div class="amount" data-label="Amount">TWD 6,180</div>
+              <div data-label="Status"><span class="status ok">Matched</span></div>
+            </div>
+            <div class="event-row">
+              <div>
+                <div class="ticker-title"><span class="ticker-code">0056</span><span class="ticker-name">元大高股息</span></div>
+                <div class="meta-line">ETF Sleeve - TW</div>
+              </div>
+              <div data-label="Ex Date">Jul 22</div>
+              <div data-label="Pay Date">Aug 08</div>
+              <div class="amount" data-label="Amount">TWD 4,320</div>
+              <div data-label="Status"><span class="status">Queued</span></div>
+            </div>
+          </article>
+
+          <aside class="panel action-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Needs Action</h2>
+                <p class="panel-subtitle">4 items need attention before month close.</p>
+              </div>
+              <span class="status open">4</span>
+            </div>
+            <div class="action-list">
+              <div class="action-row">
+                <div class="action-top">
+                  <div>
+                    <div class="action-title">Match 2330 receipt</div>
+                    <p class="action-copy">台積電 posted TWD 12,240 in Core Growth.</p>
+                  </div>
+                  <span class="status open">Open</span>
+                </div>
+                <div class="action-buttons">
+                  <button class="mini-button primary">Mark matched</button>
+                  <button class="mini-button">Review</button>
+                </div>
+              </div>
+              <div class="action-row">
+                <div class="action-top">
+                  <div>
+                    <div class="action-title">Confirm source split</div>
+                    <p class="action-copy">富邦金 has NHI withholding and missing source composition.</p>
+                  </div>
+                  <span class="status warn">Source</span>
+                </div>
+                <div class="action-buttons">
+                  <button class="mini-button">Open Review</button>
+                </div>
+              </div>
+              <div class="action-row">
+                <div class="action-top">
+                  <div>
+                    <div class="action-title">Resolve market ambiguity</div>
+                    <p class="action-copy">2330 requires TW market context before deep linking.</p>
+                  </div>
+                  <span class="status info">Market</span>
+                </div>
+                <div class="action-buttons">
+                  <button class="mini-button">Fix link</button>
+                </div>
+              </div>
+            </div>
+          </aside>
+
+          <article class="panel receipt-panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Recent Receipts</h2>
+                <p class="panel-subtitle">Latest posted income entries for the selected month.</p>
+              </div>
+              <a class="deep-link" href="#">View ledger</a>
+            </div>
+            <div class="table-head">
+              <div>Dividend</div>
+              <div>Posted</div>
+              <div>Account</div>
+              <div>Net Amount</div>
+              <div>Status</div>
+            </div>
+            <div class="receipt-row">
+              <div>
+                <div class="ticker-title"><span class="ticker-code">006208</span><span class="ticker-name">富邦台50</span></div>
+                <div class="meta-line">Dividend ledger entry DLE-8241</div>
+              </div>
+              <div data-label="Posted">Jul 04</div>
+              <div data-label="Account">ETF Sleeve</div>
+              <div class="amount" data-label="Net Amount">TWD 6,180</div>
+              <div data-label="Status"><span class="status ok">Matched</span></div>
+            </div>
+            <div class="receipt-row">
+              <div>
+                <div class="ticker-title"><span class="ticker-code">2330</span><span class="ticker-name">台積電</span></div>
+                <div class="meta-line">Dividend ledger entry DLE-8277</div>
+              </div>
+              <div data-label="Posted">Jul 05</div>
+              <div data-label="Account">Core Growth</div>
+              <div class="amount" data-label="Net Amount">TWD 12,240</div>
+              <div data-label="Status"><span class="status open">Open</span></div>
+            </div>
+          </article>
+        </section>
+      </div>
+    </main>
+
+    <main id="ticker-dividends" class="screen">
+      <div class="mock-shell">
+        <header class="app-bar">
+          <div class="brand"><span class="brand-mark">V</span> Vakwen</div>
+          <nav class="main-nav" aria-label="Primary">
+            <button class="nav-item">Dashboard</button>
+            <button class="nav-item">Portfolio</button>
+            <button class="nav-item active">Tickers</button>
+            <button class="nav-item">Dividends</button>
+          </nav>
+          <div class="user-pill">Lume</div>
+        </header>
+
+        <section class="ticker-hero">
+          <div>
+            <p class="eyebrow">Ticker Detail</p>
+            <div class="ticker-symbol-line">
+              <h1>2330 台積電</h1>
+              <span class="market-badge">TW</span>
+            </div>
+            <p class="page-copy">Dividend activity for 2330 across upcoming events, posted history, and open reconciliation.</p>
+          </div>
+          <div class="toolbar">
+            <div class="segmented" role="tablist" aria-label="Ticker tabs">
+              <button class="segment">Overview</button>
+              <button class="segment active">Dividends</button>
+              <button class="segment">Transactions</button>
+              <button class="segment">Fundamentals</button>
+            </div>
+            <button class="primary-button">Open Dividend Review</button>
+          </div>
+        </section>
+
+        <section class="summary-grid" aria-label="Ticker dividend summary">
+          <article class="metric-card">
+            <div class="metric-label">Upcoming <span class="trend">3</span></div>
+            <div class="metric-value">TWD 18,900</div>
+            <div class="metric-note">Next expected pay date Jul 18.</div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-label">Last Posted <span class="trend">Jul 05</span></div>
+            <div class="metric-value">TWD 12,240</div>
+            <div class="metric-note">Core Growth account.</div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-label">Open Recon <span class="trend alert">1</span></div>
+            <div class="metric-value">TWD 12,240</div>
+            <div class="metric-note">Quick match available here.</div>
+          </article>
+          <article class="metric-card">
+            <div class="metric-label">12M Yield <span class="trend warn">Estimate</span></div>
+            <div class="metric-value">2.1%</div>
+            <div class="metric-note">Based on posted ledger records.</div>
+          </article>
+        </section>
+
+        <section class="ticker-layout">
+          <div class="ticker-main">
+            <article class="panel">
+              <div class="panel-heading">
+                <div>
+                  <h2>Upcoming Events</h2>
+                  <p class="panel-subtitle">Scheduled and inferred events for this ticker.</p>
+                </div>
+                <a class="deep-link" href="#">Open filtered ledger</a>
+              </div>
+              <div class="table-head">
+                <div>Event</div>
+                <div>Ex Date</div>
+                <div>Pay Date</div>
+                <div>Amount</div>
+                <div>Status</div>
+              </div>
+              <div class="event-row">
+                <div>
+                  <div class="ticker-title"><span class="ticker-code">2330</span><span class="ticker-name">台積電</span></div>
+                  <div class="meta-line">Core Growth - 1,000 shares</div>
+                </div>
+                <div data-label="Ex Date">Jul 09</div>
+                <div data-label="Pay Date">Jul 18</div>
+                <div class="amount" data-label="Amount">TWD 12,500</div>
+                <div data-label="Status"><span class="status info">Expected</span></div>
+              </div>
+              <div class="event-row">
+                <div>
+                  <div class="ticker-title"><span class="ticker-code">2330</span><span class="ticker-name">台積電</span></div>
+                  <div class="meta-line">Retirement Account - 500 shares</div>
+                </div>
+                <div data-label="Ex Date">Sep 12</div>
+                <div data-label="Pay Date">Oct 11</div>
+                <div class="amount" data-label="Amount">TWD 6,400</div>
+                <div data-label="Status"><span class="status">Queued</span></div>
+              </div>
+            </article>
+
+            <article class="panel">
+              <div class="panel-heading">
+                <div>
+                  <h2>Posted History</h2>
+                  <p class="panel-subtitle">Posted dividend entries for 2330.</p>
+                </div>
+                <button class="text-button">Filter ledger</button>
+              </div>
+              <div class="history-card">
+                <div class="history-row">
+                  <div>
+                    <div class="history-title">Jul 05, 2026 - Core Growth</div>
+                    <p class="history-copy">Net TWD 12,240. Source composition incomplete. Ledger entry DLE-8277.</p>
+                  </div>
+                  <div class="action-buttons">
+                    <span class="status open">Open</span>
+                    <button class="mini-button primary">Mark matched</button>
+                    <button class="mini-button">Review</button>
+                  </div>
+                </div>
+                <div class="history-row">
+                  <div>
+                    <div class="history-title">Apr 03, 2026 - Core Growth</div>
+                    <p class="history-copy">Net TWD 11,920. Matched to event 2026-Q2-2330.</p>
+                  </div>
+                  <div class="action-buttons">
+                    <span class="status ok">Matched</span>
+                    <button class="mini-button">Review</button>
+                  </div>
+                </div>
+                <div class="history-row">
+                  <div>
+                    <div class="history-title">Jan 06, 2026 - Retirement Account</div>
+                    <p class="history-copy">Net TWD 5,980. No outstanding reconciliation work.</p>
+                  </div>
+                  <div class="action-buttons">
+                    <span class="status ok">Matched</span>
+                    <button class="mini-button">Review</button>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <aside class="panel">
+            <div class="panel-heading">
+              <div>
+                <h2>Reconciliation</h2>
+                <p class="panel-subtitle">Open items for 2330 with market context preserved.</p>
+              </div>
+            </div>
+            <div class="action-list">
+              <div class="action-row">
+                <div class="action-top">
+                  <div>
+                    <div class="action-title">Open receipt</div>
+                    <p class="action-copy">DLE-8277 can be marked matched from this tab.</p>
+                  </div>
+                  <span class="status open">Open</span>
+                </div>
+                <div class="action-buttons">
+                  <button class="mini-button primary">Mark matched</button>
+                  <button class="mini-button">Open Review</button>
+                </div>
+              </div>
+              <div class="action-row">
+                <div class="action-top">
+                  <div>
+                    <div class="action-title">Deep-link target</div>
+                    <p class="action-copy">Market is preserved as TW to avoid ambiguous 2330 routes.</p>
+                  </div>
+                  <span class="status info">Safe link</span>
+                </div>
+                <a class="deep-link" href="#">Open filtered ledger</a>
+              </div>
+            </div>
+          </aside>
+        </section>
+      </div>
+    </main>
+
+    <script>
+      const hash = window.location.hash;
+      const view = hash.includes("dashboard") ? "dashboard" : hash.includes("ticker") ? "ticker" : "dividends";
+      document.body.dataset.view = view;
+    </script>
+  </body>
+</html>

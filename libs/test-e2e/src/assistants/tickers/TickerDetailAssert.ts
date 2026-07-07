@@ -155,6 +155,36 @@ export class TickerDetailAssert extends BaseAssert {
   }
 
   @Step()
+  async dividendsPanelIsVisible(): Promise<void> {
+    await expect(this.el.dividendsPanel).toBeVisible();
+  }
+
+  @Step()
+  async dividendsPanelContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.dividendsPanel).toContainText(text);
+  }
+
+  @Step()
+  async dividendsOpenReviewHrefContains(ticker: string, marketCode: string): Promise<void> {
+    await expect(this.el.dividendsOpenReview).toHaveAttribute(
+      "href",
+      new RegExp(`ticker=${ticker}.*marketCode=${marketCode}|marketCode=${marketCode}.*ticker=${ticker}`),
+    );
+  }
+
+  @Step()
+  async dividendsRowReviewLinksPreserveMarket(ticker: string, marketCode: string): Promise<void> {
+    const hrefPattern = new RegExp(`ticker=${ticker}.*marketCode=${marketCode}|marketCode=${marketCode}.*ticker=${ticker}`);
+    await expect(this.el.dividendsPostedReviewLink(0)).toHaveAttribute("href", hrefPattern);
+    await expect(this.el.dividendsReconciliationReviewLink(0)).toHaveAttribute("href", hrefPattern);
+  }
+
+  @Step()
+  async dividendReconciliationMarkMatchedIsHidden(dividendLedgerEntryId: string): Promise<void> {
+    await expect(this.el.dividendsReconciliationMarkMatched(dividendLedgerEntryId)).toHaveCount(0);
+  }
+
+  @Step()
   async sectionIsVisible(): Promise<void> {
     await expect(this.el.clientReady).toBeAttached({ timeout: 20_000 });
     await expect(this.el.tickerHistorySection).toBeVisible({ timeout: 20_000 });

@@ -8,6 +8,7 @@ function buildEntry(overrides: Partial<DividendLedgerEntryDetails>): DividendLed
     dividendEventId: overrides.dividendEventId ?? "event-1",
     accountId: overrides.accountId ?? "acc-1",
     ticker: overrides.ticker ?? "0050",
+    marketCode: overrides.marketCode ?? "TW",
     instrumentType: overrides.instrumentType ?? "ETF",
     eventType: overrides.eventType ?? "CASH",
     paymentDate: overrides.paymentDate ?? "2026-04-20",

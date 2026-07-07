@@ -11,6 +11,7 @@ const LEDGER_ONLY_PARAMS = [
   "fromPaymentDate",
   "toPaymentDate",
   "ticker",
+  "marketCode",
   "accountId",
   "sortBy",
   "sortOrder",

@@ -1,5 +1,7 @@
 import { TICKER_CHART_RANGES } from "@vakwen/shared-types";
 import type {
+  DashboardOverviewRecentDividendDto,
+  DashboardOverviewUpcomingDividendDto,
   DashboardOverviewHoldingDto,
   DashboardOverviewHoldingChildDto,
   DashboardOverviewHoldingGroupDto,
@@ -94,6 +96,9 @@ export interface TickerDetailsModel {
     upcomingCount: number;
     nextPaymentDate: string | null;
     lastPostedDate: string | null;
+    openReconciliationCount: number;
+    upcoming: DashboardOverviewUpcomingDividendDto[];
+    recent: DashboardOverviewRecentDividendDto[];
   };
   fundamentals: {
     panels: TickerFundamentalsPanel[];
@@ -201,6 +206,17 @@ function findScopedCatalogInstrument(
   return instrument?.ticker === ticker && instrument.marketCode === marketCode ? instrument : null;
 }
 
+function matchesDividendScope(
+  dividend: DashboardOverviewUpcomingDividendDto | DashboardOverviewRecentDividendDto,
+  ticker: string,
+  marketCode: string,
+  accountId?: string,
+): boolean {
+  return dividend.ticker === ticker
+    && dividend.marketCode === marketCode
+    && (!accountId || dividend.accountId === accountId);
+}
+
 function buildFallbackFundamentals(
   instrument: InstrumentCatalogItemDto | null,
   holding: DashboardOverviewHoldingDto | DashboardOverviewHoldingGroupDto | undefined,
@@ -294,10 +310,10 @@ export function buildPrimaryTickerDetails({
   const scopedCatalogInstrument = findScopedCatalogInstrument(ticker, resolvedMarketCode, instrument);
   const currency = holding?.currency ?? transactions[0]?.priceCurrency ?? "TWD";
   const upcomingDividends = dashboard.dividends.upcoming.filter(
-    (dividend) => dividend.ticker === ticker && (!accountId || dividend.accountId === accountId),
+    (dividend) => matchesDividendScope(dividend, ticker, resolvedMarketCode, accountId),
   );
   const recentDividends = dashboard.dividends.recent.filter(
-    (dividend) => dividend.ticker === ticker && (!accountId || dividend.accountId === accountId),
+    (dividend) => matchesDividendScope(dividend, ticker, resolvedMarketCode, accountId),
   );
 
   return {
@@ -348,6 +364,9 @@ export function buildPrimaryTickerDetails({
       upcomingCount: upcomingDividends.length,
       nextPaymentDate: upcomingDividends[0]?.paymentDate ?? null,
       lastPostedDate: recentDividends[0]?.postedAt ?? holding?.lastDividendPostedDate ?? null,
+      openReconciliationCount: recentDividends.filter((dividend) => dividend.reconciliationStatus === "open").length,
+      upcoming: upcomingDividends,
+      recent: recentDividends,
     },
     fundamentals: {
       panels: buildFallbackFundamentals(scopedCatalogInstrument, holding),
@@ -400,6 +419,15 @@ function mergeWithFallback(
     dividends: {
       ...fallback.dividends,
       ...(isObject(payload.dividends) ? payload.dividends : {}),
+      openReconciliationCount: isObject(payload.dividends) && typeof payload.dividends.openReconciliationCount === "number"
+        ? payload.dividends.openReconciliationCount
+        : fallback.dividends.openReconciliationCount,
+      upcoming: isObject(payload.dividends) && Array.isArray(payload.dividends.upcoming)
+        ? (payload.dividends.upcoming as DashboardOverviewUpcomingDividendDto[])
+        : fallback.dividends.upcoming,
+      recent: isObject(payload.dividends) && Array.isArray(payload.dividends.recent)
+        ? (payload.dividends.recent as DashboardOverviewRecentDividendDto[])
+        : fallback.dividends.recent,
     },
     fundamentals: {
       panels:
@@ -580,6 +608,9 @@ function mapApiDetailsToModel(
       upcomingCount: payload.dividends.upcoming.length,
       nextPaymentDate: firstUpcoming?.paymentDate ?? null,
       lastPostedDate: firstRecent?.postedAt ?? null,
+      openReconciliationCount: payload.dividends.recent.filter((dividend) => dividend.reconciliationStatus === "open").length,
+      upcoming: payload.dividends.upcoming,
+      recent: payload.dividends.recent,
     },
     fundamentals: {
       panels: mapApiFundamentalsToPanels(payload.fundamentals),
@@ -698,6 +729,9 @@ function mapApiPrimaryToModel(
       upcomingCount: payload.dividends.upcoming.length,
       nextPaymentDate: payload.dividends.upcoming[0]?.paymentDate ?? null,
       lastPostedDate: payload.dividends.recent[0]?.postedAt ?? null,
+      openReconciliationCount: payload.dividends.recent.filter((dividend) => dividend.reconciliationStatus === "open").length,
+      upcoming: payload.dividends.upcoming,
+      recent: payload.dividends.recent,
     },
   };
 }

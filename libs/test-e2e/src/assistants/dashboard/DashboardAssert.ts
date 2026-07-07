@@ -189,6 +189,11 @@ export class DashboardAssert extends BaseAssert {
   }
 
   @Step()
+  async dividendsSectionContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.dividendsSection).toContainText(text);
+  }
+
+  @Step()
   async floatingQuickActionsTriggerIsVisible(): Promise<void> {
     await expect(this.el.floatingQuickActionsTrigger).toBeVisible();
   }

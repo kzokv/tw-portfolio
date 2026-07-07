@@ -31,6 +31,7 @@ function buildLedger(overrides?: Partial<DividendLedgerEntryDetails>): DividendL
     dividendEventId: overrides?.dividendEventId ?? "event-1",
     accountId: overrides?.accountId ?? "acc-1",
     ticker: overrides?.ticker ?? "2330",
+    marketCode: overrides?.marketCode ?? "TW",
     instrumentType: overrides?.instrumentType ?? "STOCK",
     eventType: overrides?.eventType ?? "CASH",
     paymentDate: overrides?.paymentDate ?? "2026-04-20",
@@ -79,6 +80,7 @@ function buildRow(overrides?: {
       hasPostedLedgerEntry: false,
       dividendLedgerEntryId: null,
       ...overrides?.event,
+      marketCode: overrides?.event?.marketCode ?? "TW",
     },
     ledgerEntry: overrides?.ledgerEntry ?? null,
   };

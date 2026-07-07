@@ -64,10 +64,11 @@ export function DividendsSection({ upcoming, recent, dict, locale }: DividendsSe
                 className="rounded-[22px] border border-slate-200 bg-white/92 p-4 shadow-[0_16px_30px_rgba(148,163,184,0.12)]"
               >
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <p className="text-lg font-semibold tracking-[0.12em] text-slate-950">{item.ticker}</p>
-                    <p className="mt-1 text-sm text-slate-500">{item.accountName ?? item.accountId}</p>
-                  </div>
+                  <DividendEventHeading
+                    ticker={item.ticker}
+                    tickerName={item.tickerName}
+                    accountLabel={item.accountName ?? item.accountId}
+                  />
                   <StatusPill label={resolveUpcomingStatusLabel(dict, item.status)} />
                 </div>
                 <dl className="mt-4 grid gap-3 sm:grid-cols-3">
@@ -92,10 +93,11 @@ export function DividendsSection({ upcoming, recent, dict, locale }: DividendsSe
                 className="rounded-[22px] border border-slate-200 bg-white/92 p-4 shadow-[0_16px_30px_rgba(148,163,184,0.12)]"
               >
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <p className="text-lg font-semibold tracking-[0.12em] text-slate-950">{item.ticker}</p>
-                    <p className="mt-1 text-sm text-slate-500">{item.accountName ?? item.accountId}</p>
-                  </div>
+                  <DividendEventHeading
+                    ticker={item.ticker}
+                    tickerName={item.tickerName}
+                    accountLabel={item.accountName ?? item.accountId}
+                  />
                   <StatusPill label={item.status === "posted" ? dict.dashboardHome.statusPosted : dict.dashboardHome.statusUnreconciled} />
                 </div>
                 <dl className="mt-4 grid gap-3 sm:grid-cols-4">
@@ -124,6 +126,28 @@ export function DividendsSection({ upcoming, recent, dict, locale }: DividendsSe
         </Link>
       </div>
     </Card>
+  );
+}
+
+function DividendEventHeading({
+  ticker,
+  tickerName,
+  accountLabel,
+}: {
+  ticker: string;
+  tickerName?: string | null;
+  accountLabel: string;
+}) {
+  const displayName = tickerName?.trim();
+
+  return (
+    <div className="min-w-0">
+      <p className="text-lg font-semibold tracking-[0.12em] text-slate-950">{ticker}</p>
+      {displayName ? (
+        <p className="mt-1 truncate text-sm font-medium text-slate-700">{displayName}</p>
+      ) : null}
+      <p className="mt-1 truncate text-sm text-slate-500">{accountLabel}</p>
+    </div>
   );
 }
 

@@ -233,6 +233,23 @@ describePostgres("PostgresPersistence.listDividendLedgerEntries — pagination/s
     return entryId;
   }
 
+  it("preserves instrument display names when hydrating the Postgres store", async () => {
+    await pool.query(
+      `INSERT INTO market_data.instruments (ticker, market_code, name, instrument_type, bars_backfill_status)
+       VALUES ('DVDNAME', 'US', 'Dividend Name Corp', 'STOCK', 'ready')
+       ON CONFLICT (ticker, market_code)
+       DO UPDATE SET name = EXCLUDED.name, instrument_type = EXCLUDED.instrument_type`,
+    );
+
+    const store = await persistence.loadStore(userId);
+
+    expect(store.instruments).toContainEqual(expect.objectContaining({
+      ticker: "DVDNAME",
+      marketCode: "US",
+      name: "Dividend Name Corp",
+    }));
+  });
+
   // ── IG-01/02: Response shape + default order ───────────────────────────────
 
   it("IG-01/02: default call returns { ledgerEntries, total, aggregates } ordered by payment_date DESC", async () => {
@@ -291,6 +308,25 @@ describePostgres("PostgresPersistence.listDividendLedgerEntries — pagination/s
     expect(result.ledgerEntries).toHaveLength(2);
     expect(result.aggregates.totalExpectedCashAmount).toEqual({ USD: 300 });
     expect(result.aggregates.byTicker).toEqual({ AAPL: { USD: { expected: 300, received: 300 } } });
+  });
+
+  it("IG-03b: marketCode filter scopes ticker rows by event market", async () => {
+    await seedFull({ ticker: "BHP", currency: "USD", paymentDate: "2024-03-15", expected: 100, received: 100 });
+
+    const usResult = await persistence.listDividendLedgerEntries(userId, {
+      ...defaultOpts,
+      ticker: "BHP",
+      marketCode: "US",
+    });
+    const auResult = await persistence.listDividendLedgerEntries(userId, {
+      ...defaultOpts,
+      ticker: "BHP",
+      marketCode: "AU",
+    });
+
+    expect(usResult.total).toBe(1);
+    expect(usResult.ledgerEntries[0]!.expectedCashAmount).toBe(100);
+    expect(auResult.total).toBe(0);
   });
 
   // ── IG-04/05: Existing filters still work ──────────────────────────────────

@@ -328,6 +328,9 @@ const details: TickerDetailsModel = {
     upcomingCount: 0,
     nextPaymentDate: null,
     lastPostedDate: null,
+    openReconciliationCount: 0,
+    upcoming: [],
+    recent: [],
   },
   fundamentals: { panels: [] },
 };

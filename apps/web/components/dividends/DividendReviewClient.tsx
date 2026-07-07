@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
-import type { AccountDto, DividendLedgerAggregates, LocaleCode } from "@vakwen/shared-types";
+import type { AccountDto, DividendLedgerAggregates, LocaleCode, MarketCode } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatDateLabel } from "../../lib/utils";
 import { useEventStream } from "../../hooks/useEventStream";
@@ -52,6 +52,7 @@ interface FilterState {
   fromDate: string;
   toDate: string;
   ticker: string;
+  marketCode: MarketCode | "";
   accountId: string;
   status: StatusFilter;
   sortBy: string;
@@ -130,6 +131,7 @@ function parseInitialFilters(searchParams: URLSearchParams): FilterState {
     fromDate: searchParams.get("fromPaymentDate") ?? resolved.from ?? "",
     toDate: searchParams.get("toPaymentDate") ?? resolved.to ?? "",
     ticker: searchParams.get("ticker") ?? "",
+    marketCode: (searchParams.get("marketCode") as MarketCode | null) ?? "",
     accountId: searchParams.get("accountId") ?? "",
     status: (searchParams.get("status") as StatusFilter) ?? "all",
     sortBy: searchParams.get("sortBy") ?? "paymentDate",
@@ -212,6 +214,7 @@ export function DividendReviewClient({
       fromPaymentDate: f.fromDate || undefined,
       toPaymentDate: f.toDate || undefined,
       ticker: f.ticker || undefined,
+      marketCode: f.marketCode || undefined,
       accountId: f.accountId || undefined,
       ...statusParams,
       sortBy: f.sortBy,
@@ -226,6 +229,7 @@ export function DividendReviewClient({
   const syncUrl = useCallback((f: FilterState) => {
     const params = new URLSearchParams();
     params.set("view", "ledger");
+    if (f.marketCode) params.set("marketCode", f.marketCode);
     if (f.preset !== "currentYear") params.set("preset", f.preset);
     if (f.fromDate) params.set("fromPaymentDate", f.fromDate);
     if (f.toDate) params.set("toPaymentDate", f.toDate);
@@ -300,7 +304,13 @@ export function DividendReviewClient({
   }, [applyFilters, dict]);
 
   const handleTickerApply = useCallback((ticker: string) => {
-    applyFilters({ ...filters, ticker, page: 1 });
+    const nextTicker = ticker.trim();
+    applyFilters({
+      ...filters,
+      ticker: nextTicker,
+      marketCode: nextTicker ? filters.marketCode : "",
+      page: 1,
+    });
   }, [filters, applyFilters]);
 
   const handleAccountChange = useCallback((accountId: string) => {
@@ -456,6 +466,8 @@ export function DividendReviewClient({
           id: drawerEntry.dividendEventId,
           accountId: drawerEntry.accountId,
           ticker: drawerEntry.ticker,
+          tickerName: drawerEntry.tickerName,
+          marketCode: drawerEntry.marketCode,
           instrumentType: drawerEntry.instrumentType,
           eventType: drawerEntry.eventType,
           exDividendDate: drawerEntry.exDividendDate,

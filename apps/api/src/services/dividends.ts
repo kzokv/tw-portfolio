@@ -141,6 +141,8 @@ export interface DividendEventListItem {
   accountId: string;
   accountName: string;
   ticker: string;
+  tickerName: string | null;
+  marketCode: MarketCode;
   instrumentType: InstrumentType;
   eventType: DividendEventType;
   exDividendDate: string;
@@ -156,6 +158,8 @@ export interface DividendEventListItem {
 export interface DividendLedgerEntryDetails extends DividendLedgerEntry {
   accountName: string;
   ticker: string;
+  tickerName: string | null;
+  marketCode: MarketCode;
   instrumentType: InstrumentType;
   eventType: DividendEventType;
   exDividendDate: string;
@@ -431,6 +435,8 @@ export function buildDividendEventListItems(
         accountId: account.id,
         accountName: account.name,
         ticker: dividendEvent.ticker,
+        tickerName: resolveDividendTickerName(store, dividendEvent.ticker, dividendMarketCode),
+        marketCode: dividendMarketCode,
         instrumentType: resolveDividendInstrumentType(store, dividendEvent.ticker),
         eventType: dividendEvent.eventType,
         exDividendDate: dividendEvent.exDividendDate,
@@ -477,6 +483,8 @@ export function buildDividendLedgerEntryDetails(
         ...entry,
         accountName: accountById.get(entry.accountId)?.name ?? entry.accountId,
         ticker: dividendEvent.ticker,
+        tickerName: resolveDividendTickerName(store, dividendEvent.ticker, resolveDividendEventMarketCode(dividendEvent)),
+        marketCode: resolveDividendEventMarketCode(dividendEvent),
         instrumentType: resolveDividendInstrumentType(store, dividendEvent.ticker),
         eventType: dividendEvent.eventType,
         exDividendDate: dividendEvent.exDividendDate,
@@ -497,6 +505,29 @@ export function buildDividendLedgerEntryDetails(
       left.ticker.localeCompare(right.ticker) ||
       left.id.localeCompare(right.id),
   );
+}
+
+export function buildDividendReviewRowDetails<
+  T extends {
+    dividendEventId: string;
+    ticker: string;
+    cashCurrency: string;
+  },
+>(
+  store: Store,
+  rows: readonly T[],
+): Array<T & { tickerName: string | null; marketCode: MarketCode }> {
+  const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
+  return rows.map((row) => {
+    const marketCode = eventById.get(row.dividendEventId)
+      ? resolveDividendEventMarketCode(eventById.get(row.dividendEventId)!)
+      : marketCodeFor(row.cashCurrency) as MarketCode;
+    return {
+      ...row,
+      tickerName: resolveDividendTickerName(store, row.ticker, marketCode),
+      marketCode,
+    };
+  });
 }
 
 function materializeExpectedDividendEntry(
@@ -816,6 +847,22 @@ export function resolveDividendEventMarketCode(
     return event.marketCode as MarketCode;
   }
   return marketCodeFor(event.cashDividendCurrency);
+}
+
+export function resolveDividendTickerName(
+  store: Store,
+  ticker: string,
+  marketCode?: MarketCode,
+): string | null {
+  const normalizedTicker = ticker.trim().toUpperCase();
+  const matchesTicker = (entry: { ticker: string; marketCode?: string; name?: string | null }): boolean =>
+    entry.ticker.trim().toUpperCase() === normalizedTicker
+      && (!marketCode || entry.marketCode === marketCode)
+      && Boolean(entry.name?.trim());
+  const marketInstrument = store.instruments.find(matchesTicker)
+    ?? store.marketData.instruments.find(matchesTicker);
+
+  return marketInstrument?.name?.trim() ?? null;
 }
 
 /**

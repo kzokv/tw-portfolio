@@ -17,6 +17,7 @@ export interface TDashboardElements extends TElementLocatorHelpers {
   dashboardBiggestMoversEmpty: Locator;
   dashboardIntegrityAlert: Locator;
   dashboardIntegrityAlertCta: Locator;
+  dividendsSection: Locator;
   // Phase 5e — floating ⨁ Sheet (replaces ActionCenter recompute/snapshots).
   floatingQuickActionsTrigger: Locator;
   floatingQuickActionsSheet: Locator;
@@ -59,6 +60,7 @@ export class DashboardPage extends BasePage<TDashboardElements> {
       dashboardBiggestMoversEmpty: this.locate("dashboard-biggest-movers-empty", "Dashboard Biggest Movers Empty State"),
       dashboardIntegrityAlert: this.locate("dashboard-integrity-alert", "Dashboard Integrity Alert"),
       dashboardIntegrityAlertCta: this.locate("dashboard-integrity-alert-fix-cta", "Dashboard Integrity Alert Fix CTA"),
+      dividendsSection: this.locate("dashboard-dividends-section", "Dashboard Dividends Section"),
       floatingQuickActionsTrigger: this.locate("floating-quick-actions-trigger", "Floating Quick Actions Trigger"),
       floatingQuickActionsSheet: this.locate("floating-quick-actions-sheet", "Floating Quick Actions Sheet"),
       floatingActionAddTransaction: this.locate("floating-action-add-transaction", "Floating Action — Add Transaction"),

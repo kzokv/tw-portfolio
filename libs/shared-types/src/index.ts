@@ -711,6 +711,8 @@ export interface DashboardOverviewUpcomingDividendDto {
   accountId: string;
   accountName?: string;
   ticker: string;
+  tickerName?: string | null;
+  marketCode?: MarketCode;
   exDividendDate: string | null;
   paymentDate: string | null;
   expectedAmount: number | null;
@@ -722,12 +724,17 @@ export interface DashboardOverviewRecentDividendDto {
   accountId: string;
   accountName?: string;
   ticker: string;
+  tickerName?: string | null;
+  marketCode?: MarketCode;
+  dividendLedgerEntryId?: string;
+  paymentDate?: string | null;
   postedAt: string;
   netAmount: number;
   grossAmount: number | null;
   deductionAmount: number | null;
   currency: CurrencyCode;
   sourceSummary: string | null;
+  reconciliationStatus?: "open" | "matched" | "explained" | "resolved";
   status: "posted" | "unreconciled";
 }
 
@@ -1928,6 +1935,10 @@ export interface TickerDetailsDto {
   unrealizedPnlHistory: TickerDetailsUnrealizedPnlPointDto[];
   transactions: TransactionHistoryItemDto[];
   dividends: {
+    upcomingCount: number;
+    nextPaymentDate: string | null;
+    lastPostedDate: string | null;
+    openReconciliationCount: number;
     upcoming: DashboardOverviewUpcomingDividendDto[];
     recent: DashboardOverviewRecentDividendDto[];
   };
