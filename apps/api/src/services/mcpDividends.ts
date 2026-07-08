@@ -90,11 +90,11 @@ function accountNameById(store: Store): Map<string, string> {
   return new Map(store.accounts.map((account) => [account.id, account.name || account.id]));
 }
 
-function normalizeDeductions(input: DeductionInput[] = []) {
+function normalizeDeductions(input: DeductionInput[] = [], defaultCurrency = "TWD") {
   return input.map((entry) => ({
     deductionType: entry.deductionType,
     amount: entry.amount,
-    currencyCode: entry.currencyCode ?? "TWD",
+    currencyCode: entry.currencyCode ?? defaultCurrency,
     withheldAtSource: entry.withheldAtSource ?? true,
     source: entry.source ?? "mcp_dividend_posting",
     sourceReference: entry.sourceReference,
@@ -172,8 +172,8 @@ function rowSummary(row: DividendReviewRowWithDetails, store: Store) {
     cashVarianceAmount: roundToDecimal(row.expectedCashAmount - actualCash, 2),
     stockVarianceQuantity: row.expectedStockQuantity - row.receivedStockQuantity,
     sourceCompositionStatus: row.sourceCompositionStatus,
-    canPostReceipt: row.rowKind === "expected",
-    canUpdateReconciliation: row.rowKind === "ledger",
+    canPostReceipt: row.postingStatus === "expected",
+    canUpdateReconciliation: row.rowKind === "ledger" && row.postingStatus !== "expected",
     warnings: [
       ...(row.expectedStockQuantity > 0 ? ["Posting a stock or mixed dividend creates or updates an inventory lot."] : []),
       ...(row.rowKind === "expected" && row.paymentDate === null ? ["Payment date is not set on this dividend event."] : []),
@@ -227,10 +227,10 @@ async function fetchAllDividendReviewRows(
 }
 
 function receiptPreviewPayload(resolved: ResolvedReviewRow, input: DividendReceiptInput) {
-  if (resolved.row.rowKind !== "expected") {
+  if (resolved.row.postingStatus !== "expected") {
     throw routeError(409, "mcp_dividend_receipt_requires_expected_row", "Posting over MCP requires an expected dividend review row.");
   }
-  const deductions = normalizeDeductions(input.deductions);
+  const deductions = normalizeDeductions(input.deductions, resolved.row.cashCurrency);
   const sourceLines = normalizeSourceLines(input.sourceLines);
   const receivedCashAmount = input.receivedCashAmount ?? resolved.row.expectedCashAmount;
   const receivedStockQuantity = input.receivedStockQuantity ?? resolved.row.expectedStockQuantity;

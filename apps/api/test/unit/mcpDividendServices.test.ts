@@ -9,7 +9,7 @@ import {
   previewUpdateDividendReconciliation,
   updateDividendReconciliation,
 } from "../../src/services/mcpDividends.js";
-import type { BookedTradeEvent, DividendEvent, DividendEventType } from "../../src/types/store.js";
+import type { BookedTradeEvent, DividendEvent, DividendEventType, DividendLedgerEntry } from "../../src/types/store.js";
 
 const USER_ID = "user-1";
 
@@ -49,26 +49,31 @@ function serviceContext(): McpToolHandlerContext {
 
 async function seedExpectedDividendRow(options: {
   ticker?: string;
+  marketCode?: BookedTradeEvent["marketCode"];
   eventType?: DividendEventType;
   cashDividendPerShare?: number;
+  cashDividendCurrency?: DividendEvent["cashDividendCurrency"];
   stockDividendPerShare?: number;
   paymentDate?: string | null;
+  materializeLedgerEntry?: boolean;
 } = {}): Promise<string> {
   const store = await app.persistence.loadStore(USER_ID);
   const account = store.accounts[0]!;
-  account.defaultCurrency = "TWD";
+  const cashDividendCurrency: typeof account.defaultCurrency = (options.cashDividendCurrency ?? "TWD") as typeof account.defaultCurrency;
+  const marketCode = options.marketCode ?? "TW";
+  account.defaultCurrency = cashDividendCurrency;
   const ticker = options.ticker ?? "2330";
   const trade: BookedTradeEvent = {
     id: randomUUID(),
     userId: USER_ID,
     accountId: account.id,
     ticker,
-    marketCode: "TW",
+    marketCode,
     instrumentType: "STOCK",
     type: "BUY",
     quantity: 1000,
     unitPrice: 100,
-    priceCurrency: "TWD",
+    priceCurrency: cashDividendCurrency,
     tradeDate: "2024-05-20",
     commissionAmount: 0,
     taxAmount: 0,
@@ -79,17 +84,37 @@ async function seedExpectedDividendRow(options: {
   const dividendEvent: DividendEvent = {
     id: randomUUID(),
     ticker,
-    marketCode: "TW",
+    marketCode,
     eventType: options.eventType ?? "CASH",
     exDividendDate: "2024-06-01",
     paymentDate,
     cashDividendPerShare: options.cashDividendPerShare ?? 3,
-    cashDividendCurrency: "TWD",
+    cashDividendCurrency,
     stockDividendPerShare: options.stockDividendPerShare ?? 0,
     source: "test_seed",
   };
   store.accounting.facts.tradeEvents.push(trade);
   store.marketData.dividendEvents.push(dividendEvent);
+
+  if (options.materializeLedgerEntry) {
+    const ledgerEntry: DividendLedgerEntry = {
+      id: randomUUID(),
+      accountId: account.id,
+      dividendEventId: dividendEvent.id,
+      eligibleQuantity: 1000,
+      expectedCashAmount: Math.round(1000 * dividendEvent.cashDividendPerShare),
+      expectedStockQuantity: Math.floor(1000 * dividendEvent.stockDividendPerShare),
+      receivedCashAmount: 0,
+      receivedStockQuantity: 0,
+      postingStatus: "expected",
+      reconciliationStatus: "open",
+      version: 1,
+      sourceCompositionStatus: "unknown_pending_disclosure",
+      reconciliationNote: undefined,
+      bookedAt: new Date("2024-07-01T00:00:00.000Z").toISOString(),
+    };
+    store.accounting.facts.dividendLedgerEntries.push(ledgerEntry);
+  }
 
   const review = await app.persistence.listDividendReviewRows(USER_ID, {
     page: 1,
@@ -99,9 +124,14 @@ async function seedExpectedDividendRow(options: {
     ...(paymentDate === null ? { fromPaymentDate: "2024-01-01" } : {}),
   });
   const expectedRowId = `expected:${account.id}:${dividendEvent.id}`;
-  const row = review.rows.find((candidate) => candidate.id === expectedRowId);
-  expect(row?.rowKind).toBe("expected");
-  return expectedRowId;
+  const row = options.materializeLedgerEntry
+    ? review.rows.find((candidate) => candidate.dividendEventId === dividendEvent.id && candidate.postingStatus === "expected")
+    : review.rows.find((candidate) => candidate.id === expectedRowId);
+  expect(row).toEqual(expect.objectContaining({
+    rowKind: options.materializeLedgerEntry ? "ledger" : "expected",
+    postingStatus: "expected",
+  }));
+  return row!.id;
 }
 
 async function postSeededReceipt(rowId: string, idempotencyKey = `mcp-dividend-${randomUUID()}`) {
@@ -156,6 +186,65 @@ describe("MCP dividend services", () => {
     }));
     expect(eventSpy).toHaveBeenCalledWith(USER_ID, "dividend_posted", expect.objectContaining({
       dividendLedgerEntryId: posted.dividendLedgerEntryId,
+    }));
+  });
+
+  it("defaults omitted receipt deduction currency to the dividend row currency", async () => {
+    const rowId = await seedExpectedDividendRow({
+      ticker: "AAPL",
+      marketCode: "US",
+      cashDividendCurrency: "USD",
+    });
+    const receiptInput = {
+      rowId,
+      receivedCashAmount: 2900,
+      deductions: [{
+        deductionType: "WITHHOLDING_TAX" as const,
+        amount: 100,
+      }],
+    };
+
+    const preview = await previewPostDividendReceipt(serviceContext(), receiptInput);
+
+    expect(preview.receipt.deductions).toEqual([
+      expect.objectContaining({ currencyCode: "USD", amount: 100 }),
+    ]);
+    await expect(postDividendReceipt(serviceContext(), {
+      ...receiptInput,
+      confirmationSummary: preview.confirmationSummary,
+      confirmationDigest: preview.confirmationDigest,
+      idempotencyKey: "mcp-dividend-usd-deduction-default",
+    })).resolves.toEqual(expect.objectContaining({ posted: true }));
+  });
+
+  it("posts persisted expected ledger rows returned by dividend review", async () => {
+    const rowId = await seedExpectedDividendRow({ materializeLedgerEntry: true });
+    const review = await getDividendReview(serviceContext(), {
+      postingStatus: "expected",
+      tickerMarkets: [{ ticker: "2330", marketCode: "TW" }],
+    });
+
+    expect(review.rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        rowId,
+        rowKind: "ledger",
+        postingStatus: "expected",
+        canPostReceipt: true,
+        canUpdateReconciliation: false,
+      }),
+    ]));
+
+    const preview = await previewPostDividendReceipt(serviceContext(), { rowId });
+    const posted = await postDividendReceipt(serviceContext(), {
+      rowId,
+      confirmationSummary: preview.confirmationSummary,
+      confirmationDigest: preview.confirmationDigest,
+      idempotencyKey: "mcp-dividend-persisted-expected-ledger",
+    });
+
+    expect(posted).toEqual(expect.objectContaining({
+      posted: true,
+      dividendLedgerEntryId: rowId,
     }));
   });
 
