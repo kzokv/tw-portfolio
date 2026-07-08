@@ -226,6 +226,28 @@ describe("MCP dividend services", () => {
     }));
   });
 
+  it("allows stock cash auto-fill when caller explicitly marks source composition unknown", async () => {
+    const rowId = await seedExpectedDividendRow();
+
+    const preview = await previewPostDividendReceipt(serviceContext(), {
+      rowId,
+      sourceCompositionStatus: "unknown_pending_disclosure",
+    });
+
+    expect(preview.receipt.sourceCompositionStatus).toBe("provided");
+    expect(preview.receipt.sourceLines).toEqual([
+      expect.objectContaining({ sourceBucket: "DIVIDEND_INCOME", amount: 3000 }),
+    ]);
+
+    await expect(postDividendReceipt(serviceContext(), {
+      rowId,
+      sourceCompositionStatus: "unknown_pending_disclosure",
+      confirmationSummary: preview.confirmationSummary,
+      confirmationDigest: preview.confirmationDigest,
+      idempotencyKey: "mcp-dividend-receipt-explicit-unknown-auto-fill",
+    })).resolves.toEqual(expect.objectContaining({ posted: true }));
+  });
+
   it("defaults omitted receipt deduction currency to the dividend row currency", async () => {
     const rowId = await seedExpectedDividendRow({
       ticker: "AAPL",

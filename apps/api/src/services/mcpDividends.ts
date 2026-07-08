@@ -132,15 +132,17 @@ function actualCashEconomicAmount(
 function resolveSourceCompositionStatus(
   sourceLines: ReadonlyArray<SourceLineInput>,
   status?: SourceCompositionStatus,
+  hasCallerSourceLines = sourceLines.length > 0,
 ): SourceCompositionStatus {
-  if (sourceLines.length > 0 && status === "unknown_pending_disclosure") {
+  if (hasCallerSourceLines && status === "unknown_pending_disclosure") {
     throw routeError(
       400,
       "mcp_dividend_source_lines_conflict",
       "sourceCompositionStatus cannot be unknown_pending_disclosure when sourceLines are provided.",
     );
   }
-  return status ?? (sourceLines.length > 0 ? "provided" : "unknown_pending_disclosure");
+  if (sourceLines.length > 0) return "provided";
+  return status ?? "unknown_pending_disclosure";
 }
 
 function resolvePreviewSourceLines(
@@ -272,8 +274,9 @@ function receiptPreviewPayload(resolved: ResolvedReviewRow, input: DividendRecei
   const receivedCashAmount = input.receivedCashAmount ?? resolved.row.expectedCashAmount;
   const receivedStockQuantity = input.receivedStockQuantity ?? resolved.row.expectedStockQuantity;
   const actualCashAmount = actualCashEconomicAmount(receivedCashAmount, deductions);
+  const hasCallerSourceLines = (input.sourceLines?.length ?? 0) > 0;
   const sourceLines = resolvePreviewSourceLines(resolved, normalizeSourceLines(input.sourceLines), actualCashAmount);
-  const sourceCompositionStatus = resolveSourceCompositionStatus(sourceLines, input.sourceCompositionStatus);
+  const sourceCompositionStatus = resolveSourceCompositionStatus(sourceLines, input.sourceCompositionStatus, hasCallerSourceLines);
   assertPreviewSourceReconciliation(sourceLines, sourceCompositionStatus, actualCashAmount);
   const summary = `Post dividend receipt for ${resolved.row.ticker} ${resolved.row.marketCode} in ${accountNameById(resolved.store).get(resolved.row.accountId) ?? resolved.row.accountId}: cash ${receivedCashAmount} ${resolved.row.cashCurrency}, stock ${receivedStockQuantity}.`;
   const digestPayload = {
