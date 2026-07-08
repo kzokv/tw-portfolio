@@ -417,7 +417,7 @@ export async function postDividendReceipt(deps: McpToolHandlerContext, input: Co
 }
 
 function reconciliationPreviewPayload(resolved: ResolvedReviewRow, input: ReconciliationInput) {
-  if (resolved.row.rowKind !== "ledger") {
+  if (resolved.row.rowKind !== "ledger" || resolved.row.postingStatus === "expected") {
     throw routeError(409, "mcp_dividend_reconciliation_requires_ledger_row", "Reconciliation updates require a posted dividend ledger row.");
   }
   if (input.status === "explained" && !input.note?.trim()) {

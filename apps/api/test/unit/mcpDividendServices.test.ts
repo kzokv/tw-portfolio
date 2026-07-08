@@ -490,6 +490,15 @@ describe("MCP dividend services", () => {
     })).rejects.toMatchObject({ code: "mcp_dividend_reconciliation_note_required", statusCode: 400 });
   });
 
+  it("rejects reconciliation previews for persisted expected ledger rows", async () => {
+    const rowId = await seedExpectedDividendRow({ materializeLedgerEntry: true });
+
+    await expect(previewUpdateDividendReconciliation(serviceContext(), {
+      rowId,
+      status: "matched",
+    })).rejects.toMatchObject({ code: "mcp_dividend_reconciliation_requires_ledger_row", statusCode: 409 });
+  });
+
   it("rejects a reconciliation confirmation when status changed after preview", async () => {
     const rowId = await seedExpectedDividendRow();
     const posted = await postSeededReceipt(rowId);
