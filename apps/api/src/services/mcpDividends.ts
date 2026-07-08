@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { DividendSourceLine, MarketCode } from "@vakwen/shared-types";
-import { roundToDecimal } from "@vakwen/domain";
+import { roundToDecimal, validateSourceLineReconciliation } from "@vakwen/domain";
 import { routeError } from "../lib/routeError.js";
 import type { McpToolHandlerContext } from "../mcp/types.js";
 import type { DividendDeductionEntry, DividendLedgerEntry, Store } from "../types/store.js";
@@ -159,6 +159,21 @@ function resolvePreviewSourceLines(
   }];
 }
 
+function assertPreviewSourceReconciliation(
+  sourceLines: ReturnType<typeof normalizeSourceLines>,
+  sourceCompositionStatus: SourceCompositionStatus,
+  actualCashAmount: number,
+): void {
+  if (sourceCompositionStatus !== "provided") return;
+  const reconciliation = validateSourceLineReconciliation(sourceLines, actualCashAmount);
+  if (reconciliation.ok) return;
+  throw routeError(
+    400,
+    "mcp_dividend_source_line_mismatch",
+    `Dividend source lines must reconcile to gross cash within NT$1 (variance ${reconciliation.variance})`,
+  );
+}
+
 function rowSummary(row: DividendReviewRowWithDetails, store: Store) {
   const names = accountNameById(store);
   const deductions = row.deductions ?? [];
@@ -259,6 +274,7 @@ function receiptPreviewPayload(resolved: ResolvedReviewRow, input: DividendRecei
   const actualCashAmount = actualCashEconomicAmount(receivedCashAmount, deductions);
   const sourceLines = resolvePreviewSourceLines(resolved, normalizeSourceLines(input.sourceLines), actualCashAmount);
   const sourceCompositionStatus = resolveSourceCompositionStatus(sourceLines, input.sourceCompositionStatus);
+  assertPreviewSourceReconciliation(sourceLines, sourceCompositionStatus, actualCashAmount);
   const summary = `Post dividend receipt for ${resolved.row.ticker} ${resolved.row.marketCode} in ${accountNameById(resolved.store).get(resolved.row.accountId) ?? resolved.row.accountId}: cash ${receivedCashAmount} ${resolved.row.cashCurrency}, stock ${receivedStockQuantity}.`;
   const digestPayload = {
     action: "post_dividend_receipt",

@@ -51,6 +51,7 @@ async function seedExpectedDividendRow(options: {
   ticker?: string;
   marketCode?: BookedTradeEvent["marketCode"];
   eventType?: DividendEventType;
+  instrumentType?: BookedTradeEvent["instrumentType"];
   cashDividendPerShare?: number;
   cashDividendCurrency?: DividendEvent["cashDividendCurrency"];
   stockDividendPerShare?: number;
@@ -63,13 +64,21 @@ async function seedExpectedDividendRow(options: {
   const marketCode = options.marketCode ?? "TW";
   account.defaultCurrency = cashDividendCurrency;
   const ticker = options.ticker ?? "2330";
+  const instrumentType = options.instrumentType ?? "STOCK";
+  store.instruments = store.instruments.filter((entry) => entry.ticker !== ticker || entry.marketCode !== marketCode);
+  store.instruments.push({
+    ticker,
+    marketCode,
+    type: instrumentType,
+    name: `${ticker} test instrument`,
+  });
   const trade: BookedTradeEvent = {
     id: randomUUID(),
     userId: USER_ID,
     accountId: account.id,
     ticker,
     marketCode,
-    instrumentType: "STOCK",
+    instrumentType,
     type: "BUY",
     quantity: 1000,
     unitPrice: 100,
@@ -483,6 +492,29 @@ describe("MCP dividend services", () => {
       }],
       sourceCompositionStatus: "unknown_pending_disclosure",
     })).rejects.toMatchObject({ code: "mcp_dividend_source_lines_conflict", statusCode: 400 });
+  });
+
+  it("rejects mismatched provided source lines before issuing receipt confirmation", async () => {
+    const rowId = await seedExpectedDividendRow();
+
+    await expect(previewPostDividendReceipt(serviceContext(), {
+      rowId,
+      sourceLines: [{
+        sourceBucket: "DIVIDEND_INCOME",
+        amount: 2000,
+        currencyCode: "TWD",
+      }],
+      sourceCompositionStatus: "provided",
+    })).rejects.toMatchObject({ code: "mcp_dividend_source_line_mismatch", statusCode: 400 });
+  });
+
+  it("rejects provided source status without source lines when auto-fill does not apply", async () => {
+    const rowId = await seedExpectedDividendRow({ instrumentType: "ETF" });
+
+    await expect(previewPostDividendReceipt(serviceContext(), {
+      rowId,
+      sourceCompositionStatus: "provided",
+    })).rejects.toMatchObject({ code: "mcp_dividend_source_line_mismatch", statusCode: 400 });
   });
 
   it("excludes non-withheld deductions from MCP cash economics", async () => {
