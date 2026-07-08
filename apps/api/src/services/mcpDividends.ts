@@ -184,7 +184,7 @@ function rowSummary(row: DividendReviewRowWithDetails, store: Store) {
 async function resolveRow(deps: McpToolHandlerContext, rowId: string): Promise<ResolvedReviewRow> {
   const userId = contextUserId(deps);
   const store = await deps.app.persistence.loadStore(userId);
-  const rows = await fetchAllDividendReviewRows(deps, userId, { fromPaymentDate: "0000-01-01" });
+  const rows = await fetchAllDividendReviewRows(deps, userId, { fromPaymentDate: "0001-01-01" });
   const row = rows.find((candidate) => candidate.id === rowId);
   if (!row) throw routeError(404, "mcp_dividend_review_row_not_found", "Dividend review row not found");
   return { row, store, userId };

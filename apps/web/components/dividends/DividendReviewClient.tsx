@@ -235,6 +235,7 @@ export function DividendReviewClient({
   );
 
   const lastValidQuery = useRef<DividendReviewQuery | null>(null);
+  const fetchSequence = useRef(0);
   const filtersRef = useRef(filters);
   filtersRef.current = filters;
 
@@ -279,6 +280,8 @@ export function DividendReviewClient({
   // ── Fetch data ────────────────────────────────────────────────────────
 
   const fetchData = useCallback(async (f: FilterState) => {
+    const requestId = fetchSequence.current + 1;
+    fetchSequence.current = requestId;
     setIsLoading(true);
     setErrorMessage("");
     setDateError("");
@@ -288,11 +291,17 @@ export function DividendReviewClient({
 
     try {
       const result = await fetchDividendLedgerReview(query);
-      setData(result);
+      if (fetchSequence.current === requestId) {
+        setData(result);
+      }
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : String(error));
+      if (fetchSequence.current === requestId) {
+        setErrorMessage(error instanceof Error ? error.message : String(error));
+      }
     } finally {
-      setIsLoading(false);
+      if (fetchSequence.current === requestId) {
+        setIsLoading(false);
+      }
     }
   }, [buildQueryFromFilters]);
 

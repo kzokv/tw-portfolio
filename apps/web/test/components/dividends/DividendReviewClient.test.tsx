@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { DividendReviewClient } from "../../../components/dividends/DividendReviewClient";
 import { getDictionary } from "../../../lib/i18n";
 import type { DividendLedgerEntryDetails } from "../../../features/dividends/types";
+import type { DividendLedgerReviewResponse } from "../../../features/dividends/services/dividendService";
 
 const searchParamsState = { value: "" };
 
@@ -28,7 +29,7 @@ beforeAll(() => {
 
 const dict = getDictionary("en");
 const zhDict = getDictionary("zh-TW");
-const emptyReviewData = {
+const emptyReviewData: DividendLedgerReviewResponse = {
   ledgerEntries: [],
   total: 0,
   aggregates: {
@@ -184,6 +185,56 @@ describe("DividendReviewClient", () => {
     ]);
     expect(window.location.search).toContain("preset=yearRange");
     expect(window.location.search).toContain("fromPaymentDate=2024-01-01");
+    expect(window.location.search).toContain("toPaymentDate=2026-12-31");
+  });
+
+  it("ignores stale year-range responses that finish after the latest request", async () => {
+    searchParamsState.value = "view=ledger";
+    window.history.replaceState(null, "", "/dividends?view=ledger");
+    let resolveFirst: ((value: typeof emptyReviewData) => void) | undefined;
+    let resolveSecond: ((value: typeof emptyReviewData) => void) | undefined;
+    vi.mocked(fetchDividendLedgerReview)
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveFirst = resolve;
+      }))
+      .mockImplementationOnce(() => new Promise((resolve) => {
+        resolveSecond = resolve;
+      }));
+
+    act(() => {
+      root.render(
+        <DividendReviewClient
+          initialData={emptyReviewData}
+          dict={dict}
+          locale="en"
+          accounts={[]}
+          years={[2024, 2025, 2026]}
+        />,
+      );
+    });
+    await act(async () => {});
+
+    const year2024 = container.querySelector<HTMLInputElement>("[data-testid='preset-year-2024']");
+    const year2026 = container.querySelector<HTMLInputElement>("[data-testid='preset-year-2026']");
+    expect(year2024).not.toBeNull();
+    expect(year2026).not.toBeNull();
+
+    await act(async () => {
+      year2024!.click();
+    });
+    await act(async () => {
+      year2026!.click();
+    });
+
+    await act(async () => {
+      resolveSecond!(emptyReviewData);
+    });
+    await act(async () => {
+      resolveFirst!({ ...emptyReviewData, ledgerEntries: [reviewRow], total: 1 });
+    });
+
+    expect(vi.mocked(fetchDividendLedgerReview)).toHaveBeenCalledTimes(2);
+    expect(container.textContent).not.toContain("Taiwan Semiconductor");
     expect(window.location.search).toContain("toPaymentDate=2026-12-31");
   });
 
