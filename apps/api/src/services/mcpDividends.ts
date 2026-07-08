@@ -42,7 +42,7 @@ interface SourceLineInput {
   id?: string;
   sourceBucket: DividendSourceLine["sourceBucket"];
   amount: number;
-  currencyCode?: "TWD";
+  currencyCode?: string;
   source?: string;
   sourceReference?: string;
   note?: string;
@@ -143,6 +143,22 @@ function resolveSourceCompositionStatus(
   return status ?? (sourceLines.length > 0 ? "provided" : "unknown_pending_disclosure");
 }
 
+function resolvePreviewSourceLines(
+  resolved: ResolvedReviewRow,
+  sourceLines: ReturnType<typeof normalizeSourceLines>,
+  actualCashAmount: number,
+): ReturnType<typeof normalizeSourceLines> {
+  if (sourceLines.length > 0 || resolved.row.instrumentType !== "STOCK" || actualCashAmount <= 0) return sourceLines;
+  return [{
+    sourceBucket: "DIVIDEND_INCOME",
+    amount: actualCashAmount,
+    currencyCode: resolved.row.cashCurrency,
+    source: "dividend_posting",
+    sourceReference: resolved.row.dividendEventId,
+    note: undefined,
+  }];
+}
+
 function rowSummary(row: DividendReviewRowWithDetails, store: Store) {
   const names = accountNameById(store);
   const deductions = row.deductions ?? [];
@@ -238,9 +254,10 @@ function receiptPreviewPayload(resolved: ResolvedReviewRow, input: DividendRecei
     throw routeError(409, "mcp_dividend_receipt_requires_expected_row", "Posting over MCP requires an expected dividend review row.");
   }
   const deductions = normalizeDeductions(input.deductions, resolved.row.cashCurrency);
-  const sourceLines = normalizeSourceLines(input.sourceLines);
   const receivedCashAmount = input.receivedCashAmount ?? resolved.row.expectedCashAmount;
   const receivedStockQuantity = input.receivedStockQuantity ?? resolved.row.expectedStockQuantity;
+  const actualCashAmount = actualCashEconomicAmount(receivedCashAmount, deductions);
+  const sourceLines = resolvePreviewSourceLines(resolved, normalizeSourceLines(input.sourceLines), actualCashAmount);
   const sourceCompositionStatus = resolveSourceCompositionStatus(sourceLines, input.sourceCompositionStatus);
   const summary = `Post dividend receipt for ${resolved.row.ticker} ${resolved.row.marketCode} in ${accountNameById(resolved.store).get(resolved.row.accountId) ?? resolved.row.accountId}: cash ${receivedCashAmount} ${resolved.row.cashCurrency}, stock ${receivedStockQuantity}.`;
   const digestPayload = {
@@ -265,7 +282,7 @@ function receiptPreviewPayload(resolved: ResolvedReviewRow, input: DividendRecei
       sourceLines,
       sourceCompositionStatus,
       deductionTotal: deductionTotal(deductions),
-      actualCashEconomicAmount: actualCashEconomicAmount(receivedCashAmount, deductions),
+      actualCashEconomicAmount: actualCashAmount,
       stockLotImpact: receivedStockQuantity > 0
         ? "Posting this receipt will create or update a stock-dividend inventory lot."
         : null,

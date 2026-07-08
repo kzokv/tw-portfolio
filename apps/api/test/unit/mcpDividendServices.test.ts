@@ -189,6 +189,34 @@ describe("MCP dividend services", () => {
     }));
   });
 
+  it("mirrors stock cash dividend source auto-fill in receipt previews", async () => {
+    const rowId = await seedExpectedDividendRow();
+
+    const preview = await previewPostDividendReceipt(serviceContext(), { rowId });
+
+    expect(preview.receipt.sourceCompositionStatus).toBe("provided");
+    expect(preview.receipt.sourceLines).toEqual([
+      expect.objectContaining({
+        sourceBucket: "DIVIDEND_INCOME",
+        amount: 3000,
+        currencyCode: "TWD",
+        source: "dividend_posting",
+      }),
+    ]);
+
+    const posted = await postDividendReceipt(serviceContext(), {
+      rowId,
+      confirmationSummary: preview.confirmationSummary,
+      confirmationDigest: preview.confirmationDigest,
+      idempotencyKey: "mcp-dividend-receipt-auto-source-line",
+    });
+
+    expect(posted.ledgerEntry).toEqual(expect.objectContaining({
+      sourceCompositionStatus: "provided",
+      sourceLines: [expect.objectContaining({ sourceBucket: "DIVIDEND_INCOME", amount: 3000 })],
+    }));
+  });
+
   it("defaults omitted receipt deduction currency to the dividend row currency", async () => {
     const rowId = await seedExpectedDividendRow({
       ticker: "AAPL",

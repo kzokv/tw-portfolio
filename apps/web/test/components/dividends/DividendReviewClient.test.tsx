@@ -267,6 +267,35 @@ describe("DividendReviewClient", () => {
     expect(year2025?.checked).toBe(true);
   });
 
+  it("ignores malformed yearRange date params when selecting preset years", async () => {
+    searchParamsState.value = "view=ledger&preset=yearRange&fromPaymentDate=&toPaymentDate=abc";
+    window.history.replaceState(null, "", `/dividends?${searchParamsState.value}`);
+
+    act(() => {
+      root.render(
+        <DividendReviewClient
+          initialData={emptyReviewData}
+          dict={dict}
+          locale="en"
+          accounts={[]}
+          years={[2024, 2025, 2026]}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    const yearRange = container.querySelector<HTMLElement>("[data-testid='preset-year-range']");
+    const fromDate = container.querySelector<HTMLInputElement>("[data-testid='filter-from-date']");
+    const toDate = container.querySelector<HTMLInputElement>("[data-testid='filter-to-date']");
+    const year2024 = container.querySelector<HTMLInputElement>("[data-testid='preset-year-2024']");
+
+    expect(yearRange?.textContent).not.toContain("0");
+    expect(fromDate?.value).toBe("");
+    expect(toDate?.value).toBe("");
+    expect(year2024?.checked).toBe(false);
+  });
+
   it("uses the localized compact years label when no year range is selected", async () => {
     searchParamsState.value = "view=ledger";
     window.history.replaceState(null, "", "/dividends?view=ledger");
