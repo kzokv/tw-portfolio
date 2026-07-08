@@ -25,4 +25,18 @@ describe("MCP dividend tools", () => {
       tickerMarkets: [{ ticker: "2330", marketCode: "TW" }],
     }).success).toBe(true);
   });
+
+  it("rejects zero-amount dividend deductions", () => {
+    const tool = listMcpToolDefinitions().find((item) => item.name === "preview_post_dividend_receipt");
+    expect(tool).toBeDefined();
+
+    expect(tool!.inputSchema.safeParse({
+      rowId: "row-1",
+      deductions: [{ deductionType: "WITHHOLDING_TAX", amount: 0 }],
+    }).success).toBe(false);
+    expect(tool!.inputSchema.safeParse({
+      rowId: "row-1",
+      deductions: [{ deductionType: "WITHHOLDING_TAX", amount: 1 }],
+    }).success).toBe(true);
+  });
 });

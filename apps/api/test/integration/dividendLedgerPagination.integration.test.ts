@@ -831,6 +831,14 @@ describePostgres("PostgresPersistence.listDividendLedgerYears", () => {
     expect(years).toEqual(Array.from({ length: currentYear - 2025 + 1 }, (_, index) => 2025 + index));
   });
 
+  it("IG-22b: clamps future open lot years to the current year", async () => {
+    const currentYear = new Date().getUTCFullYear();
+    await insertLot({ openedAt: `${currentYear + 1}-03-15` });
+
+    const { years } = await persistence.listDividendLedgerYears(userId);
+    expect(years).toEqual([currentYear]);
+  });
+
   it("IG-23: ignores dividend ledger payment years", async () => {
     const evt = await insertEvent("AAPL", "2024-03-15");
     await insertEntry({ eventId: evt });

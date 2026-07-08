@@ -133,6 +133,13 @@ function resolveSourceCompositionStatus(
   sourceLines: ReadonlyArray<SourceLineInput>,
   status?: SourceCompositionStatus,
 ): SourceCompositionStatus {
+  if (sourceLines.length > 0 && status === "unknown_pending_disclosure") {
+    throw routeError(
+      400,
+      "mcp_dividend_source_lines_conflict",
+      "sourceCompositionStatus cannot be unknown_pending_disclosure when sourceLines are provided.",
+    );
+  }
   return status ?? (sourceLines.length > 0 ? "provided" : "unknown_pending_disclosure");
 }
 

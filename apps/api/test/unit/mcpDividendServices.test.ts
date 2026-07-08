@@ -443,6 +443,20 @@ describe("MCP dividend services", () => {
     }));
   });
 
+  it("rejects source lines when source composition is marked unknown", async () => {
+    const rowId = await seedExpectedDividendRow();
+
+    await expect(previewPostDividendReceipt(serviceContext(), {
+      rowId,
+      sourceLines: [{
+        sourceBucket: "DIVIDEND_INCOME",
+        amount: 3000,
+        currencyCode: "TWD",
+      }],
+      sourceCompositionStatus: "unknown_pending_disclosure",
+    })).rejects.toMatchObject({ code: "mcp_dividend_source_lines_conflict", statusCode: 400 });
+  });
+
   it("excludes non-withheld deductions from MCP cash economics", async () => {
     const rowId = await seedExpectedDividendRow();
     const receiptInput = {

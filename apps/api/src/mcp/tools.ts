@@ -84,7 +84,7 @@ const dividendDeductionSchema = z.object({
     "ROUNDING_ADJUSTMENT",
     "OTHER",
   ]),
-  amount: z.number().int().nonnegative(),
+  amount: z.number().int().positive(),
   currencyCode: currencyCodeSchema.optional(),
   withheldAtSource: z.boolean().optional(),
   source: userScopedIdSchema.optional(),

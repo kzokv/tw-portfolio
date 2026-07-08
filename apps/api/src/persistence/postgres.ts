@@ -11011,7 +11011,7 @@ export class PostgresPersistence implements Persistence {
            AND account.deleted_at IS NULL
            AND lot.open_quantity > 0
        )
-       SELECT generate_series(start_year, current_year)::int AS year
+       SELECT generate_series(LEAST(start_year, current_year), current_year)::int AS year
        FROM bounds
        WHERE start_year IS NOT NULL
        ORDER BY 1 ASC`,
