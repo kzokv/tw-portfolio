@@ -104,6 +104,33 @@ describe("DividendsTabsClient", () => {
     expect(fetchDividendLedgerYearsMock).not.toHaveBeenCalled();
   });
 
+  it("does not refetch ledger years after a successful empty years response", async () => {
+    fetchDividendLedgerYearsMock.mockResolvedValue([]);
+
+    act(() => {
+      root.render(
+        <DividendsTabsClient
+          initialTab="ledger"
+          calendarLabel={dict.dividends.tabs.calendar}
+          ledgerLabel={dict.dividends.tabs.review}
+          dict={dict}
+          locale="en"
+          accounts={[]}
+          initialCalendarMonth="2026-07"
+          initialCalendarSnapshot={null}
+          initialReviewData={emptyReviewData}
+          initialYears={[]}
+        />,
+      );
+    });
+
+    await act(async () => {});
+    await act(async () => {});
+
+    expect(fetchDividendLedgerReviewMock).not.toHaveBeenCalled();
+    expect(fetchDividendLedgerYearsMock).toHaveBeenCalledTimes(1);
+  });
+
   it("fetches calendar data only once after the inactive tab is first activated", async () => {
     const renderTabs = (initialTab: "calendar" | "ledger") => {
       root.render(

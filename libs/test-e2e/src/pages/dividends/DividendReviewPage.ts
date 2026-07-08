@@ -9,6 +9,8 @@ export interface TDividendReviewElements extends TElementLocatorHelpers {
   // Filter bar — presets
   presetStrip: Locator;
   preset: (name: string) => Locator;
+  yearRangeTrigger: Locator;
+  yearOption: (year: number) => Locator;
 
   // Filter bar — date inputs
   dateFrom: Locator;
@@ -67,6 +69,8 @@ export class DividendReviewPage extends BasePage<TDividendReviewElements> {
       // Filter bar — presets
       presetStrip: this.locate("preset-strip", "Preset Strip"),
       preset: (name: string) => this.locate(`preset-${name}`, `Preset ${name}`),
+      yearRangeTrigger: this.locate("preset-year-range", "Year Range Trigger"),
+      yearOption: (year: number) => this.locate(`preset-year-${year}`, `Preset Year ${year}`),
 
       // Filter bar — date inputs
       dateFrom: this.locate("filter-from-date", "Date From Input"),

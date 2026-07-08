@@ -1511,6 +1511,7 @@ export interface AppDictionary {
         lastQuarter: string;
         currentYear: string;
         lastYear: string;
+        years: string;
         unspecified: string;
         custom: string;
       };

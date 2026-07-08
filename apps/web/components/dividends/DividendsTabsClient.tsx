@@ -112,6 +112,7 @@ export function DividendsTabsClient({
     initialReviewData && typeof window !== "undefined" ? reviewQueryKey(window.location.search) : null,
   );
   const [years, setYears] = useState<number[]>(initialYears);
+  const [yearsLoaded, setYearsLoaded] = useState(initialYears.length > 0);
   const [ledgerAccounts, setLedgerAccounts] = useState<AccountDto[]>(accounts);
   const [isCalendarLoading, setIsCalendarLoading] = useState(false);
   const [isLedgerLoading, setIsLedgerLoading] = useState(false);
@@ -141,6 +142,7 @@ export function DividendsTabsClient({
 
   useEffect(() => {
     setYears(initialYears);
+    if (initialYears.length > 0) setYearsLoaded(true);
   }, [initialYears]);
 
   useEffect(() => {
@@ -208,7 +210,7 @@ export function DividendsTabsClient({
     const currentReviewQuery = searchParamsToReviewQuery(new URLSearchParams(window.location.search));
     const currentReviewQueryKey = JSON.stringify(currentReviewQuery);
     const needsReviewFetch = !reviewData || reviewDataQueryKey !== currentReviewQueryKey;
-    const needsYearsFetch = years.length === 0;
+    const needsYearsFetch = !yearsLoaded;
 
     if (!needsReviewFetch && !needsYearsFetch) return;
 
@@ -226,6 +228,7 @@ export function DividendsTabsClient({
           setReviewData(nextReviewData);
           setReviewDataQueryKey(currentReviewQueryKey);
           setYears(nextYears);
+          setYearsLoaded(true);
         }
       })
       .catch((error) => {
@@ -242,7 +245,7 @@ export function DividendsTabsClient({
     return () => {
       cancelled = true;
     };
-  }, [activeTab, reviewData, reviewDataQueryKey, years]);
+  }, [activeTab, reviewData, reviewDataQueryKey, years, yearsLoaded]);
 
   useEffect(() => {
     if (activeTab !== "ledger" || ledgerAccounts.length > 0) return;

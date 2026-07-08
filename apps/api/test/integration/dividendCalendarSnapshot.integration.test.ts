@@ -105,6 +105,7 @@ describePostgres("PostgresPersistence.listDividendCalendarSnapshot", () => {
     marketCode?: string;
     priceCurrency?: string;
     quantity?: number;
+    bookingSequence?: number;
     reversalOf?: string | null;
   }): Promise<string> {
     const id = randomUUID();
@@ -134,9 +135,9 @@ describePostgres("PostgresPersistence.listDividendCalendarSnapshot", () => {
          source, source_reference, booked_at, reversal_of_trade_event_id
        ) VALUES (
          $1, $2, $3, $4, $5, 'STOCK', 'BUY',
-         $6, 100, $7, $8, $9, 1,
-         0, 0, false, $10,
-         'test_seed', $1, $9, $11
+         $6, 100, $7, $8, $9, $10,
+         0, 0, false, $11,
+         'test_seed', $1, $9, $12
        )`,
       [
         id,
@@ -148,6 +149,7 @@ describePostgres("PostgresPersistence.listDividendCalendarSnapshot", () => {
         params.priceCurrency ?? "TWD",
         params.tradeDate,
         bookedAt,
+        params.bookingSequence ?? 1,
         feePolicySnapshotId,
         params.reversalOf ?? null,
       ],
@@ -207,7 +209,7 @@ describePostgres("PostgresPersistence.listDividendCalendarSnapshot", () => {
   it("excludes reversed trade pairs from the snapshot trade context", async () => {
     await insertDividendEvent("2026-01-20", "2026-01-10");
     const originalTradeId = await insertTrade({ tradeDate: "2026-01-05" });
-    await insertTrade({ tradeDate: "2026-01-05", reversalOf: originalTradeId });
+    await insertTrade({ tradeDate: "2026-01-05", bookingSequence: 2, reversalOf: originalTradeId });
 
     const snapshot = await persistence.listDividendCalendarSnapshot(userId, {
       fromPaymentDate: "2026-01-01",
