@@ -2287,10 +2287,15 @@ export class MemoryPersistence implements Persistence {
     dividendLedgerEntryId: string,
     status: Store["accounting"]["facts"]["dividendLedgerEntries"][number]["reconciliationStatus"],
     note?: string,
+    expectedVersion?: number,
   ) {
     const entry = await this.findDividendLedgerEntryById(userId, dividendLedgerEntryId);
     if (!entry) {
       throw routeError(404, "dividend_ledger_entry_not_found", "Dividend ledger entry not found");
+    }
+
+    if (expectedVersion !== undefined && entry.version !== expectedVersion) {
+      throw routeError(409, "dividend_version_conflict", "Dividend has been updated by another request");
     }
 
     if (!["posted", "adjusted"].includes(entry.postingStatus)) {

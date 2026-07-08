@@ -9297,6 +9297,7 @@ export class PostgresPersistence implements Persistence {
     dividendLedgerEntryId: string,
     status: DividendLedgerEntry["reconciliationStatus"],
     note?: string,
+    expectedVersion?: number,
   ): Promise<DividendLedgerEntry> {
     const client = await this.pool.connect();
     try {
@@ -9331,6 +9332,10 @@ export class PostgresPersistence implements Persistence {
       }
 
       const current = currentResult.rows[0];
+      if (expectedVersion !== undefined && Number(current.version) !== expectedVersion) {
+        throw routeError(409, "dividend_version_conflict", "Dividend has been updated by another request");
+      }
+
       if (!["posted", "adjusted"].includes(String(current.posting_status))) {
         throw routeError(409, "reconciliation_requires_posted_status", "Dividend must be posted before reconciliation changes");
       }

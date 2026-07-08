@@ -366,14 +366,15 @@ export async function previewPostDividendReceipt(deps: McpToolHandlerContext, in
 }
 
 export async function postDividendReceipt(deps: McpToolHandlerContext, input: ConfirmDividendReceiptInput) {
-  const resolved = await resolveRow(deps, input.rowId);
-  const preview = receiptPreviewPayload(resolved, input);
-  assertConfirmation(input, preview.confirmationSummary, preview.digestPayload);
-
-  const claimed = await deps.app.persistence.claimIdempotencyKey(resolved.userId, input.idempotencyKey);
+  const userId = contextUserId(deps);
+  const claimed = await deps.app.persistence.claimIdempotencyKey(userId, input.idempotencyKey);
   if (!claimed) throw routeError(409, "duplicate_idempotency_key", "duplicate idempotency key");
 
   try {
+    const resolved = await resolveRow(deps, input.rowId);
+    const preview = receiptPreviewPayload(resolved, input);
+    assertConfirmation(input, preview.confirmationSummary, preview.digestPayload);
+
     const draftStore = structuredClone(resolved.store);
     const result = postDividend(draftStore, resolved.userId, {
       id: randomUUID(),
@@ -410,7 +411,7 @@ export async function postDividendReceipt(deps: McpToolHandlerContext, input: Co
       confirmationDigest: preview.confirmationDigest,
     };
   } catch (error) {
-    await deps.app.persistence.releaseIdempotencyKey(resolved.userId, input.idempotencyKey);
+    await deps.app.persistence.releaseIdempotencyKey(userId, input.idempotencyKey);
     throw error;
   }
 }
@@ -458,6 +459,7 @@ export async function updateDividendReconciliation(deps: McpToolHandlerContext, 
     resolved.row.id,
     input.status,
     input.note?.trim() || undefined,
+    resolved.row.version,
   );
   const detailed = await deps.app.persistence.getDividendLedgerEntryWithDetails(resolved.userId, resolved.row.id);
   const latestStore = await deps.app.persistence.loadStore(resolved.userId);

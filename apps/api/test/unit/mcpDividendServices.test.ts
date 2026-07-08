@@ -261,6 +261,26 @@ describe("MCP dividend services", () => {
     })).rejects.toMatchObject({ code: "duplicate_idempotency_key", statusCode: 409 });
   });
 
+  it("checks receipt idempotency before resolving a posted expected row retry", async () => {
+    const rowId = await seedExpectedDividendRow();
+    const idempotencyKey = "mcp-dividend-retry-after-post";
+    const preview = await previewPostDividendReceipt(serviceContext(), { rowId });
+
+    await postDividendReceipt(serviceContext(), {
+      rowId,
+      confirmationSummary: preview.confirmationSummary,
+      confirmationDigest: preview.confirmationDigest,
+      idempotencyKey,
+    });
+
+    await expect(postDividendReceipt(serviceContext(), {
+      rowId,
+      confirmationSummary: preview.confirmationSummary,
+      confirmationDigest: preview.confirmationDigest,
+      idempotencyKey,
+    })).rejects.toMatchObject({ code: "duplicate_idempotency_key", statusCode: 409 });
+  });
+
   it("posts stock-only dividend receipts with stock lot impact details", async () => {
     const rowId = await seedExpectedDividendRow({
       eventType: "STOCK",
@@ -398,6 +418,24 @@ describe("MCP dividend services", () => {
     })).rejects.toMatchObject({ code: "mcp_confirmation_stale", statusCode: 409 });
   });
 
+  it("rejects reconciliation persistence updates when the expected version is stale", async () => {
+    const rowId = await seedExpectedDividendRow();
+    const posted = await postSeededReceipt(rowId);
+    const before = await app.persistence.findDividendLedgerEntryById(USER_ID, posted.dividendLedgerEntryId);
+    expect(before).not.toBeNull();
+    const beforeVersion = before!.version;
+
+    await app.persistence.updateDividendReconciliationStatus(USER_ID, posted.dividendLedgerEntryId, "resolved");
+
+    await expect(app.persistence.updateDividendReconciliationStatus(
+      USER_ID,
+      posted.dividendLedgerEntryId,
+      "matched",
+      undefined,
+      beforeVersion,
+    )).rejects.toMatchObject({ code: "dividend_version_conflict", statusCode: 409 });
+  });
+
   it.each([
     ["matched", undefined],
     ["explained", "Broker rounding delta"],
@@ -407,6 +445,9 @@ describe("MCP dividend services", () => {
     const rowId = await seedExpectedDividendRow();
     const posted = await postSeededReceipt(rowId);
     const eventSpy = vi.spyOn(app.eventBus, "publishEvent");
+    const updateSpy = vi.spyOn(app.persistence, "updateDividendReconciliationStatus");
+    const current = await app.persistence.findDividendLedgerEntryById(USER_ID, posted.dividendLedgerEntryId);
+    const currentVersion = current!.version;
     const preview = await previewUpdateDividendReconciliation(serviceContext(), {
       rowId: posted.dividendLedgerEntryId,
       status,
@@ -422,6 +463,13 @@ describe("MCP dividend services", () => {
     });
 
     expect(updated.ledgerEntry).toEqual(expect.objectContaining({ reconciliationStatus: status }));
+    expect(updateSpy).toHaveBeenCalledWith(
+      USER_ID,
+      posted.dividendLedgerEntryId,
+      status,
+      note,
+      currentVersion,
+    );
     expect(eventSpy).toHaveBeenCalledWith(USER_ID, "dividend_reconciliation_changed", expect.objectContaining({
       dividendLedgerEntryId: posted.dividendLedgerEntryId,
       reconciliationStatus: status,
