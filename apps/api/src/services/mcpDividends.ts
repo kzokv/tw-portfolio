@@ -184,7 +184,7 @@ function rowSummary(row: DividendReviewRowWithDetails, store: Store) {
 async function resolveRow(deps: McpToolHandlerContext, rowId: string): Promise<ResolvedReviewRow> {
   const userId = contextUserId(deps);
   const store = await deps.app.persistence.loadStore(userId);
-  const rows = await fetchAllDividendReviewRows(deps, userId, {});
+  const rows = await fetchAllDividendReviewRows(deps, userId, { fromPaymentDate: "0000-01-01" });
   const row = rows.find((candidate) => candidate.id === rowId);
   if (!row) throw routeError(404, "mcp_dividend_review_row_not_found", "Dividend review row not found");
   return { row, store, userId };
@@ -292,17 +292,42 @@ function withoutDigestPayload<T extends { digestPayload: Record<string, unknown>
   return sanitized;
 }
 
+function resolveAccountFilterIds(store: Store, userId: string, input: GetDividendReviewInput): Set<string> | null {
+  const idsFromIds = input.accountIds && input.accountIds.length > 0 ? new Set(input.accountIds) : null;
+  if (!input.accountNames || input.accountNames.length === 0) return idsFromIds;
+
+  const accountsByName = new Map<string, Store["accounts"]>();
+  for (const account of store.accounts.filter((candidate) => candidate.userId === userId)) {
+    const key = account.name.trim().toLowerCase();
+    const bucket = accountsByName.get(key) ?? [];
+    bucket.push(account);
+    accountsByName.set(key, bucket);
+  }
+
+  const idsFromNames = new Set<string>();
+  for (const accountName of input.accountNames) {
+    const matches = accountsByName.get(accountName.trim().toLowerCase()) ?? [];
+    if (matches.length === 0) throw routeError(404, "mcp_account_not_found", `Active account named ${accountName} was not found`);
+    if (matches.length > 1) throw routeError(409, "mcp_account_name_ambiguous", `Active account name ${accountName} matched multiple accounts`);
+    idsFromNames.add(matches[0]!.id);
+  }
+
+  if (idsFromIds) {
+    const idList = [...idsFromIds].sort();
+    const nameList = [...idsFromNames].sort();
+    if (idList.length !== nameList.length || idList.some((id, index) => id !== nameList[index])) {
+      throw routeError(409, "mcp_account_filter_conflict", "accountIds and accountNames resolved to different accounts");
+    }
+  }
+
+  return idsFromNames;
+}
+
 export async function getDividendReview(deps: McpToolHandlerContext, input: GetDividendReviewInput = {}) {
   const userId = contextUserId(deps);
   const store = await deps.app.persistence.loadStore(userId);
   const names = accountNameById(store);
-  const accountIds = new Set(input.accountIds ?? []);
-  for (const name of input.accountNames ?? []) {
-    const matches = store.accounts.filter((account) => account.userId === userId && account.name === name);
-    if (matches.length === 0) throw routeError(404, "mcp_account_not_found", `Active account named ${name} was not found`);
-    if (matches.length > 1) throw routeError(409, "mcp_account_name_ambiguous", `Active account name ${name} matched multiple accounts`);
-    accountIds.add(matches[0]!.id);
-  }
+  const accountIds = resolveAccountFilterIds(store, userId, input);
   const tickerMarkets = input.tickerMarkets ?? [];
   const pageSize = Math.min(Math.max(input.limit ?? 25, 1), 100);
   const offset = Math.max(input.offset ?? 0, 0);
@@ -310,7 +335,7 @@ export async function getDividendReview(deps: McpToolHandlerContext, input: GetD
 
   const filters = tickerMarkets.length > 0 ? tickerMarkets : [undefined];
   for (const tickerMarket of filters) {
-    for (const accountId of accountIds.size > 0 ? Array.from(accountIds) : [undefined]) {
+    for (const accountId of accountIds && accountIds.size > 0 ? Array.from(accountIds) : [undefined]) {
       const rows = await fetchAllDividendReviewRows(deps, userId, {
         accountId,
         fromPaymentDate: input.fromPaymentDate,

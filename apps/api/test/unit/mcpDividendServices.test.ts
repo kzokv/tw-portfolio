@@ -52,7 +52,7 @@ async function seedExpectedDividendRow(options: {
   eventType?: DividendEventType;
   cashDividendPerShare?: number;
   stockDividendPerShare?: number;
-  paymentDate?: string;
+  paymentDate?: string | null;
 } = {}): Promise<string> {
   const store = await app.persistence.loadStore(USER_ID);
   const account = store.accounts[0]!;
@@ -75,13 +75,14 @@ async function seedExpectedDividendRow(options: {
     isDayTrade: false,
     feeSnapshot: store.feeProfiles[0]!,
   };
+  const paymentDate = options.paymentDate === undefined ? "2024-07-10" : options.paymentDate;
   const dividendEvent: DividendEvent = {
     id: randomUUID(),
     ticker,
     marketCode: "TW",
     eventType: options.eventType ?? "CASH",
     exDividendDate: "2024-06-01",
-    paymentDate: options.paymentDate ?? "2024-07-10",
+    paymentDate,
     cashDividendPerShare: options.cashDividendPerShare ?? 3,
     cashDividendCurrency: "TWD",
     stockDividendPerShare: options.stockDividendPerShare ?? 0,
@@ -95,6 +96,7 @@ async function seedExpectedDividendRow(options: {
     limit: 50,
     sortBy: "paymentDate",
     sortOrder: "desc",
+    ...(paymentDate === null ? { fromPaymentDate: "2024-01-01" } : {}),
   });
   const expectedRowId = `expected:${account.id}:${dividendEvent.id}`;
   const row = review.rows.find((candidate) => candidate.id === expectedRowId);
@@ -178,6 +180,53 @@ describe("MCP dividend services", () => {
       paymentDate: "2024-08-10",
     }));
     expect(review.hasMore).toBe(true);
+  });
+
+  it("rejects conflicting account ID and name filters", async () => {
+    const store = await app.persistence.loadStore(USER_ID);
+    store.accounts.push({
+      id: "acc-2",
+      userId: USER_ID,
+      name: "Secondary",
+      feeProfileId: store.feeProfiles[0]!.id,
+      defaultCurrency: "TWD",
+      accountType: "broker",
+    });
+
+    await expect(getDividendReview(serviceContext(), {
+      accountIds: [store.accounts[0]!.id],
+      accountNames: ["Secondary"],
+    })).rejects.toMatchObject({ code: "mcp_account_filter_conflict", statusCode: 409 });
+  });
+
+  it("posts a null-payment dividend row returned by review", async () => {
+    const rowId = await seedExpectedDividendRow({ paymentDate: null });
+    const review = await getDividendReview(serviceContext(), {
+      fromPaymentDate: "2024-01-01",
+      toPaymentDate: "2024-12-31",
+    });
+
+    expect(review.rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        rowId,
+        paymentDate: null,
+        canPostReceipt: true,
+      }),
+    ]));
+
+    const preview = await previewPostDividendReceipt(serviceContext(), { rowId });
+    const posted = await postDividendReceipt(serviceContext(), {
+      rowId,
+      confirmationSummary: preview.confirmationSummary,
+      confirmationDigest: preview.confirmationDigest,
+      idempotencyKey: "mcp-dividend-null-payment-date",
+    });
+
+    expect(posted.posted).toBe(true);
+    expect(posted.ledgerEntry).toEqual(expect.objectContaining({
+      dividendEventId: rowId.split(":").at(-1),
+      receivedCashAmount: 3000,
+    }));
   });
 
   it("rejects a receipt confirmation when row facts changed after preview", async () => {
