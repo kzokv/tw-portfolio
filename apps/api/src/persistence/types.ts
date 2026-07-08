@@ -2647,6 +2647,7 @@ export interface Persistence {
     dividendLedgerEntryId: string,
     status: DividendLedgerEntry["reconciliationStatus"],
     note?: string,
+    expectedVersion?: number,
   ): Promise<DividendLedgerEntry>;
   updatePostedCashDividend(userId: string, input: UpdatePostedCashDividendInput): Promise<DividendLedgerEntry>;
   /**

@@ -508,36 +508,23 @@ describePostgres("Account-scoped read filter (Postgres)", () => {
   });
 
   it("MEDIUM regression — listDividendLedgerYears does NOT return years from soft-deleted accounts", async () => {
-    // Seed two accounts with dividend ledger entries in different years.
-    // Soft-delete A (year 2024); B (year 2025) survives. The years listing
-    // drives the dividend ledger UI year picker — a leak would surface the
-    // hidden account's year as a selectable filter.
+    // Seed two accounts with open lots in different years. Soft-delete A
+    // (2024); B (2025) survives. The years listing now drives the dividend
+    // review year picker from current holdings, so a leak would surface a
+    // hidden account's earlier holding year as a selectable range start.
     await seedAccountWithData("acc-div-hidden", "Dividend Hidden", "9451");
     await seedAccountWithData("acc-div-active", "Dividend Active", "9452");
-
-    // Seed dividend_events (parent FK target) with distinct payment_date years,
-    // then a dividend_ledger_entry for each account that references its event.
     await pool.query(
-      `INSERT INTO market_data.dividend_events
-         (id, ticker, event_type, ex_dividend_date, payment_date,
-          cash_dividend_per_share, stock_dividend_per_share, cash_dividend_currency)
-       VALUES
-         ('evt-div-hidden', '9451', 'CASH', '2024-06-01', '2024-06-15', 1.0, 0, 'TWD'),
-         ('evt-div-active', '9452', 'CASH', '2025-06-01', '2025-06-15', 1.0, 0, 'TWD')
-       ON CONFLICT (id) DO NOTHING`,
-    );
-    await pool.query(
-      `INSERT INTO dividend_ledger_entries
-         (id, account_id, dividend_event_id, eligible_quantity,
-          expected_cash_amount, expected_stock_quantity, received_stock_quantity,
-          posting_status, reconciliation_status)
-       VALUES
-         ('div-hidden-1', 'acc-div-hidden', 'evt-div-hidden', 100, 100, 0, 0, 'expected', 'open'),
-         ('div-active-1', 'acc-div-active', 'evt-div-active', 200, 200, 0, 0, 'expected', 'open')
-       ON CONFLICT (id) DO NOTHING`,
+      `UPDATE lots
+          SET opened_at = CASE account_id
+            WHEN 'acc-div-hidden' THEN DATE '2024-01-15'
+            WHEN 'acc-div-active' THEN DATE '2025-01-15'
+            ELSE opened_at
+          END
+        WHERE account_id IN ('acc-div-hidden', 'acc-div-active')`,
     );
 
-    // Soft-delete A so its 2024-year dividend should NOT surface in the year list.
+    // Soft-delete A so its 2024 open-lot year should NOT surface in the year list.
     await persistence!.softDeleteAccount("acc-div-hidden", ownerUserId, {
       actorUserId: null,
       ipAddress: null,
@@ -545,7 +532,9 @@ describePostgres("Account-scoped read filter (Postgres)", () => {
     });
 
     const { years } = await persistence!.listDividendLedgerYears(ownerUserId);
+    const currentYear = new Date().getUTCFullYear();
+    const expectedYears = Array.from({ length: currentYear - 2025 + 1 }, (_, index) => 2025 + index);
 
-    expect(years).toEqual([2025]);
+    expect(years).toEqual(expectedYears);
   });
 });

@@ -13,6 +13,7 @@ export type DatePreset =
   | "lastQuarter"
   | "currentYear"
   | "lastYear"
+  | "yearRange"
   | "unspecified"
   | "custom"
   | `year-${number}`;
@@ -90,6 +91,8 @@ export function resolvePresetDates(preset: DatePreset, today: Date): ResolvedDat
       return { from: `${y}-01-01`, to: `${y}-12-31` };
     case "lastYear":
       return { from: `${y - 1}-01-01`, to: `${y - 1}-12-31` };
+    case "yearRange":
+      return { from: null, to: null };
     case "unspecified":
       return { from: null, to: null };
     case "custom":

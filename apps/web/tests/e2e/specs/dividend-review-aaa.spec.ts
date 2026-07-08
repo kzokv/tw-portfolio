@@ -20,6 +20,65 @@ function yearStart(): string {
 // ─── Group 1: Filter auto-apply ─────────────────────────────────────────────
 
 test.describe("dividend review — filter auto-apply", () => {
+  test("year range dropdown: 2010 through current year → URL and date inputs reflect range", async ({
+    dividendReview,
+  }) => {
+    const currentYear = new Date().getUTCFullYear();
+    await dividendReview.arrange.seedExpectedDividend({
+      ticker: "2330",
+      tradeDate: "2010-01-05",
+      exDividendDate: `${currentYear}-01-10`,
+      paymentDate: `${currentYear}-01-20`,
+      cashDividendPerShare: 0.12,
+    });
+
+    await dividendReview.actions.navigateToReview();
+    await dividendReview.assert.pageLoaded();
+    const response = await dividendReview.actions.selectYearRange(2010, currentYear);
+
+    await dividendReview.assert.responseStatusIs(response, 200);
+    await dividendReview.assert.responseUrlContains(response, "fromPaymentDate=2010-01-01");
+    await dividendReview.assert.responseUrlContains(response, `toPaymentDate=${currentYear}-12-31`);
+    await dividendReview.assert.urlContains("preset=yearRange");
+    await dividendReview.assert.urlContains("fromPaymentDate=2010-01-01");
+    await dividendReview.assert.urlContains(`toPaymentDate=${currentYear}-12-31`);
+    await dividendReview.assert.dateFromHasValue("2010-01-01");
+    await dividendReview.assert.dateToHasValue(`${currentYear}-12-31`);
+    await dividendReview.assert.yearRangeTriggerContains(`2010-${currentYear}`);
+    await dividendReview.assert.yearOptionIsChecked(2010);
+    await dividendReview.assert.yearOptionIsChecked(currentYear);
+    await dividendReview.assert.allRowsContainText(/2330/);
+  });
+
+  test("review row display name: table and drawer show ticker plus instrument display name", async ({
+    dividendReview,
+    settings,
+  }) => {
+    await settings.arrange.seedInstruments([{
+      ticker: "2330",
+      name: "台積電",
+      instrumentType: "STOCK",
+      marketCode: "TW",
+      barsBackfillStatus: "ready",
+    }]);
+    const seeded = await dividendReview.arrange.seedExpectedDividend({
+      ticker: "2330",
+      exDividendDate: isoDateForMonth(1),
+      paymentDate: isoDateForMonth(15),
+      cashDividendPerShare: 0.12,
+    });
+
+    await dividendReview.actions.navigateToReview();
+    await dividendReview.assert.pageLoaded();
+
+    await dividendReview.assert.rowContainsText(seeded.expectedReviewRowId, /2330/);
+    await dividendReview.assert.rowContainsText(seeded.expectedReviewRowId, /台積電/);
+    await dividendReview.actions.clickRow(seeded.expectedReviewRowId);
+    await dividendReview.assert.drawerIsVisible();
+    await dividendReview.assert.drawerContains(/2330/);
+    await dividendReview.assert.drawerContains(/台積電/);
+  });
+
   test("preset click: Last 7 Days → URL updates, table re-fetches, date inputs show resolved range", async ({
     dividendReview,
   }) => {

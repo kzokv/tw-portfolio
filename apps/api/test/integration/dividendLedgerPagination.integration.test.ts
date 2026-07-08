@@ -790,49 +790,69 @@ describePostgres("PostgresPersistence.listDividendLedgerYears", () => {
     return id;
   }
 
-  it("IG-21: returns distinct years in descending order", async () => {
-    const e2023 = await insertEvent("AAPL", "2023-06-01");
-    const e2024a = await insertEvent("AAPL", "2024-03-15");
-    const e2024b = await insertEvent("AAPL", "2024-08-20");
-    const e2025 = await insertEvent("AAPL", "2025-01-15");
-    await insertEntry({ eventId: e2023 });
-    await insertEntry({ eventId: e2024a });
-    await insertEntry({ eventId: e2024b });
-    await insertEntry({ eventId: e2025 });
+  async function insertLot(params: {
+    id?: string;
+    accountId?: string;
+    ticker?: string;
+    openedAt: string;
+    openQuantity?: number;
+    costCurrency?: string;
+  }): Promise<void> {
+    await pool.query(
+      `INSERT INTO lots (
+         id, account_id, ticker, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence
+       ) VALUES ($1, $2, $3, $4, 100, $5, $6, 1)`,
+      [
+        params.id ?? randomUUID(),
+        params.accountId ?? accountId,
+        params.ticker ?? "AAPL",
+        params.openQuantity ?? 10,
+        params.costCurrency ?? "USD",
+        params.openedAt,
+      ],
+    );
+  }
+
+  it("IG-21: returns current holding years from earliest open lot through current year", async () => {
+    await insertLot({ openedAt: "2024-03-15" });
+    await insertLot({ openedAt: "2022-06-01", ticker: "MSFT" });
 
     const { years } = await persistence.listDividendLedgerYears(userId);
-    expect(years).toEqual([2025, 2024, 2023]);
+    const currentYear = new Date().getUTCFullYear();
+    expect(years).toEqual(Array.from({ length: currentYear - 2022 + 1 }, (_, index) => 2022 + index));
   });
 
-  it("IG-22: excludes superseded entries", async () => {
-    const sup = await insertEvent("AAPL", "2022-06-01");
-    await insertEntry({ eventId: sup, supersededAt: new Date().toISOString() });
-    const active = await insertEvent("AAPL", "2024-03-15");
-    await insertEntry({ eventId: active });
+  it("IG-22: ignores closed lots", async () => {
+    await insertLot({ openedAt: "2019-01-01", openQuantity: 0 });
+    await insertLot({ openedAt: "2025-03-15" });
 
     const { years } = await persistence.listDividendLedgerYears(userId);
-    expect(years).toEqual([2024]);
+    const currentYear = new Date().getUTCFullYear();
+    expect(years).toEqual(Array.from({ length: currentYear - 2025 + 1 }, (_, index) => 2025 + index));
   });
 
-  it("IG-23: excludes reversed entries (both original and reversal)", async () => {
-    const origEvt = await insertEvent("AAPL", "2022-06-01");
-    const origId = await insertEntry({ eventId: origEvt });
-    await insertEntry({ eventId: origEvt, reversalOf: origId });
-    const active = await insertEvent("AAPL", "2024-03-15");
-    await insertEntry({ eventId: active });
+  it("IG-22b: clamps future open lot years to the current year", async () => {
+    const currentYear = new Date().getUTCFullYear();
+    await insertLot({ openedAt: `${currentYear + 1}-03-15` });
 
     const { years } = await persistence.listDividendLedgerYears(userId);
-    expect(years).toEqual([2024]);
+    expect(years).toEqual([currentYear]);
   });
 
-  it("IG-24: excludes entries with null payment_date", async () => {
-    const nullEvt = await insertEvent("AAPL", null);
-    await insertEntry({ eventId: nullEvt, postingStatus: "expected", reconciliationStatus: "open" });
-    const active = await insertEvent("AAPL", "2024-03-15");
-    await insertEntry({ eventId: active });
+  it("IG-23: ignores dividend ledger payment years", async () => {
+    const evt = await insertEvent("AAPL", "2024-03-15");
+    await insertEntry({ eventId: evt });
 
     const { years } = await persistence.listDividendLedgerYears(userId);
-    expect(years).toEqual([2024]);
+    expect(years).toEqual([]);
+  });
+
+  it("IG-24: excludes open lots on soft-deleted accounts", async () => {
+    await pool.query(`UPDATE accounts SET deleted_at = NOW() WHERE id = $1`, [accountId]);
+    await insertLot({ openedAt: "2024-03-15" });
+
+    const { years } = await persistence.listDividendLedgerYears(userId);
+    expect(years).toEqual([]);
   });
 
   it("IG-25: empty store → years: []", async () => {
@@ -841,24 +861,19 @@ describePostgres("PostgresPersistence.listDividendLedgerYears", () => {
   });
 
   it("IG-27: /years tenant isolation — user-1 never sees user-2 years", async () => {
-    // user-1 data — 2024 only
-    const u1Evt = await insertEvent("AAPL", "2024-03-15");
-    await insertEntry({ eventId: u1Evt });
+    await insertLot({ openedAt: "2024-03-15" });
 
-    // user-2 data — 2099 (unambiguous marker)
     const store2 = await persistence.loadStore("user-2");
     const user2Id = store2.userId;
     const user2AccountId = store2.accounts[0]!.id;
-    // KZO-183: switch user-2's auto-seeded account to USD to satisfy the dividend market guard.
-    await pool.query(`UPDATE accounts SET default_currency = 'USD' WHERE id = $1`, [user2AccountId]);
-    const u2Evt = await insertEvent("AAPL", "2099-06-01");
-    await insertEntry({ eventId: u2Evt, accountId: user2AccountId });
+    await insertLot({ accountId: user2AccountId, openedAt: "2018-06-01" });
 
     const u1 = await persistence.listDividendLedgerYears(userId);
-    expect(u1.years).toEqual([2024]);
-    expect(u1.years).not.toContain(2099);
+    const currentYear = new Date().getUTCFullYear();
+    expect(u1.years).toEqual(Array.from({ length: currentYear - 2024 + 1 }, (_, index) => 2024 + index));
+    expect(u1.years).not.toContain(2018);
 
     const u2 = await persistence.listDividendLedgerYears(user2Id);
-    expect(u2.years).toEqual([2099]);
+    expect(u2.years).toEqual(Array.from({ length: currentYear - 2018 + 1 }, (_, index) => 2018 + index));
   });
 });
