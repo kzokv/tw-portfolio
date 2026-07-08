@@ -118,8 +118,22 @@ function deductionTotal(deductions: ReadonlyArray<Pick<DividendDeductionEntry, "
   return roundToDecimal(deductions.reduce((sum, deduction) => sum + deduction.amount, 0), 2);
 }
 
-function actualCashEconomicAmount(receivedCashAmount: number, deductions: ReadonlyArray<Pick<DividendDeductionEntry, "amount">>): number {
-  return roundToDecimal(receivedCashAmount + deductionTotal(deductions), 2);
+function withheldDeductionTotal(deductions: ReadonlyArray<Pick<DividendDeductionEntry, "amount" | "withheldAtSource">>): number {
+  return deductionTotal(deductions.filter((deduction) => deduction.withheldAtSource));
+}
+
+function actualCashEconomicAmount(
+  receivedCashAmount: number,
+  deductions: ReadonlyArray<Pick<DividendDeductionEntry, "amount" | "withheldAtSource">>,
+): number {
+  return roundToDecimal(receivedCashAmount + withheldDeductionTotal(deductions), 2);
+}
+
+function resolveSourceCompositionStatus(
+  sourceLines: ReadonlyArray<SourceLineInput>,
+  status?: SourceCompositionStatus,
+): SourceCompositionStatus {
+  return status ?? (sourceLines.length > 0 ? "provided" : "unknown_pending_disclosure");
 }
 
 function rowSummary(row: DividendReviewRowWithDetails, store: Store) {
@@ -220,6 +234,7 @@ function receiptPreviewPayload(resolved: ResolvedReviewRow, input: DividendRecei
   const sourceLines = normalizeSourceLines(input.sourceLines);
   const receivedCashAmount = input.receivedCashAmount ?? resolved.row.expectedCashAmount;
   const receivedStockQuantity = input.receivedStockQuantity ?? resolved.row.expectedStockQuantity;
+  const sourceCompositionStatus = resolveSourceCompositionStatus(sourceLines, input.sourceCompositionStatus);
   const summary = `Post dividend receipt for ${resolved.row.ticker} ${resolved.row.marketCode} in ${accountNameById(resolved.store).get(resolved.row.accountId) ?? resolved.row.accountId}: cash ${receivedCashAmount} ${resolved.row.cashCurrency}, stock ${receivedStockQuantity}.`;
   const digestPayload = {
     action: "post_dividend_receipt",
@@ -231,7 +246,7 @@ function receiptPreviewPayload(resolved: ResolvedReviewRow, input: DividendRecei
     receivedStockQuantity,
     deductions,
     sourceLines,
-    sourceCompositionStatus: input.sourceCompositionStatus ?? "unknown_pending_disclosure",
+    sourceCompositionStatus,
     rowFacts: rowSummary(resolved.row, resolved.store),
   };
   return {
@@ -241,7 +256,7 @@ function receiptPreviewPayload(resolved: ResolvedReviewRow, input: DividendRecei
       receivedStockQuantity,
       deductions,
       sourceLines,
-      sourceCompositionStatus: input.sourceCompositionStatus ?? "unknown_pending_disclosure",
+      sourceCompositionStatus,
       deductionTotal: deductionTotal(deductions),
       actualCashEconomicAmount: actualCashEconomicAmount(receivedCashAmount, deductions),
       stockLotImpact: receivedStockQuantity > 0

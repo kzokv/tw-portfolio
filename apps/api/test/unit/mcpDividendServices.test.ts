@@ -121,7 +121,7 @@ describe("MCP dividend services", () => {
     await app.close();
   });
 
-  it("posts a previewed receipt when source lines omit caller-provided ids", async () => {
+  it("posts a previewed receipt when source lines omit caller-provided ids and status", async () => {
     const rowId = await seedExpectedDividendRow();
     const eventSpy = vi.spyOn(app.eventBus, "publishEvent");
 
@@ -129,7 +129,6 @@ describe("MCP dividend services", () => {
       rowId,
       receivedCashAmount: 3000,
       receivedStockQuantity: 0,
-      sourceCompositionStatus: "provided" as const,
       sourceLines: [{
         sourceBucket: "DIVIDEND_INCOME" as const,
         amount: 3000,
@@ -137,6 +136,8 @@ describe("MCP dividend services", () => {
       }],
     };
     const preview = await previewPostDividendReceipt(serviceContext(), receiptInput);
+    expect(preview.receipt.sourceCompositionStatus).toBe("provided");
+
     const posted = await postDividendReceipt(serviceContext(), {
       ...receiptInput,
       confirmationSummary: preview.confirmationSummary,
@@ -149,6 +150,7 @@ describe("MCP dividend services", () => {
       postingStatus: "posted",
       receivedCashAmount: 3000,
       sourceCompositionStatus: "provided",
+      sourceLines: [expect.objectContaining({ sourceBucket: "DIVIDEND_INCOME", amount: 3000 })],
     }));
     expect(eventSpy).toHaveBeenCalledWith(USER_ID, "dividend_posted", expect.objectContaining({
       dividendLedgerEntryId: posted.dividendLedgerEntryId,
@@ -280,6 +282,43 @@ describe("MCP dividend services", () => {
       receivedStockQuantity: 100,
       deductions: [expect.objectContaining({ deductionType: "NHI_SUPPLEMENTAL_PREMIUM", amount: 100 })],
       sourceLines: [expect.objectContaining({ sourceBucket: "DIVIDEND_INCOME", amount: 2000 })],
+    }));
+  });
+
+  it("excludes non-withheld deductions from MCP cash economics", async () => {
+    const rowId = await seedExpectedDividendRow();
+    const receiptInput = {
+      rowId,
+      receivedCashAmount: 2950,
+      deductions: [{
+        deductionType: "BROKER_FEE" as const,
+        amount: 50,
+        withheldAtSource: false,
+      }],
+    };
+    const preview = await previewPostDividendReceipt(serviceContext(), receiptInput);
+
+    expect(preview.receipt).toEqual(expect.objectContaining({
+      deductionTotal: 50,
+      actualCashEconomicAmount: 2950,
+    }));
+
+    const posted = await postDividendReceipt(serviceContext(), {
+      ...receiptInput,
+      confirmationSummary: preview.confirmationSummary,
+      confirmationDigest: preview.confirmationDigest,
+      idempotencyKey: "mcp-dividend-non-withheld-deduction",
+    });
+    const review = await getDividendReview(serviceContext(), {
+      postingStatus: "posted",
+      tickerMarkets: [{ ticker: "2330", marketCode: "TW" }],
+    });
+    const row = review.rows.find((candidate) => candidate.dividendLedgerEntryId === posted.dividendLedgerEntryId);
+
+    expect(row).toEqual(expect.objectContaining({
+      deductionTotal: 50,
+      actualCashEconomicAmount: 2950,
+      cashVarianceAmount: 50,
     }));
   });
 
