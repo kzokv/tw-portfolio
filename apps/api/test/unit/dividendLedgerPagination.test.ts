@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Lot } from "@vakwen/domain";
 import { buildApp, type AppInstance } from "../../src/app.js";
 import type {
   CashLedgerEntry,
@@ -87,6 +88,23 @@ async function seedReceipt(
     source: "test_seed",
   };
   store.accounting.facts.cashLedgerEntries.push(entry);
+}
+
+async function seedOpenLot(overrides: Partial<Lot> = {}): Promise<Lot> {
+  const store = await app.persistence.loadStore(USER_ID);
+  const lot: Lot = {
+    id: randomUUID(),
+    accountId: "acc-1",
+    ticker: "AAPL",
+    openQuantity: 10,
+    totalCostAmount: 1000,
+    costCurrency: "USD",
+    openedAt: "2024-01-02",
+    openedSequence: 1,
+    ...overrides,
+  };
+  store.accounting.projections.lots.push(lot);
+  return lot;
 }
 
 /**
@@ -576,50 +594,47 @@ describe("MemoryPersistence.listDividendLedgerEntries — date filter fallback",
 describe("MemoryPersistence.listDividendLedgerYears", () => {
   beforeEach(async () => {
     app = await buildApp({ persistenceBackend: "memory" });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-08T00:00:00.000Z"));
   });
 
   afterEach(async () => {
     if (app) await app.close();
+    vi.useRealTimers();
   });
 
-  it("UM-23: returns distinct years in descending order", async () => {
-    await seedFullEntry({ ticker: "AAPL", currency: "USD", paymentDate: "2023-06-01", expected: 100, received: 100 });
-    await seedFullEntry({ ticker: "AAPL", currency: "USD", paymentDate: "2024-03-15", expected: 100, received: 100 });
-    await seedFullEntry({ ticker: "AAPL", currency: "USD", paymentDate: "2024-03-20", expected: 100, received: 100 });
-    await seedFullEntry({ ticker: "AAPL", currency: "USD", paymentDate: "2025-01-15", expected: 100, received: 100 });
+  it("UM-23: returns the current holding year range in ascending order", async () => {
+    await seedOpenLot({ openedAt: "2024-03-15" });
+    await seedOpenLot({ openedAt: "2022-06-01", id: randomUUID(), ticker: "MSFT" });
 
     const { years } = await app.persistence.listDividendLedgerYears(USER_ID);
-    expect(years).toEqual([2025, 2024, 2023]);
+    expect(years).toEqual([2022, 2023, 2024, 2025, 2026]);
   });
 
-  it("UM-24: excludes superseded entries", async () => {
-    const evt = await seedDividendEvent({ ticker: "AAPL", paymentDate: "2022-06-01", exDividendDate: "2022-05-01" });
-    await seedLedgerEntry({ dividendEventId: evt.id, supersededAt: "2022-07-01T00:00:00.000Z" });
-    await seedFullEntry({ ticker: "AAPL", currency: "USD", paymentDate: "2024-03-15", expected: 100, received: 100 });
+  it("UM-24: ignores closed lots", async () => {
+    await seedOpenLot({ openedAt: "2019-01-01", openQuantity: 0 });
+    await seedOpenLot({ openedAt: "2025-03-15" });
 
     const { years } = await app.persistence.listDividendLedgerYears(USER_ID);
-    expect(years).toEqual([2024]);
+    expect(years).toEqual([2025, 2026]);
   });
 
-  it("UM-25: excludes reversed entries", async () => {
-    const originalEvt = await seedDividendEvent({ ticker: "AAPL", paymentDate: "2022-06-01", exDividendDate: "2022-05-01" });
-    const original = await seedLedgerEntry({ dividendEventId: originalEvt.id });
-    // Reversal: a ledger entry whose reversalOfDividendLedgerEntryId points at original.
-    // Both original AND reversal should be excluded from years.
-    await seedLedgerEntry({ dividendEventId: originalEvt.id, reversalOfDividendLedgerEntryId: original.id });
-    await seedFullEntry({ ticker: "AAPL", currency: "USD", paymentDate: "2024-03-15", expected: 100, received: 100 });
+  it("UM-25: ignores lots from accounts that are not active", async () => {
+    await seedAccount("acc-inactive", "Inactive");
+    const store = await app.persistence.loadStore(USER_ID);
+    store.accounts = store.accounts.filter((item) => item.id !== "acc-inactive");
+    await seedOpenLot({ accountId: "acc-inactive", openedAt: "2018-01-01" });
+    await seedOpenLot({ openedAt: "2024-03-15" });
 
     const { years } = await app.persistence.listDividendLedgerYears(USER_ID);
-    expect(years).toEqual([2024]);
+    expect(years).toEqual([2024, 2025, 2026]);
   });
 
-  it("UM-26: excludes entries with null paymentDate", async () => {
-    const nullEvt = await seedDividendEvent({ ticker: "AAPL", paymentDate: null, exDividendDate: "2022-05-01" });
-    await seedLedgerEntry({ dividendEventId: nullEvt.id, postingStatus: "expected" });
+  it("UM-26: ignores dividend ledger years when there are no current open lots", async () => {
     await seedFullEntry({ ticker: "AAPL", currency: "USD", paymentDate: "2024-03-15", expected: 100, received: 100 });
 
     const { years } = await app.persistence.listDividendLedgerYears(USER_ID);
-    expect(years).toEqual([2024]);
+    expect(years).toEqual([]);
   });
 
   it("UM-27: empty store → returns years: []", async () => {

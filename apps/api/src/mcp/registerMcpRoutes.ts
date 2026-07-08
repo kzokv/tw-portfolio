@@ -95,6 +95,13 @@ import {
   getRecentTransactions,
   searchInstruments,
 } from "../services/mcpPortfolioRead.js";
+import {
+  getDividendReview,
+  postDividendReceipt,
+  previewPostDividendReceipt,
+  previewUpdateDividendReconciliation,
+  updateDividendReconciliation,
+} from "../services/mcpDividends.js";
 import { buildUnrealizedPnlAnalysis } from "../services/unrealizedPnlAnalysis.js";
 import {
   backfillTickers,
@@ -206,6 +213,10 @@ function requiresExplicitPortfolioSelector(toolName: McpToolName): boolean {
     "preview_replay_portfolio_positions",
     "replay_portfolio_positions",
     "backfill_tickers",
+    "preview_post_dividend_receipt",
+    "post_dividend_receipt",
+    "preview_update_dividend_reconciliation",
+    "update_dividend_reconciliation",
   ].includes(toolName);
 }
 
@@ -395,6 +406,12 @@ export async function registerMcpRoutes(
           result = await getDividendsOverview(
             { app, requestContext, tradingCalendar: app.tradingCalendarCache },
             args as { reportingCurrency?: never; locale?: string },
+          );
+          break;
+        case "get_dividend_review":
+          result = await getDividendReview(
+            { app, requestContext },
+            args as Parameters<typeof getDividendReview>[1],
           );
           break;
         case "get_daily_review_report":
@@ -742,6 +759,30 @@ export async function registerMcpRoutes(
           result = await postTransactionDraftRowsByName(
             { app, requestContext },
             args as Parameters<typeof postTransactionDraftRowsByName>[1],
+          );
+          break;
+        case "preview_post_dividend_receipt":
+          result = await previewPostDividendReceipt(
+            { app, requestContext },
+            args as Parameters<typeof previewPostDividendReceipt>[1],
+          );
+          break;
+        case "post_dividend_receipt":
+          result = await postDividendReceipt(
+            { app, requestContext },
+            args as Parameters<typeof postDividendReceipt>[1],
+          );
+          break;
+        case "preview_update_dividend_reconciliation":
+          result = await previewUpdateDividendReconciliation(
+            { app, requestContext },
+            args as Parameters<typeof previewUpdateDividendReconciliation>[1],
+          );
+          break;
+        case "update_dividend_reconciliation":
+          result = await updateDividendReconciliation(
+            { app, requestContext },
+            args as Parameters<typeof updateDividendReconciliation>[1],
           );
           break;
       }

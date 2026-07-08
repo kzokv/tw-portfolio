@@ -6,7 +6,6 @@ import {
   extractCurrencies,
   formatYAxis,
   resolvePresetDates,
-  type DatePreset,
 } from "../../../components/dividends/dividendReviewUtils";
 
 // ── resolvePresetDates ─────────────────────────────────────────────────────
@@ -139,10 +138,10 @@ describe("resolvePresetDates", () => {
     });
   });
 
-  it("year-XXXX returns full year range", () => {
-    expect(resolvePresetDates("year-2024" as DatePreset, today)).toEqual({
-      from: "2024-01-01",
-      to: "2024-12-31",
+  it("yearRange defers to explicit date filters", () => {
+    expect(resolvePresetDates("yearRange", today)).toEqual({
+      from: null,
+      to: null,
     });
   });
 });

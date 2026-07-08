@@ -3068,22 +3068,23 @@ export class MemoryPersistence implements Persistence {
 
   async listDividendLedgerYears(userId: string): Promise<{ years: number[] }> {
     const store = await this.loadStore(userId);
-    const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
-    const reversedIds = new Set(
-      store.accounting.facts.dividendLedgerEntries
-        .map((entry) => entry.reversalOfDividendLedgerEntryId)
-        .filter((id): id is string => Boolean(id)),
+    const activeAccountIds = new Set(
+      store.accounts
+        .filter((account) => account.userId === userId)
+        .map((account) => account.id),
     );
-    const years = new Set<number>();
-    for (const entry of store.accounting.facts.dividendLedgerEntries) {
-      if (entry.reversalOfDividendLedgerEntryId) continue;
-      if (entry.supersededAt) continue;
-      if (reversedIds.has(entry.id)) continue;
-      const event = eventById.get(entry.dividendEventId);
-      if (!event?.paymentDate) continue;
-      years.add(parseInt(event.paymentDate.substring(0, 4), 10));
-    }
-    return { years: Array.from(years).sort((a, b) => b - a) };
+    const earliestOpenLotYear = store.accounting.projections.lots
+      .filter((lot) => activeAccountIds.has(lot.accountId) && lot.openQuantity > 0)
+      .map((lot) => parseInt(lot.openedAt.substring(0, 4), 10))
+      .filter((year) => Number.isInteger(year))
+      .sort((a, b) => a - b)[0];
+    if (earliestOpenLotYear === undefined) return { years: [] };
+
+    const currentYear = new Date().getUTCFullYear();
+    const startYear = Math.min(earliestOpenLotYear, currentYear);
+    return {
+      years: Array.from({ length: currentYear - startYear + 1 }, (_, index) => startYear + index),
+    };
   }
 
   async getTickerFundamentals(

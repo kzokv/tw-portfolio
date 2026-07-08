@@ -10996,25 +10996,20 @@ export class PostgresPersistence implements Persistence {
   async listDividendLedgerYears(userId: string): Promise<{ years: number[] }> {
     await this.ensureDefaultPortfolioData(userId);
     const result = await this.pool.query(
-      `SELECT DISTINCT EXTRACT(YEAR FROM event.payment_date)::int AS year
-       FROM dividend_ledger_entries AS dle
-       JOIN accounts AS account
-         ON account.id = dle.account_id
-       JOIN market_data.dividend_events AS event
-         ON event.id = dle.dividend_event_id
-       WHERE account.user_id = $1
-         -- ui-enhancement — exclude years derived solely from dividends on
-         -- soft-deleted accounts. [active-only filter ADDED]
-         AND account.deleted_at IS NULL
-         AND event.payment_date IS NOT NULL
-         AND dle.superseded_at IS NULL
-         AND dle.reversal_of_dividend_ledger_entry_id IS NULL
-         AND NOT EXISTS (
-           SELECT 1
-           FROM dividend_ledger_entries AS reversal
-           WHERE reversal.reversal_of_dividend_ledger_entry_id = dle.id
-         )
-       ORDER BY 1 DESC`,
+      `WITH bounds AS (
+         SELECT MIN(EXTRACT(YEAR FROM lot.opened_at)::int) AS start_year,
+                EXTRACT(YEAR FROM CURRENT_DATE)::int AS current_year
+         FROM lots AS lot
+         JOIN accounts AS account
+           ON account.id = lot.account_id
+         WHERE account.user_id = $1
+           AND account.deleted_at IS NULL
+           AND lot.open_quantity > 0
+       )
+       SELECT generate_series(start_year, current_year)::int AS year
+       FROM bounds
+       WHERE start_year IS NOT NULL
+       ORDER BY 1 ASC`,
       [userId],
     );
     return { years: result.rows.map((row) => Number(row.year)) };

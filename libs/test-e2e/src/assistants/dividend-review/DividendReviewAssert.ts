@@ -35,6 +35,16 @@ export class DividendReviewAssert extends BaseAssert {
   }
 
   @Step()
+  async yearRangeTriggerContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.yearRangeTrigger).toContainText(text);
+  }
+
+  @Step()
+  async yearOptionIsChecked(year: number): Promise<void> {
+    await expect(this.el.yearOption(year)).toBeChecked();
+  }
+
+  @Step()
   async dateFromHasValue(value: string): Promise<void> {
     await expect(this.el.dateFrom).toHaveValue(value);
   }

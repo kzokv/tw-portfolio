@@ -121,15 +121,47 @@ function parseInitialPreset(searchParams: URLSearchParams): DatePreset {
   return "currentYear";
 }
 
+function legacyYearPreset(searchParams: URLSearchParams): number | null {
+  const preset = searchParams.get("preset");
+  const match = preset?.match(/^year-(\d{4})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  return Number.isInteger(year) ? year : null;
+}
+
+function yearFromDate(value: string): number | null {
+  const year = Number(value.slice(0, 4));
+  return Number.isInteger(year) ? year : null;
+}
+
+function selectedYearRangeFromFilters(filters: Pick<FilterState, "preset" | "fromDate" | "toDate">): { start: number; end: number } | null {
+  if (filters.preset !== "yearRange") return null;
+  const fromYear = yearFromDate(filters.fromDate);
+  const toYear = yearFromDate(filters.toDate);
+  if (fromYear === null || toYear === null) return null;
+  return {
+    start: Math.min(fromYear, toYear),
+    end: Math.max(fromYear, toYear),
+  };
+}
+
+function selectedYearsFromFilters(filters: Pick<FilterState, "preset" | "fromDate" | "toDate">): number[] {
+  const range = selectedYearRangeFromFilters(filters);
+  if (!range) return [];
+  const { start, end } = range;
+  return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+}
+
 function parseInitialFilters(searchParams: URLSearchParams): FilterState {
-  const preset = parseInitialPreset(searchParams);
+  const legacyYear = legacyYearPreset(searchParams);
+  const preset = legacyYear === null ? parseInitialPreset(searchParams) : "yearRange";
   const today = new Date();
   const resolved = resolvePresetDates(preset, today);
 
   return {
     preset,
-    fromDate: searchParams.get("fromPaymentDate") ?? resolved.from ?? "",
-    toDate: searchParams.get("toPaymentDate") ?? resolved.to ?? "",
+    fromDate: searchParams.get("fromPaymentDate") ?? (legacyYear === null ? resolved.from : `${legacyYear}-01-01`) ?? "",
+    toDate: searchParams.get("toPaymentDate") ?? (legacyYear === null ? resolved.to : `${legacyYear}-12-31`) ?? "",
     ticker: searchParams.get("ticker") ?? "",
     marketCode: (searchParams.get("marketCode") as MarketCode | null) ?? "",
     accountId: searchParams.get("accountId") ?? "",
@@ -292,6 +324,29 @@ export function DividendReviewClient({
     }
   }, [filters, applyFilters, syncUrl]);
 
+  const handleYearToggle = useCallback((year: number) => {
+    const current = new Set(selectedYearsFromFilters(filters));
+    if (current.has(year)) {
+      current.delete(year);
+    } else {
+      current.add(year);
+    }
+    const selected = Array.from(current).sort((a, b) => a - b);
+    if (selected.length === 0) {
+      handlePresetChange("currentYear");
+      return;
+    }
+    const fromYear = selected[0]!;
+    const toYear = selected[selected.length - 1]!;
+    applyFilters({
+      ...filters,
+      preset: "yearRange",
+      fromDate: `${fromYear}-01-01`,
+      toDate: `${toYear}-12-31`,
+      page: 1,
+    });
+  }, [filters, applyFilters, handlePresetChange]);
+
   const handleDateBlur = useCallback(() => {
     const f = filtersRef.current;
     if (f.preset !== "custom") return;
@@ -420,8 +475,7 @@ export function DividendReviewClient({
     [accounts],
   );
 
-  const presets = useMemo((): { key: DatePreset; label: string }[] => {
-    const base: { key: DatePreset; label: string }[] = [
+  const presets = useMemo((): { key: DatePreset; label: string }[] => [
       { key: "yesterday", label: dict.dividends.review.preset.yesterday },
       { key: "thisWeek", label: dict.dividends.review.preset.thisWeek },
       { key: "last7Days", label: dict.dividends.review.preset.last7Days },
@@ -432,19 +486,17 @@ export function DividendReviewClient({
       { key: "lastQuarter", label: dict.dividends.review.preset.lastQuarter },
       { key: "currentYear", label: dict.dividends.review.preset.currentYear },
       { key: "lastYear", label: dict.dividends.review.preset.lastYear },
-    ];
-
-    for (const year of years) {
-      base.push({ key: `year-${year}` as DatePreset, label: String(year) });
-    }
-
-    base.push(
       { key: "unspecified", label: dict.dividends.review.preset.unspecified },
       { key: "custom", label: dict.dividends.review.preset.custom },
-    );
-
-    return base;
-  }, [years, dict]);
+  ], [dict]);
+  const selectedYears = useMemo(() => selectedYearsFromFilters(filters), [filters]);
+  const selectedYearSet = useMemo(() => new Set(selectedYears), [selectedYears]);
+  const selectedYearRange = useMemo(() => selectedYearRangeFromFilters(filters), [filters]);
+  const yearDropdownLabel = selectedYears.length === 0
+    ? dict.dividends.review.preset.years
+    : selectedYears.length === 1
+      ? String(selectedYears[0])
+      : `${selectedYears[0]}-${selectedYears[selectedYears.length - 1]}`;
 
   const defaultChartGranularity: Granularity | undefined =
     filters.preset === "unspecified" ? "year" : undefined;
@@ -511,7 +563,7 @@ export function DividendReviewClient({
       <Card className="space-y-4 rounded-[20px] border border-slate-200 bg-white/92 p-4 shadow-[0_12px_28px_rgba(148,163,184,0.1)]">
         {/* Preset strip */}
         <div
-          className="flex flex-wrap gap-2"
+          className="flex flex-wrap items-center gap-2"
           data-testid="preset-strip"
         >
           {presets.map((p) => (
@@ -530,6 +582,49 @@ export function DividendReviewClient({
               {p.label}
             </button>
           ))}
+          {years.length > 0 ? (
+            <details className="relative" data-testid="preset-years-dropdown">
+              <summary
+                className={cn(
+                  "list-none rounded-full border px-3 py-1.5 text-xs font-medium transition-colors whitespace-nowrap marker:hidden",
+                  filters.preset === "yearRange"
+                    ? "border-sky-300 bg-sky-100 text-sky-700"
+                    : "border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50",
+                )}
+                data-testid="preset-year-range"
+              >
+                {yearDropdownLabel}
+              </summary>
+              <div className="absolute left-0 z-30 mt-2 max-h-64 min-w-36 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 shadow-lg">
+                {[...years].sort((a, b) => a - b).map((year) => {
+                  const isRangeInterior = selectedYearRange !== null
+                    && selectedYearRange.start < year
+                    && year < selectedYearRange.end;
+                  return (
+                    <label
+                      key={year}
+                      className={cn(
+                        "flex items-center gap-2 rounded-md px-2 py-1.5 text-sm",
+                        isRangeInterior
+                          ? "cursor-not-allowed text-slate-400"
+                          : "cursor-pointer text-slate-700 hover:bg-slate-50",
+                      )}
+                    >
+                      <input
+                        type="checkbox"
+                        className="size-4 rounded border-slate-300 disabled:bg-slate-100"
+                        checked={selectedYearSet.has(year)}
+                        disabled={isRangeInterior}
+                        onChange={() => handleYearToggle(year)}
+                        data-testid={`preset-year-${year}`}
+                      />
+                      <span>{year}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </details>
+          ) : null}
         </div>
 
         {/* Filters row: mobile = 2-col (dates | dates, ticker full, acct | status); desktop = 5-col */}
@@ -663,8 +758,11 @@ export function DividendReviewClient({
                     data-testid={`review-row-${entry.id}`}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div>
+                      <div className="min-w-0">
                         <h4 className="text-base font-semibold text-foreground">{entry.ticker}</h4>
+                        {entry.tickerName ? (
+                          <p className="truncate text-xs text-muted-foreground">{entry.tickerName}</p>
+                        ) : null}
                         <p className="text-xs text-muted-foreground">{accountNameById.get(entry.accountId) ?? entry.accountId}</p>
                       </div>
                       <span className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-[10px] uppercase tracking-[0.14em]", statusBadgeClassName(entry.reconciliationStatus))}>
@@ -779,8 +877,11 @@ export function DividendReviewClient({
                         <td className="sticky left-0 z-10 bg-card border-r border-border md:static md:bg-transparent md:border-r-0 px-4 py-3 text-sm text-foreground">
                           {entry.paymentDate ? formatDateLabel(entry.paymentDate, locale) : "—"}
                         </td>
-                        <td className="px-4 py-3 text-sm font-medium text-foreground">
-                          {entry.ticker}
+                        <td className="px-4 py-3 text-sm">
+                          <div className="font-medium text-foreground">{entry.ticker}</div>
+                          {entry.tickerName ? (
+                            <div className="max-w-48 truncate text-xs text-muted-foreground">{entry.tickerName}</div>
+                          ) : null}
                         </td>
                         <td className="px-4 py-3 text-sm text-muted-foreground">{accountNameById.get(entry.accountId) ?? entry.accountId}</td>
                         <td className="px-4 py-3 text-sm text-foreground">
@@ -878,7 +979,7 @@ export function DividendReviewClient({
             setIsDrawerDirty(false);
           }
         }}
-        title={drawerEntry ? `${drawerEntry.ticker} · ${accountNameById.get(drawerEntry.accountId) ?? drawerEntry.accountId}` : dict.dividends.review.pageTitle}
+        title={drawerEntry ? `${drawerEntry.ticker}${drawerEntry.tickerName ? ` · ${drawerEntry.tickerName}` : ""} · ${accountNameById.get(drawerEntry.accountId) ?? drawerEntry.accountId}` : dict.dividends.review.pageTitle}
         dirty={isDrawerDirty}
         dirtyConfirmMessage={dict.dividends.form.unsavedChangesConfirm}
       >

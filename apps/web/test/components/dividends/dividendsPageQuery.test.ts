@@ -73,4 +73,15 @@ describe("dividendsPageQuery", () => {
     expect(query.sortOrder).toBe("desc");
     expect(query.page).toBe(1);
   });
+
+  it("keeps explicit date filters for the yearRange preset", () => {
+    const query = searchParamsToReviewQuery(new URLSearchParams([
+      ["preset", "yearRange"],
+      ["fromPaymentDate", "2024-01-01"],
+      ["toPaymentDate", "2026-12-31"],
+    ]));
+
+    expect(query.fromPaymentDate).toBe("2024-01-01");
+    expect(query.toPaymentDate).toBe("2026-12-31");
+  });
 });

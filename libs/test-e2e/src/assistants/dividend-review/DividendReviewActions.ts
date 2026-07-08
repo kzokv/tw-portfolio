@@ -40,6 +40,24 @@ export class DividendReviewActions extends AppBaseActions {
     await this.uiActions.click.perform(this.el.preset(presetName));
   }
 
+  @Step()
+  async selectYearRange(fromYear: number, toYear: number): Promise<Response> {
+    const responsePromise = this.mxWaitForResponse(
+      (response) =>
+        response.request().method() === "GET"
+        && response.url().includes("/portfolio/dividends/review")
+        && response.url().includes(`fromPaymentDate=${fromYear}-01-01`)
+        && response.url().includes(`toPaymentDate=${toYear}-12-31`),
+    );
+
+    await this.uiActions.click.perform(this.el.yearRangeTrigger);
+    await this.uiActions.click.perform(this.el.yearOption(fromYear));
+    if (toYear !== fromYear) {
+      await this.uiActions.click.perform(this.el.yearOption(toYear));
+    }
+    return await responsePromise;
+  }
+
   // ─── Filter bar — date inputs ────────────────────────────────────────────
 
   @Step()

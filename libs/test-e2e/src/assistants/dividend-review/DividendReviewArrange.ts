@@ -15,6 +15,7 @@ interface SeedDividendEventOptions {
   cashDividendCurrency?: string;
   stockDividendPerShare?: number;
   eligibleQuantity?: number;
+  tradeDate?: string;
 }
 
 interface SeedPostedDividendOptions extends SeedDividendEventOptions {
@@ -63,6 +64,7 @@ export class DividendReviewArrange extends BaseArrange {
         cashDividendCurrency: options.cashDividendCurrency ?? "TWD",
         stockDividendPerShare: options.stockDividendPerShare ?? 0,
         eligibleQuantity: options.eligibleQuantity ?? 1_000,
+        tradeDate: options.tradeDate,
       },
     });
 
