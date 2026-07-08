@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp, type AppInstance } from "../../src/app.js";
-import type { BookedTradeEvent, DividendEvent, DividendLedgerEntry } from "../../src/types/store.js";
+import type { BookedTradeEvent, DividendEvent, DividendLedgerEntry, PositionAction } from "../../src/types/store.js";
 
 const USER_ID = "user-1";
 
@@ -335,6 +335,72 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
     expect(ledgerResponse.json()).toMatchObject({
       total: 0,
       ledgerEntries: [],
+    });
+  });
+
+  it("enriches stock dividend review route rows with amendable correction metadata", async () => {
+    const accountId = await seedTwdAccount();
+    await seedInstrumentName("2330", "TW", "TSMC");
+    await seedBuy(accountId, "2330", 100, "2024-05-20");
+    const event = await seedDividendEvent({
+      eventType: "STOCK",
+      stockDividendPerShare: 0.1,
+      cashDividendPerShare: 0,
+    });
+    const store = await app.persistence.loadStore(USER_ID);
+    const ledgerEntry: DividendLedgerEntry = {
+      id: randomUUID(),
+      accountId,
+      dividendEventId: event.id,
+      eligibleQuantity: 100,
+      expectedCashAmount: 0,
+      expectedStockQuantity: 10,
+      receivedCashAmount: 0,
+      receivedStockQuantity: 10,
+      postingStatus: "posted",
+      reconciliationStatus: "open",
+      version: 1,
+      sourceCompositionStatus: "unknown_pending_disclosure",
+    };
+    const positionAction: PositionAction = {
+      id: randomUUID(),
+      accountId,
+      ticker: "2330",
+      marketCode: "TW",
+      actionType: "STOCK_DIVIDEND",
+      actionDate: "2024-07-10",
+      quantity: 10,
+      parValuePerShare: 10,
+      premiumBaseAmount: 100,
+      nhiPremiumBaseAmount: 100,
+      relatedDividendLedgerEntryId: ledgerEntry.id,
+      source: "dividend_posting",
+    };
+    store.accounting.facts.dividendLedgerEntries.push(ledgerEntry);
+    store.accounting.facts.positionActions.push(positionAction);
+
+    const reviewResponse = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/review?ticker=2330&fromPaymentDate=2024-01-01&toPaymentDate=2024-12-31",
+    });
+
+    expect(reviewResponse.statusCode).toBe(200);
+    expect(reviewResponse.json()).toMatchObject({
+      total: 1,
+      reviewRows: [
+        {
+          id: ledgerEntry.id,
+          rowKind: "ledger",
+          eventType: "STOCK",
+          correctionMode: "amend",
+          amendmentBlockedReason: null,
+          linkedPositionActionId: positionAction.id,
+          linkedPositionActionStatus: "posted",
+          receivedStockQuantity: 10,
+          parValueBaseAmount: 100,
+          portfolioCostBasisAddedAmount: 0,
+        },
+      ],
     });
   });
 });

@@ -515,7 +515,7 @@ function buildUpcomingDividends(store: Store): DashboardOverviewUpcomingDividend
         postingStatus: entry.postingStatus,
       });
     }
-    if (entry.postingStatus === "posted") {
+    if (isDividendIncomePostingStatus(entry.postingStatus)) {
       postedEventKeys.add(key);
     }
   }
@@ -590,7 +590,7 @@ function buildRecentDividends(store: Store): DashboardOverviewRecentDividendDto[
   }
 
   return store.accounting.facts.dividendLedgerEntries
-    .filter((entry) => entry.postingStatus === "posted" && !entry.reversalOfDividendLedgerEntryId)
+    .filter((entry) => isDividendIncomePostingStatus(entry.postingStatus) && !entry.reversalOfDividendLedgerEntryId && !entry.supersededAt)
     .map((entry) => {
       const event = eventById.get(entry.dividendEventId);
       const deductionAmount = deductionsByLedgerId.get(entry.id) ?? 0;
@@ -613,6 +613,10 @@ function buildRecentDividends(store: Store): DashboardOverviewRecentDividendDto[
       } satisfies DashboardOverviewRecentDividendDto;
     })
     .sort((left, right) => right.postedAt.localeCompare(left.postedAt));
+}
+
+function isDividendIncomePostingStatus(postingStatus: string): boolean {
+  return postingStatus === "posted" || postingStatus === "adjusted";
 }
 
 function compareUpcomingDividends(

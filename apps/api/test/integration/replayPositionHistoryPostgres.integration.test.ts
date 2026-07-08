@@ -64,6 +64,7 @@ describePostgres("PostgresPersistence replay artifact cleanup", () => {
     await seedTrade("trade-rio", "RIO", "AU", "AUD", "SELL", 3);
     const auEventId = await seedStockDividendEvent("div-au", "AU", "AUD");
     await seedDividendLedgerEntry("dle-au", auEventId);
+    await seedPositionAction("position-action-dle-au", "dle-au", "BHP", "AU");
 
     await seedLot("lot-trade-buy-au", "BHP", "AUD", 1);
     await seedLot("lot-dle-au", "BHP", "AUD", 2);
@@ -82,6 +83,61 @@ describePostgres("PostgresPersistence replay artifact cleanup", () => {
     const remainingAllocations = await pool.query<{ id: string }>(`SELECT id FROM lot_allocations ORDER BY id`);
     expect(remainingLots.rows).toEqual([{ id: "lot-rio" }]);
     expect(remainingAllocations.rows).toEqual([{ id: "alloc-other-ticker" }]);
+  });
+
+  it("round-trips accounting stores with dividend-linked position actions", async () => {
+    const eventId = await seedStockDividendEvent("div-save-order", "AU", "AUD");
+    await seedDividendLedgerEntry("dle-save-order", eventId);
+    await seedPositionAction("position-action-save-order", "dle-save-order", "BHP", "AU");
+
+    const store = await persistence.loadStore(userId);
+    expect(store.accounting.facts.dividendLedgerEntries.some((entry) => entry.id === "dle-save-order")).toBe(true);
+    expect(store.accounting.facts.positionActions.some((action) => action.id === "position-action-save-order")).toBe(true);
+
+    await expect(persistence.saveAccountingStore(userId, store.accounting)).resolves.toBeUndefined();
+
+    const persistedActions = await pool.query<{ id: string; related_dividend_ledger_entry_id: string | null }>(
+      `SELECT id, related_dividend_ledger_entry_id
+       FROM position_actions
+       WHERE id = 'position-action-save-order'`,
+    );
+    expect(persistedActions.rows).toEqual([
+      { id: "position-action-save-order", related_dividend_ledger_entry_id: "dle-save-order" },
+    ]);
+  });
+
+  it("hard-purges users with dividend-linked position actions", async () => {
+    const eventId = await seedStockDividendEvent("div-user-purge", "AU", "AUD");
+    await seedDividendLedgerEntry("dle-user-purge", eventId);
+    await seedPositionAction("position-action-user-purge", "dle-user-purge", "BHP", "AU");
+
+    await expect(persistence.hardPurgeUser(userId, { actorUserId: userId })).resolves.toBeUndefined();
+
+    const remaining = await pool.query<{ position_action_count: string; ledger_count: string }>(
+      `SELECT
+         (SELECT COUNT(*) FROM position_actions WHERE id = 'position-action-user-purge') AS position_action_count,
+         (SELECT COUNT(*) FROM dividend_ledger_entries WHERE id = 'dle-user-purge') AS ledger_count`,
+    );
+    expect(remaining.rows[0]).toEqual({ position_action_count: "0", ledger_count: "0" });
+  });
+
+  it("hard-purges accounts with dividend-linked position actions", async () => {
+    const eventId = await seedStockDividendEvent("div-account-purge", "AU", "AUD");
+    await seedDividendLedgerEntry("dle-account-purge", eventId);
+    await seedPositionAction("position-action-account-purge", "dle-account-purge", "BHP", "AU");
+
+    await expect(
+      persistence.hardPurgeAccount(accountId, userId, { actorUserId: userId }, { mustBeSoftDeleted: false }),
+    ).resolves.toBeUndefined();
+
+    const remaining = await pool.query<{ position_action_count: string; ledger_count: string; account_count: string }>(
+      `SELECT
+         (SELECT COUNT(*) FROM position_actions WHERE id = 'position-action-account-purge') AS position_action_count,
+         (SELECT COUNT(*) FROM dividend_ledger_entries WHERE id = 'dle-account-purge') AS ledger_count,
+         (SELECT COUNT(*) FROM accounts WHERE id = $1) AS account_count`,
+      [accountId],
+    );
+    expect(remaining.rows[0]).toEqual({ position_action_count: "0", ledger_count: "0", account_count: "0" });
   });
 
   async function seedFeePolicySnapshot(): Promise<string> {
@@ -156,6 +212,19 @@ describePostgres("PostgresPersistence replay artifact cleanup", () => {
          'posted', 'open', 1, 'provided', TIMESTAMPTZ '2026-01-31T00:00:00Z'
        )`,
       [id, accountId, dividendEventId],
+    );
+  }
+
+  async function seedPositionAction(id: string, dividendLedgerEntryId: string, ticker: string, marketCode: string): Promise<void> {
+    await pool.query(
+      `INSERT INTO position_actions (
+         id, account_id, ticker, market_code, action_type, action_date, action_timestamp,
+         booked_at, quantity, related_dividend_ledger_entry_id, source, source_reference
+       ) VALUES (
+         $1, $2, $3, $4, 'STOCK_DIVIDEND', DATE '2026-01-31', TIMESTAMP '2026-01-31 00:00:00',
+         TIMESTAMP '2026-01-31 00:00:00', 1, $5, 'test', $5
+       )`,
+      [id, accountId, ticker, marketCode, dividendLedgerEntryId],
     );
   }
 

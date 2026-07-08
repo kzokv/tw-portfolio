@@ -13,6 +13,7 @@ export interface DividendQuery {
   fromPaymentDate?: string;
   toPaymentDate?: string;
   accountId?: string;
+  ticker?: string;
   limit?: number;
   marketCode?: MarketCode;
 }
@@ -25,6 +26,7 @@ export interface DividendReviewQuery {
   marketCode?: MarketCode;
   postingStatus?: string;
   reconciliationStatus?: string;
+  excludeExpected?: boolean;
   sortBy?: string;
   sortOrder?: "asc" | "desc";
   page?: number;
@@ -56,6 +58,9 @@ function buildQuery(params: DividendQuery): string {
   if (params.accountId) {
     query.set("accountId", params.accountId);
   }
+  if (params.ticker) {
+    query.set("ticker", params.ticker);
+  }
   if (params.marketCode) {
     query.set("marketCode", params.marketCode);
   }
@@ -73,6 +78,7 @@ function buildReviewQuery(params: DividendReviewQuery): string {
   if (params.marketCode) query.set("marketCode", params.marketCode);
   if (params.postingStatus) query.set("postingStatus", params.postingStatus);
   if (params.reconciliationStatus) query.set("reconciliationStatus", params.reconciliationStatus);
+  if (params.excludeExpected) query.set("excludeExpected", "true");
   if (params.sortBy) query.set("sortBy", params.sortBy);
   if (params.sortOrder) query.set("sortOrder", params.sortOrder);
   if (params.page) query.set("page", String(params.page));

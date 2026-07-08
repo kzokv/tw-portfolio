@@ -2,13 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import { replayPositionHistory } from "../../src/services/replayPositionHistory.js";
 import { MemoryPersistence } from "../../src/persistence/memory.js";
 import type { Persistence } from "../../src/persistence/types.js";
-import type { BookedTradeEvent, DividendEvent, DividendLedgerEntry, LotAllocationProjection } from "../../src/types/store.js";
+import type { BookedTradeEvent, DividendEvent, DividendLedgerEntry, LotAllocationProjection, PositionAction } from "../../src/types/store.js";
 import type { Lot, MarketCode } from "@vakwen/domain";
 
 describe("replayPositionHistory", () => {
   it("passes marketCode through replay persistence boundaries", async () => {
     const persistence = {
       getTradeEventsForAccountTicker: vi.fn().mockResolvedValue([]),
+      getPositionActionsForAccountTicker: vi.fn().mockResolvedValue([]),
       deleteLotsForAccountTicker: vi.fn().mockResolvedValue(0),
       deleteLotAllocationsForAccountTicker: vi.fn().mockResolvedValue(0),
       deleteTradeCashEntriesForAccountTicker: vi.fn().mockResolvedValue(0),
@@ -33,6 +34,7 @@ describe("replayPositionHistory", () => {
     );
 
     expect(persistence.getTradeEventsForAccountTicker).toHaveBeenCalledWith("user-1", "acc-1", "BHP", "AU");
+    expect(persistence.getPositionActionsForAccountTicker).toHaveBeenCalledWith("user-1", "acc-1", "BHP", "AU");
     expect(persistence.deleteLotsForAccountTicker).toHaveBeenCalledWith("user-1", "acc-1", "BHP", "AU", ["trade-deleted"]);
     expect(persistence.deleteLotAllocationsForAccountTicker).toHaveBeenCalledWith("user-1", "acc-1", "BHP", "AU", ["trade-deleted"]);
     expect(persistence.deleteTradeCashEntriesForAccountTicker).toHaveBeenCalledWith("user-1", "acc-1", "BHP", "AU", ["trade-deleted"]);
@@ -72,16 +74,20 @@ describe("replayPositionHistory", () => {
       makeDividendLedgerEntry(accountId, auDividendEvent.id, "dle-au"),
       makeDividendLedgerEntry(accountId, usDividendEvent.id, "dle-us"),
     );
+    store.accounting.facts.positionActions.push(
+      makeStockDividendAction(accountId, "BHP", "AU", "dle-au"),
+      makeStockDividendAction(accountId, "BHP", "US", "dle-us"),
+    );
 
     store.accounting.projections.lots.push(
       makeLot("lot-trade-au", accountId),
-      makeLot("lot-dle-au", accountId),
-      makeLot("lot-dle-us", accountId),
+      makeLot("lot-pa-position-action-dle-au", accountId),
+      makeLot("lot-pa-position-action-dle-us", accountId),
     );
     store.accounting.projections.lotAllocations.push(
       makeAllocation("alloc-trade", userId, accountId, trade.id, "lot-trade-au"),
-      makeAllocation("alloc-dividend", userId, accountId, trade.id, "lot-dle-au"),
-      makeAllocation("alloc-other-market", userId, accountId, "trade-us", "lot-dle-us"),
+      makeAllocation("alloc-dividend", userId, accountId, trade.id, "lot-pa-position-action-dle-au"),
+      makeAllocation("alloc-other-market", userId, accountId, "trade-us", "lot-pa-position-action-dle-us"),
     );
 
     const deletedLots = await persistence.deleteLotsForAccountTicker(userId, accountId, "BHP", "AU");
@@ -89,7 +95,7 @@ describe("replayPositionHistory", () => {
 
     expect(deletedLots).toBe(2);
     expect(deletedAllocations).toBe(2);
-    expect(store.accounting.projections.lots.map((lot) => lot.id)).toEqual(["lot-dle-us"]);
+    expect(store.accounting.projections.lots.map((lot) => lot.id)).toEqual(["lot-pa-position-action-dle-us"]);
     expect(store.accounting.projections.lotAllocations.map((allocation) => allocation.id)).toEqual(["alloc-other-market"]);
   });
 
@@ -133,6 +139,153 @@ describe("replayPositionHistory", () => {
       eligibleQuantity: 20,
       expectedCashAmount: 30,
     });
+  });
+
+  it("recomputes dividend eligibility from replayed position actions before the ex-date", async () => {
+    const persistence = new MemoryPersistence();
+    const userId = "user-1";
+    const store = await persistence.loadStore(userId);
+    const accountId = store.accounts[0]!.id;
+
+    store.accounting.facts.tradeEvents.push(
+      makeTradeEvent("trade-before-split", userId, accountId, "TW", "TWD", 10),
+    );
+    store.accounting.facts.positionActions.push({
+      id: "split-before-dividend",
+      accountId,
+      ticker: "BHP",
+      marketCode: "TW",
+      actionType: "SPLIT",
+      actionDate: "2026-01-10",
+      quantity: 0,
+      ratioNumerator: 2,
+      ratioDenominator: 1,
+      source: "test",
+    });
+
+    const dividendEvent = makeCashDividendEvent("cash-after-split", "TW", "TWD");
+    store.marketData.dividendEvents.push(dividendEvent);
+    store.accounting.facts.dividendLedgerEntries.push(
+      makeDividendLedgerEntry(accountId, dividendEvent.id, "dle-after-split", {
+        eligibleQuantity: 10,
+        expectedCashAmount: 15,
+      }),
+    );
+
+    const summary = await replayPositionHistory(
+      persistence,
+      userId,
+      accountId,
+      "BHP",
+      { marketCode: "TW" },
+    );
+
+    expect(summary.dividendLedgerChanges).toEqual([
+      expect.objectContaining({
+        ledgerEntryId: "dle-after-split",
+        previousEligibleQuantity: 10,
+        nextEligibleQuantity: 20,
+        previousExpectedCashAmount: 15,
+        nextExpectedCashAmount: 30,
+      }),
+    ]);
+
+    const updatedStore = await persistence.loadStore(userId);
+    const updatedEntry = updatedStore.accounting.facts.dividendLedgerEntries.find((entry) => entry.id === "dle-after-split");
+    expect(updatedEntry).toMatchObject({
+      eligibleQuantity: 20,
+      expectedCashAmount: 30,
+    });
+  });
+
+  it("orders same-day position actions before trades when either side lacks a timestamp", async () => {
+    const persistence = new MemoryPersistence();
+    const userId = "user-1";
+    const store = await persistence.loadStore(userId);
+    const accountId = store.accounts[0]!.id;
+
+    store.accounting.facts.tradeEvents.push(
+      makeTradeEvent("same-day-buy", userId, accountId, "TW", "TWD", 10),
+      {
+        ...makeTradeEvent("same-day-sell", userId, accountId, "TW", "TWD", 15),
+        type: "SELL",
+        tradeDate: "2026-01-03",
+        bookingSequence: 2,
+      },
+    );
+    store.accounting.facts.positionActions.push({
+      id: "same-day-split",
+      accountId,
+      ticker: "BHP",
+      marketCode: "TW",
+      actionType: "SPLIT",
+      actionDate: "2026-01-03",
+      actionTimestamp: "2026-01-03T09:00:00.000Z",
+      quantity: 0,
+      ratioNumerator: 2,
+      ratioDenominator: 1,
+      source: "test",
+    });
+
+    const summary = await replayPositionHistory(persistence, userId, accountId, "BHP", { marketCode: "TW" });
+
+    expect(summary.updatedHoldings.openQuantity).toBe(5);
+    const updatedStore = await persistence.loadStore(userId);
+    expect(updatedStore.accounting.projections.lotAllocations).toEqual([
+      expect.objectContaining({
+        tradeEventId: "same-day-sell",
+        allocatedQuantity: 15,
+        allocatedCostAmount: 750,
+      }),
+    ]);
+  });
+
+  it("cleans up legacy stock-dividend lot ids during market-scoped replay", async () => {
+    const persistence = new MemoryPersistence();
+    const userId = "user-1";
+    const store = await persistence.loadStore(userId);
+    const accountId = store.accounts[0]!.id;
+    const dividendEvent = makeStockDividendEvent("legacy-div", "TW", "TWD");
+    const dividendLedgerEntry = makeDividendLedgerEntry(accountId, dividendEvent.id, "legacy-dle");
+    store.marketData.dividendEvents.push(dividendEvent);
+    store.accounting.facts.dividendLedgerEntries.push(dividendLedgerEntry);
+    store.accounting.facts.positionActions.push(makeStockDividendAction(accountId, "BHP", "TW", dividendLedgerEntry.id));
+    store.accounting.projections.lots.push(
+      makeLot(`lot-${dividendLedgerEntry.id}`, accountId),
+      makeLot(`lot-pa-position-action-${dividendLedgerEntry.id}`, accountId),
+    );
+    store.accounting.projections.lotAllocations.push(
+      makeAllocation("legacy-allocation", userId, accountId, "legacy-sell", `lot-${dividendLedgerEntry.id}`),
+    );
+
+    const deletedLots = await persistence.deleteLotsForAccountTicker(userId, accountId, "BHP", "TW");
+    const deletedAllocations = await persistence.deleteLotAllocationsForAccountTicker(userId, accountId, "BHP", "TW");
+
+    expect(deletedLots).toBe(2);
+    expect(deletedAllocations).toBe(1);
+    expect(store.accounting.projections.lots).toEqual([]);
+    expect(store.accounting.projections.lotAllocations).toEqual([]);
+  });
+
+  it("uses the action market currency for stock-dividend lots without cash-in-lieu", async () => {
+    const persistence = new MemoryPersistence();
+    const userId = "user-1";
+    const store = await persistence.loadStore(userId);
+    const accountId = store.accounts[0]!.id;
+
+    store.accounting.facts.positionActions.push(
+      makeStockDividendAction(accountId, "BHP", "AU", "dle-au"),
+    );
+
+    await replayPositionHistory(persistence, userId, accountId, "BHP", { marketCode: "AU" });
+
+    const updatedStore = await persistence.loadStore(userId);
+    expect(updatedStore.accounting.projections.lots).toEqual([
+      expect.objectContaining({
+        id: "lot-pa-position-action-dle-au",
+        costCurrency: "AUD",
+      }),
+    ]);
   });
 });
 
@@ -238,6 +391,28 @@ function makeDividendLedgerEntry(
     sourceCompositionStatus: "unknown_pending_disclosure",
     bookedAt: "2026-01-31T00:00:00.000Z",
     ...overrides,
+  };
+}
+
+function makeStockDividendAction(
+  accountId: string,
+  ticker: string,
+  marketCode: MarketCode,
+  dividendLedgerEntryId: string,
+): PositionAction {
+  return {
+    id: `position-action-${dividendLedgerEntryId}`,
+    accountId,
+    ticker,
+    marketCode,
+    actionType: "STOCK_DIVIDEND",
+    actionDate: "2026-01-31",
+    actionTimestamp: "2026-01-31T00:00:00.000Z",
+    bookedAt: "2026-01-31T00:00:00.000Z",
+    quantity: 1,
+    source: "test",
+    sourceReference: dividendLedgerEntryId,
+    relatedDividendLedgerEntryId: dividendLedgerEntryId,
   };
 }
 

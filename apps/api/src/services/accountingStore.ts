@@ -10,6 +10,7 @@ import type {
   DividendLedgerEntry,
   HoldingProjection,
   LotAllocationProjection,
+  PositionAction,
   Store,
 } from "../types/store.js";
 import type { DividendSourceLine } from "@vakwen/shared-types";
@@ -176,6 +177,22 @@ export function appendCorporateAction(store: Store, action: CorporateAction): vo
   store.accounting.facts.corporateActions.push(action);
 }
 
+export function listPositionActions(store: Store): PositionAction[] {
+  return store.accounting.facts.positionActions;
+}
+
+export function appendPositionAction(store: Store, action: PositionAction): void {
+  store.accounting.facts.positionActions.push(action);
+  store.accounting.facts.positionActions.sort(comparePositionActions);
+}
+
+export function upsertPositionAction(store: Store, action: PositionAction): void {
+  store.accounting.facts.positionActions = [
+    ...store.accounting.facts.positionActions.filter((entry) => entry.id !== action.id),
+    action,
+  ].sort(comparePositionActions);
+}
+
 export function upsertDividendLedgerEntry(store: Store, dividendLedgerEntry: DividendLedgerEntry): void {
   store.accounting.facts.dividendLedgerEntries = [
     ...store.accounting.facts.dividendLedgerEntries.filter((entry) => entry.id !== dividendLedgerEntry.id),
@@ -210,4 +227,14 @@ export function rebuildHoldingProjection(store: Store): HoldingProjection[] {
     costBasisAmount: roundToDecimal(holding.costBasisAmount, 2),
   }));
   return store.accounting.projections.holdings;
+}
+
+function comparePositionActions(left: PositionAction, right: PositionAction): number {
+  return (
+    left.accountId.localeCompare(right.accountId)
+    || left.actionDate.localeCompare(right.actionDate)
+    || (left.actionTimestamp ?? "").localeCompare(right.actionTimestamp ?? "")
+    || (left.bookedAt ?? "").localeCompare(right.bookedAt ?? "")
+    || left.id.localeCompare(right.id)
+  );
 }

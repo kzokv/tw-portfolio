@@ -1245,7 +1245,7 @@ function sortDividendEntries(store: Store): DatedDividendEntry[] {
   );
   return ledgerEntries
     .filter((entry) =>
-      entry.postingStatus === "posted" &&
+      (entry.postingStatus === "posted" || entry.postingStatus === "adjusted") &&
       !entry.reversalOfDividendLedgerEntryId &&
       !entry.supersededAt &&
       !reversedIds.has(entry.id) &&

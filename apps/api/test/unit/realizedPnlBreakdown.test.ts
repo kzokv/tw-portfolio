@@ -206,7 +206,7 @@ describe("buildRealizedPnlBreakdown", () => {
     });
   });
 
-  it("does not show derived math when a prior split changed the replay basis", () => {
+  it("replays prior split position actions before deriving sell math", () => {
     const store = createStore();
     const feeProfile = createDefaultFeeProfile("acc-1", "TWD", "fp-test");
     store.feeProfiles = [feeProfile];
@@ -247,24 +247,97 @@ describe("buildRealizedPnlBreakdown", () => {
         feeSnapshot: feeProfile,
       },
     );
-    store.accounting.facts.corporateActions.push({
+    store.accounting.facts.positionActions.push({
       id: "split-1",
       accountId: "acc-1",
       ticker: "2330",
+      marketCode: "TW",
       actionType: "SPLIT",
-      numerator: 2,
-      denominator: 1,
       actionDate: "2026-01-02",
+      quantity: 0,
+      ratioNumerator: 2,
+      ratioDenominator: 1,
+      source: "test",
     });
 
     expect(buildRealizedPnlBreakdown(
       store.accounting,
       store.accounting.facts.tradeEvents[1]!,
-    )).toEqual({
-      status: "unavailable",
+    )).toEqual(expect.objectContaining({
+      status: "available",
       currency: "TWD",
-      reason: "unknown",
+      preSaleOpenQuantity: 20,
+      preSaleOpenCostAmount: 1000,
+      exactAverageCostPerShare: 50,
+      allocatedCostAmount: 750,
+      realizedPnlAmount: 450,
+    }));
+  });
+
+  it("orders same-day position actions before sells when either side lacks a timestamp", () => {
+    const store = createStore();
+    const feeProfile = createDefaultFeeProfile("acc-1", "TWD", "fp-test");
+    store.feeProfiles = [feeProfile];
+
+    store.accounting.facts.tradeEvents.push(
+      {
+        id: "buy-1",
+        userId: "user-1",
+        accountId: "acc-1",
+        ticker: "2330",
+        marketCode: "TW",
+        instrumentType: "STOCK",
+        type: "BUY",
+        quantity: 10,
+        unitPrice: 100,
+        priceCurrency: "TWD",
+        tradeDate: "2026-01-01",
+        commissionAmount: 0,
+        taxAmount: 0,
+        isDayTrade: false,
+        feeSnapshot: feeProfile,
+      },
+      {
+        id: "sell-1",
+        userId: "user-1",
+        accountId: "acc-1",
+        ticker: "2330",
+        marketCode: "TW",
+        instrumentType: "STOCK",
+        type: "SELL",
+        quantity: 15,
+        unitPrice: 80,
+        priceCurrency: "TWD",
+        tradeDate: "2026-01-02",
+        commissionAmount: 0,
+        taxAmount: 0,
+        isDayTrade: false,
+        feeSnapshot: feeProfile,
+      },
+    );
+    store.accounting.facts.positionActions.push({
+      id: "split-1",
+      accountId: "acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      actionType: "SPLIT",
+      actionDate: "2026-01-02",
+      actionTimestamp: "2026-01-02T09:00:00.000Z",
+      quantity: 0,
+      ratioNumerator: 2,
+      ratioDenominator: 1,
+      source: "test",
     });
+
+    expect(buildRealizedPnlBreakdown(
+      store.accounting,
+      store.accounting.facts.tradeEvents[1]!,
+    )).toEqual(expect.objectContaining({
+      status: "available",
+      preSaleOpenQuantity: 20,
+      allocatedCostAmount: 750,
+      realizedPnlAmount: 450,
+    }));
   });
 
   it("does not show derived math when persisted lot allocations diverge from replayed trade fees", () => {

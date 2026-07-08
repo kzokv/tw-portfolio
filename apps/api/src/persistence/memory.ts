@@ -21,6 +21,7 @@ import type {
   InstrumentDef,
   LotAllocationProjection,
   MarketDataFacts,
+  PositionAction,
   Store,
 } from "../types/store.js";
 import type {
@@ -507,23 +508,17 @@ function stockDividendLotIdsForScope(
   ticker: string,
   marketCode: MarketCode,
 ): string[] {
-  const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
-
-  return store.accounting.facts.dividendLedgerEntries
-    .filter((entry) => entry.accountId === accountId && entry.receivedStockQuantity > 0)
-    .flatMap((entry) => {
-      const event = eventById.get(entry.dividendEventId);
-      if (!event || event.ticker !== ticker) return [];
-
-      let eventMarketCode: MarketCode;
-      try {
-        eventMarketCode = (event as { marketCode?: MarketCode }).marketCode ?? marketCodeFor(event.cashDividendCurrency);
-      } catch {
-        return [];
-      }
-
-      return eventMarketCode === marketCode ? [`lot-${entry.id}`] : [];
-    });
+  return store.accounting.facts.positionActions
+    .filter((action) =>
+      action.accountId === accountId
+      && action.ticker === ticker
+      && action.marketCode === marketCode
+      && action.actionType === "STOCK_DIVIDEND",
+    )
+    .flatMap((action) => [
+      `lot-pa-${action.id}`,
+      ...(action.relatedDividendLedgerEntryId ? [`lot-${action.relatedDividendLedgerEntryId}`] : []),
+    ]);
 }
 
 export class MemoryPersistence implements Persistence {
@@ -2316,7 +2311,8 @@ export class MemoryPersistence implements Persistence {
 
   async updatePostedCashDividend(userId: string, input: UpdatePostedCashDividendInput) {
     const store = await this.loadStore(userId);
-    const entryIndex = store.accounting.facts.dividendLedgerEntries.findIndex((entry) => entry.id === input.dividendLedgerEntry.id);
+    const originalDividendLedgerEntryId = input.originalDividendLedgerEntryId ?? input.dividendLedgerEntry.id;
+    const entryIndex = store.accounting.facts.dividendLedgerEntries.findIndex((entry) => entry.id === originalDividendLedgerEntryId);
     if (entryIndex === -1) {
       throw routeError(404, "dividend_ledger_entry_not_found", "Dividend ledger entry not found");
     }
@@ -2332,29 +2328,40 @@ export class MemoryPersistence implements Persistence {
     if (!dividendEvent) {
       throw routeError(404, "dividend_event_not_found", "Dividend event not found");
     }
-    if (dividendEvent.eventType !== "CASH") {
-      throw routeError(422, "stock_dividend_in_place_edit_unsupported", "Only pure cash dividends can be edited in place");
-    }
 
-    const nextEntry = {
+    const nextEntries = input.dividendLedgerEntries ?? [{
       ...input.dividendLedgerEntry,
       version: input.expectedVersion + 1,
       reconciliationStatus: "open" as const,
       reconciliationNote: undefined,
-    };
-
-    store.accounting.facts.dividendLedgerEntries[entryIndex] = nextEntry;
+    }];
+    const nextEntryIds = new Set(nextEntries.map((entry) => entry.id));
+    store.accounting.facts.dividendLedgerEntries = [
+      ...store.accounting.facts.dividendLedgerEntries.filter((entry) => !nextEntryIds.has(entry.id)),
+      ...nextEntries,
+    ];
+    const childLedgerEntryIdsToReplace = new Set(input.replaceChildRowsForDividendLedgerEntryIds ?? [input.dividendLedgerEntry.id]);
     store.accounting.facts.dividendDeductionEntries = [
-      ...store.accounting.facts.dividendDeductionEntries.filter((entry) => entry.dividendLedgerEntryId !== input.dividendLedgerEntry.id),
+      ...store.accounting.facts.dividendDeductionEntries.filter((entry) => !childLedgerEntryIdsToReplace.has(entry.dividendLedgerEntryId)),
       ...input.dividendDeductions,
     ];
     store.accounting.facts.dividendSourceLines = [
-      ...store.accounting.facts.dividendSourceLines.filter((entry) => entry.dividendLedgerEntryId !== input.dividendLedgerEntry.id),
+      ...store.accounting.facts.dividendSourceLines.filter((entry) => !childLedgerEntryIdsToReplace.has(entry.dividendLedgerEntryId)),
       ...input.dividendSourceLines,
     ];
     store.accounting.facts.cashLedgerEntries = [
-      ...store.accounting.facts.cashLedgerEntries.filter((entry) => entry.relatedDividendLedgerEntryId !== input.dividendLedgerEntry.id),
+      ...store.accounting.facts.cashLedgerEntries.filter((entry) => !entry.relatedDividendLedgerEntryId || !childLedgerEntryIdsToReplace.has(entry.relatedDividendLedgerEntryId)),
       ...input.linkedCashEntries,
+    ];
+    const positionActionLedgerEntryIdsToReplace = new Set(input.replacePositionActionsForDividendLedgerEntryIds ?? [input.dividendLedgerEntry.id]);
+    const positionActionIdsToUpsert = new Set(input.positionActions.map((action) => action.id));
+    store.accounting.facts.positionActions = [
+      ...store.accounting.facts.positionActions.filter((action) => {
+        if (positionActionIdsToUpsert.has(action.id)) return false;
+        if (!action.relatedDividendLedgerEntryId) return true;
+        return !positionActionLedgerEntryIdsToReplace.has(action.relatedDividendLedgerEntryId);
+      }),
+      ...input.positionActions,
     ];
     if (dividendEvent) {
       store.accounting.projections.lots = [
@@ -2365,7 +2372,7 @@ export class MemoryPersistence implements Persistence {
       ];
       rebuildHoldingProjection(store);
     }
-    return nextEntry;
+    return input.dividendLedgerEntry;
   }
 
   async listDividendLedgerScopes(): Promise<Array<{ userId: string; accountId: string; ticker: string }>> {
@@ -2770,67 +2777,69 @@ export class MemoryPersistence implements Persistence {
     });
 
     const expectedRows: DividendReviewRowWithDetails[] = [];
-    for (const account of store.accounts) {
-      if (account.userId !== userId) continue;
-      if (opts.accountId && account.id !== opts.accountId) continue;
+    if (!opts.excludeExpected) {
+      for (const account of store.accounts) {
+        if (account.userId !== userId) continue;
+        if (opts.accountId && account.id !== opts.accountId) continue;
 
-      for (const event of store.marketData.dividendEvents) {
-        let eventMarketCode: MarketCode;
-        try {
-          eventMarketCode = dividendEventMarketCode(event);
-        } catch {
-          continue;
+        for (const event of store.marketData.dividendEvents) {
+          let eventMarketCode: MarketCode;
+          try {
+            eventMarketCode = dividendEventMarketCode(event);
+          } catch {
+            continue;
+          }
+          if (account.defaultCurrency !== event.cashDividendCurrency) continue;
+          if (opts.marketCode && eventMarketCode !== opts.marketCode) continue;
+          if (!matchesDateFilter(event.paymentDate)) continue;
+          if (opts.ticker && event.ticker !== opts.ticker) continue;
+          if (opts.reconciliationStatus && opts.reconciliationStatus !== "open") continue;
+          if (opts.postingStatus && opts.postingStatus !== "expected") continue;
+          if (activeLedgerKey.has(`${account.id}:${event.id}`)) continue;
+
+          const eligibleQuantity = Math.max(
+            0,
+            store.accounting.facts.tradeEvents
+              .filter(
+                (trade) =>
+                  trade.userId === userId &&
+                  trade.accountId === account.id &&
+                  trade.ticker === event.ticker &&
+                  trade.marketCode === eventMarketCode &&
+                  trade.tradeDate < event.exDividendDate &&
+                  !trade.reversalOfTradeEventId &&
+                  !reversedTradeIds.has(trade.id),
+              )
+              .reduce((sum, trade) => sum + (trade.type === "BUY" ? trade.quantity : -trade.quantity), 0),
+          );
+          if (eligibleQuantity <= 0) continue;
+
+          expectedRows.push({
+            id: `expected:${account.id}:${event.id}`,
+            rowKind: "expected",
+            accountId: account.id,
+            dividendEventId: event.id,
+            ticker: event.ticker,
+            tickerName: instrumentNameFor(event.ticker, eventMarketCode),
+            marketCode: eventMarketCode,
+            instrumentType: instrumentTypeFor(event.ticker, event.cashDividendCurrency),
+            eventType: event.eventType,
+            exDividendDate: event.exDividendDate,
+            paymentDate: event.paymentDate,
+            cashCurrency: event.cashDividendCurrency,
+            eligibleQuantity,
+            expectedCashAmount: Math.max(0, Math.round(eligibleQuantity * event.cashDividendPerShare + Number.EPSILON)),
+            expectedStockQuantity: Math.floor(eligibleQuantity * event.stockDividendPerShare),
+            receivedCashAmount: 0,
+            receivedStockQuantity: 0,
+            postingStatus: "expected",
+            reconciliationStatus: "open",
+            version: 0,
+            sourceCompositionStatus: "unknown_pending_disclosure",
+            deductions: [],
+            sourceLines: [],
+          });
         }
-        if (account.defaultCurrency !== event.cashDividendCurrency) continue;
-        if (opts.marketCode && eventMarketCode !== opts.marketCode) continue;
-        if (!matchesDateFilter(event.paymentDate)) continue;
-        if (opts.ticker && event.ticker !== opts.ticker) continue;
-        if (opts.reconciliationStatus && opts.reconciliationStatus !== "open") continue;
-        if (opts.postingStatus && opts.postingStatus !== "expected") continue;
-        if (activeLedgerKey.has(`${account.id}:${event.id}`)) continue;
-
-        const eligibleQuantity = Math.max(
-          0,
-          store.accounting.facts.tradeEvents
-            .filter(
-              (trade) =>
-                trade.userId === userId &&
-                trade.accountId === account.id &&
-                trade.ticker === event.ticker &&
-                trade.marketCode === eventMarketCode &&
-                trade.tradeDate < event.exDividendDate &&
-                !trade.reversalOfTradeEventId &&
-                !reversedTradeIds.has(trade.id),
-            )
-            .reduce((sum, trade) => sum + (trade.type === "BUY" ? trade.quantity : -trade.quantity), 0),
-        );
-        if (eligibleQuantity <= 0) continue;
-
-        expectedRows.push({
-          id: `expected:${account.id}:${event.id}`,
-          rowKind: "expected",
-          accountId: account.id,
-          dividendEventId: event.id,
-          ticker: event.ticker,
-          tickerName: instrumentNameFor(event.ticker, eventMarketCode),
-          marketCode: eventMarketCode,
-          instrumentType: instrumentTypeFor(event.ticker, event.cashDividendCurrency),
-          eventType: event.eventType,
-          exDividendDate: event.exDividendDate,
-          paymentDate: event.paymentDate,
-          cashCurrency: event.cashDividendCurrency,
-          eligibleQuantity,
-          expectedCashAmount: Math.max(0, Math.round(eligibleQuantity * event.cashDividendPerShare + Number.EPSILON)),
-          expectedStockQuantity: Math.floor(eligibleQuantity * event.stockDividendPerShare),
-          receivedCashAmount: 0,
-          receivedStockQuantity: 0,
-          postingStatus: "expected",
-          reconciliationStatus: "open",
-          version: 0,
-          sourceCompositionStatus: "unknown_pending_disclosure",
-          deductions: [],
-          sourceLines: [],
-        });
       }
     }
 
@@ -4496,6 +4505,29 @@ export class MemoryPersistence implements Persistence {
     return store.accounting.facts.tradeEvents
       .filter((t) => t.userId === userId && t.accountId === accountId && t.ticker === ticker && (!marketCode || t.marketCode === marketCode))
       .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate) || (a.bookingSequence ?? 0) - (b.bookingSequence ?? 0));
+  }
+
+  async getPositionActionsForAccountTicker(
+    userId: string,
+    accountId: string,
+    ticker: string,
+    marketCode?: MarketCode,
+  ): Promise<PositionAction[]> {
+    const store = await this.loadStore(userId);
+    return store.accounting.facts.positionActions
+      .filter((action) =>
+        action.accountId === accountId
+        && action.ticker === ticker
+        && (!marketCode || action.marketCode === marketCode)
+        && !action.reversalOfPositionActionId
+        && !action.supersededAt,
+      )
+      .sort((left, right) =>
+        left.actionDate.localeCompare(right.actionDate)
+        || (left.actionTimestamp ?? "").localeCompare(right.actionTimestamp ?? "")
+        || (left.bookedAt ?? "").localeCompare(right.bookedAt ?? "")
+        || left.id.localeCompare(right.id),
+      );
   }
 
   async deleteLotsForAccountTicker(
@@ -6767,6 +6799,7 @@ export class MemoryPersistence implements Persistence {
       facts.dividendSourceLines = facts.dividendSourceLines.filter(
         (e) => !removedDividendIds.has(e.dividendLedgerEntryId),
       );
+      facts.positionActions = facts.positionActions.filter((action) => action.accountId !== accountId);
       facts.corporateActions = facts.corporateActions.filter((c) => c.accountId !== accountId);
       const removedLotIds = new Set(
         projections.lots.filter((l) => l.accountId === accountId).map((l) => l.id),

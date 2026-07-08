@@ -97,4 +97,65 @@ describe("FinMindMarketDataProvider.fetchDividends mapper", () => {
     // rawProviderData is always present
     expect(records[0]!.rawProviderData).toBeDefined();
   });
+
+  it("maps TW stock-only and mixed dividend rows with stock ex-date fallback", async () => {
+    const stockOnlyRow = {
+      date: "2025-08-01",
+      stock_id: "2330",
+      CashEarningsDistribution: 0,
+      CashStatutorySurplus: 0,
+      StockEarningsDistribution: 0.05,
+      StockStatutorySurplus: 0.02,
+      CashExDividendTradingDate: "",
+      CashDividendPaymentDate: "",
+      StockExDividendTradingDate: "2025-08-15",
+      year: "2024",
+      AnnouncementDate: "2025-07-01",
+      ParticipateDistributionOfTotalShares: 25933632588,
+    };
+    const mixedRow = {
+      date: "2025-09-01",
+      stock_id: "2330",
+      CashEarningsDistribution: 1.25,
+      CashStatutorySurplus: 0.75,
+      StockEarningsDistribution: 0.1,
+      StockStatutorySurplus: 0.03,
+      CashExDividendTradingDate: "2025-09-15",
+      CashDividendPaymentDate: "2025-10-15",
+      StockExDividendTradingDate: "2025-09-16",
+      year: "2024",
+      AnnouncementDate: "2025-08-01",
+      ParticipateDistributionOfTotalShares: 25933632588,
+    };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ msg: "success", status: 200, data: [stockOnlyRow, mixedRow] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    const provider = makeProvider();
+    const records = await provider.fetchDividends("2330");
+
+    expect(records).toHaveLength(2);
+    expect(records[0]).toMatchObject({
+      ticker: "2330",
+      exDividendDate: "2025-08-15",
+      paymentDate: "2025-08-15",
+      cashDividendPerShare: 0,
+      stockDividendPerShare: 0.07,
+      sourceId: "finmind",
+    });
+    expect(records[1]).toMatchObject({
+      ticker: "2330",
+      exDividendDate: "2025-09-15",
+      paymentDate: "2025-10-15",
+      cashDividendPerShare: 2,
+      stockDividendPerShare: 0.13,
+      sourceId: "finmind",
+    });
+    expect(records[0]!.rawProviderData).toEqual(stockOnlyRow);
+    expect(records[1]!.rawProviderData).toEqual(mixedRow);
+  });
 });

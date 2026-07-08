@@ -1016,6 +1016,37 @@ const toolDefinitions = {
     scope: "transaction:write" as const,
     accessKind: "write" as const,
   },
+  preview_amend_dividend_receipt: {
+    description: `Preview amending one posted cash, stock, or mixed dividend receipt. Stock quantity changes are blocked when a later sell requires reversal plus replacement. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      rowId: userScopedIdSchema,
+      receivedCashAmount: z.number().int().nonnegative().optional(),
+      receivedStockQuantity: z.number().int().nonnegative().optional(),
+      deductions: z.array(dividendDeductionSchema).max(20).optional(),
+      sourceLines: z.array(dividendSourceLineSchema).max(20).optional(),
+      sourceCompositionStatus: z.enum(["provided", "unknown_pending_disclosure"]).optional(),
+    }).strict(),
+    scope: "transaction:write" as const,
+    accessKind: "write" as const,
+  },
+  amend_dividend_receipt: {
+    description: `Amend one posted dividend receipt after confirming the latest preview confirmationSummary and confirmationDigest. Requires idempotencyKey. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      rowId: userScopedIdSchema,
+      receivedCashAmount: z.number().int().nonnegative().optional(),
+      receivedStockQuantity: z.number().int().nonnegative().optional(),
+      deductions: z.array(dividendDeductionSchema).max(20).optional(),
+      sourceLines: z.array(dividendSourceLineSchema).max(20).optional(),
+      sourceCompositionStatus: z.enum(["provided", "unknown_pending_disclosure"]).optional(),
+      idempotencyKey: z.string().trim().min(8).max(200),
+      confirmationSummary: confirmationSummarySchema,
+      confirmationDigest: confirmationDigestSchema,
+    }).strict(),
+    scope: "transaction:write" as const,
+    accessKind: "write" as const,
+  },
   preview_update_dividend_reconciliation: {
     description: `Preview updating one posted dividend ledger row reconciliation status. Explained status requires a note. ${adviceBoundary}`,
     inputSchema: z.object({
