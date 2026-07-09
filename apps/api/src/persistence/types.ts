@@ -31,6 +31,7 @@ import type {
   DividendPostingStatus,
   LotAllocationProjection,
   MarketDataFacts,
+  PositionAction,
   Store,
   InstrumentDef,
 } from "../types/store.js";
@@ -943,11 +944,16 @@ export interface DeleteTradeEventResult {
 
 export interface UpdatePostedCashDividendInput {
   expectedVersion: number;
+  originalDividendLedgerEntryId?: string;
   dividendLedgerEntry: DividendLedgerEntry;
+  dividendLedgerEntries?: DividendLedgerEntry[];
   linkedCashEntries: CashLedgerEntry[];
   dividendDeductions: Store["accounting"]["facts"]["dividendDeductionEntries"];
   dividendSourceLines: DividendSourceLine[];
+  positionActions: PositionAction[];
   lots: Lot[];
+  replaceChildRowsForDividendLedgerEntryIds?: string[];
+  replacePositionActionsForDividendLedgerEntryIds?: string[];
 }
 
 export interface PersistedTickerFundamentalsRecord {
@@ -1137,6 +1143,7 @@ export interface DividendLedgerListOptions {
   toPaymentDate?: string;
   reconciliationStatus?: DividendLedgerEntry["reconciliationStatus"];
   postingStatus?: DividendPostingStatus;
+  excludeExpected?: boolean;
   ticker?: string;
   marketCode?: MarketCode;
   page: number;
@@ -2771,6 +2778,7 @@ export interface Persistence {
   deleteTradeEvent(userId: string, tradeEventId: string): Promise<DeleteTradeEventResult>;
   updateTradeEvent(userId: string, tradeEventId: string, patch: TradeEventPatch): Promise<{ accountId: string; ticker: string }>;
   getTradeEventsForAccountTicker(userId: string, accountId: string, ticker: string, marketCode?: MarketCode): Promise<BookedTradeEvent[]>;
+  getPositionActionsForAccountTicker(userId: string, accountId: string, ticker: string, marketCode?: MarketCode): Promise<PositionAction[]>;
   deleteLotsForAccountTicker(
     userId: string,
     accountId: string,

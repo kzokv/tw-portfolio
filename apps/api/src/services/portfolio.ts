@@ -14,10 +14,11 @@ import {
   appendTradeEvent,
   deriveRealizedPnlForTrade,
   listInventoryLots,
+  listPositionActions,
   listTradeEvents,
-  rebuildHoldingProjection,
   replaceLotAllocationsForTrade,
   replaceInventoryLots,
+  upsertPositionAction,
 } from "./accountingStore.js";
 import { bookCashLedgerEntry, buildTradeSettlementCashEntry } from "./cashLedgerService.js";
 import { routeError } from "../lib/routeError.js";
@@ -26,6 +27,7 @@ import type {
   BookedTradeEvent,
   CorporateAction,
   LotAllocationProjection,
+  PositionAction,
   Store,
   Transaction,
 } from "../types/store.js";
@@ -226,27 +228,295 @@ export function listHoldings(store: Store, userId: string): HoldingsRow[] {
   return store.accounting.projections.holdings.filter((holding) => accountIds.has(holding.accountId));
 }
 
+export interface PositionActionInput {
+  id: string;
+  accountId: string;
+  ticker: string;
+  actionType: "SPLIT" | "REVERSE_SPLIT";
+  numerator: number;
+  denominator: number;
+  actionDate: string;
+  actionTimestamp?: string;
+  cashInLieuAmount?: number;
+  cashInLieuCurrency?: string;
+  source?: string;
+  sourceReference?: string;
+}
+
+export interface PositionActionPreview {
+  accountId: string;
+  ticker: string;
+  actionType: "SPLIT" | "REVERSE_SPLIT";
+  beforeQuantity: number;
+  afterQuantity: number;
+  fractionalQuantity: number;
+  blocked: boolean;
+  blockingReason: "cash_in_lieu_required" | null;
+}
+
+export function previewPositionAction(store: Store, input: PositionActionInput): PositionActionPreview {
+  const account = store.accounts.find((item) => item.id === input.accountId);
+  if (!account) throw routeError(404, "account_not_found", "Account not found");
+
+  validatePositionActionInput(input);
+  const scopedLots = listInventoryLots(store).filter(
+    (lot) => lot.accountId === input.accountId && lot.ticker === input.ticker && lot.openQuantity > 0,
+  );
+  const hasReplayFacts = hasPositionReplayFacts(store, input);
+  const actionDateLots = buildLotsBeforePositionAction(store, input).filter((lot) => lot.openQuantity > 0);
+  const previewLots = hasReplayFacts || scopedLots.length === 0 ? actionDateLots : scopedLots;
+  const ratio = input.numerator / input.denominator;
+  const beforeQuantity = roundToDecimal(previewLots.reduce((sum, lot) => sum + lot.openQuantity, 0), 6);
+  const afterQuantity = previewLots.reduce((sum, lot) => {
+    const adjustedQuantity = lot.openQuantity * ratio;
+    const retainedQuantity = Math.floor(adjustedQuantity);
+    return sum + (adjustedQuantity !== retainedQuantity ? retainedQuantity : adjustedQuantity);
+  }, 0);
+  const fractionalQuantity = roundToDecimal(
+    previewLots.reduce((sum, lot) => {
+      const adjustedQuantity = lot.openQuantity * ratio;
+      const retainedQuantity = Math.floor(adjustedQuantity);
+      return sum + (adjustedQuantity - retainedQuantity);
+    }, 0),
+    6,
+  );
+  const hasCashInLieu = (input.cashInLieuAmount ?? 0) > 0;
+
+  return {
+    accountId: input.accountId,
+    ticker: input.ticker,
+    actionType: input.actionType,
+    beforeQuantity,
+    afterQuantity: roundToDecimal(afterQuantity, 6),
+    fractionalQuantity,
+    blocked: fractionalQuantity > 0 && !hasCashInLieu,
+    blockingReason: fractionalQuantity > 0 && !hasCashInLieu ? "cash_in_lieu_required" : null,
+  };
+}
+
+function hasPositionReplayFacts(store: Store, input: PositionActionInput): boolean {
+  const account = store.accounts.find((item) => item.id === input.accountId);
+  if (!account) return false;
+  const marketCode = marketCodeFor(account.defaultCurrency);
+  return listTradeEvents(store).some((trade) =>
+    trade.accountId === input.accountId &&
+    trade.ticker === input.ticker &&
+    trade.marketCode === marketCode)
+    || listPositionActions(store).some((action) =>
+      action.accountId === input.accountId &&
+      action.ticker === input.ticker &&
+      action.marketCode === marketCode);
+}
+
+type PositionReplayEntry =
+  | { kind: "trade"; trade: BookedTradeEvent }
+  | { kind: "action"; action: PositionAction }
+  | { kind: "candidate"; action: PositionActionInput };
+
+function buildLotsBeforePositionAction(store: Store, input: PositionActionInput): Lot[] {
+  const account = store.accounts.find((item) => item.id === input.accountId);
+  if (!account) throw routeError(404, "account_not_found", "Account not found");
+  const marketCode = marketCodeFor(account.defaultCurrency);
+  const candidate: PositionReplayEntry = { kind: "candidate", action: input };
+  const stream: PositionReplayEntry[] = [
+    ...listTradeEvents(store)
+      .filter((trade) =>
+        trade.accountId === input.accountId &&
+        trade.ticker === input.ticker &&
+        trade.marketCode === marketCode)
+      .map((trade) => ({ kind: "trade" as const, trade })),
+    ...listPositionActions(store)
+      .filter((action) =>
+        action.accountId === input.accountId &&
+        action.ticker === input.ticker &&
+        action.marketCode === marketCode)
+      .map((action) => ({ kind: "action" as const, action })),
+    candidate,
+  ].sort(comparePositionReplayEntries);
+
+  let lots: Lot[] = [];
+  for (const entry of stream) {
+    if (entry.kind === "candidate") return lots;
+    if (entry.kind === "action") {
+      lots = applyPositionActionPreviewToLots(lots, entry.action);
+      continue;
+    }
+    const trade = entry.trade;
+    if (trade.type === "BUY") {
+      const lot: Lot = {
+        id: `lot-${trade.id}`,
+        accountId: trade.accountId,
+        ticker: trade.ticker,
+        openQuantity: trade.quantity,
+        totalCostAmount: roundToDecimal(trade.unitPrice * trade.quantity, 2) + trade.commissionAmount + trade.taxAmount,
+        costCurrency: trade.priceCurrency,
+        openedAt: trade.tradeDate,
+        openedSequence: trade.bookingSequence ?? 1,
+      };
+      lots = applyBuyToLots(lots, lot).updatedLots;
+      continue;
+    }
+    const allocation = allocateSellLots(lots.filter((lot) => lot.openQuantity > 0), trade.quantity);
+    lots = lots.map((lot) => allocation.updatedLots.find((updated) => updated.id === lot.id) ?? lot);
+  }
+  return lots;
+}
+
+function applyPositionActionPreviewToLots(currentLots: Lot[], action: PositionAction): Lot[] {
+  if (action.reversalOfPositionActionId || action.supersededAt) {
+    return currentLots;
+  }
+  if (action.actionType === "STOCK_DIVIDEND") {
+    const nextSequence =
+      currentLots
+        .filter((lot) => lot.accountId === action.accountId && lot.ticker === action.ticker && lot.openedAt === action.actionDate)
+        .reduce((max, lot) => Math.max(max, lot.openedSequence ?? 0), 0) + 1;
+    return [
+      ...currentLots.filter((lot) => lot.id !== `lot-pa-${action.id}`),
+      {
+        id: `lot-pa-${action.id}`,
+        accountId: action.accountId,
+        ticker: action.ticker,
+        openQuantity: action.quantity,
+        totalCostAmount: 0,
+        costCurrency: action.cashInLieuCurrency ?? "TWD",
+        openedAt: action.actionDate,
+        openedSequence: nextSequence,
+      },
+    ];
+  }
+  const ratio = (action.ratioNumerator ?? 1) / (action.ratioDenominator ?? 1);
+  return currentLots.map((lot) => {
+    if (lot.accountId !== action.accountId || lot.ticker !== action.ticker || lot.openQuantity <= 0) {
+      return lot;
+    }
+    const adjustedQuantity = lot.openQuantity * ratio;
+    const retainedQuantity = Math.floor(adjustedQuantity);
+    return {
+      ...lot,
+      openQuantity: adjustedQuantity !== retainedQuantity ? retainedQuantity : adjustedQuantity,
+    };
+  });
+}
+
+function comparePositionReplayEntries(left: PositionReplayEntry, right: PositionReplayEntry): number {
+  const leftDate = left.kind === "trade" ? left.trade.tradeDate : left.action.actionDate;
+  const rightDate = right.kind === "trade" ? right.trade.tradeDate : right.action.actionDate;
+  if (leftDate !== rightDate) return leftDate.localeCompare(rightDate);
+
+  const leftTimestamp = left.kind === "trade" ? left.trade.tradeTimestamp ?? null : left.action.actionTimestamp ?? null;
+  const rightTimestamp = right.kind === "trade" ? right.trade.tradeTimestamp ?? null : right.action.actionTimestamp ?? null;
+  if (leftTimestamp && rightTimestamp && leftTimestamp !== rightTimestamp) {
+    return leftTimestamp.localeCompare(rightTimestamp);
+  }
+  if (left.kind === "trade" && right.kind === "trade") {
+    return (
+      (left.trade.tradeTimestamp ?? "").localeCompare(right.trade.tradeTimestamp ?? "")
+      || (left.trade.bookingSequence ?? 0) - (right.trade.bookingSequence ?? 0)
+      || (left.trade.bookedAt ?? "").localeCompare(right.trade.bookedAt ?? "")
+      || left.trade.id.localeCompare(right.trade.id)
+    );
+  }
+  if (left.kind !== "trade" && right.kind !== "trade") {
+    return (
+      positionReplayActionBookedAt(left.action).localeCompare(positionReplayActionBookedAt(right.action))
+      || left.action.id.localeCompare(right.action.id)
+    );
+  }
+  if (!leftTimestamp || !rightTimestamp) {
+    return left.kind === "trade" ? 1 : -1;
+  }
+  return left.kind === "trade" ? 1 : -1;
+}
+
+function positionReplayActionBookedAt(action: PositionAction | PositionActionInput): string {
+  return "bookedAt" in action ? action.bookedAt ?? "" : "";
+}
+
+export function createPositionAction(store: Store, input: PositionActionInput): PositionAction {
+  const account = store.accounts.find((item) => item.id === input.accountId);
+  if (!account) throw routeError(404, "account_not_found", "Account not found");
+
+  const preview = previewPositionAction(store, input);
+  if (preview.blocked) {
+    throw routeError(
+      422,
+      "position_action_fractional_cash_in_lieu_required",
+      "Split or reverse split creates fractional shares and requires explicit cash-in-lieu handling",
+    );
+  }
+
+  const marketCode = marketCodeFor(account.defaultCurrency);
+  const bookedAt = new Date().toISOString();
+  const positionAction: PositionAction = {
+    id: input.id,
+    accountId: input.accountId,
+    ticker: input.ticker,
+    marketCode,
+    actionType: input.actionType,
+    actionDate: input.actionDate,
+    actionTimestamp: input.actionTimestamp,
+    quantity: 0,
+    ratioNumerator: input.numerator,
+    ratioDenominator: input.denominator,
+    cashInLieuQuantity: preview.fractionalQuantity > 0 ? preview.fractionalQuantity : undefined,
+    cashInLieuAmount: input.cashInLieuAmount,
+    cashInLieuCurrency: input.cashInLieuCurrency ?? account.defaultCurrency,
+    source: input.source ?? "position_action_api",
+    sourceReference: input.sourceReference ?? input.id,
+    bookedAt,
+  };
+
+  upsertPositionAction(store, positionAction);
+  return positionAction;
+}
+
 export function applyCorporateAction(store: Store, action: CorporateAction): CorporateAction {
   if (action.actionType === "DIVIDEND") {
+    const account = store.accounts.find((item) => item.id === action.accountId);
+    if (!account) throw routeError(404, "account_not_found", "Account not found");
+    const bookedAt = new Date().toISOString();
+    upsertPositionAction(store, {
+      id: action.id,
+      accountId: action.accountId,
+      ticker: action.ticker,
+      marketCode: marketCodeFor(account.defaultCurrency),
+      actionType: "STOCK_DIVIDEND",
+      actionDate: action.actionDate,
+      quantity: action.numerator / action.denominator,
+      source: "legacy_corporate_action_api",
+      sourceReference: action.id,
+      bookedAt,
+    });
     appendCorporateAction(store, action);
     return action;
   }
 
-  if (action.denominator <= 0 || action.numerator <= 0) {
+  createPositionAction(store, {
+    id: action.id,
+    accountId: action.accountId,
+    ticker: action.ticker,
+    actionType: action.actionType,
+    numerator: action.numerator,
+    denominator: action.denominator,
+    actionDate: action.actionDate,
+    source: "legacy_corporate_action_api",
+    sourceReference: action.id,
+  });
+  appendCorporateAction(store, action);
+  return action;
+}
+
+function validatePositionActionInput(input: PositionActionInput): void {
+  if (input.denominator <= 0 || input.numerator <= 0) {
     throw routeError(400, "invalid_split_ratio", "Invalid split ratio");
   }
-
-  for (const lot of listInventoryLots(store)) {
-    if (lot.accountId !== action.accountId || lot.ticker !== action.ticker || lot.openQuantity <= 0) continue;
-
-    const splitRatio = action.numerator / action.denominator;
-    const nextQty = Math.floor(lot.openQuantity * splitRatio);
-    lot.openQuantity = nextQty;
+  if (input.actionTimestamp && input.actionTimestamp.slice(0, 10) !== input.actionDate) {
+    throw routeError(400, "timestamp_date_mismatch", "Action timestamp must match action date");
   }
-
-  appendCorporateAction(store, action);
-  rebuildHoldingProjection(store);
-  return action;
+  if (input.cashInLieuAmount !== undefined && input.cashInLieuAmount < 0) {
+    throw routeError(400, "invalid_cash_in_lieu", "Cash-in-lieu amount cannot be negative");
+  }
 }
 
 function replaceLots(store: Store, accountId: string, ticker: string, nextLots: Lot[]): void {

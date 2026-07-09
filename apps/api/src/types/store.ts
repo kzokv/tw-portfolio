@@ -186,6 +186,33 @@ export interface CorporateAction {
   actionDate: string;
 }
 
+export type PositionActionType = "STOCK_DIVIDEND" | "SPLIT" | "REVERSE_SPLIT";
+
+export interface PositionAction {
+  id: string;
+  accountId: string;
+  ticker: string;
+  marketCode: MarketCode;
+  actionType: PositionActionType;
+  actionDate: string;
+  actionTimestamp?: string;
+  bookedAt?: string;
+  quantity: number;
+  ratioNumerator?: number;
+  ratioDenominator?: number;
+  cashInLieuQuantity?: number;
+  cashInLieuAmount?: number;
+  cashInLieuCurrency?: CurrencyCode;
+  parValuePerShare?: number;
+  premiumBaseAmount?: number;
+  nhiPremiumBaseAmount?: number;
+  relatedDividendLedgerEntryId?: string;
+  source: string;
+  sourceReference?: string;
+  reversalOfPositionActionId?: string;
+  supersededAt?: string;
+}
+
 export interface HoldingProjection {
   accountId: string;
   ticker: string;
@@ -230,6 +257,7 @@ export interface AccountingFacts {
   dividendLedgerEntries: DividendLedgerEntry[];
   dividendDeductionEntries: DividendDeductionEntry[];
   dividendSourceLines: DividendSourceLine[];
+  positionActions: PositionAction[];
   corporateActions: CorporateAction[];
 }
 

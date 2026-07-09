@@ -6,7 +6,14 @@ import type { McpToolHandlerContext } from "../mcp/types.js";
 import type { DividendDeductionEntry, DividendLedgerEntry, Store } from "../types/store.js";
 import type { DividendLedgerListOptions, DividendReviewRowWithDetails } from "../persistence/types.js";
 import { buildConfirmationDigest } from "./mcpNameResolution.js";
-import { buildDividendLedgerEntryDetails, postDividend } from "./dividends.js";
+import {
+  buildDividendLedgerEntryDetails,
+  postDividend,
+  preparePostedCashDividendUpdate,
+  resolveDividendEventMarketCode,
+} from "./dividends.js";
+import { assertDividendUpdateReplayCanApply } from "./dividendReplayPreflight.js";
+import { replayPositionHistory } from "./replayPositionHistory.js";
 
 type ReconciliationStatus = DividendLedgerEntry["reconciliationStatus"];
 type SourceCompositionStatus = DividendLedgerEntry["sourceCompositionStatus"];
@@ -58,6 +65,16 @@ interface DividendReceiptInput {
 }
 
 interface ConfirmDividendReceiptInput extends DividendReceiptInput {
+  confirmationSummary: string;
+  confirmationDigest: string;
+  idempotencyKey: string;
+}
+
+interface AmendDividendReceiptInput extends DividendReceiptInput {
+  rowId: string;
+}
+
+interface ConfirmAmendDividendReceiptInput extends AmendDividendReceiptInput {
   confirmationSummary: string;
   confirmationDigest: string;
   idempotencyKey: string;
@@ -273,6 +290,7 @@ function receiptPreviewPayload(resolved: ResolvedReviewRow, input: DividendRecei
   const deductions = normalizeDeductions(input.deductions, resolved.row.cashCurrency);
   const receivedCashAmount = input.receivedCashAmount ?? resolved.row.expectedCashAmount;
   const receivedStockQuantity = input.receivedStockQuantity ?? resolved.row.expectedStockQuantity;
+  assertReceiptStockQuantityAllowed(resolved.row.eventType, receivedStockQuantity);
   const actualCashAmount = actualCashEconomicAmount(receivedCashAmount, deductions);
   const hasCallerSourceLines = (input.sourceLines?.length ?? 0) > 0;
   const sourceLines = resolvePreviewSourceLines(resolved, normalizeSourceLines(input.sourceLines), actualCashAmount);
@@ -303,7 +321,7 @@ function receiptPreviewPayload(resolved: ResolvedReviewRow, input: DividendRecei
       deductionTotal: deductionTotal(deductions),
       actualCashEconomicAmount: actualCashAmount,
       stockLotImpact: receivedStockQuantity > 0
-        ? "Posting this receipt will create or update a stock-dividend inventory lot."
+        ? "Posting this receipt will create or update a stock-dividend position action and replay projection."
         : null,
     },
     confirmationSummary: summary,
@@ -311,6 +329,12 @@ function receiptPreviewPayload(resolved: ResolvedReviewRow, input: DividendRecei
     requiresConfirmation: true,
     digestPayload,
   };
+}
+
+function assertReceiptStockQuantityAllowed(eventType: string, receivedStockQuantity: number): void {
+  if (eventType === "CASH" && receivedStockQuantity > 0) {
+    throw routeError(400, "cash_dividend_stock_quantity_not_allowed", "Cash dividends cannot receive stock quantity.");
+  }
 }
 
 function assertConfirmation(input: { confirmationSummary?: string; confirmationDigest?: string }, summary: string, digestPayload: Record<string, unknown>) {
@@ -441,6 +465,18 @@ export async function postDividendReceipt(deps: McpToolHandlerContext, input: Co
       accountId: result.dividendLedgerEntry.accountId,
       version: result.dividendLedgerEntry.version,
     });
+    if (result.positionAction || result.dividendEvent.eventType !== "CASH") {
+      const marketCode = result.positionAction?.marketCode ?? resolveDividendEventMarketCode(result.dividendEvent);
+      await replayPositionHistory(
+        deps.app.persistence,
+        resolved.userId,
+        result.dividendLedgerEntry.accountId,
+        result.dividendEvent.ticker,
+        {
+          marketCode,
+        },
+      );
+    }
     const details = buildDividendLedgerEntryDetails(draftStore, [{
       ...result.dividendLedgerEntry,
       deductions: result.dividendDeductionEntries,
@@ -450,6 +486,123 @@ export async function postDividendReceipt(deps: McpToolHandlerContext, input: Co
       posted: true,
       dividendLedgerEntryId: result.dividendLedgerEntry.id,
       ledgerEntry: details ?? result.dividendLedgerEntry,
+      confirmationSummary: preview.confirmationSummary,
+      confirmationDigest: preview.confirmationDigest,
+    };
+  } catch (error) {
+    await deps.app.persistence.releaseIdempotencyKey(userId, input.idempotencyKey);
+    throw error;
+  }
+}
+
+function amendReceiptPreviewPayload(resolved: ResolvedReviewRow, input: AmendDividendReceiptInput) {
+  if (resolved.row.rowKind !== "ledger" || resolved.row.postingStatus !== "posted") {
+    throw routeError(409, "mcp_dividend_amend_requires_posted_row", "Dividend receipt amendments require a posted dividend ledger row.");
+  }
+  const deductions = normalizeDeductions(
+    input.deductions ?? resolved.row.deductions,
+    resolved.row.cashCurrency,
+  );
+  const receivedCashAmount = input.receivedCashAmount ?? resolved.row.receivedCashAmount;
+  const receivedStockQuantity = input.receivedStockQuantity ?? resolved.row.receivedStockQuantity;
+  assertReceiptStockQuantityAllowed(resolved.row.eventType, receivedStockQuantity);
+  const actualCashAmount = actualCashEconomicAmount(receivedCashAmount, deductions);
+  const hasCallerSourceLines = input.sourceLines !== undefined;
+  const sourceLines = normalizeSourceLines(input.sourceLines ?? resolved.row.sourceLines);
+  const sourceCompositionStatus = resolveSourceCompositionStatus(
+    sourceLines,
+    input.sourceCompositionStatus ?? resolved.row.sourceCompositionStatus,
+    hasCallerSourceLines,
+  );
+  assertPreviewSourceReconciliation(sourceLines, sourceCompositionStatus, actualCashAmount);
+  const summary = `Amend dividend receipt for ${resolved.row.ticker} ${resolved.row.marketCode} in ${accountNameById(resolved.store).get(resolved.row.accountId) ?? resolved.row.accountId}: cash ${receivedCashAmount} ${resolved.row.cashCurrency}, stock ${receivedStockQuantity}.`;
+  const digestPayload = {
+    action: "amend_dividend_receipt",
+    ownerUserId: resolved.userId,
+    rowId: resolved.row.id,
+    dividendLedgerEntryId: resolved.row.id,
+    dividendEventId: resolved.row.dividendEventId,
+    accountId: resolved.row.accountId,
+    version: resolved.row.version,
+    receivedCashAmount,
+    receivedStockQuantity,
+    deductions,
+    sourceLines,
+    sourceCompositionStatus,
+    rowFacts: rowSummary(resolved.row, resolved.store),
+  };
+  return {
+    row: rowSummary(resolved.row, resolved.store),
+    receipt: {
+      receivedCashAmount,
+      receivedStockQuantity,
+      deductions,
+      sourceLines,
+      sourceCompositionStatus,
+      deductionTotal: deductionTotal(deductions),
+      actualCashEconomicAmount: actualCashAmount,
+      stockLotImpact: receivedStockQuantity !== resolved.row.receivedStockQuantity
+        ? "Amending this receipt will update the linked stock-dividend position action and replay projection unless a blocking sell requires reversal plus replacement."
+        : null,
+    },
+    confirmationSummary: summary,
+    confirmationDigest: buildConfirmationDigest(digestPayload),
+    requiresConfirmation: true,
+    digestPayload,
+  };
+}
+
+export async function previewAmendDividendReceipt(deps: McpToolHandlerContext, input: AmendDividendReceiptInput) {
+  const resolved = await resolveRow(deps, input.rowId);
+  return withoutDigestPayload(amendReceiptPreviewPayload(resolved, input));
+}
+
+export async function amendDividendReceipt(deps: McpToolHandlerContext, input: ConfirmAmendDividendReceiptInput) {
+  const userId = contextUserId(deps);
+  const claimed = await deps.app.persistence.claimIdempotencyKey(userId, input.idempotencyKey);
+  if (!claimed) throw routeError(409, "duplicate_idempotency_key", "duplicate idempotency key");
+
+  try {
+    const resolved = await resolveRow(deps, input.rowId);
+    const preview = amendReceiptPreviewPayload(resolved, input);
+    assertConfirmation(input, preview.confirmationSummary, preview.digestPayload);
+
+    const draftStore = structuredClone(resolved.store);
+    const prepared = preparePostedCashDividendUpdate(draftStore, resolved.userId, {
+      accountId: resolved.row.accountId,
+      dividendEventId: resolved.row.dividendEventId,
+      dividendLedgerEntryId: resolved.row.id,
+      expectedVersion: resolved.row.version,
+      receivedCashAmount: preview.receipt.receivedCashAmount,
+      receivedStockQuantity: preview.receipt.receivedStockQuantity,
+      deductions: preview.receipt.deductions.map((entry) => ({ ...entry, id: randomUUID() })),
+      sourceLines: preview.receipt.sourceLines.map((entry) => ({ ...entry, id: entry.id ?? randomUUID() })),
+      sourceCompositionStatus: preview.receipt.sourceCompositionStatus,
+    });
+    const replayScope = await assertDividendUpdateReplayCanApply(draftStore, resolved.userId, prepared);
+    await deps.app.persistence.updatePostedCashDividend(resolved.userId, prepared.persistenceInput);
+    await deps.app.eventBus.publishEvent(resolved.userId, "dividend_updated", {
+      dividendLedgerEntryId: prepared.response.dividendLedgerEntry.id,
+      dividendEventId: prepared.response.dividendEvent.id,
+      accountId: prepared.response.dividendLedgerEntry.accountId,
+      version: prepared.response.dividendLedgerEntry.version,
+    });
+    if (replayScope) {
+      await replayPositionHistory(
+        deps.app.persistence,
+        resolved.userId,
+        replayScope.accountId,
+        replayScope.ticker,
+        { marketCode: replayScope.marketCode },
+      );
+    }
+    const detailed = await deps.app.persistence.getDividendLedgerEntryWithDetails(resolved.userId, prepared.response.dividendLedgerEntry.id);
+    const latestStore = await deps.app.persistence.loadStore(resolved.userId);
+    const ledgerEntry = detailed ? buildDividendLedgerEntryDetails(latestStore, [detailed])[0] : null;
+    return {
+      amended: true,
+      dividendLedgerEntryId: prepared.response.dividendLedgerEntry.id,
+      ledgerEntry: ledgerEntry ?? prepared.response.dividendLedgerEntry,
       confirmationSummary: preview.confirmationSummary,
       confirmationDigest: preview.confirmationDigest,
     };

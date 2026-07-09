@@ -58,6 +58,8 @@ import {
 import { CalendarUnknownWarnings } from "../holdings/CalendarUnknownWarnings";
 import { PriceStateChip } from "../holdings/PriceStateChip";
 import { holdingsFinanceToneClass, holdingsStickyFirstColumnClassName } from "../holdings/holdingsStyle";
+import { HoldingsDetailSheet } from "../holdings/HoldingsDetailSheet";
+import { HoldingActionDetail } from "../holdings/HoldingActionDetail";
 import { buildPriceStateActivityPath, getPriceState } from "../../features/price-state/priceState";
 
 type HoldingsDisplayMode = "aggregated" | "expanded" | "accounts";
@@ -208,6 +210,7 @@ export function HoldingsTable({
   const [displayMode, setDisplayMode] = useState<HoldingsDisplayMode>("aggregated");
   const [selectedStatuses, setSelectedStatuses] = useState<DashboardOverviewHoldingDto["quoteStatus"][]>([]);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+  const [selectedGroup, setSelectedGroup] = useState<DashboardOverviewHoldingGroupDto | null>(null);
   const deferredQuery = useDeferredValue(query);
   const columnSettings = useHoldingsColumnSettings<HoldingsColumn>({
     columns: PORTFOLIO_HOLDINGS_COLUMNS,
@@ -588,6 +591,7 @@ export function HoldingsTable({
                       quoteRefreshVersion={index < MAX_ANIMATED_HOLDING_VALUE_ROWS ? quoteRefreshVersion : 0}
                       summaryColumns={mobileColumnSplit.summaryColumns}
                       onToggle={() => toggleGroup(groupKey)}
+                      onOpenDetail={() => setSelectedGroup(group)}
                       />
                       {showChildren
                         ? visibleChildren.map((child) => (
@@ -672,6 +676,7 @@ export function HoldingsTable({
                           allocationBasis={effectiveAllocationBasis}
                           expanded={showChildren}
                           onToggle={() => toggleGroup(groupKey)}
+                          onOpenDetail={() => setSelectedGroup(group)}
                           showFreshnessBadge={showFreshnessBadge}
                           showAdminActivityLinks={showAdminActivityLinks}
                           isRecomputing={hasRecomputingChild(group, recomputingSymbols)}
@@ -703,6 +708,20 @@ export function HoldingsTable({
           </>
         )}
       </Card>
+      <HoldingsDetailSheet
+        description={dict.tickerHistory.actionTimelineSubtitle}
+        onOpenChange={(open) => { if (!open) setSelectedGroup(null); }}
+        selected={selectedGroup}
+        title={(group) => `${group.ticker} · ${group.marketCode}`}
+        renderDetail={(group) => (
+          <HoldingActionDetail
+            dict={dict}
+            locale={locale}
+            marketCode={group.marketCode}
+            row={group}
+          />
+        )}
+      />
     </Tooltip.Provider>
   );
 }
@@ -720,6 +739,7 @@ function HoldingGroupMobileCard({
   quoteRefreshVersion,
   summaryColumns,
   onToggle,
+  onOpenDetail,
 }: {
   group: DashboardOverviewHoldingGroupDto;
   dict: AppDictionary;
@@ -733,6 +753,7 @@ function HoldingGroupMobileCard({
   quoteRefreshVersion: number;
   summaryColumns: HoldingsColumn[];
   onToggle: () => void;
+  onOpenDetail: () => void;
 }) {
   const reportingCurrency = group.reportingCurrency;
   const allocation = getAmountForAllocationBasis(group, allocationBasis);
@@ -783,9 +804,14 @@ function HoldingGroupMobileCard({
 
       {detailColumns.length > 0 ? (
         <div className="mt-3 border-t border-border/70 pt-3">
-          <Button type="button" size="sm" variant="ghost" onClick={() => setDetailsOpen((open) => !open)}>
-            {dict.reports.viewDetails}
-          </Button>
+          <div className="flex items-center justify-between gap-2">
+            <Button type="button" size="sm" variant="ghost" onClick={() => setDetailsOpen((open) => !open)}>
+              {dict.reports.viewDetails}
+            </Button>
+            <Button type="button" size="sm" variant="secondary" onClick={onOpenDetail} data-testid={`holding-group-open-detail-${group.ticker}-${group.marketCode}`}>
+              {dict.tickerHistory.actionTimelineTitle}
+            </Button>
+          </div>
           {detailsOpen ? (
             <div className="mt-3 grid grid-cols-2 gap-2">
               {detailColumns.map((column) => (
@@ -1084,6 +1110,7 @@ function HoldingGroupRow({
   allocationBasis,
   expanded,
   onToggle,
+  onOpenDetail,
   showFreshnessBadge,
   showAdminActivityLinks,
   isRecomputing,
@@ -1098,6 +1125,7 @@ function HoldingGroupRow({
   allocationBasis: HoldingAllocationBasis;
   expanded: boolean;
   onToggle: () => void;
+  onOpenDetail: () => void;
   showFreshnessBadge: boolean;
   showAdminActivityLinks: boolean;
   isRecomputing: boolean;
@@ -1122,6 +1150,7 @@ function HoldingGroupRow({
           locale={locale}
           marketValueAmount={group.reportingMarketValueAmount}
           onToggle={onToggle}
+          onOpenDetail={onOpenDetail}
           reportingCurrency={reportingCurrency}
           showFreshnessBadge={showFreshnessBadge}
           showAdminActivityLinks={showAdminActivityLinks}
@@ -1228,6 +1257,7 @@ function HoldingGroupCell({
   locale,
   marketValueAmount,
   onToggle,
+  onOpenDetail,
   reportingCurrency,
   showFreshnessBadge,
   showAdminActivityLinks,
@@ -1245,6 +1275,7 @@ function HoldingGroupCell({
   locale: LocaleCode;
   marketValueAmount: number | null;
   onToggle: () => void;
+  onOpenDetail: () => void;
   reportingCurrency: AccountDefaultCurrency;
   showFreshnessBadge: boolean;
   showAdminActivityLinks: boolean;
@@ -1270,6 +1301,9 @@ function HoldingGroupCell({
             </Link>
             {group.instrumentName ? <p className="mt-1 break-words text-sm text-muted-foreground">{group.instrumentName}</p> : null}
             <p className="text-xs text-muted-foreground">{group.marketCode} · {group.currency}</p>
+            <Button type="button" size="sm" variant="ghost" className="mt-1 h-auto px-0 text-xs" onClick={onOpenDetail} data-testid={`holding-group-open-detail-${group.ticker}-${group.marketCode}`}>
+              {dict.tickerHistory.actionTimelineTitle}
+            </Button>
           </div>
         </div>
       </td>

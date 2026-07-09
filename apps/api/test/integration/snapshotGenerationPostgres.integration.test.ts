@@ -135,6 +135,7 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
     supersededAt?: string | null;
     reversalOf?: string | null;
     bookedAt?: string;
+    postingStatus?: "posted" | "adjusted";
   }): Promise<string> {
     const ledgerId = randomUUID();
     await pool.query(
@@ -145,7 +146,7 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
          booked_at, superseded_at, reversal_of_dividend_ledger_entry_id
        ) VALUES ($1, $2, $3, 10,
                  $4, 0, 0,
-                 'posted', 'open', 1, 'provided',
+                 $8, 'open', 1, 'provided',
                  COALESCE($7::timestamptz, NOW()), $5, $6)`,
       [
         ledgerId,
@@ -155,6 +156,7 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
         params.supersededAt ?? null,
         params.reversalOf ?? null,
         params.bookedAt ?? null,
+        params.postingStatus ?? "posted",
       ],
     );
     if (params.receivedCashAmount > 0) {
@@ -346,6 +348,20 @@ describePostgres("PostgresPersistence.getSnapshotGenerationInputs", () => {
     expect(posted.paymentDate).toBe("2026-02-21");
     expect(posted.currency).toBe("TWD");
     expect(posted.amount).toBe(96);
+  });
+
+  it("includes adjusted active dividend replacements in postedDividends", async () => {
+    const eventId = await seedDividendEvent({ ticker: "2330", exDividendDate: "2026-02-01", paymentDate: "2026-02-20" });
+    await seedPostedDividend({ eventId, receivedCashAmount: 120, postingStatus: "adjusted" });
+
+    const inputs = await persistence.getSnapshotGenerationInputs(userId);
+
+    expect(inputs.postedDividends).toHaveLength(1);
+    expect(inputs.postedDividends[0]).toEqual(expect.objectContaining({
+      ticker: "2330",
+      amount: 120,
+      currency: "TWD",
+    }));
   });
 
   it("joins market_data.dividend_events (schema-qualified in migration 018)", async () => {

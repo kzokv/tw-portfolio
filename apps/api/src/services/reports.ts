@@ -1415,7 +1415,7 @@ function isActivePostedDividend(
   entry: Store["accounting"]["facts"]["dividendLedgerEntries"][number],
   reversedIds: ReadonlySet<string>,
 ): boolean {
-  return entry.postingStatus === "posted"
+  return (entry.postingStatus === "posted" || entry.postingStatus === "adjusted")
     && !entry.reversalOfDividendLedgerEntryId
     && !entry.supersededAt
     && !reversedIds.has(entry.id);

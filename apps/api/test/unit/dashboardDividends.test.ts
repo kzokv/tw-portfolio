@@ -107,4 +107,62 @@ describe("buildDashboardOverview dividend metadata", () => {
       }),
     ]);
   });
+
+  it("excludes superseded dividend ledger rows from recent rows", () => {
+    const store = createStore();
+    store.marketData.dividendEvents.push({
+      id: "div-replaced",
+      ticker: "2330",
+      marketCode: "TW",
+      eventType: "STOCK",
+      exDividendDate: "2026-06-01",
+      paymentDate: "2026-06-20",
+      cashDividendPerShare: 0,
+      cashDividendCurrency: "TWD",
+      stockDividendPerShare: 0.1,
+      source: "test",
+    });
+
+    store.accounting.facts.dividendLedgerEntries.push(
+      {
+        id: "ledger-superseded",
+        accountId: "acc-1",
+        dividendEventId: "div-replaced",
+        eligibleQuantity: 10,
+        expectedCashAmount: 0,
+        expectedStockQuantity: 1,
+        receivedCashAmount: 0,
+        receivedStockQuantity: 1,
+        postingStatus: "posted",
+        reconciliationStatus: "open",
+        version: 1,
+        sourceCompositionStatus: "unknown_pending_disclosure",
+        bookedAt: "2026-06-20T00:00:00.000Z",
+        supersededAt: "2026-06-25T00:00:00.000Z",
+      },
+      {
+        id: "ledger-replacement",
+        accountId: "acc-1",
+        dividendEventId: "div-replaced",
+        eligibleQuantity: 10,
+        expectedCashAmount: 0,
+        expectedStockQuantity: 1,
+        receivedCashAmount: 0,
+        receivedStockQuantity: 2,
+        postingStatus: "adjusted",
+        reconciliationStatus: "open",
+        version: 1,
+        sourceCompositionStatus: "unknown_pending_disclosure",
+        bookedAt: "2026-06-25T00:00:00.000Z",
+      },
+    );
+
+    const overview = buildDashboardOverview(store, {
+      integrityIssue: null,
+      quotes: [],
+    });
+
+    expect(overview.dividends.recent.map((entry) => entry.dividendLedgerEntryId)).toContain("ledger-replacement");
+    expect(overview.dividends.recent.map((entry) => entry.dividendLedgerEntryId)).not.toContain("ledger-superseded");
+  });
 });

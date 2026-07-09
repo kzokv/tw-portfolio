@@ -50,12 +50,23 @@ describe("dividendsPageQuery", () => {
       ticker: "2330",
       marketCode: "TW",
       accountId: "acc-1",
-      postingStatus: "posted",
       reconciliationStatus: "open",
+      excludeExpected: true,
       sortBy: "ticker",
       sortOrder: "asc",
       page: 2,
       limit: 25,
+    });
+  });
+
+  it("maps legacy needs-review status into the review query", () => {
+    const query = searchParamsToReviewQuery(new URLSearchParams([
+      ["status", "needs-review"],
+    ]));
+
+    expect(query).toMatchObject({
+      reconciliationStatus: "open",
+      excludeExpected: true,
     });
   });
 

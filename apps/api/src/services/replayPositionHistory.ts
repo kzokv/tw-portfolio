@@ -1,8 +1,8 @@
 import { applyBuyToLots, allocateSellLots, roundToDecimal } from "@vakwen/domain";
 import type { Lot, MarketCode } from "@vakwen/domain";
-import { MARKET_CODES, type MarketCode as SharedMarketCode } from "@vakwen/shared-types";
+import { currencyFor, MARKET_CODES, type MarketCode as SharedMarketCode } from "@vakwen/shared-types";
 import type { Persistence } from "../persistence/types.js";
-import type { CashLedgerEntry, LotAllocationProjection } from "../types/store.js";
+import type { BookedTradeEvent, CashLedgerEntry, DividendEvent, LotAllocationProjection, PositionAction } from "../types/store.js";
 import type { EventBus } from "../events/types.js";
 import { planDividendLedgerRecompute, type DividendLedgerRecomputeChange } from "./dividends.js";
 import { recomputeSnapshotsForTicker } from "./snapshotGeneration.js";
@@ -53,6 +53,7 @@ export async function replayPositionHistory(
 ): Promise<ReplaySummary> {
   // 1. Load all trade events for account+ticker, ordered by trade_date ASC, booking_sequence ASC
   const trades = await persistence.getTradeEventsForAccountTicker(userId, accountId, ticker, options.marketCode);
+  const positionActions = await persistence.getPositionActionsForAccountTicker(userId, accountId, ticker, options.marketCode);
 
   // 2. Delete lots for account+ticker (CRITICAL — blocker from debate)
   await persistence.deleteLotsForAccountTicker(userId, accountId, ticker, options.marketCode, options.deletedTradeEventIds);
@@ -63,7 +64,7 @@ export async function replayPositionHistory(
   // 4. Delete TRADE_SETTLEMENT_IN/OUT cash entries for account+ticker
   await persistence.deleteTradeCashEntriesForAccountTicker(userId, accountId, ticker, options.marketCode, options.deletedTradeEventIds);
 
-  // 5. Replay each trade in order
+  // 5. Replay each trade / position action in deterministic order
   let lots: Lot[] = [];
   const allAllocations: LotAllocationProjection[] = [];
   const allCashEntries: CashLedgerEntry[] = [];
@@ -72,7 +73,16 @@ export async function replayPositionHistory(
   let totalTax = 0;
   let cashBalanceChange = 0;
 
-  for (const trade of trades) {
+  const stream = [...trades.map((trade) => ({ kind: "trade" as const, trade })), ...positionActions.map((action) => ({ kind: "action" as const, action }))]
+    .sort(compareReplayEntries);
+
+  for (const entry of stream) {
+    if (entry.kind === "action") {
+      lots = applyPositionActionToLots(lots, entry.action);
+      continue;
+    }
+
+    const trade = entry.trade;
     // Use the trade's stored commission/tax (replay does NOT recalculate fees)
     totalCommission += trade.commissionAmount;
     totalTax += trade.taxAmount;
@@ -188,6 +198,14 @@ export async function replayPositionHistory(
   const dividendChanges = planDividendLedgerRecompute(storeAfterReplay, accountId, ticker, {
     resetReconciliation: true,
     marketCode: toSharedMarketCode(options.marketCode),
+    eligibleQuantityResolver: (dividendEvent, dividendMarketCode) => deriveEligibleQuantityFromReplayStream(
+      trades,
+      positionActions,
+      accountId,
+      ticker,
+      dividendMarketCode,
+      dividendEvent,
+    ),
   });
   const appliedChanges = dividendChanges.length > 0
     ? await persistence.applyDividendLedgerRecompute(userId, dividendChanges)
@@ -214,6 +232,110 @@ export async function replayPositionHistory(
     affectedTradeCount: trades.length,
     dividendLedgerChanges: appliedChanges,
   };
+}
+
+function applyPositionActionToLots(currentLots: Lot[], action: PositionAction): Lot[] {
+  if (action.reversalOfPositionActionId || action.supersededAt) {
+    return currentLots;
+  }
+
+  if (action.actionType === "STOCK_DIVIDEND") {
+    const nextSequence =
+      currentLots
+        .filter((lot) => lot.accountId === action.accountId && lot.ticker === action.ticker && lot.openedAt === action.actionDate)
+        .reduce((max, lot) => Math.max(max, lot.openedSequence ?? 0), 0) + 1;
+    const stockDividendLot: Lot = {
+      id: `lot-pa-${action.id}`,
+      accountId: action.accountId,
+      ticker: action.ticker,
+      openQuantity: action.quantity,
+      totalCostAmount: 0,
+      costCurrency: currencyFor(action.marketCode),
+      openedAt: action.actionDate,
+      openedSequence: nextSequence,
+    };
+    return [
+      ...currentLots.filter((lot) => lot.id !== stockDividendLot.id),
+      stockDividendLot,
+    ];
+  }
+
+  const numerator = action.ratioNumerator ?? 1;
+  const denominator = action.ratioDenominator ?? 1;
+  if (numerator <= 0 || denominator <= 0) {
+    return currentLots;
+  }
+  const splitRatio = numerator / denominator;
+  return currentLots.map((lot) => {
+    if (lot.accountId !== action.accountId || lot.ticker !== action.ticker || lot.openQuantity <= 0) {
+      return lot;
+    }
+    const adjustedQuantity = lot.openQuantity * splitRatio;
+    const retainedQuantity = Math.floor(adjustedQuantity);
+    const hasFractionalQuantity = adjustedQuantity !== retainedQuantity;
+    if (hasFractionalQuantity && (action.cashInLieuAmount ?? 0) <= 0) {
+      throw new Error(`Position action ${action.id} creates fractional shares without cash-in-lieu`);
+    }
+    return {
+      ...lot,
+      openQuantity: hasFractionalQuantity ? retainedQuantity : adjustedQuantity,
+    };
+  });
+}
+
+function deriveEligibleQuantityFromReplayStream(
+  trades: readonly BookedTradeEvent[],
+  positionActions: readonly PositionAction[],
+  accountId: string,
+  ticker: string,
+  marketCode: SharedMarketCode,
+  dividendEvent: Pick<DividendEvent, "exDividendDate">,
+): number {
+  let lots: Lot[] = [];
+  const stream = [
+    ...trades.map((trade) => ({ kind: "trade" as const, trade })),
+    ...positionActions.map((action) => ({ kind: "action" as const, action })),
+  ]
+    .filter((entry) => {
+      const entryDate = entry.kind === "trade" ? entry.trade.tradeDate : entry.action.actionDate;
+      const entryMarketCode = entry.kind === "trade" ? entry.trade.marketCode : entry.action.marketCode;
+      return entryDate < dividendEvent.exDividendDate && entryMarketCode === marketCode;
+    })
+    .sort(compareReplayEntries);
+
+  for (const entry of stream) {
+    if (entry.kind === "action") {
+      lots = applyPositionActionToLots(lots, entry.action);
+      continue;
+    }
+
+    const trade = entry.trade;
+    if (trade.type === "BUY") {
+      const lot: Lot = {
+        id: `eligibility-lot-${trade.id}`,
+        accountId: trade.accountId,
+        ticker: trade.ticker,
+        openQuantity: trade.quantity,
+        totalCostAmount: roundToDecimal(trade.unitPrice * trade.quantity, 2) + trade.commissionAmount + trade.taxAmount,
+        costCurrency: trade.priceCurrency,
+        openedAt: trade.tradeDate,
+        openedSequence: trade.bookingSequence ?? 1,
+      };
+      lots = applyBuyToLots(lots, lot).updatedLots;
+      continue;
+    }
+
+    const openLots = lots.filter((lot) => lot.openQuantity > 0);
+    const result = allocateSellLots(openLots, trade.quantity);
+    lots = lots.map((lot) => result.updatedLots.find((updated) => updated.id === lot.id) ?? lot);
+  }
+
+  return Math.max(
+    0,
+    lots
+      .filter((lot) => lot.accountId === accountId && lot.ticker === ticker && lot.openQuantity > 0)
+      .reduce((sum, lot) => sum + lot.openQuantity, 0),
+  );
 }
 
 async function emitDividendLedgerChangeEvents(
@@ -375,4 +497,46 @@ function toSharedMarketCode(marketCode: MarketCode | undefined): SharedMarketCod
     return marketCode as SharedMarketCode;
   }
   return undefined;
+}
+
+type ReplayStreamEntry =
+  | { kind: "trade"; trade: Parameters<typeof compareTrades>[0] }
+  | { kind: "action"; action: PositionAction };
+
+function compareReplayEntries(left: ReplayStreamEntry, right: ReplayStreamEntry): number {
+  const leftDate = left.kind === "trade" ? left.trade.tradeDate : left.action.actionDate;
+  const rightDate = right.kind === "trade" ? right.trade.tradeDate : right.action.actionDate;
+  if (leftDate !== rightDate) return leftDate.localeCompare(rightDate);
+
+  const leftTimestamp = left.kind === "trade" ? left.trade.tradeTimestamp ?? null : left.action.actionTimestamp ?? null;
+  const rightTimestamp = right.kind === "trade" ? right.trade.tradeTimestamp ?? null : right.action.actionTimestamp ?? null;
+  if (leftTimestamp && rightTimestamp && leftTimestamp !== rightTimestamp) {
+    return leftTimestamp.localeCompare(rightTimestamp);
+  }
+  if (left.kind !== right.kind && (!leftTimestamp || !rightTimestamp)) {
+    return left.kind === "action" ? -1 : 1;
+  }
+
+  if (left.kind === "trade" && right.kind === "trade") {
+    return compareTrades(left.trade, right.trade);
+  }
+  if (left.kind === "action" && right.kind === "action") {
+    return (
+      (left.action.bookedAt ?? "").localeCompare(right.action.bookedAt ?? "")
+      || left.action.id.localeCompare(right.action.id)
+    );
+  }
+  return left.kind === "action" ? -1 : 1;
+}
+
+function compareTrades(
+  left: Awaited<ReturnType<Persistence["getTradeEventsForAccountTicker"]>>[number],
+  right: Awaited<ReturnType<Persistence["getTradeEventsForAccountTicker"]>>[number],
+): number {
+  return (
+    (left.tradeTimestamp ?? "").localeCompare(right.tradeTimestamp ?? "")
+    || (left.bookingSequence ?? 0) - (right.bookingSequence ?? 0)
+    || (left.bookedAt ?? "").localeCompare(right.bookedAt ?? "")
+    || left.id.localeCompare(right.id)
+  );
 }

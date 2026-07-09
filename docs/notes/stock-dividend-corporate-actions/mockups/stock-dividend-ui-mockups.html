@@ -1,0 +1,1256 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Stock Dividend Corporate Actions Mockups</title>
+    <style>
+      :root {
+        --background: #f6f8fb;
+        --foreground: #101827;
+        --muted: #eef2f7;
+        --muted-strong: #e4e9f2;
+        --muted-foreground: #637083;
+        --card: #ffffff;
+        --border: #dce3ee;
+        --primary: #4f63d9;
+        --primary-soft: #eef0ff;
+        --teal: #0f9f8f;
+        --teal-soft: #e8f7f5;
+        --success: #16834a;
+        --success-soft: #e8f7ee;
+        --warning: #b96d00;
+        --warning-soft: #fff4df;
+        --danger: #c63838;
+        --danger-soft: #fff0f0;
+        --shadow: 0 18px 45px rgba(30, 41, 59, 0.12);
+        --radius: 8px;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+
+      body {
+        background: #dfe6f0;
+        color: var(--foreground);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        letter-spacing: 0;
+      }
+
+      button,
+      input,
+      select {
+        font: inherit;
+        letter-spacing: 0;
+      }
+
+      .shot-stack {
+        display: grid;
+        gap: 40px;
+        padding: 40px;
+      }
+
+      .shot {
+        position: relative;
+        overflow: hidden;
+        background: var(--background);
+        border: 1px solid #cbd5e1;
+        color: var(--foreground);
+      }
+
+      .shot.desktop {
+        width: 1440px;
+        min-height: 960px;
+      }
+
+      .shot.mobile {
+        width: 390px;
+        min-height: 870px;
+      }
+
+      .app-shell {
+        display: grid;
+        grid-template-columns: 232px 1fr;
+        min-height: 960px;
+      }
+
+      .sidebar {
+        display: flex;
+        flex-direction: column;
+        gap: 18px;
+        border-right: 1px solid var(--border);
+        background: #ffffff;
+        padding: 24px 16px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 0 6px 10px;
+        font-weight: 700;
+      }
+
+      .brand-mark {
+        display: grid;
+        width: 32px;
+        height: 32px;
+        place-items: center;
+        border-radius: 8px;
+        background: #101827;
+        color: #ffffff;
+        font-size: 13px;
+      }
+
+      .nav {
+        display: grid;
+        gap: 6px;
+      }
+
+      .nav-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-height: 38px;
+        border-radius: 8px;
+        padding: 0 10px;
+        color: #4b5565;
+        font-size: 14px;
+      }
+
+      .nav-item.active {
+        background: var(--primary-soft);
+        color: #2332a0;
+        font-weight: 650;
+      }
+
+      .nav-icon {
+        display: grid;
+        width: 20px;
+        height: 20px;
+        place-items: center;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        color: #5b6475;
+        font-size: 11px;
+        line-height: 1;
+      }
+
+      .sidebar-footer {
+        margin-top: auto;
+        border-top: 1px solid var(--border);
+        padding-top: 14px;
+        color: var(--muted-foreground);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+
+      .content {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        min-width: 0;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        border-bottom: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.9);
+        padding: 16px 28px;
+      }
+
+      .crumb {
+        color: var(--muted-foreground);
+        font-size: 13px;
+      }
+
+      .top-actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .icon-button {
+        display: grid;
+        width: 38px;
+        height: 38px;
+        place-items: center;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #ffffff;
+        color: #344054;
+      }
+
+      .main {
+        display: grid;
+        align-content: start;
+        gap: 18px;
+        padding: 28px;
+      }
+
+      .page-head {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 20px;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        font-size: 30px;
+        line-height: 1.2;
+      }
+
+      h2 {
+        font-size: 21px;
+        line-height: 1.25;
+      }
+
+      h3 {
+        font-size: 15px;
+        line-height: 1.35;
+      }
+
+      .subtle {
+        color: var(--muted-foreground);
+      }
+
+      .small {
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .body-copy {
+        color: #4b5565;
+        font-size: 14px;
+        line-height: 1.55;
+      }
+
+      .toolbar {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .field,
+      .select {
+        display: flex;
+        align-items: center;
+        min-height: 38px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #ffffff;
+        padding: 0 12px;
+        color: #344054;
+        font-size: 14px;
+      }
+
+      .field {
+        min-width: 250px;
+        justify-content: space-between;
+        color: #667085;
+      }
+
+      .select {
+        gap: 8px;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 38px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #ffffff;
+        padding: 0 14px;
+        color: #243044;
+        font-weight: 650;
+        font-size: 14px;
+      }
+
+      .button.primary {
+        border-color: #3d4fc4;
+        background: #4f63d9;
+        color: #ffffff;
+      }
+
+      .button.danger {
+        border-color: #f3b8b8;
+        background: var(--danger-soft);
+        color: var(--danger);
+      }
+
+      .button.disabled {
+        border-color: var(--border);
+        background: #f2f5f9;
+        color: #98a2b3;
+      }
+
+      .metric-strip {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+      }
+
+      .metric {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: #ffffff;
+        padding: 14px 16px;
+      }
+
+      .metric-label {
+        color: var(--muted-foreground);
+        font-size: 12px;
+      }
+
+      .metric-value {
+        margin-top: 6px;
+        font-size: 22px;
+        font-weight: 720;
+      }
+
+      .panel {
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: #ffffff;
+        box-shadow: 0 1px 0 rgba(16, 24, 39, 0.02);
+      }
+
+      .panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        border-bottom: 1px solid var(--border);
+        padding: 14px 16px;
+      }
+
+      .table-wrap {
+        overflow: hidden;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      th {
+        border-bottom: 1px solid var(--border);
+        background: #f8fafc;
+        color: #657386;
+        font-weight: 700;
+        padding: 11px 14px;
+        text-align: left;
+        white-space: nowrap;
+      }
+
+      td {
+        border-bottom: 1px solid #edf1f6;
+        padding: 12px 14px;
+        vertical-align: middle;
+      }
+
+      tr:last-child td {
+        border-bottom: 0;
+      }
+
+      .num {
+        font-variant-numeric: tabular-nums;
+        text-align: right;
+        white-space: nowrap;
+      }
+
+      .ticker-cell {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 185px;
+      }
+
+      .ticker-mark {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border-radius: 8px;
+        background: #edf7f5;
+        color: #08796e;
+        font-weight: 760;
+        font-size: 12px;
+      }
+
+      .ticker-title {
+        font-weight: 720;
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 24px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 0 9px;
+        color: #526071;
+        background: #f8fafc;
+        font-size: 12px;
+        font-weight: 650;
+        white-space: nowrap;
+      }
+
+      .badge.success {
+        border-color: #bfe8cd;
+        background: var(--success-soft);
+        color: var(--success);
+      }
+
+      .badge.warning {
+        border-color: #f5d196;
+        background: var(--warning-soft);
+        color: var(--warning);
+      }
+
+      .badge.danger {
+        border-color: #f2bcbc;
+        background: var(--danger-soft);
+        color: var(--danger);
+      }
+
+      .badge.teal {
+        border-color: #b5e4df;
+        background: var(--teal-soft);
+        color: #08796e;
+      }
+
+      .gain {
+        color: var(--success);
+        font-weight: 700;
+      }
+
+      .loss {
+        color: var(--danger);
+        font-weight: 700;
+      }
+
+      .muted-row {
+        background: #fbfcfe;
+      }
+
+      .sheet {
+        position: absolute;
+        right: 28px;
+        bottom: 28px;
+        left: 260px;
+        max-height: 610px;
+        overflow: hidden;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #ffffff;
+        box-shadow: var(--shadow);
+      }
+
+      .sheet-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        border-bottom: 1px solid var(--border);
+        padding: 18px 20px;
+      }
+
+      .sheet-body {
+        display: grid;
+        gap: 16px;
+        padding: 18px 20px 22px;
+      }
+
+      .split-grid {
+        display: grid;
+        grid-template-columns: 1fr 1.25fr;
+        gap: 16px;
+      }
+
+      .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 10px;
+      }
+
+      .summary-cell {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #fbfcfe;
+        padding: 11px 12px;
+      }
+
+      .summary-cell strong {
+        display: block;
+        margin-top: 5px;
+        font-size: 15px;
+      }
+
+      .form-grid {
+        display: grid;
+        gap: 12px;
+      }
+
+      .label {
+        display: grid;
+        gap: 6px;
+        color: #344054;
+        font-size: 13px;
+        font-weight: 650;
+      }
+
+      .input {
+        width: 100%;
+        min-height: 40px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #ffffff;
+        padding: 0 12px;
+        color: #101827;
+      }
+
+      .segmented {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        overflow: hidden;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #ffffff;
+      }
+
+      .segment {
+        min-height: 38px;
+        border: 0;
+        background: transparent;
+        color: #4b5565;
+        font-weight: 650;
+      }
+
+      .segment.active {
+        background: var(--primary-soft);
+        color: #2332a0;
+      }
+
+      .alert {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 12px 14px;
+      }
+
+      .alert.warning {
+        border-color: #f5d196;
+        background: var(--warning-soft);
+      }
+
+      .alert.danger {
+        border-color: #f2bcbc;
+        background: var(--danger-soft);
+      }
+
+      .alert.success {
+        border-color: #bfe8cd;
+        background: var(--success-soft);
+      }
+
+      .timeline {
+        display: grid;
+        gap: 0;
+      }
+
+      .timeline-row {
+        display: grid;
+        grid-template-columns: 150px 1fr auto;
+        gap: 16px;
+        border-bottom: 1px solid #edf1f6;
+        padding: 14px 0;
+      }
+
+      .timeline-row:last-child {
+        border-bottom: 0;
+      }
+
+      .timeline-main {
+        display: grid;
+        gap: 5px;
+      }
+
+      .timeline-title {
+        font-size: 14px;
+        font-weight: 730;
+      }
+
+      .timeline-meta {
+        color: var(--muted-foreground);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .drawer {
+        position: absolute;
+        top: 0;
+        right: 0;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        width: 430px;
+        height: 100%;
+        border-left: 1px solid var(--border);
+        background: #ffffff;
+        box-shadow: -18px 0 45px rgba(30, 41, 59, 0.14);
+      }
+
+      .drawer-head,
+      .drawer-footer {
+        border-bottom: 1px solid var(--border);
+        padding: 18px 20px;
+      }
+
+      .drawer-footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        border-top: 1px solid var(--border);
+        border-bottom: 0;
+      }
+
+      .drawer-body {
+        display: grid;
+        align-content: start;
+        gap: 16px;
+        overflow: hidden;
+        padding: 18px 20px;
+      }
+
+      .kv-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+      }
+
+      .kv {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #fbfcfe;
+        padding: 10px;
+      }
+
+      .kv span {
+        display: block;
+        color: var(--muted-foreground);
+        font-size: 12px;
+      }
+
+      .kv strong {
+        display: block;
+        margin-top: 5px;
+        font-size: 14px;
+      }
+
+      .two-col {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      .review-layout {
+        display: grid;
+        grid-template-columns: 1fr 430px;
+        min-height: 960px;
+      }
+
+      .review-main {
+        min-width: 0;
+      }
+
+      .mobile-shell {
+        display: grid;
+        min-height: 870px;
+        grid-template-rows: auto 1fr;
+        background: var(--background);
+      }
+
+      .mobile-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--border);
+        background: #ffffff;
+        padding: 14px 16px;
+      }
+
+      .mobile-content {
+        display: grid;
+        align-content: start;
+        gap: 12px;
+        padding: 14px;
+      }
+
+      .mobile-card {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #ffffff;
+        padding: 14px;
+      }
+
+      .mobile-summary {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      .mobile-actions {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px;
+      }
+
+      @media (max-width: 640px) {
+        .shot-stack {
+          padding: 0;
+        }
+
+        .shot.desktop {
+          display: none;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shot-stack">
+      <section class="shot desktop" data-shot="holdings-overview">
+        <div class="app-shell">
+          <aside class="sidebar">
+            <div class="brand"><span class="brand-mark">VW</span><span>Vakwen</span></div>
+            <nav class="nav" aria-label="Main">
+              <div class="nav-item"><span class="nav-icon">D</span>Dashboard</div>
+              <div class="nav-item active"><span class="nav-icon">P</span>Portfolio</div>
+              <div class="nav-item"><span class="nav-icon">$</span>Dividends</div>
+              <div class="nav-item"><span class="nav-icon">T</span>Transactions</div>
+              <div class="nav-item"><span class="nav-icon">R</span>Reports</div>
+            </nav>
+            <div class="sidebar-footer">Default portfolio<br>Reporting currency TWD</div>
+          </aside>
+          <div class="content">
+            <header class="topbar">
+              <div class="crumb">Portfolio / Holdings</div>
+              <div class="top-actions">
+                <button class="icon-button" aria-label="Search">S</button>
+                <button class="icon-button" aria-label="Notifications">N</button>
+              </div>
+            </header>
+            <div class="main">
+              <div class="page-head">
+                <div>
+                  <h1>Portfolio</h1>
+                  <p class="body-copy">Holdings reflect posted trades, dividends, and position actions.</p>
+                </div>
+                <div class="toolbar">
+                  <div class="field">Search ticker or account</div>
+                  <button class="button">Columns</button>
+                  <button class="button primary">Add transaction</button>
+                </div>
+              </div>
+              <div class="metric-strip">
+                <div class="metric"><div class="metric-label">Market value</div><div class="metric-value num">TWD 2,914,000</div></div>
+                <div class="metric"><div class="metric-label">Cost basis</div><div class="metric-value num">TWD 1,856,000</div></div>
+                <div class="metric"><div class="metric-label">Unrealized P&L</div><div class="metric-value num gain">+TWD 1,058,000</div></div>
+                <div class="metric"><div class="metric-label">Open holdings</div><div class="metric-value num">4</div></div>
+              </div>
+              <section class="panel">
+                <div class="panel-head">
+                  <div>
+                    <h2>Holdings</h2>
+                    <p class="small subtle">Aggregated by ticker across accounts</p>
+                  </div>
+                  <div class="toolbar">
+                    <button class="button">Market TW</button>
+                    <button class="button">Status current</button>
+                  </div>
+                </div>
+                <div class="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Ticker</th>
+                        <th class="num">Accounts</th>
+                        <th class="num">Quantity</th>
+                        <th class="num">Average cost</th>
+                        <th class="num">Price</th>
+                        <th class="num">Market value</th>
+                        <th class="num">P&L</th>
+                        <th class="num">Cost basis</th>
+                        <th class="num">Last dividend</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td><div class="ticker-cell"><span class="ticker-mark">TS</span><div><div class="ticker-title">2330</div><div class="small subtle">TSMC / TW</div></div></div></td>
+                        <td class="num">2</td>
+                        <td class="num">2,300</td>
+                        <td class="num">TWD 43.48</td>
+                        <td class="num">TWD 951.00</td>
+                        <td class="num">TWD 2,187,300</td>
+                        <td class="num gain">+TWD 2,087,300</td>
+                        <td class="num">TWD 100,000</td>
+                        <td class="num">2026-08-12</td>
+                      </tr>
+                      <tr>
+                        <td><div class="ticker-cell"><span class="ticker-mark">ME</span><div><div class="ticker-title">2454</div><div class="small subtle">MediaTek / TW</div></div></div></td>
+                        <td class="num">1</td>
+                        <td class="num">400</td>
+                        <td class="num">TWD 782.50</td>
+                        <td class="num">TWD 1,025.00</td>
+                        <td class="num">TWD 410,000</td>
+                        <td class="num gain">+TWD 97,000</td>
+                        <td class="num">TWD 313,000</td>
+                        <td class="num">2026-07-24</td>
+                      </tr>
+                      <tr>
+                        <td><div class="ticker-cell"><span class="ticker-mark">YU</span><div><div class="ticker-title">2885</div><div class="small subtle">Yuanta / TW</div></div></div></td>
+                        <td class="num">1</td>
+                        <td class="num">8,000</td>
+                        <td class="num">TWD 25.10</td>
+                        <td class="num">TWD 28.60</td>
+                        <td class="num">TWD 228,800</td>
+                        <td class="num gain">+TWD 28,000</td>
+                        <td class="num">TWD 200,800</td>
+                        <td class="num">2026-06-18</td>
+                      </tr>
+                      <tr>
+                        <td><div class="ticker-cell"><span class="ticker-mark">CH</span><div><div class="ticker-title">2412</div><div class="small subtle">Chunghwa Telecom / TW</div></div></div></td>
+                        <td class="num">1</td>
+                        <td class="num">700</td>
+                        <td class="num">TWD 125.00</td>
+                        <td class="num">TWD 125.50</td>
+                        <td class="num">TWD 87,850</td>
+                        <td class="num gain">+TWD 350</td>
+                        <td class="num">TWD 87,500</td>
+                        <td class="num">2026-05-31</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="shot desktop" data-shot="holding-detail-timeline">
+        <div class="app-shell">
+          <aside class="sidebar">
+            <div class="brand"><span class="brand-mark">VW</span><span>Vakwen</span></div>
+            <nav class="nav" aria-label="Main">
+              <div class="nav-item"><span class="nav-icon">D</span>Dashboard</div>
+              <div class="nav-item active"><span class="nav-icon">P</span>Portfolio</div>
+              <div class="nav-item"><span class="nav-icon">$</span>Dividends</div>
+              <div class="nav-item"><span class="nav-icon">T</span>Transactions</div>
+            </nav>
+            <div class="sidebar-footer">Default portfolio<br>Account filter: all</div>
+          </aside>
+          <div class="content">
+            <header class="topbar">
+              <div class="crumb">Portfolio / Holdings / 2330</div>
+              <div class="top-actions">
+                <button class="button">Refresh prices</button>
+                <button class="icon-button" aria-label="Close detail">X</button>
+              </div>
+            </header>
+            <div class="main">
+              <div class="page-head">
+                <div>
+                  <h1>2330 TSMC</h1>
+                  <p class="body-copy">Position detail across Brokerage A and Brokerage B.</p>
+                </div>
+                <div class="toolbar">
+                  <button class="button primary">Record split</button>
+                  <button class="button">Edit stock dividend</button>
+                </div>
+              </div>
+              <div class="summary-grid">
+                <div class="summary-cell"><span class="small subtle">Quantity</span><strong class="num">2,300 shares</strong></div>
+                <div class="summary-cell"><span class="small subtle">Average cost</span><strong class="num">TWD 43.48</strong></div>
+                <div class="summary-cell"><span class="small subtle">Cost basis</span><strong class="num">TWD 100,000</strong></div>
+                <div class="summary-cell"><span class="small subtle">Market value</span><strong class="num">TWD 2,187,300</strong></div>
+              </div>
+              <section class="panel">
+                <div class="panel-head">
+                  <div>
+                    <h2>Position actions</h2>
+                    <p class="small subtle">Chronological stream used by replay after trades and corporate actions are unified.</p>
+                  </div>
+                  <span class="badge teal">Unified replay order</span>
+                </div>
+                <div class="sheet-body">
+                  <div class="timeline">
+                    <div class="timeline-row">
+                      <div>
+                        <div class="small subtle">2026-08-12</div>
+                        <div class="small subtle">09:00</div>
+                      </div>
+                      <div class="timeline-main">
+                        <div class="timeline-title">Stock dividend posted</div>
+                        <div class="timeline-meta">+300 shares from dividend ledger entry DLE-9041. Added portfolio cost: TWD 0. Par value base: TWD 3,000.</div>
+                      </div>
+                      <span class="badge warning">Amend blocked</span>
+                    </div>
+                    <div class="timeline-row">
+                      <div>
+                        <div class="small subtle">2026-08-12</div>
+                        <div class="small subtle">13:22</div>
+                      </div>
+                      <div class="timeline-main">
+                        <div class="timeline-title">Sell trade consumed post-dividend shares</div>
+                        <div class="timeline-meta">-100 shares sold from Brokerage A. Later corrections require reversal plus replacement.</div>
+                      </div>
+                      <span class="badge">Trade</span>
+                    </div>
+                    <div class="timeline-row">
+                      <div>
+                        <div class="small subtle">2026-06-30</div>
+                        <div class="small subtle">10:14</div>
+                      </div>
+                      <div class="timeline-main">
+                        <div class="timeline-title">Buy trade</div>
+                        <div class="timeline-meta">2,000 shares at TWD 50.00. Original portfolio cost basis: TWD 100,000.</div>
+                      </div>
+                      <span class="badge success">Open lot</span>
+                    </div>
+                    <div class="timeline-row">
+                      <div>
+                        <div class="small subtle">2026-06-01</div>
+                        <div class="small subtle">--</div>
+                      </div>
+                      <div class="timeline-main">
+                        <div class="timeline-title">Opening balance imported</div>
+                        <div class="timeline-meta">Legacy migration seed. No orphan zero-cost lots detected for this holding.</div>
+                      </div>
+                      <span class="badge">Audit ok</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="shot desktop" data-shot="split-blocking-preview">
+        <div class="app-shell">
+          <aside class="sidebar">
+            <div class="brand"><span class="brand-mark">VW</span><span>Vakwen</span></div>
+            <nav class="nav" aria-label="Main">
+              <div class="nav-item"><span class="nav-icon">D</span>Dashboard</div>
+              <div class="nav-item active"><span class="nav-icon">P</span>Portfolio</div>
+              <div class="nav-item"><span class="nav-icon">$</span>Dividends</div>
+              <div class="nav-item"><span class="nav-icon">T</span>Transactions</div>
+            </nav>
+          </aside>
+          <div class="content">
+            <header class="topbar">
+              <div class="crumb">Portfolio / Holdings / 2330 / Record split</div>
+              <button class="icon-button" aria-label="Close">X</button>
+            </header>
+            <div class="main">
+              <div class="page-head">
+                <div>
+                  <h1>Record split for 2330</h1>
+                  <p class="body-copy">Contextual action from the holding detail surface.</p>
+                </div>
+                <span class="badge warning">Preview required</span>
+              </div>
+              <section class="panel">
+                <div class="panel-head">
+                  <div>
+                    <h2>Position action preview</h2>
+                    <p class="small subtle">Effective ordering: timestamp first, otherwise position action before same-day trades.</p>
+                  </div>
+                </div>
+                <div class="sheet-body split-grid">
+                  <div class="form-grid">
+                    <div class="segmented" aria-label="Action type">
+                      <button class="segment">Split</button>
+                      <button class="segment active">Reverse split</button>
+                    </div>
+                    <label class="label">Effective date<input class="input" value="2026-09-05"></label>
+                    <label class="label">Effective time<input class="input" value="09:00"></label>
+                    <div class="two-col">
+                      <label class="label">Old shares<input class="input num" value="3"></label>
+                      <label class="label">New shares<input class="input num" value="1"></label>
+                    </div>
+                    <label class="label">Cash-in-lieu amount<input class="input num" value=""></label>
+                    <div class="alert danger">
+                      <h3>Posting blocked</h3>
+                      <p class="small">This reverse split creates 0.6667 fractional shares. Enter cash-in-lieu or adjust fractional handling before posting.</p>
+                    </div>
+                  </div>
+                  <div class="form-grid">
+                    <div class="summary-grid">
+                      <div class="summary-cell"><span class="small subtle">Before quantity</span><strong class="num">2,300</strong></div>
+                      <div class="summary-cell"><span class="small subtle">After quantity</span><strong class="num">766.6667</strong></div>
+                      <div class="summary-cell"><span class="small subtle">Cost basis</span><strong class="num">TWD 100,000</strong></div>
+                      <div class="summary-cell"><span class="small subtle">Average cost</span><strong class="num">TWD 130.43</strong></div>
+                    </div>
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Lot source</th>
+                          <th class="num">Before</th>
+                          <th class="num">After</th>
+                          <th class="num">Fraction</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td>Buy trade TRD-1028</td>
+                          <td class="num">2,000</td>
+                          <td class="num">666.6667</td>
+                          <td class="num warning">0.6667</td>
+                        </tr>
+                        <tr>
+                          <td>Stock dividend DLE-9041</td>
+                          <td class="num">300</td>
+                          <td class="num">100</td>
+                          <td class="num">0</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                    <div class="alert warning">
+                      <h3>Replay impact</h3>
+                      <p class="small">Open quantity changes only after the action timestamp. Realized P&L uses the same projected lots after replay.</p>
+                    </div>
+                    <div class="toolbar" style="justify-content:flex-end">
+                      <button class="button">Cancel</button>
+                      <button class="button disabled">Post action</button>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="shot desktop" data-shot="dividend-review-drawer">
+        <div class="review-layout">
+          <div class="review-main">
+            <div class="content">
+              <header class="topbar">
+                <div class="crumb">Dividends / Ledger review</div>
+                <div class="top-actions">
+                  <button class="button">Current year</button>
+                  <button class="button">Needs reconciliation</button>
+                </div>
+              </header>
+              <div class="main">
+                <div class="page-head">
+                  <div>
+                    <h1>Dividend review</h1>
+                    <p class="body-copy">Cash rows stay in the dividend ledger; stock effects link to position actions.</p>
+                  </div>
+                  <button class="button primary">Post selected</button>
+                </div>
+                <section class="panel">
+                  <div class="panel-head">
+                    <div>
+                      <h2>Ledger entries</h2>
+                      <p class="small subtle">Compact stock columns are visible without opening the drawer.</p>
+                    </div>
+                    <span class="badge warning">3 open</span>
+                  </div>
+                  <div class="table-wrap">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Payment</th>
+                          <th>Ticker</th>
+                          <th>Account</th>
+                          <th>Event</th>
+                          <th class="num">Cash exp.</th>
+                          <th class="num">Cash rec.</th>
+                          <th class="num">Stock rec.</th>
+                          <th class="num">Cash-in-lieu</th>
+                          <th>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td>2026-08-12</td>
+                          <td><div class="ticker-cell"><span class="ticker-mark">TS</span><div><div class="ticker-title">2330</div><div class="small subtle">TSMC</div></div></div></td>
+                          <td>Brokerage A</td>
+                          <td><span class="badge teal">Stock</span></td>
+                          <td class="num">TWD 0</td>
+                          <td class="num">TWD 0</td>
+                          <td class="num">300</td>
+                          <td class="num">TWD 0</td>
+                          <td><span class="badge warning">Open</span></td>
+                        </tr>
+                        <tr class="muted-row">
+                          <td>2026-07-24</td>
+                          <td><div class="ticker-cell"><span class="ticker-mark">ME</span><div><div class="ticker-title">2454</div><div class="small subtle">MediaTek</div></div></div></td>
+                          <td>Brokerage A</td>
+                          <td><span class="badge">Cash</span></td>
+                          <td class="num">TWD 36,000</td>
+                          <td class="num">TWD 35,251</td>
+                          <td class="num">0</td>
+                          <td class="num">TWD 0</td>
+                          <td><span class="badge success">Matched</span></td>
+                        </tr>
+                        <tr>
+                          <td>2026-06-18</td>
+                          <td><div class="ticker-cell"><span class="ticker-mark">YU</span><div><div class="ticker-title">2885</div><div class="small subtle">Yuanta</div></div></div></td>
+                          <td>Brokerage B</td>
+                          <td><span class="badge teal">Mixed</span></td>
+                          <td class="num">TWD 4,800</td>
+                          <td class="num">TWD 4,622</td>
+                          <td class="num">240</td>
+                          <td class="num">TWD 18</td>
+                          <td><span class="badge warning">Open</span></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </div>
+          <aside class="drawer">
+            <div class="drawer-head">
+              <div>
+                <h2>2330 TSMC</h2>
+                <p class="small subtle">Brokerage A / Dividend ledger DLE-9041</p>
+              </div>
+              <span class="badge teal">Stock dividend</span>
+            </div>
+            <div class="drawer-body">
+              <div class="alert warning">
+                <h3>Correction path</h3>
+                <p class="small">A sell exists after this posting. Corrections will create a reversal plus replacement entry.</p>
+              </div>
+              <div class="kv-grid">
+                <div class="kv"><span>Eligible shares</span><strong class="num">2,000</strong></div>
+                <div class="kv"><span>Received shares</span><strong class="num">300</strong></div>
+                <div class="kv"><span>Portfolio cost added</span><strong class="num">TWD 0</strong></div>
+                <div class="kv"><span>Par value base</span><strong class="num">TWD 3,000</strong></div>
+              </div>
+              <div class="form-grid">
+                <div class="two-col">
+                  <label class="label">Expected stock<input class="input num" value="300"></label>
+                  <label class="label">Received stock<input class="input num" value="300"></label>
+                </div>
+                <div class="two-col">
+                  <label class="label">Cash-in-lieu<input class="input num" value="TWD 0"></label>
+                  <label class="label">NHI premium base<input class="input num" value="TWD 3,000"></label>
+                </div>
+                <label class="label">Reconciliation note<input class="input" value="Broker statement confirms stock dividend shares."></label>
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Linked record</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td>Position action PA-7712</td><td><span class="badge success">Posted</span></td></tr>
+                  <tr><td>Snapshot refresh</td><td><span class="badge success">Queued</span></td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="drawer-footer">
+              <button class="button">Close</button>
+              <button class="button danger">Create reversal</button>
+            </div>
+          </aside>
+        </div>
+      </section>
+
+      <section class="shot mobile" data-shot="mobile-split-preview">
+        <div class="mobile-shell">
+          <header class="mobile-top">
+            <button class="icon-button" aria-label="Back">B</button>
+            <div>
+              <h3>Record reverse split</h3>
+              <p class="small subtle">2330 TSMC</p>
+            </div>
+            <button class="icon-button" aria-label="Close">X</button>
+          </header>
+          <div class="mobile-content">
+            <section class="mobile-card">
+              <div class="segmented" aria-label="Action type">
+                <button class="segment">Split</button>
+                <button class="segment active">Reverse</button>
+              </div>
+              <div class="form-grid" style="margin-top:12px">
+                <label class="label">Effective date<input class="input" value="2026-09-05"></label>
+                <div class="two-col">
+                  <label class="label">Old<input class="input num" value="3"></label>
+                  <label class="label">New<input class="input num" value="1"></label>
+                </div>
+              </div>
+            </section>
+            <section class="mobile-card">
+              <h3>Preview</h3>
+              <div class="mobile-summary" style="margin-top:10px">
+                <div class="summary-cell"><span class="small subtle">Before</span><strong class="num">2,300</strong></div>
+                <div class="summary-cell"><span class="small subtle">After</span><strong class="num">766.6667</strong></div>
+                <div class="summary-cell"><span class="small subtle">Cost basis</span><strong class="num">TWD 100,000</strong></div>
+                <div class="summary-cell"><span class="small subtle">Avg cost</span><strong class="num">TWD 130.43</strong></div>
+              </div>
+            </section>
+            <section class="mobile-card">
+              <div class="alert danger">
+                <h3>Posting blocked</h3>
+                <p class="small">0.6667 fractional shares need cash-in-lieu before this action can be posted.</p>
+              </div>
+              <label class="label" style="margin-top:12px">Cash-in-lieu amount<input class="input num" value=""></label>
+            </section>
+            <section class="mobile-card">
+              <div class="timeline">
+                <div class="timeline-row" style="grid-template-columns:76px 1fr">
+                  <div class="small subtle">09:00</div>
+                  <div class="timeline-main">
+                    <div class="timeline-title">Position action</div>
+                    <div class="timeline-meta">Runs before same-day trades when no trade timestamp is earlier.</div>
+                  </div>
+                </div>
+                <div class="timeline-row" style="grid-template-columns:76px 1fr">
+                  <div class="small subtle">13:22</div>
+                  <div class="timeline-main">
+                    <div class="timeline-title">Existing sell</div>
+                    <div class="timeline-meta">Blocks amendment after posting.</div>
+                  </div>
+                </div>
+              </div>
+            </section>
+            <div class="mobile-actions">
+              <button class="button">Cancel</button>
+              <button class="button disabled">Post</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

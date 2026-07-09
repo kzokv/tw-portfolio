@@ -86,6 +86,18 @@ export interface TransactionEstimateResponse {
   taxAmount: number;
 }
 
+export interface CorporateActionInput {
+  accountId: string;
+  ticker: string;
+  actionType: "SPLIT" | "REVERSE_SPLIT";
+  numerator: number;
+  denominator: number;
+  actionDate: string;
+  actionTimestamp?: string;
+  cashInLieuAmount?: number;
+  cashInLieuCurrency?: string;
+}
+
 export async function submitTransaction(input: TransactionInput): Promise<void> {
   // KZO-169: marketCode is required by the server (D3). The form guards this
   // with a chip+ticker commit before enabling submit; if it ever reaches the
@@ -244,4 +256,15 @@ export async function previewRecompute(): Promise<RecomputePreviewResponse> {
 
 export async function confirmRecompute(jobId: string): Promise<RecomputeConfirmResponse> {
   return postJson<RecomputeConfirmResponse>("/portfolio/recompute/confirm", { jobId });
+}
+
+export async function submitCorporateAction(input: CorporateActionInput): Promise<CorporateActionInput & { id?: string }> {
+  return postJson<CorporateActionInput & { id?: string }>(
+    "/corporate-actions",
+    {
+      ...input,
+      ticker: input.ticker.trim().toUpperCase(),
+    },
+    { "idempotency-key": `corp-action-${input.accountId}-${input.ticker}-${input.actionDate}-${input.numerator}-${input.denominator}` },
+  );
 }

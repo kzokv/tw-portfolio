@@ -61,6 +61,16 @@ export interface DividendLedgerEntryDetails {
   sourceCompositionStatus: SourceCompositionStatus;
   version: number;
   reconciliationNote?: string | null;
+  correctionMode?: "in_place" | "amend" | "reversal_replacement" | null;
+  amendmentBlockedReason?: string | null;
+  linkedPositionActionId?: string | null;
+  linkedPositionActionStatus?: string | null;
+  cashInLieuAmount?: number | null;
+  parValueBaseAmount?: number | null;
+  premiumBaseAmount?: number | null;
+  nhiPremiumBaseAmount?: number | null;
+  portfolioCostBasisAddedAmount?: number | null;
+  snapshotRefreshStatus?: "idle" | "queued" | "running" | "complete" | "failed" | null;
   expectedCashAmount: number;
   receivedCashAmount: number;
   expectedStockQuantity: number;

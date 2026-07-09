@@ -45,6 +45,7 @@ import { ToggleGroup, ToggleGroupItem } from "../../../components/ui/shadcn/togg
 import {
   getHoldingsQuoteStatusLabel,
 } from "../../../components/holdings/HoldingsDataHealth";
+import { HoldingActionDetail } from "../../../components/holdings/HoldingActionDetail";
 import { PriceStateChip } from "../../../components/holdings/PriceStateChip";
 import { holdingsFinanceSurfaceClass, holdingsFinanceToneClass, holdingsWarningBadgeClassName } from "../../../components/holdings/holdingsStyle";
 import { useElementVisibility } from "../../../hooks/useFixedHeader";
@@ -680,6 +681,7 @@ export function TickerHistoryClient({
   const accountBreakdownRows = effectiveHoldingGroup?.children.length
     ? effectiveHoldingGroup.children
     : detailsState.accountBreakdown;
+  const actionDetailRow = effectiveHoldingGroup ?? accountBreakdownRows[0] ?? null;
   const aggregateScopeLabel = effectiveHoldingGroup
     ? `${effectiveHoldingGroup.marketCode} · ${formatNumber(effectiveHoldingGroup.accountCount, locale)}`
     : detailsState.identity.marketCode;
@@ -1866,8 +1868,18 @@ export function TickerHistoryClient({
                     </div>
                   </>
                 )}
-              </Card>
-            </div>
+                </Card>
+              </div>
+              {actionDetailRow ? (
+                <HoldingActionDetail
+                  dict={dict}
+                  locale={locale}
+                  marketCode={detailsState.identity.marketCode}
+                  onActionPosted={refresh}
+                  row={actionDetailRow}
+                  transactions={displayTransactions}
+                />
+              ) : null}
           </TabsContent>
 
           <TabsContent value="dividends" className="mt-0" data-testid="ticker-detail-dividends-tab">
