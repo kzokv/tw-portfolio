@@ -38,6 +38,7 @@ import type {
   DividendLedgerEntry,
   LotAllocationProjection,
   MarketDataFacts,
+  PositionAction,
   RecomputeJob,
   RecomputePreviewItem,
   Store,
@@ -5023,6 +5024,7 @@ export class PostgresPersistence implements Persistence {
           dividendLedgerEntries: [],
           dividendDeductionEntries: [],
           dividendSourceLines: [],
+          positionActions: [],
           corporateActions: [],
         },
         projections: {
@@ -5186,10 +5188,14 @@ export class PostgresPersistence implements Persistence {
         : Promise.resolve({ rows: [] }),
       accountIds.length
         ? this.pool.query(
-            `SELECT id, account_id, ticker, action_type, numerator, denominator, action_date
-             FROM corporate_actions
+            `SELECT id, account_id, ticker, market_code, action_type, action_date, action_timestamp,
+                    booked_at, quantity, ratio_numerator, ratio_denominator, cash_in_lieu_quantity,
+                    cash_in_lieu_amount, cash_in_lieu_currency, par_value_per_share,
+                    premium_base_amount, nhi_premium_base_amount, related_dividend_ledger_entry_id,
+                    source, source_reference, reversal_of_position_action_id, superseded_at
+             FROM position_actions
              WHERE account_id = ANY($1)
-             ORDER BY action_date, id`,
+             ORDER BY action_date, action_timestamp NULLS FIRST, booked_at NULLS FIRST, id`,
             [accountIds],
           )
         : Promise.resolve({ rows: [] }),
@@ -5440,15 +5446,8 @@ export class PostgresPersistence implements Persistence {
           dividendLedgerEntries,
           dividendDeductionEntries,
           dividendSourceLines: [],
-          corporateActions: actionsResult.rows.map((row) => ({
-            id: row.id,
-            accountId: row.account_id,
-            ticker: row.ticker,
-            actionType: row.action_type,
-            numerator: row.numerator,
-            denominator: row.denominator,
-            actionDate: normalizeDate(row.action_date),
-          })),
+          positionActions: actionsResult.rows.map((row) => mapPositionActionRow(row)),
+          corporateActions: [],
         },
         projections: {
           lots: lotsResult.rows.map((row) => ({
@@ -5697,10 +5696,14 @@ export class PostgresPersistence implements Persistence {
         : Promise.resolve({ rows: [] }),
       accountIds.length
         ? this.pool.query(
-            `SELECT id, account_id, ticker, action_type, numerator, denominator, action_date
-             FROM corporate_actions
+            `SELECT id, account_id, ticker, market_code, action_type, action_date, action_timestamp,
+                    booked_at, quantity, ratio_numerator, ratio_denominator, cash_in_lieu_quantity,
+                    cash_in_lieu_amount, cash_in_lieu_currency, par_value_per_share,
+                    premium_base_amount, nhi_premium_base_amount, related_dividend_ledger_entry_id,
+                    source, source_reference, reversal_of_position_action_id, superseded_at
+             FROM position_actions
              WHERE account_id = ANY($1)
-             ORDER BY action_date, id`,
+             ORDER BY action_date, action_timestamp NULLS FIRST, booked_at NULLS FIRST, id`,
             [accountIds],
           )
         : Promise.resolve({ rows: [] }),
@@ -5963,15 +5966,8 @@ export class PostgresPersistence implements Persistence {
           dividendLedgerEntries,
           dividendDeductionEntries,
           dividendSourceLines,
-          corporateActions: actionsResult.rows.map((row) => ({
-            id: row.id,
-            accountId: row.account_id,
-            ticker: row.ticker,
-            actionType: row.action_type,
-            numerator: row.numerator,
-            denominator: row.denominator,
-            actionDate: normalizeDate(row.action_date),
-          })),
+          positionActions: actionsResult.rows.map((row) => mapPositionActionRow(row)),
+          corporateActions: [],
         },
         projections: {
           lots: lotsResult.rows.map((row) => ({
@@ -7137,7 +7133,7 @@ export class PostgresPersistence implements Persistence {
          GROUP BY related_dividend_ledger_entry_id
        ) AS receipts ON receipts.related_dividend_ledger_entry_id = dle.id
        WHERE ${divFilter}
-         AND dle.posting_status = 'posted'
+         AND dle.posting_status IN ('posted', 'adjusted')
          AND dle.reversal_of_dividend_ledger_entry_id IS NULL
          AND dle.superseded_at IS NULL
          AND COALESCE(de.payment_date, dle.booked_at::date) IS NOT NULL
@@ -8951,6 +8947,9 @@ export class PostgresPersistence implements Persistence {
     const dividendSourceLines = accounting.facts.dividendSourceLines.filter(
       (entry) => entry.dividendLedgerEntryId === dividendLedgerEntryId,
     );
+    const positionActions = accounting.facts.positionActions.filter(
+      (entry) => entry.relatedDividendLedgerEntryId === dividendLedgerEntryId,
+    );
     const nextLots = accounting.projections.lots.filter(
       (lot) => lot.accountId === dividendLedgerEntry.accountId && lot.ticker === dividendEvent.ticker,
     );
@@ -9116,6 +9115,54 @@ export class PostgresPersistence implements Persistence {
             cashEntry.reversalOfCashLedgerEntryId ?? null,
             cashEntry.fxRateToUsd ?? null,
             cashEntry.fxTransferId ?? null,
+          ],
+        );
+      }
+
+      await client.query(
+        `DELETE FROM position_actions
+         WHERE account_id = $1
+           AND related_dividend_ledger_entry_id = $2`,
+        [dividendLedgerEntry.accountId, dividendLedgerEntry.id],
+      );
+      for (const action of positionActions) {
+        await client.query(
+          `INSERT INTO position_actions (
+             id, account_id, ticker, market_code, action_type, action_date, action_timestamp,
+             booked_at, quantity, ratio_numerator, ratio_denominator, cash_in_lieu_quantity,
+             cash_in_lieu_amount, cash_in_lieu_currency, par_value_per_share,
+             premium_base_amount, nhi_premium_base_amount, related_dividend_ledger_entry_id,
+             source, source_reference, reversal_of_position_action_id, superseded_at
+           ) VALUES (
+             $1, $2, $3, $4, $5, $6, $7,
+             $8, $9, $10, $11, $12,
+             $13, $14, $15,
+             $16, $17, $18,
+             $19, $20, $21, $22
+           )`,
+          [
+            action.id,
+            action.accountId,
+            action.ticker,
+            action.marketCode,
+            action.actionType,
+            action.actionDate,
+            action.actionTimestamp ?? null,
+            action.bookedAt ?? null,
+            action.quantity,
+            action.ratioNumerator ?? null,
+            action.ratioDenominator ?? null,
+            action.cashInLieuQuantity ?? null,
+            action.cashInLieuAmount ?? null,
+            action.cashInLieuCurrency ?? null,
+            action.parValuePerShare ?? null,
+            action.premiumBaseAmount ?? null,
+            action.nhiPremiumBaseAmount ?? null,
+            action.relatedDividendLedgerEntryId ?? null,
+            action.source,
+            action.sourceReference ?? null,
+            action.reversalOfPositionActionId ?? null,
+            action.supersededAt ?? null,
           ],
         );
       }
@@ -9375,6 +9422,7 @@ export class PostgresPersistence implements Persistence {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      const originalDividendLedgerEntryId = input.originalDividendLedgerEntryId ?? input.dividendLedgerEntry.id;
       const currentResult = await client.query(
         `SELECT dle.id, dle.account_id, dle.dividend_event_id, dle.eligible_quantity,
                 dle.expected_cash_amount, dle.expected_stock_quantity, dle.received_stock_quantity,
@@ -9393,7 +9441,7 @@ export class PostgresPersistence implements Persistence {
            -- [active-only filter ADDED]
            AND account.deleted_at IS NULL
          FOR UPDATE OF dle`,
-        [input.dividendLedgerEntry.id, userId],
+        [originalDividendLedgerEntryId, userId],
       );
 
       if (!currentResult.rowCount) {
@@ -9401,9 +9449,6 @@ export class PostgresPersistence implements Persistence {
       }
 
       const current = currentResult.rows[0];
-      if (String(current.event_type) !== "CASH") {
-        throw routeError(422, "stock_dividend_in_place_edit_unsupported", "Only pure cash dividends can be edited in place");
-      }
       if (String(current.posting_status) !== "posted") {
         throw routeError(409, "dividend_update_requires_posted_status", "Only posted dividends can be edited in place");
       }
@@ -9412,43 +9457,64 @@ export class PostgresPersistence implements Persistence {
       }
 
       const nextVersion = input.expectedVersion + 1;
-      await client.query(
-        `UPDATE dividend_ledger_entries
-         SET account_id = $2,
-             dividend_event_id = $3,
-             eligible_quantity = $4,
-             expected_cash_amount = $5,
-             expected_stock_quantity = $6,
-             received_stock_quantity = $7,
-             posting_status = $8,
-             reconciliation_status = $9,
-             version = $10,
-             source_composition_status = $11,
-             reconciliation_note = $12,
-             booked_at = $13,
-             reversal_of_dividend_ledger_entry_id = $14,
-             superseded_at = $15
-         WHERE id = $1`,
-        [
-          input.dividendLedgerEntry.id,
-          input.dividendLedgerEntry.accountId,
-          input.dividendLedgerEntry.dividendEventId,
-          input.dividendLedgerEntry.eligibleQuantity,
-          input.dividendLedgerEntry.expectedCashAmount,
-          input.dividendLedgerEntry.expectedStockQuantity,
-          input.dividendLedgerEntry.receivedStockQuantity,
-          input.dividendLedgerEntry.postingStatus,
-          "open",
-          nextVersion,
-          input.dividendLedgerEntry.sourceCompositionStatus,
-          null,
-          input.dividendLedgerEntry.bookedAt ?? new Date().toISOString(),
-          input.dividendLedgerEntry.reversalOfDividendLedgerEntryId ?? null,
-          input.dividendLedgerEntry.supersededAt ?? null,
-        ],
-      );
+      const dividendLedgerEntries = input.dividendLedgerEntries ?? [{
+        ...input.dividendLedgerEntry,
+        reconciliationStatus: "open" as const,
+        reconciliationNote: undefined,
+        version: nextVersion,
+      }];
+      for (const entry of dividendLedgerEntries) {
+        await client.query(
+          `INSERT INTO dividend_ledger_entries (
+             id, account_id, dividend_event_id, eligible_quantity,
+             expected_cash_amount, expected_stock_quantity, received_stock_quantity,
+             posting_status, reconciliation_status, version,
+             source_composition_status, reconciliation_note, booked_at,
+             reversal_of_dividend_ledger_entry_id, superseded_at
+           ) VALUES (
+             $1, $2, $3, $4,
+             $5, $6, $7,
+             $8, $9, $10,
+             $11, $12, $13,
+             $14, $15
+           )
+           ON CONFLICT (id) DO UPDATE SET
+             account_id = EXCLUDED.account_id,
+             dividend_event_id = EXCLUDED.dividend_event_id,
+             eligible_quantity = EXCLUDED.eligible_quantity,
+             expected_cash_amount = EXCLUDED.expected_cash_amount,
+             expected_stock_quantity = EXCLUDED.expected_stock_quantity,
+             received_stock_quantity = EXCLUDED.received_stock_quantity,
+             posting_status = EXCLUDED.posting_status,
+             reconciliation_status = EXCLUDED.reconciliation_status,
+             version = EXCLUDED.version,
+             source_composition_status = EXCLUDED.source_composition_status,
+             reconciliation_note = EXCLUDED.reconciliation_note,
+             booked_at = EXCLUDED.booked_at,
+             reversal_of_dividend_ledger_entry_id = EXCLUDED.reversal_of_dividend_ledger_entry_id,
+             superseded_at = EXCLUDED.superseded_at`,
+          [
+            entry.id,
+            entry.accountId,
+            entry.dividendEventId,
+            entry.eligibleQuantity,
+            entry.expectedCashAmount,
+            entry.expectedStockQuantity,
+            entry.receivedStockQuantity,
+            entry.postingStatus,
+            entry.reconciliationStatus,
+            entry.version,
+            entry.sourceCompositionStatus,
+            entry.reconciliationNote ?? null,
+            entry.bookedAt ?? new Date().toISOString(),
+            entry.reversalOfDividendLedgerEntryId ?? null,
+            entry.supersededAt ?? null,
+          ],
+        );
+      }
 
-      await client.query(`DELETE FROM dividend_deduction_entries WHERE dividend_ledger_entry_id = $1`, [input.dividendLedgerEntry.id]);
+      const childLedgerEntryIdsToReplace = input.replaceChildRowsForDividendLedgerEntryIds ?? [input.dividendLedgerEntry.id];
+      await client.query(`DELETE FROM dividend_deduction_entries WHERE dividend_ledger_entry_id = ANY($1)`, [childLedgerEntryIdsToReplace]);
       for (const deduction of input.dividendDeductions) {
         await client.query(
           `INSERT INTO dividend_deduction_entries (
@@ -9473,7 +9539,7 @@ export class PostgresPersistence implements Persistence {
         );
       }
 
-      await client.query(`DELETE FROM dividend_source_lines WHERE dividend_ledger_entry_id = $1`, [input.dividendLedgerEntry.id]);
+      await client.query(`DELETE FROM dividend_source_lines WHERE dividend_ledger_entry_id = ANY($1)`, [childLedgerEntryIdsToReplace]);
       for (const sourceLine of input.dividendSourceLines) {
         await client.query(
           `INSERT INTO dividend_source_lines (
@@ -9500,8 +9566,8 @@ export class PostgresPersistence implements Persistence {
       await client.query(
         `DELETE FROM cash_ledger_entries
          WHERE user_id = $1
-           AND related_dividend_ledger_entry_id = $2`,
-        [userId, input.dividendLedgerEntry.id],
+           AND related_dividend_ledger_entry_id = ANY($2)`,
+        [userId, childLedgerEntryIdsToReplace],
       );
       for (const cashEntry of input.linkedCashEntries) {
         await client.query(
@@ -9537,6 +9603,76 @@ export class PostgresPersistence implements Persistence {
         );
       }
 
+      const positionActionLedgerEntryIdsToReplace = input.replacePositionActionsForDividendLedgerEntryIds ?? [input.dividendLedgerEntry.id];
+      await client.query(
+        `DELETE FROM position_actions
+         WHERE related_dividend_ledger_entry_id = ANY($1)`,
+        [positionActionLedgerEntryIdsToReplace],
+      );
+      for (const action of input.positionActions) {
+        await client.query(
+          `INSERT INTO position_actions (
+             id, account_id, ticker, market_code, action_type, action_date, action_timestamp,
+             booked_at, quantity, ratio_numerator, ratio_denominator, cash_in_lieu_quantity,
+             cash_in_lieu_amount, cash_in_lieu_currency, par_value_per_share,
+             premium_base_amount, nhi_premium_base_amount, related_dividend_ledger_entry_id,
+             source, source_reference, reversal_of_position_action_id, superseded_at
+           ) VALUES (
+             $1, $2, $3, $4, $5, $6, $7,
+             $8, $9, $10, $11, $12,
+             $13, $14, $15,
+             $16, $17, $18,
+             $19, $20, $21, $22
+           )
+           ON CONFLICT (id) DO UPDATE SET
+             account_id = EXCLUDED.account_id,
+             ticker = EXCLUDED.ticker,
+             market_code = EXCLUDED.market_code,
+             action_type = EXCLUDED.action_type,
+             action_date = EXCLUDED.action_date,
+             action_timestamp = EXCLUDED.action_timestamp,
+             booked_at = EXCLUDED.booked_at,
+             quantity = EXCLUDED.quantity,
+             ratio_numerator = EXCLUDED.ratio_numerator,
+             ratio_denominator = EXCLUDED.ratio_denominator,
+             cash_in_lieu_quantity = EXCLUDED.cash_in_lieu_quantity,
+             cash_in_lieu_amount = EXCLUDED.cash_in_lieu_amount,
+             cash_in_lieu_currency = EXCLUDED.cash_in_lieu_currency,
+             par_value_per_share = EXCLUDED.par_value_per_share,
+             premium_base_amount = EXCLUDED.premium_base_amount,
+             nhi_premium_base_amount = EXCLUDED.nhi_premium_base_amount,
+             related_dividend_ledger_entry_id = EXCLUDED.related_dividend_ledger_entry_id,
+             source = EXCLUDED.source,
+             source_reference = EXCLUDED.source_reference,
+             reversal_of_position_action_id = EXCLUDED.reversal_of_position_action_id,
+             superseded_at = EXCLUDED.superseded_at`,
+          [
+            action.id,
+            action.accountId,
+            action.ticker,
+            action.marketCode,
+            action.actionType,
+            action.actionDate,
+            action.actionTimestamp ?? null,
+            action.bookedAt ?? null,
+            action.quantity,
+            action.ratioNumerator ?? null,
+            action.ratioDenominator ?? null,
+            action.cashInLieuQuantity ?? null,
+            action.cashInLieuAmount ?? null,
+            action.cashInLieuCurrency ?? null,
+            action.parValuePerShare ?? null,
+            action.premiumBaseAmount ?? null,
+            action.nhiPremiumBaseAmount ?? null,
+            action.relatedDividendLedgerEntryId ?? null,
+            action.source,
+            action.sourceReference ?? null,
+            action.reversalOfPositionActionId ?? null,
+            action.supersededAt ?? null,
+          ],
+        );
+      }
+
       await client.query(
         `DELETE FROM lots
          WHERE account_id = $1
@@ -9552,12 +9688,8 @@ export class PostgresPersistence implements Persistence {
       }
 
       await client.query("COMMIT");
-      return {
-        ...input.dividendLedgerEntry,
-        reconciliationStatus: "open",
-        reconciliationNote: undefined,
-        version: nextVersion,
-      };
+      const returnedEntry = dividendLedgerEntries.find((entry) => entry.id === input.dividendLedgerEntry.id) ?? input.dividendLedgerEntry;
+      return returnedEntry;
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -10279,6 +10411,7 @@ export class PostgresPersistence implements Persistence {
       opts.postingStatus ?? null,
       opts.ticker ?? null,
       opts.marketCode ?? null,
+      opts.excludeExpected ?? false,
     ];
 
     const dateClause = `AND (
@@ -10415,6 +10548,7 @@ export class PostgresPersistence implements Persistence {
           AND ($6::text IS NULL OR $6 = 'expected')
           AND ($7::text IS NULL OR event.ticker = $7)
           AND ($8::text IS NULL OR event.market_code = $8)
+          AND $9::boolean IS NOT TRUE
           AND NOT EXISTS (
             SELECT 1
             FROM dividend_ledger_entries AS existing
@@ -10444,7 +10578,7 @@ export class PostgresPersistence implements Persistence {
         SELECT *
         FROM base
         ORDER BY ${sortColumn} ${sortDirection} ${sortDirection === "ASC" ? "NULLS FIRST" : "NULLS LAST"}, id ASC
-        LIMIT $9 OFFSET $10
+        LIMIT $10 OFFSET $11
       ),
       summary AS (
         SELECT COUNT(*)::int AS total,
@@ -11924,6 +12058,7 @@ export class PostgresPersistence implements Persistence {
            AND dle.account_id = ANY($1)`,
         [accountIds],
       );
+      await client.query(`DELETE FROM position_actions WHERE account_id = ANY($1)`, [accountIds]);
       await client.query(`DELETE FROM dividend_ledger_entries WHERE account_id = ANY($1)`, [accountIds]);
     }
     await client.query(`DELETE FROM lot_allocations WHERE user_id = $1`, [userId]);
@@ -12133,20 +12268,44 @@ export class PostgresPersistence implements Persistence {
         );
       }
 
-      await client.query(`DELETE FROM corporate_actions WHERE account_id = ANY($1)`, [accountIds]);
-      for (const action of accounting.facts.corporateActions) {
+      for (const action of accounting.facts.positionActions) {
         await client.query(
-          `INSERT INTO corporate_actions (
-             id, account_id, ticker, action_type, numerator, denominator, action_date
-           ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          `INSERT INTO position_actions (
+             id, account_id, ticker, market_code, action_type, action_date, action_timestamp,
+             booked_at, quantity, ratio_numerator, ratio_denominator, cash_in_lieu_quantity,
+             cash_in_lieu_amount, cash_in_lieu_currency, par_value_per_share,
+             premium_base_amount, nhi_premium_base_amount, related_dividend_ledger_entry_id,
+             source, source_reference, reversal_of_position_action_id, superseded_at
+           ) VALUES (
+             $1, $2, $3, $4, $5, $6, $7,
+             $8, $9, $10, $11, $12,
+             $13, $14, $15,
+             $16, $17, $18,
+             $19, $20, $21, $22
+           )`,
           [
             action.id,
             action.accountId,
             action.ticker,
+            action.marketCode,
             action.actionType,
-            action.numerator,
-            action.denominator,
             action.actionDate,
+            action.actionTimestamp ?? null,
+            action.bookedAt ?? null,
+            action.quantity,
+            action.ratioNumerator ?? null,
+            action.ratioDenominator ?? null,
+            action.cashInLieuQuantity ?? null,
+            action.cashInLieuAmount ?? null,
+            action.cashInLieuCurrency ?? null,
+            action.parValuePerShare ?? null,
+            action.premiumBaseAmount ?? null,
+            action.nhiPremiumBaseAmount ?? null,
+            action.relatedDividendLedgerEntryId ?? null,
+            action.source,
+            action.sourceReference ?? null,
+            action.reversalOfPositionActionId ?? null,
+            action.supersededAt ?? null,
           ],
         );
       }
@@ -12395,6 +12554,33 @@ export class PostgresPersistence implements Persistence {
     );
   }
 
+  async getPositionActionsForAccountTicker(
+    userId: string,
+    accountId: string,
+    ticker: string,
+    marketCode?: MarketCode,
+  ): Promise<PositionAction[]> {
+    const params = marketCode ? [userId, accountId, ticker, marketCode] : [userId, accountId, ticker];
+    const result = await this.pool.query(
+      `SELECT pa.id, pa.account_id, pa.ticker, pa.market_code, pa.action_type, pa.action_date,
+              pa.action_timestamp, pa.booked_at, pa.quantity, pa.ratio_numerator, pa.ratio_denominator,
+              pa.cash_in_lieu_quantity, pa.cash_in_lieu_amount, pa.cash_in_lieu_currency,
+              pa.par_value_per_share, pa.premium_base_amount, pa.nhi_premium_base_amount,
+              pa.related_dividend_ledger_entry_id, pa.source, pa.source_reference,
+              pa.reversal_of_position_action_id, pa.superseded_at
+       FROM position_actions pa
+       JOIN accounts a ON a.id = pa.account_id
+       WHERE a.user_id = $1 AND pa.account_id = $2 AND pa.ticker = $3
+         ${marketCode ? "AND pa.market_code = $4" : ""}
+         AND pa.reversal_of_position_action_id IS NULL
+         AND pa.superseded_at IS NULL
+       ORDER BY pa.action_date ASC, pa.action_timestamp ASC NULLS FIRST, pa.booked_at ASC NULLS FIRST, pa.id ASC`,
+      params,
+    );
+
+    return result.rows.map((row) => mapPositionActionRow(row));
+  }
+
   async deleteLotsForAccountTicker(
     userId: string,
     accountId: string,
@@ -12413,18 +12599,27 @@ export class PostgresPersistence implements Persistence {
              FROM trade_events
              WHERE user_id = $1 AND account_id = $2 AND ticker = $3 AND market_code = $4
              UNION
-             SELECT 'lot-' || dle.id
-             FROM dividend_ledger_entries AS dle
-             JOIN accounts AS a ON a.id = dle.account_id
-             JOIN market_data.dividend_events AS event ON event.id = dle.dividend_event_id
-             WHERE a.user_id = $1
-               AND dle.account_id = $2
-               AND event.ticker = $3
-               AND event.market_code = $4
-               AND dle.received_stock_quantity > 0
-             UNION
-             SELECT 'lot-' || unnest($5::text[])
-           )`,
+	             SELECT 'lot-pa-' || pa.id
+	             FROM position_actions AS pa
+	             JOIN accounts AS a ON a.id = pa.account_id
+	             WHERE a.user_id = $1
+	               AND pa.account_id = $2
+	               AND pa.ticker = $3
+	               AND pa.market_code = $4
+	               AND pa.action_type = 'STOCK_DIVIDEND'
+	             UNION
+	             SELECT 'lot-' || pa.related_dividend_ledger_entry_id
+	             FROM position_actions AS pa
+	             JOIN accounts AS a ON a.id = pa.account_id
+	             WHERE a.user_id = $1
+	               AND pa.account_id = $2
+	               AND pa.ticker = $3
+	               AND pa.market_code = $4
+	               AND pa.action_type = 'STOCK_DIVIDEND'
+	               AND pa.related_dividend_ledger_entry_id IS NOT NULL
+	             UNION
+	             SELECT 'lot-' || unnest($5::text[])
+	           )`,
         [userId, accountId, ticker, marketCode, additionalTradeEventIds],
       );
       return result.rowCount ?? 0;
@@ -12461,18 +12656,31 @@ export class PostgresPersistence implements Persistence {
                SELECT 'lot-' || id FROM trade_events
                WHERE user_id = $1 AND account_id = $2 AND ticker = $3 AND market_code = $4
                UNION
-               SELECT 'lot-' || dle.id
-               FROM dividend_ledger_entries AS dle
-               JOIN accounts AS a ON a.id = dle.account_id
-               JOIN market_data.dividend_events AS event ON event.id = dle.dividend_event_id
-               WHERE a.user_id = $1
-                 AND dle.account_id = $2
-                 AND event.ticker = $3
-                 AND event.market_code = $4
-                 AND dle.received_stock_quantity > 0
-               UNION
-               SELECT 'lot-' || unnest($5::text[])
-             )
+	               SELECT 'lot-pa-' || pa.id
+	               FROM position_actions AS pa
+	               JOIN accounts AS a ON a.id = pa.account_id
+	               WHERE a.user_id = $1
+	                 AND pa.account_id = $2
+	                 AND pa.ticker = $3
+	                 AND pa.market_code = $4
+	                 AND pa.action_type = 'STOCK_DIVIDEND'
+	                 AND pa.reversal_of_position_action_id IS NULL
+	                 AND pa.superseded_at IS NULL
+	               UNION
+	               SELECT 'lot-' || pa.related_dividend_ledger_entry_id
+	               FROM position_actions AS pa
+	               JOIN accounts AS a ON a.id = pa.account_id
+	               WHERE a.user_id = $1
+	                 AND pa.account_id = $2
+	                 AND pa.ticker = $3
+	                 AND pa.market_code = $4
+	                 AND pa.action_type = 'STOCK_DIVIDEND'
+	                 AND pa.related_dividend_ledger_entry_id IS NOT NULL
+	                 AND pa.reversal_of_position_action_id IS NULL
+	                 AND pa.superseded_at IS NULL
+	               UNION
+	               SELECT 'lot-' || unnest($5::text[])
+	             )
            )`,
         [userId, accountId, ticker, marketCode, additionalTradeEventIds],
       );
@@ -15555,9 +15763,11 @@ export class PostgresPersistence implements Persistence {
            WHERE dividend_ledger_entry_id IN (SELECT id FROM dividend_ledger_entries WHERE account_id = ANY($1))`,
           [ids],
         );
+        // position_actions may reference dividend_ledger_entries; delete them before
+        // the referenced ledger rows.
+        await client.query("DELETE FROM position_actions WHERE account_id = ANY($1)", [ids]);
         // dividend_source_lines cascades from dividend_ledger_entries (ON DELETE CASCADE)
         await client.query("DELETE FROM dividend_ledger_entries WHERE account_id = ANY($1)", [ids]);
-        // corporate_actions references accounts(id) without CASCADE
         await client.query("DELETE FROM corporate_actions WHERE account_id = ANY($1)", [ids]);
         // trade_events must be deleted BEFORE trade_fee_policy_snapshots
         // (trade_events.fee_policy_snapshot_id references trade_fee_policy_snapshots without CASCADE)
@@ -15820,6 +16030,9 @@ export class PostgresPersistence implements Persistence {
          )`,
         [accountId],
       );
+      // position_actions may reference dividend_ledger_entries; delete them before
+      // the referenced ledger rows.
+      await client.query("DELETE FROM position_actions WHERE account_id = $1", [accountId]);
       // dividend_source_lines cascade from dividend_ledger_entries.
       await client.query("DELETE FROM dividend_ledger_entries WHERE account_id = $1", [accountId]);
       await client.query("DELETE FROM corporate_actions WHERE account_id = $1", [accountId]);
@@ -18555,6 +18768,7 @@ function validateAccountingStoreInvariants(accounting: AccountingStore, accountI
   const tradeIds = new Set(accounting.facts.tradeEvents.map((trade) => trade.id));
   const lotIds = new Set(accounting.projections.lots.map((lot) => lot.id));
   const dividendLedgerIds = new Set(accounting.facts.dividendLedgerEntries.map((entry) => entry.id));
+  const positionActionIds = new Set(accounting.facts.positionActions.map((entry) => entry.id));
   const tradeBookingKeys = new Set<string>();
 
   for (const trade of accounting.facts.tradeEvents) {
@@ -18652,6 +18866,27 @@ function validateAccountingStoreInvariants(accounting: AccountingStore, accountI
     }
     if (!isCurrencyCode(allocation.costCurrency)) {
       throw new Error(`lot allocation ${allocation.id} has invalid cost currency ${allocation.costCurrency}`);
+    }
+  }
+
+  for (const action of accounting.facts.positionActions) {
+    if (accountIds && !accountIds.has(action.accountId)) {
+      throw new Error(`position action ${action.id} references unknown account ${action.accountId}`);
+    }
+    if (!/^[A-Z]{2,8}$/.test(action.marketCode)) {
+      throw new Error(`position action ${action.id} has invalid market code ${action.marketCode}`);
+    }
+    if (action.quantity < 0) {
+      throw new Error(`position action ${action.id} has invalid quantity ${action.quantity}`);
+    }
+    if (action.reversalOfPositionActionId && !positionActionIds.has(action.reversalOfPositionActionId)) {
+      throw new Error(`position action ${action.id} references unknown reversal ${action.reversalOfPositionActionId}`);
+    }
+    if (action.relatedDividendLedgerEntryId && !dividendLedgerIds.has(action.relatedDividendLedgerEntryId)) {
+      throw new Error(`position action ${action.id} references unknown dividend ledger ${action.relatedDividendLedgerEntryId}`);
+    }
+    if (action.cashInLieuCurrency && !isCurrencyCode(action.cashInLieuCurrency)) {
+      throw new Error(`position action ${action.id} has invalid cash-in-lieu currency ${action.cashInLieuCurrency}`);
     }
   }
 
@@ -18811,6 +19046,39 @@ function mapDividendLedgerEntryRow(row: Record<string, unknown>): DividendLedger
     reversalOfDividendLedgerEntryId: row.reversal_of_dividend_ledger_entry_id ? String(row.reversal_of_dividend_ledger_entry_id) : undefined,
     supersededAt: row.superseded_at ? normalizeDateTime(String(row.superseded_at)) : undefined,
     bookedAt: row.booked_at ? normalizeDateTime(String(row.booked_at)) : undefined,
+  };
+}
+
+function mapPositionActionRow(row: Record<string, unknown>): PositionAction {
+  return {
+    id: String(row.id),
+    accountId: String(row.account_id),
+    ticker: String(row.ticker),
+    marketCode: String(row.market_code) as PositionAction["marketCode"],
+    actionType: String(row.action_type) as PositionAction["actionType"],
+    actionDate: normalizeDate(String(row.action_date)),
+    actionTimestamp: row.action_timestamp ? normalizeDateTime(String(row.action_timestamp)) : undefined,
+    bookedAt: row.booked_at ? normalizeDateTime(String(row.booked_at)) : undefined,
+    quantity: Number(row.quantity),
+    ratioNumerator: row.ratio_numerator === null || row.ratio_numerator === undefined ? undefined : Number(row.ratio_numerator),
+    ratioDenominator: row.ratio_denominator === null || row.ratio_denominator === undefined ? undefined : Number(row.ratio_denominator),
+    cashInLieuQuantity:
+      row.cash_in_lieu_quantity === null || row.cash_in_lieu_quantity === undefined ? undefined : Number(row.cash_in_lieu_quantity),
+    cashInLieuAmount:
+      row.cash_in_lieu_amount === null || row.cash_in_lieu_amount === undefined ? undefined : Number(row.cash_in_lieu_amount),
+    cashInLieuCurrency: row.cash_in_lieu_currency ? String(row.cash_in_lieu_currency) as PositionAction["cashInLieuCurrency"] : undefined,
+    parValuePerShare:
+      row.par_value_per_share === null || row.par_value_per_share === undefined ? undefined : Number(row.par_value_per_share),
+    premiumBaseAmount:
+      row.premium_base_amount === null || row.premium_base_amount === undefined ? undefined : Number(row.premium_base_amount),
+    nhiPremiumBaseAmount:
+      row.nhi_premium_base_amount === null || row.nhi_premium_base_amount === undefined ? undefined : Number(row.nhi_premium_base_amount),
+    relatedDividendLedgerEntryId:
+      row.related_dividend_ledger_entry_id ? String(row.related_dividend_ledger_entry_id) : undefined,
+    source: String(row.source),
+    sourceReference: row.source_reference ? String(row.source_reference) : undefined,
+    reversalOfPositionActionId: row.reversal_of_position_action_id ? String(row.reversal_of_position_action_id) : undefined,
+    supersededAt: row.superseded_at ? normalizeDateTime(String(row.superseded_at)) : undefined,
   };
 }
 

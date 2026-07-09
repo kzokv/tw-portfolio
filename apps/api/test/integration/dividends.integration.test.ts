@@ -690,7 +690,7 @@ describe("dividends", () => {
     expect(dividendOnly.map((event) => event.type)).toEqual(["dividend_posted", "dividend_updated"]);
   });
 
-  it("posts stock dividends through the non-cash holdings path and rejects in-place edits", async () => {
+  it("posts stock dividends through the non-cash holdings path, amends before sells, and reverses/replaces after sells", async () => {
     await seedBuy();
     const dividendEvent = await seedDividendEvent({
       ticker: "2330",
@@ -709,7 +709,16 @@ describe("dividends", () => {
         dividendEventId: dividendEvent.id,
         receivedCashAmount: 0,
         receivedStockQuantity: 1,
-        deductions: [],
+        deductions: [
+          {
+            id: "cash-in-lieu-deduction",
+            deductionType: "CASH_IN_LIEU_ADJUSTMENT",
+            amount: 5,
+            currencyCode: "TWD",
+            withheldAtSource: false,
+            source: "broker_statement",
+          },
+        ],
         sourceCompositionStatus: "unknown_pending_disclosure",
         sourceLines: [],
       }),
@@ -718,6 +727,10 @@ describe("dividends", () => {
     expect(postingResponse.statusCode).toBe(200);
     const posting = postingResponse.json();
     expect(posting.comparison.expectedStockQuantity).toBe(1);
+    expect(posting.positionAction).toEqual(expect.objectContaining({
+      cashInLieuAmount: 5,
+      cashInLieuCurrency: "TWD",
+    }));
 
     const holdingsResponse = await app.inject({ method: "GET", url: "/portfolio/holdings" });
     expect(holdingsResponse.statusCode).toBe(200);
@@ -740,15 +753,287 @@ describe("dividends", () => {
         dividendLedgerEntryId: posting.dividendLedgerEntry.id,
         expectedVersion: posting.dividendLedgerEntry.version,
         receivedCashAmount: 0,
+        receivedStockQuantity: 2,
         deductions: [],
         sourceLines: [],
         sourceCompositionStatus: "unknown_pending_disclosure",
       }),
     });
 
-    expect(updateResponse.statusCode).toBe(422);
-    expect(updateResponse.json()).toEqual(
-      expect.objectContaining({ error: "stock_dividend_in_place_edit_unsupported" }),
+    expect(updateResponse.statusCode).toBe(200);
+    const updatedPosting = updateResponse.json();
+    expect(updatedPosting.dividendLedgerEntry).toEqual(expect.objectContaining({
+      id: posting.dividendLedgerEntry.id,
+      receivedStockQuantity: 2,
+      version: 2,
+    }));
+    expect(updatedPosting.positionAction).toEqual(expect.objectContaining({
+      relatedDividendLedgerEntryId: posting.dividendLedgerEntry.id,
+      quantity: 2,
+      actionType: "STOCK_DIVIDEND",
+    }));
+    expect(updatedPosting.positionAction.actionTimestamp).toBeUndefined();
+
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-stock-dividend-sell" },
+      payload: transactionPayload({
+        type: "SELL",
+        quantity: 1,
+        unitPrice: 120,
+        tradeDate: "2026-03-01",
+        commissionAmount: 0,
+        taxAmount: 0,
+      }),
+    });
+
+    const replacementUpdateResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/postings",
+      headers: { "idempotency-key": "k-stock-dividend-replacement-update" },
+      payload: dividendPostingUpdatePayload({
+        dividendEventId: dividendEvent.id,
+        dividendLedgerEntryId: posting.dividendLedgerEntry.id,
+        expectedVersion: updatedPosting.dividendLedgerEntry.version,
+        receivedCashAmount: 0,
+        receivedStockQuantity: 3,
+        deductions: [],
+        sourceLines: [],
+        sourceCompositionStatus: "unknown_pending_disclosure",
+      }),
+    });
+
+    expect(replacementUpdateResponse.statusCode).toBe(200);
+    const replacementPosting = replacementUpdateResponse.json();
+    expect(replacementPosting.dividendLedgerEntry).toEqual(expect.objectContaining({
+      receivedStockQuantity: 3,
+      postingStatus: "adjusted",
+      version: 1,
+    }));
+    expect(replacementPosting.dividendLedgerEntry.id).not.toBe(posting.dividendLedgerEntry.id);
+    expect(replacementPosting.positionAction).toEqual(expect.objectContaining({
+      relatedDividendLedgerEntryId: replacementPosting.dividendLedgerEntry.id,
+      quantity: 3,
+      actionType: "STOCK_DIVIDEND",
+    }));
+
+    const store = await app.persistence.loadStore("user-1");
+    const original = store.accounting.facts.dividendLedgerEntries.find((entry) => entry.id === posting.dividendLedgerEntry.id);
+    const reversal = store.accounting.facts.dividendLedgerEntries.find(
+      (entry) => entry.reversalOfDividendLedgerEntryId === posting.dividendLedgerEntry.id,
+    );
+    expect(original?.supersededAt).toEqual(expect.any(String));
+    expect(reversal).toEqual(expect.objectContaining({
+      reversalOfDividendLedgerEntryId: posting.dividendLedgerEntry.id,
+    }));
+
+    const refreshedHoldingsResponse = await app.inject({ method: "GET", url: "/portfolio/holdings" });
+    expect(refreshedHoldingsResponse.statusCode).toBe(200);
+    expect(refreshedHoldingsResponse.json()).toEqual([
+      {
+        accountId: "acc-1",
+        ticker: "2330",
+        quantity: 12,
+        costBasisAmount: 923.08,
+        currency: "TWD",
+      },
+    ]);
+  });
+
+  it("rejects stock dividend corrections that would make later sells impossible without mutating projections", async () => {
+    await seedBuy();
+    const dividendEvent = await seedDividendEvent({
+      ticker: "2330",
+      eventType: "STOCK",
+      exDividendDate: "2026-02-01",
+      paymentDate: "2026-02-20",
+      cashDividendPerShare: 0,
+      stockDividendPerShare: 0.1,
+    });
+
+    const postingResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/postings",
+      headers: { "idempotency-key": "k-stock-dividend-preflight-posting" },
+      payload: dividendPostingPayload({
+        dividendEventId: dividendEvent.id,
+        receivedCashAmount: 0,
+        receivedStockQuantity: 1,
+        deductions: [],
+        sourceCompositionStatus: "unknown_pending_disclosure",
+        sourceLines: [],
+      }),
+    });
+    expect(postingResponse.statusCode).toBe(200);
+    const posting = postingResponse.json();
+
+    const sellResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-stock-dividend-preflight-sell" },
+      payload: transactionPayload({
+        type: "SELL",
+        quantity: 11,
+        unitPrice: 120,
+        tradeDate: "2026-03-01",
+        commissionAmount: 0,
+        taxAmount: 0,
+      }),
+    });
+    expect(sellResponse.statusCode).toBe(200);
+
+    const storeBefore = structuredClone(await app.persistence.loadStore("user-1"));
+    const allocationCountBefore = storeBefore.accounting.projections.lotAllocations.length;
+    expect(allocationCountBefore).toBeGreaterThan(0);
+
+    const failingUpdateResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/postings",
+      headers: { "idempotency-key": "k-stock-dividend-preflight-failing-update" },
+      payload: dividendPostingUpdatePayload({
+        dividendEventId: dividendEvent.id,
+        dividendLedgerEntryId: posting.dividendLedgerEntry.id,
+        expectedVersion: posting.dividendLedgerEntry.version,
+        receivedCashAmount: 0,
+        receivedStockQuantity: 0,
+        deductions: [],
+        sourceLines: [],
+        sourceCompositionStatus: "unknown_pending_disclosure",
+      }),
+    });
+
+    expect(failingUpdateResponse.statusCode).toBe(500);
+    expect(failingUpdateResponse.json().error).toBe("internal_error");
+
+    const storeAfter = await app.persistence.loadStore("user-1");
+    expect(storeAfter.accounting.facts.dividendLedgerEntries).toEqual(storeBefore.accounting.facts.dividendLedgerEntries);
+    expect(storeAfter.accounting.facts.positionActions).toEqual(storeBefore.accounting.facts.positionActions);
+    const stableAllocations = (store: typeof storeBefore) => store.accounting.projections.lotAllocations.map((allocation) => ({
+      id: allocation.id,
+      tradeEventId: allocation.tradeEventId,
+      lotId: allocation.lotId,
+      allocatedQuantity: allocation.allocatedQuantity,
+      allocatedCostAmount: allocation.allocatedCostAmount,
+    }));
+    const stableTradeCashEntries = (store: typeof storeBefore) => store.accounting.facts.cashLedgerEntries
+      .filter((entry) => entry.relatedTradeEventId)
+      .map((entry) => ({
+        accountId: entry.accountId,
+        relatedTradeEventId: entry.relatedTradeEventId,
+        entryDate: entry.entryDate,
+        entryType: entry.entryType,
+        amount: entry.amount,
+        currency: entry.currency,
+      }));
+    expect(stableAllocations(storeAfter)).toEqual(stableAllocations(storeBefore));
+    expect(stableTradeCashEntries(storeAfter)).toEqual(stableTradeCashEntries(storeBefore));
+  });
+
+  it("rejects stock quantities for pure cash dividend postings", async () => {
+    await seedBuy();
+    const dividendEvent = await seedDividendEvent({
+      ticker: "2330",
+      eventType: "CASH",
+      exDividendDate: "2026-02-01",
+      paymentDate: "2026-02-20",
+      cashDividendPerShare: 2,
+      stockDividendPerShare: 0,
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/postings",
+      headers: { "idempotency-key": "k-cash-dividend-stock-quantity-reject" },
+      payload: dividendPostingPayload({
+        dividendEventId: dividendEvent.id,
+        receivedCashAmount: 2000,
+        receivedStockQuantity: 100,
+        deductions: [],
+        sourceCompositionStatus: "unknown_pending_disclosure",
+        sourceLines: [],
+      }),
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual(expect.objectContaining({
+      error: "cash_dividend_stock_quantity_not_allowed",
+    }));
+  });
+
+  it("clears legacy stock quantities when editing pure cash dividend postings", async () => {
+    await seedBuy();
+    const dividendEvent = await seedDividendEvent({
+      ticker: "2330",
+      eventType: "CASH",
+      exDividendDate: "2026-02-01",
+      paymentDate: "2026-02-20",
+      cashDividendPerShare: 2,
+      stockDividendPerShare: 0,
+    });
+    const initialPostingResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/postings",
+      headers: { "idempotency-key": "k-legacy-cash-stock-quantity-post" },
+      payload: dividendPostingPayload({
+        dividendEventId: dividendEvent.id,
+        receivedCashAmount: 2000,
+        deductions: [],
+        sourceCompositionStatus: "unknown_pending_disclosure",
+        sourceLines: [],
+      }),
+    });
+    expect(initialPostingResponse.statusCode).toBe(200);
+    const initialPosting = initialPostingResponse.json();
+
+    const store = await app.persistence.loadStore("user-1");
+    const legacyEntry = store.accounting.facts.dividendLedgerEntries.find((entry) => entry.id === initialPosting.dividendLedgerEntry.id)!;
+    legacyEntry.receivedStockQuantity = 100;
+    store.accounting.facts.positionActions.push({
+      id: "position-action-legacy-cash-stock-quantity",
+      accountId: "acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      actionType: "STOCK_DIVIDEND",
+      actionDate: "2026-02-20",
+      bookedAt: "2026-02-20T09:00:00.000Z",
+      quantity: 100,
+      relatedDividendLedgerEntryId: legacyEntry.id,
+      source: "legacy_bad_cash_dividend",
+      sourceReference: legacyEntry.id,
+    });
+    await app.persistence.saveStore(store);
+
+    const updateResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/postings",
+      headers: { "idempotency-key": "k-legacy-cash-stock-quantity-update" },
+      payload: dividendPostingUpdatePayload({
+        dividendEventId: dividendEvent.id,
+        dividendLedgerEntryId: legacyEntry.id,
+        expectedVersion: legacyEntry.version,
+        receivedCashAmount: 1990,
+        receivedStockQuantity: 0,
+        deductions: [],
+        sourceCompositionStatus: "unknown_pending_disclosure",
+        sourceLines: [],
+      }),
+    });
+
+    expect(updateResponse.statusCode).toBe(200);
+    expect(updateResponse.json().dividendLedgerEntry).toEqual(expect.objectContaining({
+      receivedStockQuantity: 0,
+      receivedCashAmount: 1990,
+    }));
+
+    const updatedStore = await app.persistence.loadStore("user-1");
+    expect(updatedStore.accounting.facts.dividendLedgerEntries.find((entry) => entry.id === legacyEntry.id)).toEqual(expect.objectContaining({
+      receivedStockQuantity: 0,
+    }));
+    expect(updatedStore.accounting.facts.positionActions.find((action) => action.id === "position-action-legacy-cash-stock-quantity")).toEqual(
+      expect.objectContaining({
+        supersededAt: expect.any(String),
+      }),
     );
   });
 

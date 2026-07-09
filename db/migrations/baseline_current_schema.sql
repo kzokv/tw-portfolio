@@ -134,6 +134,65 @@ CREATE TABLE IF NOT EXISTS corporate_actions (
   action_date DATE NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS position_actions (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  ticker TEXT NOT NULL,
+  market_code TEXT NOT NULL CHECK (market_code ~ '^[A-Z]{2,8}$'),
+  action_type TEXT NOT NULL CHECK (action_type IN ('STOCK_DIVIDEND', 'SPLIT', 'REVERSE_SPLIT')),
+  action_date DATE NOT NULL,
+  action_timestamp TIMESTAMP,
+  booked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  quantity NUMERIC(20, 6) NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+  ratio_numerator NUMERIC(20, 6),
+  ratio_denominator NUMERIC(20, 6),
+  cash_in_lieu_quantity NUMERIC(20, 6),
+  cash_in_lieu_amount NUMERIC(20, 6),
+  cash_in_lieu_currency TEXT CHECK (cash_in_lieu_currency IS NULL OR cash_in_lieu_currency ~ '^[A-Z]{3}$'),
+  par_value_per_share NUMERIC(20, 6),
+  premium_base_amount NUMERIC(20, 6),
+  nhi_premium_base_amount NUMERIC(20, 6),
+  related_dividend_ledger_entry_id TEXT,
+  source TEXT NOT NULL,
+  source_reference TEXT,
+  reversal_of_position_action_id TEXT REFERENCES position_actions(id),
+  superseded_at TIMESTAMP,
+  CHECK (
+    reversal_of_position_action_id IS NULL
+    OR reversal_of_position_action_id <> id
+  ),
+  CHECK (
+    (action_type = 'STOCK_DIVIDEND' AND quantity > 0)
+    OR (action_type IN ('SPLIT', 'REVERSE_SPLIT') AND ratio_numerator IS NOT NULL AND ratio_denominator IS NOT NULL)
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_position_actions_account_ticker_date
+  ON position_actions(account_id, ticker, action_date, action_timestamp, id);
+
+CREATE INDEX IF NOT EXISTS idx_position_actions_dividend_ledger
+  ON position_actions(related_dividend_ledger_entry_id)
+  WHERE related_dividend_ledger_entry_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_position_actions_reversal
+  ON position_actions(reversal_of_position_action_id)
+  WHERE reversal_of_position_action_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS position_action_migration_audit (
+  id TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL REFERENCES accounts(id),
+  ticker TEXT NOT NULL,
+  lot_id TEXT NOT NULL,
+  opened_at DATE NOT NULL,
+  open_quantity NUMERIC(20, 6) NOT NULL,
+  total_cost_amount NUMERIC(20, 6) NOT NULL,
+  reason TEXT NOT NULL,
+  detected_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_position_action_migration_audit_account_ticker
+  ON position_action_migration_audit(account_id, ticker, opened_at, lot_id);
+
 CREATE TABLE IF NOT EXISTS recompute_jobs (
   id TEXT PRIMARY KEY,
   user_id TEXT NOT NULL REFERENCES users(id),
@@ -548,6 +607,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_lot_allocations_trade_event_lot
 CREATE UNIQUE INDEX IF NOT EXISTS ux_dividend_ledger_entries_reversal_of_dividend_ledger_entry_id
   ON dividend_ledger_entries(reversal_of_dividend_ledger_entry_id)
   WHERE reversal_of_dividend_ledger_entry_id IS NOT NULL;
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'fk_position_actions_related_dividend_ledger_entry'
+      AND conrelid = 'position_actions'::regclass
+  ) THEN
+    ALTER TABLE position_actions
+      ADD CONSTRAINT fk_position_actions_related_dividend_ledger_entry
+      FOREIGN KEY (related_dividend_ledger_entry_id) REFERENCES dividend_ledger_entries(id);
+  END IF;
+END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS ux_dividend_ledger_entries_active_account_event
   ON dividend_ledger_entries(account_id, dividend_event_id)
   WHERE reversal_of_dividend_ledger_entry_id IS NULL

@@ -3,8 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp, type AppInstance } from "../../src/app.js";
 import type { McpRequestContext, McpToolHandlerContext } from "../../src/mcp/types.js";
 import {
+  amendDividendReceipt,
   getDividendReview,
   postDividendReceipt,
+  previewAmendDividendReceipt,
   previewPostDividendReceipt,
   previewUpdateDividendReconciliation,
   updateDividendReconciliation,
@@ -393,6 +395,19 @@ describe("MCP dividend services", () => {
     })).rejects.toMatchObject({ code: "mcp_confirmation_stale", statusCode: 409 });
   });
 
+  it("requires the latest confirmation payload before posting a dividend receipt", async () => {
+    const rowId = await seedExpectedDividendRow();
+
+    await previewPostDividendReceipt(serviceContext(), { rowId });
+
+    await expect(postDividendReceipt(serviceContext(), {
+      rowId,
+      idempotencyKey: "mcp-dividend-missing-confirmation",
+      confirmationSummary: undefined as unknown as string,
+      confirmationDigest: undefined as unknown as string,
+    })).rejects.toMatchObject({ code: "mcp_confirmation_required", statusCode: 409 });
+  });
+
   it("rejects a replayed dividend receipt idempotency key", async () => {
     const firstRowId = await seedExpectedDividendRow({ ticker: "2330" });
     const secondRowId = await seedExpectedDividendRow({ ticker: "0050", paymentDate: "2024-08-10" });
@@ -438,7 +453,7 @@ describe("MCP dividend services", () => {
     const receiptInput = { rowId, receivedCashAmount: 0, receivedStockQuantity: 100 };
     const preview = await previewPostDividendReceipt(serviceContext(), receiptInput);
 
-    expect(preview.receipt.stockLotImpact).toContain("stock-dividend inventory lot");
+    expect(preview.receipt.stockLotImpact).toContain("stock-dividend position action");
 
     const posted = await postDividendReceipt(serviceContext(), {
       ...receiptInput,
@@ -452,6 +467,108 @@ describe("MCP dividend services", () => {
       receivedCashAmount: 0,
       receivedStockQuantity: 100,
     }));
+
+    const store = await app.persistence.loadStore(USER_ID);
+    const positionAction = store.accounting.facts.positionActions.find(
+      (action) => action.relatedDividendLedgerEntryId === posted.dividendLedgerEntryId,
+    );
+    expect(positionAction).toEqual(expect.objectContaining({
+      actionType: "STOCK_DIVIDEND",
+      quantity: 100,
+      parValuePerShare: 10,
+      premiumBaseAmount: 0,
+      nhiPremiumBaseAmount: 1000,
+    }));
+    expect(positionAction?.cashInLieuAmount).toBeUndefined();
+    expect(positionAction?.cashInLieuCurrency).toBeUndefined();
+    expect(store.accounting.projections.lots).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: `lot-pa-${positionAction!.id}`,
+        accountId: "acc-1",
+        ticker: "2330",
+        openQuantity: 100,
+        totalCostAmount: 0,
+        costCurrency: "TWD",
+        openedAt: "2024-07-10",
+      }),
+    ]));
+  });
+
+  it("amends posted stock dividend receipts through confirmation-gated MCP mutation", async () => {
+    const rowId = await seedExpectedDividendRow({
+      eventType: "STOCK",
+      cashDividendPerShare: 0,
+      stockDividendPerShare: 0.1,
+    });
+    const posted = await postSeededReceipt(rowId, "mcp-dividend-stock-amend-post");
+
+    const preview = await previewAmendDividendReceipt(serviceContext(), {
+      rowId: posted.dividendLedgerEntryId,
+      receivedCashAmount: 0,
+      receivedStockQuantity: 120,
+      sourceCompositionStatus: "unknown_pending_disclosure",
+    });
+
+    expect(preview.receipt.stockLotImpact).toContain("linked stock-dividend position action");
+
+    const amended = await amendDividendReceipt(serviceContext(), {
+      rowId: posted.dividendLedgerEntryId,
+      receivedCashAmount: 0,
+      receivedStockQuantity: 120,
+      sourceCompositionStatus: "unknown_pending_disclosure",
+      confirmationSummary: preview.confirmationSummary,
+      confirmationDigest: preview.confirmationDigest,
+      idempotencyKey: "mcp-dividend-stock-amend-confirm",
+    });
+
+    expect(amended.ledgerEntry).toEqual(expect.objectContaining({
+      receivedStockQuantity: 120,
+      version: 2,
+    }));
+    const store = await app.persistence.loadStore(USER_ID);
+    const positionAction = store.accounting.facts.positionActions.find(
+      (action) => action.relatedDividendLedgerEntryId === posted.dividendLedgerEntryId,
+    );
+    expect(positionAction).toEqual(expect.objectContaining({
+      actionType: "STOCK_DIVIDEND",
+      quantity: 120,
+    }));
+    expect(store.accounting.projections.lots).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: `lot-pa-${positionAction!.id}`,
+        openQuantity: 120,
+        totalCostAmount: 0,
+      }),
+    ]));
+
+    const zeroPreview = await previewAmendDividendReceipt(serviceContext(), {
+      rowId: posted.dividendLedgerEntryId,
+      receivedCashAmount: 0,
+      receivedStockQuantity: 0,
+      sourceCompositionStatus: "unknown_pending_disclosure",
+    });
+    const zeroAmendment = await amendDividendReceipt(serviceContext(), {
+      rowId: posted.dividendLedgerEntryId,
+      receivedCashAmount: 0,
+      receivedStockQuantity: 0,
+      sourceCompositionStatus: "unknown_pending_disclosure",
+      confirmationSummary: zeroPreview.confirmationSummary,
+      confirmationDigest: zeroPreview.confirmationDigest,
+      idempotencyKey: "mcp-dividend-stock-amend-zero-confirm",
+    });
+
+    expect(zeroAmendment.ledgerEntry).toEqual(expect.objectContaining({
+      receivedStockQuantity: 0,
+      version: 3,
+    }));
+    const zeroStore = await app.persistence.loadStore(USER_ID);
+    expect(zeroStore.accounting.facts.positionActions.some(
+      (action) => action.relatedDividendLedgerEntryId === posted.dividendLedgerEntryId
+        && !action.supersededAt,
+    )).toBe(false);
+    expect(zeroStore.accounting.projections.lots.some(
+      (lot) => lot.id === `lot-pa-${positionAction!.id}`,
+    )).toBe(false);
   });
 
   it("posts mixed dividend receipts with deductions and source lines", async () => {
@@ -485,7 +602,7 @@ describe("MCP dividend services", () => {
       deductionTotal: 100,
       actualCashEconomicAmount: 2000,
     }));
-    expect(preview.receipt.stockLotImpact).toContain("stock-dividend inventory lot");
+    expect(preview.receipt.stockLotImpact).toContain("stock-dividend position action");
 
     const posted = await postDividendReceipt(serviceContext(), {
       ...receiptInput,
@@ -500,6 +617,31 @@ describe("MCP dividend services", () => {
       deductions: [expect.objectContaining({ deductionType: "NHI_SUPPLEMENTAL_PREMIUM", amount: 100 })],
       sourceLines: [expect.objectContaining({ sourceBucket: "DIVIDEND_INCOME", amount: 2000 })],
     }));
+
+    const store = await app.persistence.loadStore(USER_ID);
+    const positionAction = store.accounting.facts.positionActions.find(
+      (action) => action.relatedDividendLedgerEntryId === posted.dividendLedgerEntryId,
+    );
+    expect(positionAction).toEqual(expect.objectContaining({
+      quantity: 100,
+      parValuePerShare: 10,
+      premiumBaseAmount: 2000,
+      nhiPremiumBaseAmount: 3000,
+    }));
+  });
+
+  it("rejects stock quantities for pure cash dividend receipts", async () => {
+    const rowId = await seedExpectedDividendRow({
+      eventType: "CASH",
+      cashDividendPerShare: 2,
+      stockDividendPerShare: 0,
+    });
+
+    await expect(previewPostDividendReceipt(serviceContext(), {
+      rowId,
+      receivedCashAmount: 2000,
+      receivedStockQuantity: 100,
+    })).rejects.toMatchObject({ code: "cash_dividend_stock_quantity_not_allowed", statusCode: 400 });
   });
 
   it("rejects source lines when source composition is marked unknown", async () => {
@@ -610,6 +752,23 @@ describe("MCP dividend services", () => {
       confirmationSummary: preview.confirmationSummary,
       confirmationDigest: preview.confirmationDigest,
     })).rejects.toMatchObject({ code: "mcp_confirmation_stale", statusCode: 409 });
+  });
+
+  it("requires the latest confirmation payload before updating reconciliation", async () => {
+    const rowId = await seedExpectedDividendRow();
+    const posted = await postSeededReceipt(rowId);
+
+    await previewUpdateDividendReconciliation(serviceContext(), {
+      rowId: posted.dividendLedgerEntryId,
+      status: "matched",
+    });
+
+    await expect(updateDividendReconciliation(serviceContext(), {
+      rowId: posted.dividendLedgerEntryId,
+      status: "matched",
+      confirmationSummary: undefined as unknown as string,
+      confirmationDigest: undefined as unknown as string,
+    })).rejects.toMatchObject({ code: "mcp_confirmation_required", statusCode: 409 });
   });
 
   it("rejects reconciliation persistence updates when the expected version is stale", async () => {

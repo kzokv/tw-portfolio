@@ -273,8 +273,10 @@ export function DividendPostingForm({
   const isDirty = amountsDirty || reconcileDirty;
 
   const canShowCashField = row.event.eventType !== "STOCK";
-  const canShowStockField = !isEditMode && row.event.eventType !== "CASH";
-  const reconcileOnlyMode = isEditMode && row.event.eventType !== "CASH";
+  const canShowStockField =
+    row.event.eventType !== "CASH" &&
+    (!isEditMode || row.ledgerEntry?.correctionMode === "amend");
+  const reconcileOnlyMode = isEditMode && row.event.eventType !== "CASH" && !canShowStockField;
   const postingStatus = row.ledgerEntry?.postingStatus;
   const showReconcileSection =
     isEditMode && (postingStatus === "posted" || postingStatus === "adjusted");

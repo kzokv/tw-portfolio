@@ -333,7 +333,7 @@ test.describe("dividend calendar", () => {
     );
   });
 
-  test("dividend calendar: reconcile drawer (stock, reconcile-only mode) → amounts hidden, save as Matched", async ({
+  test("dividend calendar: stock drawer → quantity amendment remains editable, then save as Matched", async ({
     dividends,
   }) => {
     const seeded = await dividends.arrange.seedPostedDividend({
@@ -356,11 +356,16 @@ test.describe("dividend calendar", () => {
     await dividends.actions.openEditDrawerForEvent(seeded.dividendEventId);
     await dividends.assert.drawerIsVisible();
 
-    // In reconcile-only mode: amounts form hidden, stockEditDisabled label visible
-    await dividends.assert.amountsFormIsHidden();
-    await dividends.assert.stockEditDisabledLabelIsVisible();
+    await dividends.assert.amountsFormIsVisible();
     await dividends.assert.reconcileSectionIsVisible();
+    await dividends.actions.fillReceivedStock(101);
+    const amendmentResponse = await dividends.actions.submitPostingForm();
+    await dividends.assert.mxAssertTruthy(amendmentResponse.ok(), "stock dividend calendar amendment response ok");
+    await dividends.assert.drawerIsHidden();
 
+    await dividends.actions.openEditDrawerForEvent(seeded.dividendEventId);
+    await dividends.assert.drawerIsVisible();
+    await dividends.assert.reconcileSectionIsVisible();
     await dividends.actions.selectReconcileStatus("matched");
     await dividends.actions.submitReconciliationForm();
 

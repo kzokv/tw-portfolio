@@ -93,7 +93,7 @@ import {
 import { enqueueDemandIntradayRefreshes } from "../services/market-data/intradayDemandRefresh.js";
 import { getRegularSessionState, isRegularSessionMarketCode } from "../services/market-data/marketRegularSession.js";
 import {
-  listCorporateActions,
+  listPositionActions,
   listTradeEvents,
   syncAccountingPolicy,
 } from "../services/accountingStore.js";
@@ -106,8 +106,11 @@ import {
   createDividendEvent,
   postDividend,
   preparePostedCashDividendUpdate,
+  resolveDividendEventMarketCode,
+  resolveDividendPostingDate,
 } from "../services/dividends.js";
-import { applyCorporateAction, createTransaction, listHoldings } from "../services/portfolio.js";
+import { assertDividendUpdateReplayCanApply, assertPositionReplayCanApply } from "../services/dividendReplayPreflight.js";
+import { applyCorporateAction, createPositionAction, createTransaction, listHoldings, previewPositionAction } from "../services/portfolio.js";
 import {
   archiveTransactionDraftBatch,
   deleteUnconfirmedTransactionDraftBatch,
@@ -125,7 +128,7 @@ import {
   toAiConnectorPolicySettingsDto,
 } from "../services/mcpConnectorLifecycle.js";
 import { confirmRecompute, previewRecompute } from "../services/recompute.js";
-import { scheduleReplayWithRetry } from "../services/replayPositionHistory.js";
+import { replayPositionHistory, scheduleReplayWithRetry } from "../services/replayPositionHistory.js";
 import { generateHoldingSnapshots } from "../services/snapshotGeneration.js";
 import { generateCurrencyWalletSnapshots } from "../services/currencyWalletSnapshotGeneration.js";
 import { ReadPathTiming } from "../services/readPathTiming.js";
@@ -383,6 +386,9 @@ const corporateActionSchema = z.object({
   numerator: z.number().int().positive().default(1),
   denominator: z.number().int().positive().default(1),
   actionDate: isoDateSchema,
+  actionTimestamp: isoDateTimeSchema.optional(),
+  cashInLieuAmount: z.number().nonnegative().optional(),
+  cashInLieuCurrency: currencyCodeSchema.optional(),
 });
 
 const dividendDeductionSchema = z.object({
@@ -465,6 +471,7 @@ const dividendLedgerQuerySchema = z.object({
   accountId: userScopedIdSchema.optional(),
   reconciliationStatus: z.enum(["open", "matched", "explained", "resolved"]).optional(),
   postingStatus: z.enum(["expected", "posted", "adjusted"]).optional(),
+  excludeExpected: z.enum(["true", "false"]).transform((value) => value === "true").optional(),
   ticker: tickerSchema.optional(),
   marketCode: marketCodeSchema.optional(),
   page: z.coerce.number().int().positive().default(1),
@@ -6300,13 +6307,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/portfolio/dividends/review", async (req) => {
     const query = dividendLedgerQuerySchema.parse(req.query);
-    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const { userId, store } = await loadUserStore(app, req);
     const result = await app.persistence.listDividendReviewRows(userId, {
       accountId: query.accountId,
       fromPaymentDate: query.fromPaymentDate,
       toPaymentDate: query.toPaymentDate,
       reconciliationStatus: query.reconciliationStatus,
       postingStatus: query.postingStatus,
+      excludeExpected: query.excludeExpected,
       ticker: query.ticker,
       marketCode: query.marketCode,
       page: query.page,
@@ -6314,9 +6322,24 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       sortBy: query.sortBy,
       sortOrder: query.sortOrder,
     });
+    const ledgerRowIds = new Set(
+      result.rows
+        .filter((row) => row.rowKind === "ledger")
+        .map((row) => row.id),
+    );
+    const ledgerRowsWithDetails = new Map(
+      buildDividendLedgerEntryDetails(
+        store,
+        result.rows.filter((row) => ledgerRowIds.has(row.id)),
+        { preserveOrder: true },
+      ).map((row) => [row.id, row]),
+    );
 
     return {
-      reviewRows: result.rows,
+      reviewRows: result.rows.map((row) => {
+        const details = ledgerRowsWithDetails.get(row.id);
+        return details ? { ...row, ...details, rowKind: row.rowKind } : row;
+      }),
       total: result.total,
       aggregates: result.aggregates,
     };
@@ -6483,6 +6506,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           dividendLedgerEntryId: body.dividendLedgerEntryId,
           expectedVersion: body.expectedVersion!,
           receivedCashAmount: body.receivedCashAmount,
+          receivedStockQuantity: body.receivedStockQuantity,
           deductions: body.deductions.map((entry) => ({
             id: randomUUID(),
             deductionType: entry.deductionType,
@@ -6505,6 +6529,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           sourceCompositionStatus: body.sourceCompositionStatus,
         });
 
+        const replayScope = await assertDividendUpdateReplayCanApply(draftStore, userId, prepared);
         await app.persistence.updatePostedCashDividend(userId, prepared.persistenceInput);
         await app.eventBus.publishEvent(userId, "dividend_updated", {
           dividendLedgerEntryId: prepared.response.dividendLedgerEntry.id,
@@ -6512,6 +6537,15 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           accountId: prepared.response.dividendLedgerEntry.accountId,
           version: prepared.response.dividendLedgerEntry.version,
         });
+        if (replayScope) {
+          await replayPositionHistory(app.persistence, userId, replayScope.accountId, replayScope.ticker, {
+            marketCode: replayScope.marketCode,
+          });
+          scheduleReplayWithRetry(app.persistence, app.eventBus, userId, replayScope.accountId, replayScope.ticker, {
+            snapshotFromDate: replayScope.actionDate,
+            marketCode: replayScope.marketCode,
+          });
+        }
         return prepared.response;
       }
 
@@ -6555,6 +6589,18 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         accountId: result.dividendLedgerEntry.accountId,
         version: result.dividendLedgerEntry.version,
       });
+      if (result.positionAction || result.dividendEvent.eventType !== "CASH") {
+        const marketCode = result.positionAction?.marketCode ?? resolveDividendEventMarketCode(result.dividendEvent);
+        const actionDate = result.positionAction?.actionDate
+          ?? resolveDividendPostingDate(result.dividendEvent.paymentDate, result.dividendLedgerEntry.bookedAt);
+        await replayPositionHistory(app.persistence, userId, result.dividendLedgerEntry.accountId, result.dividendEvent.ticker, {
+          marketCode,
+        });
+        scheduleReplayWithRetry(app.persistence, app.eventBus, userId, result.dividendLedgerEntry.accountId, result.dividendEvent.ticker, {
+          snapshotFromDate: actionDate,
+          marketCode,
+        });
+      }
       return result;
     } catch (error) {
       await app.persistence.releaseIdempotencyKey(userId, idempotencyKey);
@@ -6607,22 +6653,76 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/corporate-actions", async (req) => {
     const { store } = await loadUserStore(app, req);
-    return listCorporateActions(store);
+    return listPositionActions(store);
   });
 
   app.post("/corporate-actions", async (req) => {
     const body = corporateActionSchema.parse(req.body);
-    const { store } = await loadUserStore(app, req);
+    const { userId, store } = await loadUserStore(app, req);
     assertStoreIntegrity(store);
-    requireAccount(store, body.accountId);
+    const account = requireAccount(store, body.accountId);
 
-    const action = applyCorporateAction(store, {
-      id: randomUUID(),
-      ...body,
+    if (body.actionType === "DIVIDEND") {
+      const draftStore = structuredClone(store);
+      const action = applyCorporateAction(draftStore, {
+        id: randomUUID(),
+        ...body,
+      });
+      await assertPositionReplayCanApply(draftStore, userId, {
+        accountId: action.accountId,
+        ticker: action.ticker,
+        marketCode: marketCodeFor(account.defaultCurrency),
+      });
+      await app.persistence.saveAccountingStore(draftStore.userId, draftStore.accounting);
+      await replayPositionHistory(app.persistence, userId, action.accountId, action.ticker, {
+        marketCode: marketCodeFor(account.defaultCurrency),
+      });
+      return action;
+    }
+
+    const id = randomUUID();
+    const input = {
+      id,
+      accountId: body.accountId,
+      ticker: body.ticker,
+      actionType: body.actionType,
+      numerator: body.numerator,
+      denominator: body.denominator,
+      actionDate: body.actionDate,
+      actionTimestamp: body.actionTimestamp,
+      cashInLieuAmount: body.cashInLieuAmount,
+      cashInLieuCurrency: body.cashInLieuCurrency,
+    };
+    const preview = previewPositionAction(store, input);
+    const draftStore = structuredClone(store);
+    const action = createPositionAction(draftStore, input);
+    await assertPositionReplayCanApply(draftStore, userId, {
+      accountId: action.accountId,
+      ticker: action.ticker,
+      marketCode: action.marketCode,
     });
-
-    await app.persistence.saveAccountingStore(store.userId, store.accounting);
-    return action;
+    await app.persistence.saveAccountingStore(draftStore.userId, draftStore.accounting);
+    const replaySummary = await replayPositionHistory(app.persistence, userId, action.accountId, action.ticker, {
+      marketCode: action.marketCode,
+    });
+    scheduleReplayWithRetry(app.persistence, app.eventBus, userId, action.accountId, action.ticker, {
+      snapshotFromDate: action.actionDate,
+      marketCode: action.marketCode,
+    });
+    await app.eventBus.publishEvent(userId, "position_action_posted", {
+      positionActionId: action.id,
+      accountId: action.accountId,
+      ticker: action.ticker,
+      marketCode: action.marketCode,
+      actionDate: action.actionDate,
+    });
+    return {
+      ...action,
+      numerator: action.ratioNumerator,
+      denominator: action.ratioDenominator,
+      preview,
+      replaySummary,
+    };
   });
 
   app.post("/portfolio/snapshots/generate", async (req, reply) => {

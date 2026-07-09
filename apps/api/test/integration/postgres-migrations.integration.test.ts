@@ -2694,11 +2694,24 @@ describePostgres("postgres migrations", () => {
         currencyCode: "TWD",
       }),
     ]);
+    expect(reloaded.accounting.facts.positionActions).toEqual([
+      expect.objectContaining({
+        id: "position-action-dividend-ledger-kzo36",
+        accountId: "user-1-acc-1",
+        ticker: "2330",
+        marketCode: "TW",
+        actionType: "STOCK_DIVIDEND",
+        quantity: 1,
+        premiumBaseAmount: 120,
+        nhiPremiumBaseAmount: 130,
+        relatedDividendLedgerEntryId: "dividend-ledger-kzo36",
+      }),
+    ]);
     expect(reloaded.accounting.projections.holdings).toEqual([
       expect.objectContaining({
         accountId: "user-1-acc-1",
         ticker: "2330",
-        quantity: 11,
+        quantity: 10,
         costBasisAmount: 1000,
       }),
     ]);
@@ -4189,6 +4202,231 @@ describePostgres("postgres migrations", () => {
       { table_name: "trade_events", column_name: "commission_amount", data_type: "numeric", numeric_precision: 20, numeric_scale: 4 },
       { table_name: "trade_events", column_name: "tax_amount", data_type: "numeric", numeric_precision: 20, numeric_scale: 4 },
       { table_name: "trade_fee_policy_snapshot_tax_components", column_name: "booked_tax_amount", data_type: "numeric", numeric_precision: 20, numeric_scale: 4 },
+    ]);
+  });
+
+  it("migration 102 records suspicious orphan zero-cost lots for manual audit", async () => {
+    const before102 = await getNumberedMigrationsBefore("102_position_actions_ledger.sql");
+    await applyMigrationFiles(before102);
+
+    await pool.query(
+      `INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
+       VALUES ('migration-102-user', 'migration-102@example.com', 'en', 'WEIGHTED_AVERAGE', 10)`,
+    );
+    await seedAccountWithFeeProfilePost042({
+      userId: "migration-102-user",
+      accountId: "migration-102-account",
+      accountName: "Migration 102",
+      feeProfileId: "migration-102-fee-profile",
+    });
+    await pool.query(
+      `INSERT INTO lots (
+         id,
+         account_id,
+         ticker,
+         open_quantity,
+         total_cost_amount,
+         opened_at,
+         opened_sequence,
+         cost_currency
+       )
+       VALUES (
+         'legacy-stock-dividend-lot',
+         'migration-102-account',
+         '2330',
+         300,
+         0,
+         '2026-01-20',
+         1,
+         'TWD'
+       )`,
+    );
+
+    await applyMigrationFiles(["102_position_actions_ledger.sql", "102_position_actions_ledger.sql"]);
+
+    const auditRows = await pool.query<{
+      lot_id: string;
+      reason: string;
+      open_quantity: string;
+      total_cost_amount: string;
+    }>(
+      `SELECT lot_id, reason, open_quantity, total_cost_amount
+         FROM position_action_migration_audit
+        WHERE account_id = 'migration-102-account'
+        ORDER BY lot_id`,
+    );
+
+    expect(auditRows.rows).toEqual([
+      {
+        lot_id: "legacy-stock-dividend-lot",
+        reason: "zero_cost_positive_lot_without_position_action_projection",
+        open_quantity: "300.000000",
+        total_cost_amount: "0.000000",
+      },
+    ]);
+  });
+
+  it("migration 102 backfills position actions and removes legacy stock-dividend lots", async () => {
+    const before102 = await getNumberedMigrationsBefore("102_position_actions_ledger.sql");
+    await applyMigrationFiles(before102);
+
+    await pool.query(
+      `INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
+       VALUES ('migration-102-backfill-user', 'migration-102-backfill@example.com', 'en', 'WEIGHTED_AVERAGE', 10)`,
+    );
+    await seedAccountWithFeeProfilePost042({
+      userId: "migration-102-backfill-user",
+      accountId: "migration-102-backfill-account",
+      accountName: "Migration 102 Backfill",
+      feeProfileId: "migration-102-backfill-fee-profile",
+    });
+    await pool.query(
+      `INSERT INTO market_data.dividend_events (
+         id, ticker, market_code, event_type, ex_dividend_date, payment_date,
+         cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
+         source, source_reference
+       ) VALUES (
+         'migration-102-stock-event', '2330', 'TW', 'STOCK', DATE '2026-01-10', DATE '2026-01-20',
+         0, 'TWD', 0.1, 'manual', 'migration-102-stock-event'
+       )`,
+    );
+    await pool.query(
+      `INSERT INTO dividend_ledger_entries (
+         id, account_id, dividend_event_id, eligible_quantity, expected_cash_amount,
+         expected_stock_quantity, received_stock_quantity,
+         posting_status, reconciliation_status, booked_at
+       ) VALUES (
+         'migration-102-stock-ledger', 'migration-102-backfill-account', 'migration-102-stock-event',
+         3000, 0, 300, 300, 'posted', 'open', TIMESTAMP '2026-01-20 09:00:00'
+       )`,
+    );
+    await pool.query(
+      `INSERT INTO lots (
+         id, account_id, ticker, open_quantity, total_cost_amount, opened_at, opened_sequence, cost_currency
+       ) VALUES (
+         'lot-migration-102-stock-ledger', 'migration-102-backfill-account', '2330',
+         300, 0, DATE '2026-01-20', 1, 'TWD'
+       )`,
+    );
+    await pool.query(
+      `INSERT INTO trade_fee_policy_snapshots (
+         id, user_id, profile_id_at_booking, profile_name_at_booking, board_commission_rate,
+         commission_discount_percent, minimum_commission_amount, commission_currency,
+         commission_rounding_mode, tax_rounding_mode, stock_sell_tax_rate_bps,
+         stock_day_trade_tax_rate_bps, etf_sell_tax_rate_bps, bond_etf_sell_tax_rate_bps,
+         commission_charge_mode, booked_at
+       ) VALUES (
+         'trade-fee-snapshot:legacy-sell', 'migration-102-backfill-user', 'fp-default', 'Default Broker', 1.425,
+         0, 20, 'TWD',
+         'FLOOR', 'FLOOR', 30,
+         15, 10, 0,
+         'CHARGED_UPFRONT', TIMESTAMP '2026-01-21 09:00:00'
+       )`,
+    );
+    await pool.query(
+      `INSERT INTO trade_events (
+         id, user_id, account_id, ticker, instrument_type, trade_type, quantity, unit_price,
+         price_currency, trade_date, trade_timestamp, booking_sequence, commission_amount,
+         tax_amount, is_day_trade, fee_policy_snapshot_id, source, source_reference, booked_at, market_code
+       ) VALUES (
+         'legacy-sell', 'migration-102-backfill-user', 'migration-102-backfill-account', '2330', 'STOCK', 'SELL', 100, 0,
+         'TWD', DATE '2026-01-21', TIMESTAMP '2026-01-21 09:00:00', 1, 0,
+         0, false, 'trade-fee-snapshot:legacy-sell', 'manual', 'legacy-sell', TIMESTAMP '2026-01-21 09:00:00', 'TW'
+       )`,
+    );
+    await pool.query(
+      `INSERT INTO lot_allocations (
+         id, user_id, account_id, trade_event_id, ticker, lot_id,
+         lot_opened_at, lot_opened_sequence, allocated_quantity, allocated_cost_amount, cost_currency
+       ) VALUES (
+         'migration-102-legacy-allocation', 'migration-102-backfill-user', 'migration-102-backfill-account',
+         'legacy-sell', '2330', 'lot-migration-102-stock-ledger',
+         DATE '2026-01-20', 1, 100, 0, 'TWD'
+       )`,
+    );
+    await pool.query(
+      `INSERT INTO corporate_actions (
+         id, account_id, ticker, action_type, numerator, denominator, action_date
+       ) VALUES (
+         'legacy-dividend-corporate-action', 'migration-102-backfill-account', '2330',
+         'DIVIDEND', 300, 1, DATE '2026-01-19'
+       )`,
+    );
+
+    await applyMigrationFiles(["102_position_actions_ledger.sql", "102_position_actions_ledger.sql"]);
+
+    const positionActions = await pool.query<{
+      id: string;
+      related_dividend_ledger_entry_id: string;
+      quantity: string;
+      action_timestamp: string | null;
+      premium_base_amount: string;
+      nhi_premium_base_amount: string;
+    }>(
+      `SELECT id, related_dividend_ledger_entry_id, quantity, action_timestamp, premium_base_amount, nhi_premium_base_amount
+         FROM position_actions
+        WHERE related_dividend_ledger_entry_id = 'migration-102-stock-ledger'`,
+    );
+    expect(positionActions.rows).toEqual([
+      {
+        id: "position-action-migration-102-stock-ledger",
+        related_dividend_ledger_entry_id: "migration-102-stock-ledger",
+        quantity: "300.000000",
+        action_timestamp: null,
+        premium_base_amount: "0.000000",
+        nhi_premium_base_amount: "3000.000000",
+      },
+    ]);
+
+    const replacementLots = await pool.query<{
+      id: string;
+      open_quantity: number;
+      total_cost_amount: string;
+      opened_at: string;
+      opened_sequence: number;
+      cost_currency: string;
+    }>(
+      `SELECT id, open_quantity, total_cost_amount, opened_at::text, opened_sequence, cost_currency
+         FROM lots
+        WHERE id = 'lot-pa-position-action-migration-102-stock-ledger'`,
+    );
+    expect(replacementLots.rows).toEqual([
+      {
+        id: "lot-pa-position-action-migration-102-stock-ledger",
+        open_quantity: 300,
+        total_cost_amount: "0.0000",
+        opened_at: "2026-01-20",
+        opened_sequence: 2,
+        cost_currency: "TWD",
+      },
+    ]);
+
+    const legacyLots = await pool.query(
+      `SELECT id FROM lots WHERE id = 'lot-migration-102-stock-ledger'`,
+    );
+    const legacyAllocations = await pool.query(
+      `SELECT id FROM lot_allocations WHERE lot_id = 'lot-migration-102-stock-ledger'`,
+    );
+    expect(legacyLots.rowCount).toBe(0);
+    expect(legacyAllocations.rowCount).toBe(0);
+
+    const legacyCorporateAction = await pool.query<{
+      id: string;
+      action_type: string;
+      quantity: string;
+      source_reference: string;
+    }>(
+      `SELECT id, action_type, quantity, source_reference
+         FROM position_actions
+        WHERE source_reference = 'legacy-dividend-corporate-action'`,
+    );
+    expect(legacyCorporateAction.rows).toEqual([
+      {
+        id: "legacy-dividend-corporate-action",
+        action_type: "STOCK_DIVIDEND",
+        quantity: "300.000000",
+        source_reference: "legacy-dividend-corporate-action",
+      },
     ]);
   });
 

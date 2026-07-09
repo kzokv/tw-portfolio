@@ -175,7 +175,7 @@ test.describe("dividends", () => {
     await dividendsApi.assert.fieldEquals(ledgerEntry, "sourceCompositionStatus", "unknown_pending_disclosure");
   });
 
-  test("POST update path: stock edit is rejected and stale cash version conflicts", async ({
+  test("POST update path: stock edit updates quantity and stale cash version conflicts", async ({
     dividendsApi,
   }) => {
     const stockSeed = await dividendsApi.actions.seedDividendEvent(
@@ -213,8 +213,10 @@ test.describe("dividends", () => {
         sourceLines: [],
       }),
     );
-    await dividendsApi.assert.statusIs(stockEditResponse, 422);
-    await dividendsApi.assert.hasErrorCode(await dividendsApi.arrange.postingBody(stockEditResponse), "stock_dividend_in_place_edit_unsupported");
+    await dividendsApi.assert.statusIs(stockEditResponse, 200);
+    const updatedStockLedgerEntry = await dividendsApi.arrange.dividendLedgerEntry(stockEditResponse);
+    await dividendsApi.assert.fieldEquals(updatedStockLedgerEntry, "receivedStockQuantity", 120);
+    await dividendsApi.assert.versionIncremented(stockLedgerEntry, updatedStockLedgerEntry);
 
     const cashSeed = await dividendsApi.actions.seedDividendEvent(
       seededDividendEventPayload({

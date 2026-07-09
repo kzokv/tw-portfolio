@@ -108,6 +108,7 @@ export function createStore(): Store {
         dividendLedgerEntries: [],
         dividendDeductionEntries: [],
         dividendSourceLines: [],
+        positionActions: [],
         corporateActions: [],
       },
       projections: {

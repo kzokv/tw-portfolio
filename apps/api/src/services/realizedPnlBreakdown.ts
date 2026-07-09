@@ -1,6 +1,6 @@
 import { allocateSellLots, applyBuyToLots, roundToDecimal, type Lot } from "@vakwen/domain";
 import type { RealizedPnlBreakdownDto, RealizedPnlBreakdownUnavailableReason } from "@vakwen/shared-types";
-import type { AccountingStore, Transaction } from "../types/store.js";
+import type { AccountingStore, PositionAction, Transaction } from "../types/store.js";
 
 export function buildRealizedPnlBreakdown(
   accounting: AccountingStore,
@@ -13,6 +13,7 @@ export function createRealizedPnlBreakdownResolver(
   accounting: AccountingStore,
 ): (trade: Transaction) => RealizedPnlBreakdownDto | null {
   const tradesByBucket = new Map<string, Transaction[]>();
+  const actionsByBucket = new Map<string, PositionAction[]>();
   for (const trade of accounting.facts.tradeEvents) {
     const key = transactionBucketKey(trade);
     const bucket = tradesByBucket.get(key);
@@ -25,14 +26,27 @@ export function createRealizedPnlBreakdownResolver(
   for (const bucket of tradesByBucket.values()) {
     bucket.sort(compareTradesForReplay);
   }
+  for (const action of accounting.facts.positionActions) {
+    const key = transactionBucketKey(action);
+    const bucket = actionsByBucket.get(key);
+    if (bucket) {
+      bucket.push(action);
+    } else {
+      actionsByBucket.set(key, [action]);
+    }
+  }
+  for (const bucket of actionsByBucket.values()) {
+    bucket.sort(comparePositionActionsForReplay);
+  }
 
-  return (trade) => buildRealizedPnlBreakdownFromBuckets(accounting, trade, tradesByBucket);
+  return (trade) => buildRealizedPnlBreakdownFromBuckets(accounting, trade, tradesByBucket, actionsByBucket);
 }
 
 function buildRealizedPnlBreakdownFromBuckets(
   accounting: AccountingStore,
   trade: Transaction,
   tradesByBucket: ReadonlyMap<string, Transaction[]>,
+  actionsByBucket: ReadonlyMap<string, PositionAction[]>,
 ): RealizedPnlBreakdownDto | null {
   if (trade.type !== "SELL") {
     return null;
@@ -42,30 +56,33 @@ function buildRealizedPnlBreakdownFromBuckets(
     return unavailable(trade.priceCurrency, "unsupported_cost_basis_method");
   }
 
-  if (hasRelevantCorporateActionBeforeSell(accounting, trade)) {
-    return unavailable(trade.priceCurrency, "unknown");
-  }
-
   const relevantTrades = tradesByBucket.get(transactionBucketKey(trade)) ?? [];
+  const relevantActions = actionsByBucket.get(transactionBucketKey(trade)) ?? [];
+  const timeline = [...relevantTrades.map((entry) => ({ kind: "trade" as const, trade: entry })), ...relevantActions.map((entry) => ({ kind: "action" as const, action: entry }))]
+    .sort(compareReplayTimelineEntries);
 
   let lots: Lot[] = [];
-  for (const entry of relevantTrades) {
-    if (entry.id === trade.id) {
-      return replayTargetSell(accounting, lots, entry);
+  for (const entry of timeline) {
+    if (entry.kind === "trade" && entry.trade.id === trade.id) {
+      return replayTargetSell(accounting, lots, entry.trade);
     }
 
-    const step = applyHistoricalTrade(lots, entry);
-    if (step.reason) {
-      return unavailable(trade.priceCurrency, step.reason);
+    if (entry.kind === "action") {
+      lots = applyHistoricalPositionAction(lots, entry.action);
+    } else {
+      const step = applyHistoricalTrade(lots, entry.trade);
+      if (step.reason) {
+        return unavailable(trade.priceCurrency, step.reason);
+      }
+      lots = step.lots;
     }
-    lots = step.lots;
   }
 
   return unavailable(trade.priceCurrency, "unknown");
 }
 
-function transactionBucketKey(trade: Pick<Transaction, "accountId" | "ticker" | "marketCode">): string {
-  return `${trade.accountId}\u0000${trade.marketCode}\u0000${trade.ticker}`;
+function transactionBucketKey(entry: Pick<Transaction, "accountId" | "ticker" | "marketCode"> | Pick<PositionAction, "accountId" | "ticker" | "marketCode">): string {
+  return `${entry.accountId}\u0000${entry.marketCode}\u0000${entry.ticker}`;
 }
 
 function applyHistoricalTrade(
@@ -181,13 +198,37 @@ function hasCurrencyMismatch(lots: Lot[], currency: Transaction["priceCurrency"]
   return openCurrencies.size !== 1 || !openCurrencies.has(currency);
 }
 
-function hasRelevantCorporateActionBeforeSell(accounting: AccountingStore, trade: Transaction): boolean {
-  return accounting.facts.corporateActions.some((action) => (
-    action.accountId === trade.accountId
-    && action.ticker === trade.ticker
-    && action.actionType !== "DIVIDEND"
-    && action.actionDate <= trade.tradeDate
-  ));
+function applyHistoricalPositionAction(lots: Lot[], action: PositionAction): Lot[] {
+  if (action.reversalOfPositionActionId || action.supersededAt) {
+    return lots;
+  }
+  if (action.actionType === "STOCK_DIVIDEND") {
+    return applyBuyToLots(lots, {
+      id: `lot-pa-${action.id}`,
+      accountId: action.accountId,
+      ticker: action.ticker,
+      openQuantity: action.quantity,
+      totalCostAmount: 0,
+      costCurrency: action.cashInLieuCurrency ?? "TWD",
+      openedAt: action.actionDate,
+      openedSequence: 1,
+    }).updatedLots;
+  }
+  const numerator = action.ratioNumerator ?? 1;
+  const denominator = action.ratioDenominator ?? 1;
+  const ratio = numerator / denominator;
+  return lots.map((lot) => {
+    if (lot.accountId !== action.accountId || lot.ticker !== action.ticker) {
+      return lot;
+    }
+    const adjustedQuantity = lot.openQuantity * ratio;
+    const retainedQuantity = Math.floor(adjustedQuantity);
+    const hasFractionalQuantity = adjustedQuantity !== retainedQuantity;
+    return {
+      ...lot,
+      openQuantity: hasFractionalQuantity ? retainedQuantity : adjustedQuantity,
+    };
+  });
 }
 
 function reasonForReplayError(error: unknown): RealizedPnlBreakdownUnavailableReason {
@@ -217,4 +258,36 @@ function compareTradesForReplay(left: Transaction, right: Transaction): number {
     || (left.bookedAt ?? "").localeCompare(right.bookedAt ?? "")
     || left.id.localeCompare(right.id)
   );
+}
+
+function comparePositionActionsForReplay(left: PositionAction, right: PositionAction): number {
+  return (
+    left.actionDate.localeCompare(right.actionDate)
+    || (left.actionTimestamp ?? "").localeCompare(right.actionTimestamp ?? "")
+    || (left.bookedAt ?? "").localeCompare(right.bookedAt ?? "")
+    || left.id.localeCompare(right.id)
+  );
+}
+
+type ReplayTimelineEntry =
+  | { kind: "trade"; trade: Transaction }
+  | { kind: "action"; action: PositionAction };
+
+function compareReplayTimelineEntries(left: ReplayTimelineEntry, right: ReplayTimelineEntry): number {
+  const leftDate = left.kind === "trade" ? left.trade.tradeDate : left.action.actionDate;
+  const rightDate = right.kind === "trade" ? right.trade.tradeDate : right.action.actionDate;
+  if (leftDate !== rightDate) return leftDate.localeCompare(rightDate);
+
+  const leftTimestamp = left.kind === "trade" ? left.trade.tradeTimestamp ?? null : left.action.actionTimestamp ?? null;
+  const rightTimestamp = right.kind === "trade" ? right.trade.tradeTimestamp ?? null : right.action.actionTimestamp ?? null;
+  if (leftTimestamp && rightTimestamp && leftTimestamp !== rightTimestamp) {
+    return leftTimestamp.localeCompare(rightTimestamp);
+  }
+  if (left.kind !== right.kind && (!leftTimestamp || !rightTimestamp)) {
+    return left.kind === "action" ? -1 : 1;
+  }
+
+  if (left.kind === "trade" && right.kind === "trade") return compareTradesForReplay(left.trade, right.trade);
+  if (left.kind === "action" && right.kind === "action") return comparePositionActionsForReplay(left.action, right.action);
+  return left.kind === "action" ? -1 : 1;
 }

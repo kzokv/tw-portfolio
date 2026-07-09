@@ -1005,7 +1005,7 @@ function buildUpcomingDividends(
     if (!entry.reversalOfDividendLedgerEntryId && !entry.supersededAt) {
       activeLedgerByAccountAndEvent.set(key, { postingStatus: entry.postingStatus });
     }
-    if (entry.postingStatus === "posted") {
+    if (entry.postingStatus === "posted" || entry.postingStatus === "adjusted") {
       postedEventKeys.add(key);
     }
   }

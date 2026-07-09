@@ -96,8 +96,10 @@ import {
   searchInstruments,
 } from "../services/mcpPortfolioRead.js";
 import {
+  amendDividendReceipt,
   getDividendReview,
   postDividendReceipt,
+  previewAmendDividendReceipt,
   previewPostDividendReceipt,
   previewUpdateDividendReconciliation,
   updateDividendReconciliation,
@@ -215,6 +217,8 @@ function requiresExplicitPortfolioSelector(toolName: McpToolName): boolean {
     "backfill_tickers",
     "preview_post_dividend_receipt",
     "post_dividend_receipt",
+    "preview_amend_dividend_receipt",
+    "amend_dividend_receipt",
     "preview_update_dividend_reconciliation",
     "update_dividend_reconciliation",
   ].includes(toolName);
@@ -771,6 +775,18 @@ export async function registerMcpRoutes(
           result = await postDividendReceipt(
             { app, requestContext },
             args as Parameters<typeof postDividendReceipt>[1],
+          );
+          break;
+        case "preview_amend_dividend_receipt":
+          result = await previewAmendDividendReceipt(
+            { app, requestContext },
+            args as Parameters<typeof previewAmendDividendReceipt>[1],
+          );
+          break;
+        case "amend_dividend_receipt":
+          result = await amendDividendReceipt(
+            { app, requestContext },
+            args as Parameters<typeof amendDividendReceipt>[1],
           );
           break;
         case "preview_update_dividend_reconciliation":

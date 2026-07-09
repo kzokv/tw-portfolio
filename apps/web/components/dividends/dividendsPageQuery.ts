@@ -68,6 +68,13 @@ function getValue(
   return typeof value === "string" ? value : Array.isArray(value) ? value[0] : undefined;
 }
 
+function normalizeStatusFilter(status: string): string {
+  if (status === "needs-review" || status === "needsReview") {
+    return "needsReconciliation";
+  }
+  return status;
+}
+
 export function searchParamsToReviewQuery(
   searchParams: DividendsSearchParamsRecord | URLSearchParams,
 ): DividendReviewQuery {
@@ -77,7 +84,7 @@ export function searchParamsToReviewQuery(
 
   const fromDate = getValue(searchParams, "fromPaymentDate") ?? resolved.from ?? "";
   const toDate = getValue(searchParams, "toPaymentDate") ?? resolved.to ?? "";
-  const status = getValue(searchParams, "status") ?? "all";
+  const status = normalizeStatusFilter(getValue(searchParams, "status") ?? "all");
   const sortBy = getValue(searchParams, "sortBy") ?? "paymentDate";
   const sortOrder = (getValue(searchParams, "sortOrder") ?? "desc") as "asc" | "desc";
   const page = parseInt(getValue(searchParams, "page") ?? "1", 10) || 1;
@@ -87,9 +94,10 @@ export function searchParamsToReviewQuery(
 
   let postingStatus: string | undefined;
   let reconciliationStatus: string | undefined;
+  let excludeExpected = false;
   if (status === "needsReconciliation") {
-    postingStatus = "posted";
     reconciliationStatus = "open";
+    excludeExpected = true;
   } else if (status !== "all") {
     reconciliationStatus = status;
   }
@@ -102,6 +110,7 @@ export function searchParamsToReviewQuery(
     accountId: accountId || undefined,
     ...(postingStatus ? { postingStatus } : {}),
     ...(reconciliationStatus ? { reconciliationStatus } : {}),
+    ...(excludeExpected ? { excludeExpected } : {}),
     sortBy,
     sortOrder,
     page,
