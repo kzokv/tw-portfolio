@@ -402,8 +402,11 @@ export function DividendReviewClient({
     if (lastContextRefreshSignal.current === contextRefreshSignal) return;
     lastContextRefreshSignal.current = contextRefreshSignal;
     setDrawerEntry(null);
-    void fetchData({ ...filtersRef.current, page: 1 });
-  }, [contextRefreshSignal, fetchData]);
+    const next = { ...filtersRef.current, page: 1 };
+    setFilters(next);
+    syncUrl(next);
+    void fetchData(next);
+  }, [contextRefreshSignal, fetchData, syncUrl]);
 
   // ── Filter change handlers ────────────────────────────────────────────
 

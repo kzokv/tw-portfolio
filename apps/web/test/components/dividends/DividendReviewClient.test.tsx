@@ -8,6 +8,11 @@ import type { DividendLedgerReviewResponse } from "../../../features/dividends/s
 
 const searchParamsState = { value: "" };
 const smallScreenState = { value: false };
+const shellContext = vi.hoisted(() => ({ value: null as null | {
+  isSharedContext: boolean;
+  sharedContextPermissions: { canWriteDividends: boolean };
+  contextRefreshSignal: number;
+} }));
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(searchParamsState.value),
@@ -19,6 +24,10 @@ vi.mock("../../../hooks/useEventStream", () => ({
 
 vi.mock("../../../lib/hooks/use-small-screen", () => ({
   useIsSmallScreen: () => smallScreenState.value,
+}));
+
+vi.mock("../../../components/layout/AppShellDataContext", () => ({
+  useOptionalAppShellData: () => shellContext.value,
 }));
 
 vi.mock("../../../features/dividends/services/dividendService", () => ({
@@ -95,6 +104,7 @@ describe("DividendReviewClient", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     smallScreenState.value = false;
+    shellContext.value = null;
     searchParamsState.value = "view=ledger&ticker=2330&marketCode=TW";
     window.history.replaceState(null, "", `/dividends?${searchParamsState.value}`);
     vi.mocked(fetchDividendLedgerReview).mockResolvedValue(emptyReviewData);
@@ -470,6 +480,48 @@ describe("DividendReviewClient", () => {
     ]);
     expect(window.location.search).toContain("page=1");
     expect(window.location.search).not.toContain("limit=25");
+  });
+
+  it("synchronizes page state and URL when the portfolio context refreshes", async () => {
+    searchParamsState.value = "view=ledger&page=4&limit=25";
+    window.history.replaceState(null, "", "/dividends?view=ledger&page=4&limit=25");
+    shellContext.value = {
+      isSharedContext: true,
+      sharedContextPermissions: { canWriteDividends: true },
+      contextRefreshSignal: 0,
+    };
+
+    act(() => {
+      root.render(
+        <DividendReviewClient
+          initialData={emptyReviewData}
+          dict={dict}
+          locale="en"
+          accounts={[]}
+          years={[2026]}
+        />,
+      );
+    });
+    await act(async () => {});
+    vi.mocked(fetchDividendLedgerReview).mockClear();
+
+    shellContext.value = { ...shellContext.value, contextRefreshSignal: 1 };
+    act(() => {
+      root.render(
+        <DividendReviewClient
+          initialData={emptyReviewData}
+          dict={dict}
+          locale="en"
+          accounts={[]}
+          years={[2026]}
+        />,
+      );
+    });
+    await act(async () => {});
+
+    expect(fetchDividendLedgerReview).toHaveBeenCalledWith(expect.objectContaining({ page: 1, limit: 25 }));
+    expect(window.location.search).toContain("page=1");
+    expect(container.querySelector<HTMLButtonElement>("[data-testid='pagination-prev']")?.disabled).toBe(true);
   });
 
   it("applies selected year range through URL and review fetch query", async () => {

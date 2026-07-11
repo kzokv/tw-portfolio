@@ -23,7 +23,10 @@ const row = {
   reportingCurrency: "TWD",
   reportingCostBasisAmount: 1_200_000,
   reportingMarketValueAmount: 1_240_000,
-  children: [],
+  children: [
+    { accountId: "acc-1", accountName: "Main Brokerage" },
+    { accountId: "acc-2", accountName: "Retirement" },
+  ],
   priceState: testPriceState(),
 } as unknown as DashboardOverviewHoldingGroupDto;
 
@@ -70,6 +73,7 @@ describe("HoldingActivityDetail", () => {
     expect(fetchHoldingActivityDividends).toHaveBeenCalledWith(expect.objectContaining({
       ticker: "2330",
       marketCode: "TW",
+      accountIds: ["acc-1", "acc-2"],
       positionActionsPage: 1,
       positionActionsLimit: 10,
       upcomingPage: 1,

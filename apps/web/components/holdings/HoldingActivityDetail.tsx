@@ -48,6 +48,7 @@ export function HoldingActivityDetail({
       ticker: row.ticker,
       marketCode: row.marketCode,
       accountId: "accountId" in row ? row.accountId : undefined,
+      accountIds: "children" in row ? row.children.map((child) => child.accountId) : undefined,
     }),
     [row],
   );
@@ -74,6 +75,7 @@ export function HoldingActivityDetail({
       ticker: scope.ticker,
       marketCode: scope.marketCode as MarketCode,
       accountId: scope.accountId,
+      accountIds: scope.accountIds,
       positionActionsPage: routeState.positionActionsPage,
       positionActionsLimit: routeState.positionActionsLimit,
       upcomingPage: 1,
