@@ -1192,6 +1192,7 @@ export function buildTickerDividendUpcomingPage(
 
         const stockEntitlement = resolveDividendStockEntitlement({
           eligibleQuantity,
+          stockEntitlementRequired: event.eventType !== "CASH",
           stockDistributionRatio: event.stockDistributionRatio ?? null,
           stockDistributionRatioState: event.stockDistributionRatioState ?? "unresolved",
         });
@@ -1297,6 +1298,7 @@ function buildActivePostedDividendHistoryItems(
       });
       const stockEntitlement = resolveDividendStockEntitlement({
         eligibleQuantity: entry.eligibleQuantity,
+        stockEntitlementRequired: event.eventType !== "CASH",
         stockDistributionRatio: event.stockDistributionRatio ?? null,
         stockDistributionRatioState: event.stockDistributionRatioState ?? "unresolved",
       });

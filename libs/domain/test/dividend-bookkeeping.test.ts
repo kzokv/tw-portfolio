@@ -11,6 +11,7 @@ describe("dividend bookkeeping", () => {
     it("resolves expected stock quantity from an authoritative normalized ratio", () => {
       expect(resolveDividendStockEntitlement({
         eligibleQuantity: 1_234,
+        stockEntitlementRequired: true,
         stockDistributionRatio: 0.085,
         stockDistributionRatioState: "authoritative",
       })).toEqual({
@@ -25,6 +26,7 @@ describe("dividend bookkeeping", () => {
     it("keeps stock entitlement unresolved when no authoritative ratio exists", () => {
       expect(resolveDividendStockEntitlement({
         eligibleQuantity: 1_234,
+        stockEntitlementRequired: true,
         stockDistributionRatio: null,
         stockDistributionRatioState: "unresolved",
       })).toEqual({
@@ -39,6 +41,7 @@ describe("dividend bookkeeping", () => {
     it("keeps non-authoritative derived ratios unresolved for review", () => {
       expect(resolveDividendStockEntitlement({
         eligibleQuantity: 1_234,
+        stockEntitlementRequired: true,
         stockDistributionRatio: 0.085,
         stockDistributionRatioState: "derived_non_authoritative",
       })).toEqual({
@@ -53,6 +56,22 @@ describe("dividend bookkeeping", () => {
     it("treats zero eligible quantity as resolved even when the ratio is unresolved", () => {
       expect(resolveDividendStockEntitlement({
         eligibleQuantity: 0,
+        stockEntitlementRequired: true,
+        stockDistributionRatio: null,
+        stockDistributionRatioState: "unresolved",
+      })).toEqual({
+        expectedStockQuantity: 0,
+        stockDistributionRatio: null,
+        stockDistributionRatioState: "unresolved",
+        expectedStockCalcState: "resolved",
+        needsActionReason: null,
+      });
+    });
+
+    it("treats cash-only dividends as resolved without requiring a stock ratio", () => {
+      expect(resolveDividendStockEntitlement({
+        eligibleQuantity: 1_234,
+        stockEntitlementRequired: false,
         stockDistributionRatio: null,
         stockDistributionRatioState: "unresolved",
       })).toEqual({

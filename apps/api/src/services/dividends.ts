@@ -1527,7 +1527,7 @@ function buildExpectedDividendEntitlement(
   eligibleQuantity: number,
   dividendEvent: Pick<
     DividendEvent,
-    "cashDividendPerShare" | "stockDistributionRatio" | "stockDistributionRatioState" | "stockParValueAmount"
+    "eventType" | "cashDividendPerShare" | "stockDistributionRatio" | "stockDistributionRatioState" | "stockParValueAmount"
   >,
 ): Pick<
   DividendLedgerEntry,
@@ -1597,10 +1597,11 @@ function assertDividendEventShape(input: CreateDividendEventInput): void {
 
 function resolveExpectedStockEntitlement(
   eligibleQuantity: number,
-  dividendEvent: Pick<DividendEvent, "stockDistributionRatio" | "stockDistributionRatioState">,
+  dividendEvent: Pick<DividendEvent, "eventType" | "stockDistributionRatio" | "stockDistributionRatioState">,
 ): Pick<DividendLedgerEntry, "expectedStockQuantity" | "expectedStockCalcState" | "expectedStockDistributionRatio"> {
   const resolved = resolveDividendStockEntitlement({
     eligibleQuantity,
+    stockEntitlementRequired: dividendEvent.eventType !== "CASH",
     stockDistributionRatio: dividendEvent.stockDistributionRatio ?? null,
     stockDistributionRatioState: dividendEvent.stockDistributionRatioState ?? "unresolved",
   });

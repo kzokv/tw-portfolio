@@ -10851,6 +10851,7 @@ export class PostgresPersistence implements Persistence {
       });
       const stockEntitlement = resolveDividendStockEntitlement({
         eligibleQuantity: entry.eligibleQuantity,
+        stockEntitlementRequired: event.eventType !== "CASH",
         stockDistributionRatio: event.stockDistributionRatio ?? null,
         stockDistributionRatioState: event.stockDistributionRatioState ?? "unresolved",
       });
@@ -10920,6 +10921,7 @@ export class PostgresPersistence implements Persistence {
           });
           const stockEntitlement = resolveDividendStockEntitlement({
             eligibleQuantity,
+            stockEntitlementRequired: event.eventType !== "CASH",
             stockDistributionRatio: event.stockDistributionRatio ?? null,
             stockDistributionRatioState: event.stockDistributionRatioState ?? "unresolved",
           });

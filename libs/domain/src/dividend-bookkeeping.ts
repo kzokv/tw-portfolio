@@ -23,6 +23,7 @@ export interface DividendCashReconciliation {
 
 export interface ResolveDividendStockEntitlementInput {
   eligibleQuantity: number;
+  stockEntitlementRequired: boolean;
   stockDistributionRatio: number | null;
   stockDistributionRatioState: StockDistributionRatioState;
 }
@@ -48,6 +49,16 @@ export function resolveDividendStockEntitlement(
   const normalizedEligibleQuantity = Math.max(0, Math.trunc(input.eligibleQuantity));
   const normalizedRatio = normalizeOptionalNonNegativeNumber(input.stockDistributionRatio);
   const ratioIsUsable = normalizedRatio != null && input.stockDistributionRatioState === "authoritative";
+
+  if (!input.stockEntitlementRequired) {
+    return {
+      expectedStockQuantity: 0,
+      stockDistributionRatio: null,
+      stockDistributionRatioState: input.stockDistributionRatioState,
+      expectedStockCalcState: "resolved",
+      needsActionReason: null,
+    };
+  }
 
   if (normalizedEligibleQuantity === 0) {
     return {
