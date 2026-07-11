@@ -119,6 +119,8 @@ export interface DividendEventListItem {
   cashDividendCurrency: CurrencyCode;
   expectedCashAmount: number;
   expectedStockQuantity: number;
+  stockDistributionRatio: number | null;
+  stockDistributionRatioState: "authoritative" | "derived_non_authoritative" | "unresolved";
   eligibleQuantity: number;
   parValuePerShare?: number | null;
   hasPostedLedgerEntry: boolean;

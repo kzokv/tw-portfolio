@@ -10144,7 +10144,7 @@ export class PostgresPersistence implements Persistence {
               WHERE account.id = $2
                 AND account.user_id = $19
                 AND account.deleted_at IS NULL
-             ON CONFLICT (id) DO NOTHING`,
+             ON CONFLICT DO NOTHING`,
             [
               nextEntry.id,
               nextEntry.accountId,

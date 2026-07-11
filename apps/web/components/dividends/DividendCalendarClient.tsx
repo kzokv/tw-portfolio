@@ -744,7 +744,10 @@ function ReceiptRow({ row, dict, locale, onOpen }: { row: DividendCalendarRow; d
   );
 }
 
-function TickerCell({ event, subLabel }: { event: DividendEventListItem; subLabel?: string }) {
+function TickerCell({ event, subLabel }: {
+  event: Pick<DividendEventListItem, "accountId" | "accountName" | "ticker" | "tickerName">;
+  subLabel?: string;
+}) {
   return (
     <div className="min-w-0">
       <p className="break-words font-semibold text-foreground">{tickerLabel(event)}</p>

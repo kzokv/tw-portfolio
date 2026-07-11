@@ -304,6 +304,8 @@ describe("dividends", () => {
       events: [expect.objectContaining({
         id: dividendEvent.id,
         expectedStockQuantity: 100,
+        stockDistributionRatio: 0.1,
+        stockDistributionRatioState: "authoritative",
         parValuePerShare: 10,
         hasPostedLedgerEntry: false,
       })],

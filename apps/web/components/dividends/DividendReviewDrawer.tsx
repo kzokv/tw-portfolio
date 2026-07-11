@@ -110,6 +110,8 @@ export function buildDividendCalendarRowFromEntry(entry: DividendLedgerEntryDeta
       cashDividendCurrency: entry.cashCurrency,
       expectedCashAmount: entry.expectedCashAmount,
       expectedStockQuantity: entry.expectedStockQuantity,
+      stockDistributionRatio: entry.stockDistributionRatio ?? null,
+      stockDistributionRatioState: entry.stockDistributionRatioState ?? "unresolved",
       eligibleQuantity: entry.eligibleQuantity,
       parValuePerShare: entry.expectedStockParValueAmount ?? entry.parValueAmount ?? null,
       hasPostedLedgerEntry: isLedgerRow,

@@ -190,6 +190,16 @@ describePostgres("PostgresPersistence.listDividendLedgerEntries — pagination/s
       change("created", createdEntry, 0),
     ]);
     expect(applied).toHaveLength(2);
+    const competingCreatedEntry = nextEntry({
+      id: "recompute-created-competing",
+      dividendEventId: createdEventId,
+      eligibleQuantity: 15,
+      expectedCashAmount: 15,
+      version: 1,
+    });
+    expect(await persistence.applyDividendLedgerRecompute(userId, [
+      change("created", competingCreatedEntry, 0),
+    ])).toEqual([]);
 
     const retiredEntry = nextEntry({ eligibleQuantity: 0, expectedCashAmount: 0, version: 3, supersededAt: "2026-04-01T00:00:00.000Z" });
     expect(await persistence.applyDividendLedgerRecompute(userId, [change("retired", retiredEntry, 2)])).toHaveLength(1);

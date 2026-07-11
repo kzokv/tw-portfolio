@@ -92,6 +92,8 @@ function buildRow(overrides?: {
       dividendLedgerEntryId: null,
       ...overrides?.event,
       marketCode: overrides?.event?.marketCode ?? "TW",
+      stockDistributionRatio: overrides?.event?.stockDistributionRatio ?? null,
+      stockDistributionRatioState: overrides?.event?.stockDistributionRatioState ?? "unresolved",
     },
     ledgerEntry: overrides?.ledgerEntry ?? null,
   };

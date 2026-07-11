@@ -175,6 +175,8 @@ export interface DividendEventListItem {
   cashDividendCurrency: string;
   expectedCashAmount: number;
   expectedStockQuantity: number;
+  stockDistributionRatio: number | null;
+  stockDistributionRatioState: StockDistributionRatioState;
   eligibleQuantity: number;
   parValuePerShare: number | null;
   hasPostedLedgerEntry: boolean;
@@ -723,6 +725,8 @@ export function buildDividendEventListItems(
           ?? calculateExpectedCashAmount(eligibleQuantity, dividendEvent.cashDividendPerShare),
         expectedStockQuantity: activeEntry?.expectedStockQuantity
           ?? resolveExpectedStockEntitlement(eligibleQuantity, dividendEvent).expectedStockQuantity,
+        stockDistributionRatio: dividendEvent.stockDistributionRatio ?? null,
+        stockDistributionRatioState: dividendEvent.stockDistributionRatioState ?? "unresolved",
         eligibleQuantity,
         parValuePerShare: activeEntry?.expectedStockParValueAmount
           ?? dividendEvent.stockParValueAmount

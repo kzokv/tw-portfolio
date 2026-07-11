@@ -70,6 +70,8 @@ function buildEvent(overrides: Partial<DividendEventListItem>): DividendEventLis
     cashDividendCurrency: overrides.cashDividendCurrency ?? "TWD",
     expectedCashAmount: overrides.expectedCashAmount ?? 100,
     expectedStockQuantity: overrides.expectedStockQuantity ?? 0,
+    stockDistributionRatio: overrides.stockDistributionRatio ?? null,
+    stockDistributionRatioState: overrides.stockDistributionRatioState ?? "unresolved",
     eligibleQuantity: overrides.eligibleQuantity ?? 1_000,
     hasPostedLedgerEntry: overrides.hasPostedLedgerEntry ?? false,
     dividendLedgerEntryId: overrides.dividendLedgerEntryId === undefined ? null : overrides.dividendLedgerEntryId,
