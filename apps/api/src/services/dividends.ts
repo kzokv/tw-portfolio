@@ -175,6 +175,7 @@ export interface DividendEventListItem {
   expectedCashAmount: number;
   expectedStockQuantity: number;
   eligibleQuantity: number;
+  parValuePerShare: number | null;
   hasPostedLedgerEntry: boolean;
   dividendLedgerEntryId: string | null;
 }
@@ -722,6 +723,9 @@ export function buildDividendEventListItems(
         expectedStockQuantity: activeEntry?.expectedStockQuantity
           ?? resolveExpectedStockEntitlement(eligibleQuantity, dividendEvent).expectedStockQuantity,
         eligibleQuantity,
+        parValuePerShare: activeEntry?.expectedStockParValueAmount
+          ?? dividendEvent.stockParValueAmount
+          ?? null,
         hasPostedLedgerEntry: activeEntry ? activeEntry.postingStatus !== "expected" : false,
         dividendLedgerEntryId: activeEntry?.id ?? null,
       });
