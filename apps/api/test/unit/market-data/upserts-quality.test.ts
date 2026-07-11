@@ -73,7 +73,7 @@ describe("upsertDailyBars quality semantics", () => {
 });
 
 describe("upsertDividendEvents ratio authority", () => {
-  it("preserves a repaired authoritative ratio when a refresh is unresolved", async () => {
+  it("preserves a repaired authoritative ratio and par value when a refresh is unresolved", async () => {
     const query = vi.fn().mockResolvedValue({ rowCount: 1 });
     const pool = { query } as unknown as Parameters<typeof upsertDividendEvents>[0];
 
@@ -93,5 +93,7 @@ describe("upsertDividendEvents ratio authority", () => {
     expect(sql).toContain("EXCLUDED.stock_distribution_ratio_state IS DISTINCT FROM 'authoritative'");
     expect(sql).toContain("THEN market_data.dividend_events.stock_distribution_ratio");
     expect(sql).toContain("THEN market_data.dividend_events.stock_distribution_ratio_state");
+    expect(sql).toContain("THEN market_data.dividend_events.stock_par_value_amount");
+    expect(sql).toContain("THEN market_data.dividend_events.stock_par_value_currency");
   });
 });
