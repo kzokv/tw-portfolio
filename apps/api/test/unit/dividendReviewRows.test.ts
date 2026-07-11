@@ -162,6 +162,20 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
     expect(review.aggregates.openCount).toBe(1);
   });
 
+  it("excludes undated events when a payment-date range is active", async () => {
+    const accountId = await seedTwdAccount();
+    const event = await seedDividendEvent({ paymentDate: null });
+    await seedLedgerEntry(accountId, event.id);
+
+    const review = await app.persistence.listDividendReviewRows(USER_ID, {
+      ...defaultOpts,
+      fromPaymentDate: "2024-07-01",
+      toPaymentDate: "2024-07-31",
+    });
+
+    expect(review.rows).toEqual([]);
+  });
+
   it("builds generated expected rows from replay-style eligibility and authoritative stock ratios", async () => {
     const accountId = await seedTwdAccount();
     const buy = await seedBuy(accountId, "2330", 100, "2024-05-01");

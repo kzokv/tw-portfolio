@@ -963,6 +963,7 @@ export interface DividendDestructiveAffectedCounts {
 }
 
 export interface AccountingStoreAuditOptions {
+  accountIds?: string[];
   expectedAccountRevision?: {
     accountId: string;
     revision: number;

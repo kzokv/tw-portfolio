@@ -8945,7 +8945,7 @@ export class PostgresPersistence implements Persistence {
           throw routeError(409, "dividend_destructive_preview_row_drift", "Underlying records changed after preview");
         }
       }
-      const accountIds = await this.listUserAccountIds(client, userId);
+      const accountIds = options?.accountIds ?? await this.listUserAccountIds(client, userId);
       await this.saveAccountingStoreTx(client, userId, accounting, accountIds);
       for (const scope of options?.deleteHoldingSnapshotScopes ?? []) {
         await client.query(
@@ -10844,7 +10844,9 @@ export class PostgresPersistence implements Persistence {
 
     const dateFilterActive = opts.fromPaymentDate != null || opts.toPaymentDate != null;
     const matchesDateFilter = (paymentDate: string | null | undefined): boolean => {
-      if (dateFilterActive) return matchesNullableDateRange(paymentDate ?? null, opts.fromPaymentDate, opts.toPaymentDate);
+      if (dateFilterActive) {
+        return paymentDate != null && matchesNullableDateRange(paymentDate, opts.fromPaymentDate, opts.toPaymentDate);
+      }
       return paymentDate != null;
     };
 
@@ -12577,6 +12579,7 @@ export class PostgresPersistence implements Persistence {
     accounting: AccountingStore,
     accountIds: string[],
   ): Promise<void> {
+    const accountIdSet = new Set(accountIds);
     if (accountIds.length) {
       await client.query(
         `DELETE FROM cash_ledger_entries
@@ -12626,6 +12629,7 @@ export class PostgresPersistence implements Persistence {
       }
     }
     for (const dividendLedgerEntry of accounting.facts.dividendLedgerEntries) {
+      if (!accountIdSet.has(dividendLedgerEntry.accountId)) continue;
       const dividendLedgerVersion = dividendLedgerEntry.version ?? 1;
       const dividendSourceCompositionStatus =
         dividendLedgerEntry.sourceCompositionStatus ?? "unknown_pending_disclosure";
@@ -12721,6 +12725,7 @@ export class PostgresPersistence implements Persistence {
     }
 
     for (const tx of accounting.facts.tradeEvents) {
+      if (!accountIdSet.has(tx.accountId)) continue;
       const feePolicySnapshotId = feePolicySnapshotIdForTrade(tx.id);
       await insertTradeFeePolicySnapshot(client, userId, feePolicySnapshotId, tx, tx.feeSnapshot, tx.bookedAt);
 
@@ -12764,6 +12769,7 @@ export class PostgresPersistence implements Persistence {
     }
 
     for (const entry of accounting.facts.cashLedgerEntries) {
+      if (!accountIdSet.has(entry.accountId)) continue;
       await client.query(
         `INSERT INTO cash_ledger_entries (
            id, user_id, account_id, entry_date, entry_type, amount, currency,
@@ -12798,6 +12804,7 @@ export class PostgresPersistence implements Persistence {
     }
 
     for (const allocation of accounting.projections.lotAllocations) {
+      if (!accountIdSet.has(allocation.accountId)) continue;
       await client.query(
         `INSERT INTO lot_allocations (
            id, user_id, account_id, trade_event_id, ticker, lot_id, lot_opened_at,
@@ -12826,6 +12833,7 @@ export class PostgresPersistence implements Persistence {
     if (accountIds.length) {
       await client.query(`DELETE FROM lots WHERE account_id = ANY($1)`, [accountIds]);
       for (const lot of accounting.projections.lots) {
+        if (!accountIdSet.has(lot.accountId)) continue;
         await client.query(
           `INSERT INTO lots (id, account_id, ticker, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
@@ -12834,6 +12842,7 @@ export class PostgresPersistence implements Persistence {
       }
 
       for (const action of accounting.facts.positionActions) {
+        if (!accountIdSet.has(action.accountId)) continue;
         await client.query(
           `INSERT INTO position_actions (
              id, account_id, ticker, market_code, action_type, action_date, action_timestamp,

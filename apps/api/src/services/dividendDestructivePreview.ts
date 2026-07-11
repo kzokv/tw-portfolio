@@ -687,6 +687,7 @@ async function confirmPreview(
           completedAt: new Date().toISOString(),
         },
       }, {
+        accountIds: [lockedPreview.accountId],
         expectedAccountRevision: {
           accountId: lockedPreview.accountId,
           revision: lockedPreview.accountRevision,
