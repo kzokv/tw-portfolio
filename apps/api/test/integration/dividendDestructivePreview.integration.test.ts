@@ -658,6 +658,26 @@ describe("dividend destructive preview", () => {
     });
   });
 
+  it("serializes preview creation and confirmation on the same account lock", async () => {
+    await seedScenario();
+    const lockAccounts: string[] = [];
+    const withLock = app.persistence.withDividendDestructiveLock.bind(app.persistence);
+    app.persistence.withDividendDestructiveLock = async (ownerUserId, accountId, execute) => {
+      lockAccounts.push(accountId);
+      return withLock(ownerUserId, accountId, execute);
+    };
+
+    const preview = await previewTradeDividendDeletion(app.persistence, {
+      ownerUserId: "user-1",
+      actorUserId: "user-1",
+      tradeEventId: "trade-delete",
+      reason: "Lock domain review",
+    }) as PreviewBody;
+    await confirmTrade(preview);
+
+    expect(lockAccounts).toEqual(["acc-1", "acc-1"]);
+  });
+
   it("binds confirmations to their operation kind and route resource", async () => {
     await seedScenario();
     const tradePreview = await previewTradeDividendDeletion(app.persistence, {

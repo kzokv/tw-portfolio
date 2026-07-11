@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp, type AppInstance } from "../../src/app.js";
+import { planDividendLedgerRecompute } from "../../src/services/dividends.js";
 import type { BookedTradeEvent, DividendEvent, DividendLedgerEntry, PositionAction } from "../../src/types/store.js";
 
 const USER_ID = "user-1";
@@ -176,6 +177,42 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
     expect(review.rows).toEqual([]);
     expect(review.total).toBe(0);
     expect(review.aggregates.openCount).toBe(0);
+  });
+
+  it("backfill recompute refreshes unresolved stock entitlement state when quantity changes", async () => {
+    const accountId = await seedTwdAccount();
+    await seedBuy(accountId, "2330", 100, "2024-05-20");
+    const event = await seedDividendEvent({
+      eventType: "STOCK",
+      cashDividendPerShare: 0,
+      stockDividendPerShare: 3,
+      stockDistributionRatio: null,
+      stockDistributionRatioState: "unresolved",
+      stockParValueAmount: 10,
+    });
+    await seedLedgerEntry(accountId, event.id, {
+      eligibleQuantity: 0,
+      expectedCashAmount: 0,
+      expectedStockQuantity: 0,
+      expectedStockCalcState: "resolved",
+      expectedStockDistributionRatio: 0,
+      expectedStockParValueAmount: null,
+    });
+
+    const store = await app.persistence.loadStore(USER_ID);
+    const changes = planDividendLedgerRecompute(store, accountId, "2330", {
+      resetReconciliation: false,
+      marketCode: "TW",
+    });
+
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.nextEntry).toEqual(expect.objectContaining({
+      eligibleQuantity: 100,
+      expectedStockQuantity: 0,
+      expectedStockCalcState: "needs_action",
+      expectedStockDistributionRatio: null,
+      expectedStockParValueAmount: 10,
+    }));
   });
 
   it("excludes undated events when a payment-date range is active", async () => {

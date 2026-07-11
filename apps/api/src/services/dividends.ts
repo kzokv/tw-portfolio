@@ -1457,20 +1457,18 @@ export function planDividendLedgerRecompute(
     const nextEligibleQuantity = options.eligibleQuantityResolver
       ? options.eligibleQuantityResolver(dividendEvent, dividendMarketCode)
       : deriveEligibleQuantity(store, accountId, ticker, dividendEvent.exDividendDate, dividendMarketCode);
-    const nextExpectedCashAmount = calculateExpectedCashAmount(
-      nextEligibleQuantity,
-      dividendEvent.cashDividendPerShare,
-    );
-    const nextExpectedStockQuantity = resolveExpectedStockEntitlement(
-      nextEligibleQuantity,
-      dividendEvent,
-    ).expectedStockQuantity;
+    const nextExpected = buildExpectedDividendEntitlement(nextEligibleQuantity, dividendEvent);
+    const nextExpectedCashAmount = nextExpected.expectedCashAmount;
+    const nextExpectedStockQuantity = nextExpected.expectedStockQuantity;
 
     // 1b: full no-op when every expected field matches the stored snapshot.
     if (
       entry.eligibleQuantity === nextEligibleQuantity
       && entry.expectedCashAmount === nextExpectedCashAmount
       && entry.expectedStockQuantity === nextExpectedStockQuantity
+      && entry.expectedStockCalcState === nextExpected.expectedStockCalcState
+      && (entry.expectedStockDistributionRatio ?? null) === (nextExpected.expectedStockDistributionRatio ?? null)
+      && (entry.expectedStockParValueAmount ?? null) === (nextExpected.expectedStockParValueAmount ?? null)
     ) {
       continue;
     }
@@ -1483,9 +1481,8 @@ export function planDividendLedgerRecompute(
 
     const nextEntry: DividendLedgerEntry = {
       ...entry,
+      ...nextExpected,
       eligibleQuantity: nextEligibleQuantity,
-      expectedCashAmount: nextExpectedCashAmount,
-      expectedStockQuantity: nextExpectedStockQuantity,
       reconciliationStatus: nextStatus,
       version: entry.version + 1,
     };
