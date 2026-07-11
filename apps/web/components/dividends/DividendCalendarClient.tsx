@@ -516,7 +516,7 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
             ) : (
               <div className="divide-y divide-border border-t border-border px-4">
                 {prioritizedActionRows.slice(0, 3).map((row) => (
-                  <ActionRow key={row.key} row={row} dict={dict} locale={locale} activeMonthKey={activeMonthKey} pending={pendingRowKey === row.key} onOpen={() => openDrawer(row)} onMarkMatched={() => void handleMarkMatched(row)} />
+                  <ActionRow key={row.key} row={row} dict={dict} locale={locale} activeMonthKey={activeMonthKey} pending={pendingRowKey === row.key} onOpen={canWriteDividends ? () => openDrawer(row) : undefined} onMarkMatched={canWriteDividends ? () => void handleMarkMatched(row) : undefined} />
                 ))}
               </div>
             )}
@@ -544,7 +544,7 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
           ) : (
             <div className="divide-y divide-border border-t border-border xl:border-t-0">
               {rows.map((row) => (
-                <EventRow key={row.key} row={row} dict={dict} locale={locale} pending={pendingRowKey === row.key} onOpen={() => openDrawer(row)} onMarkMatched={() => void handleMarkMatched(row)} />
+                <EventRow key={row.key} row={row} dict={dict} locale={locale} pending={pendingRowKey === row.key} onOpen={canWriteDividends ? () => openDrawer(row) : undefined} onMarkMatched={canWriteDividends ? () => void handleMarkMatched(row) : undefined} />
               ))}
             </div>
           )}
@@ -565,7 +565,7 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
         ) : (
           <div className="divide-y divide-border border-t border-border xl:border-t-0">
             {receiptRows.slice(0, 6).map((row) => (
-              <ReceiptRow key={row.key} row={row} dict={dict} locale={locale} onOpen={() => openDrawer(row)} />
+              <ReceiptRow key={row.key} row={row} dict={dict} locale={locale} onOpen={canWriteDividends ? () => openDrawer(row) : undefined} />
             ))}
           </div>
         )}
@@ -668,7 +668,7 @@ function TodayHighlightRow({
   );
 }
 
-function EventRow({ row, dict, locale, pending, onOpen, onMarkMatched }: { row: DividendCalendarRow; dict: AppDictionary; locale: LocaleCode; pending: boolean; onOpen: () => void; onMarkMatched: () => void }) {
+function EventRow({ row, dict, locale, pending, onOpen, onMarkMatched }: { row: DividendCalendarRow; dict: AppDictionary; locale: LocaleCode; pending: boolean; onOpen?: () => void; onMarkMatched?: () => void }) {
   const badge = resolveBadge(row);
   const grossAmount = calculateGrossAmount(row.ledgerEntry);
   return (
@@ -686,20 +686,22 @@ function EventRow({ row, dict, locale, pending, onOpen, onMarkMatched }: { row: 
       </MobileField>
       <div className="flex flex-wrap items-center gap-2">
         <StatusBadge label={resolveBadgeLabel(dict, badge)} className={badgeClassName(badge)} testId={`dividend-badge-${row.event.id}`} />
-        {row.ledgerEntry?.reconciliationStatus === "open" ? (
+        {row.ledgerEntry?.reconciliationStatus === "open" && onMarkMatched ? (
           <Button size="sm" variant="secondary" disabled={pending} onClick={onMarkMatched} data-testid={`dividend-mark-matched-${row.event.id}`}>
             {dict.dividends.action.markMatched}
           </Button>
         ) : null}
-        <Button size="sm" variant={row.ledgerEntry ? "secondary" : "default"} onClick={onOpen} data-testid={row.ledgerEntry ? `dividend-edit-${row.event.id}` : `dividend-post-${row.event.id}`}>
-          {row.ledgerEntry ? dict.dividends.action.edit : dict.dividends.action.postDividend}
-        </Button>
+        {onOpen ? (
+          <Button size="sm" variant={row.ledgerEntry ? "secondary" : "default"} onClick={onOpen} data-testid={row.ledgerEntry ? `dividend-edit-${row.event.id}` : `dividend-post-${row.event.id}`}>
+            {row.ledgerEntry ? dict.dividends.action.edit : dict.dividends.action.postDividend}
+          </Button>
+        ) : null}
       </div>
     </div>
   );
 }
 
-function ActionRow({ row, dict, locale, activeMonthKey, pending, onOpen, onMarkMatched }: { row: DividendCalendarRow; dict: AppDictionary; locale: LocaleCode; activeMonthKey: string; pending: boolean; onOpen: () => void; onMarkMatched: () => void }) {
+function ActionRow({ row, dict, locale, activeMonthKey, pending, onOpen, onMarkMatched }: { row: DividendCalendarRow; dict: AppDictionary; locale: LocaleCode; activeMonthKey: string; pending: boolean; onOpen?: () => void; onMarkMatched?: () => void }) {
   const sourceGap = row.ledgerEntry?.sourceCompositionStatus === "unknown_pending_disclosure";
   const badge = sourceGap ? null : resolveBadge(row);
   return (
@@ -715,10 +717,10 @@ function ActionRow({ row, dict, locale, activeMonthKey, pending, onOpen, onMarkM
         />
       </div>
       <div className="flex flex-wrap gap-2">
-        {row.ledgerEntry?.reconciliationStatus === "open" ? (
+        {row.ledgerEntry?.reconciliationStatus === "open" && onMarkMatched ? (
           <Button size="sm" disabled={pending} onClick={onMarkMatched}>{dict.dividends.action.markMatched}</Button>
         ) : null}
-        <Button size="sm" variant="secondary" onClick={onOpen}>{row.ledgerEntry ? dict.dividends.action.edit : dict.dividends.action.postDividend}</Button>
+        {onOpen ? <Button size="sm" variant="secondary" onClick={onOpen}>{row.ledgerEntry ? dict.dividends.action.edit : dict.dividends.action.postDividend}</Button> : null}
         <Link className="inline-flex min-h-8 items-center rounded-md border border-border px-3 text-xs font-semibold text-foreground hover:bg-muted" href={reviewHref(monthBounds(parseMonthKey(row.event.paymentDate?.slice(0, 7) ?? monthKey(new Date()))), activeMonthKey, row.event.ticker, row.event.marketCode)}>
           {dict.dividends.overview.openReview}
         </Link>
@@ -727,12 +729,12 @@ function ActionRow({ row, dict, locale, activeMonthKey, pending, onOpen, onMarkM
   );
 }
 
-function ReceiptRow({ row, dict, locale, onOpen }: { row: DividendCalendarRow; dict: AppDictionary; locale: LocaleCode; onOpen: () => void }) {
+function ReceiptRow({ row, dict, locale, onOpen }: { row: DividendCalendarRow; dict: AppDictionary; locale: LocaleCode; onOpen?: () => void }) {
   const entry = row.ledgerEntry;
   if (!entry) return null;
   const badge = resolveBadge(row);
   return (
-    <button type="button" className="grid w-full min-w-0 gap-2 px-4 py-4 text-left text-sm hover:bg-muted/50 xl:grid-cols-[minmax(190px,1.4fr)_110px_130px_130px_110px] xl:items-center xl:gap-3" onClick={onOpen} data-testid={`dividend-receipt-${entry.id}`}>
+    <button type="button" className="grid w-full min-w-0 gap-2 px-4 py-4 text-left text-sm enabled:hover:bg-muted/50 disabled:cursor-default xl:grid-cols-[minmax(190px,1.4fr)_110px_130px_130px_110px] xl:items-center xl:gap-3" onClick={onOpen} disabled={!onOpen} data-testid={`dividend-receipt-${entry.id}`}>
       <TickerCell event={row.event} subLabel={`Ledger ${entry.id}`} />
       <MobileField label={dict.dividends.overview.postedLabel}>{formatDateLabel(entry.paymentDate ?? entry.bookedAt ?? row.event.paymentDate ?? row.event.exDividendDate, locale)}</MobileField>
       <MobileField label={dict.dividends.overview.accountLabel}>{eventAccountLabel(row.event)}</MobileField>

@@ -7018,6 +7018,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
             marketCode: replayScope.marketCode,
           });
         }
+        await appendDelegatedWriteAudit(app, req, {
+          mutation: "dividend_posting_updated",
+          routeKey: "POST /portfolio/dividends/postings",
+          dividendLedgerEntryId: prepared.response.dividendLedgerEntry.id,
+          dividendEventId: prepared.response.dividendEvent.id,
+        });
         return prepared.response;
       }
 
@@ -7073,6 +7079,12 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           marketCode,
         });
       }
+      await appendDelegatedWriteAudit(app, req, {
+        mutation: "dividend_posted",
+        routeKey: "POST /portfolio/dividends/postings",
+        dividendLedgerEntryId: result.dividendLedgerEntry.id,
+        dividendEventId: result.dividendEvent.id,
+      });
       return result;
     } catch (error) {
       await app.persistence.releaseIdempotencyKey(userId, idempotencyKey);
@@ -7118,6 +7130,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       accountId: ledgerEntry.accountId,
       reconciliationStatus: ledgerEntry.reconciliationStatus,
       version: ledgerEntry.version,
+    });
+    await appendDelegatedWriteAudit(app, req, {
+      mutation: "dividend_reconciliation_updated",
+      routeKey: "PATCH /portfolio/dividends/postings/:dividendLedgerEntryId/reconciliation",
+      dividendLedgerEntryId: ledgerEntry.id,
+      dividendEventId: ledgerEntry.dividendEventId,
+      reconciliationStatus: ledgerEntry.reconciliationStatus,
     });
 
     return { ledgerEntry };

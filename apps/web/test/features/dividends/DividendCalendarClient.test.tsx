@@ -7,6 +7,13 @@ import type { DividendDailyHighlightsDto } from "@vakwen/shared-types";
 import type { DividendCalendarSnapshot, DividendEventListItem, DividendLedgerEntryDetails } from "../../../features/dividends/types";
 
 let capturedEventStreamConfig: { onEvent?: (event: unknown) => void } | null = null;
+const shellContext = vi.hoisted(() => ({ value: null as null | {
+  isSharedContext: boolean;
+  sharedContextPermissions: { canWriteDividends: boolean };
+  contextRefreshSignal: number;
+  contextOwnerId: string | null;
+  sessionUserId: string | null;
+} }));
 
 vi.mock("../../../features/dividends/services/dividendService", () => ({
   fetchDividendCalendarSnapshot: vi.fn(),
@@ -18,6 +25,10 @@ vi.mock("../../../hooks/useEventStream", () => ({
   useEventStream: (config: { onEvent?: (event: unknown) => void }) => {
     capturedEventStreamConfig = config;
   },
+}));
+
+vi.mock("../../../components/layout/AppShellDataContext", () => ({
+  useOptionalAppShellData: () => shellContext.value,
 }));
 
 import {
@@ -123,6 +134,7 @@ describe("DividendCalendarClient", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     capturedEventStreamConfig = null;
+    shellContext.value = null;
     vi.mocked(fetchDividendDailyHighlights).mockResolvedValue(emptyDailyHighlights);
   });
 
@@ -218,6 +230,37 @@ describe("DividendCalendarClient", () => {
       }),
       { signal: expect.any(AbortSignal) },
     ]);
+  });
+
+  it("hides dividend write actions in a shared read-only context", async () => {
+    const snapshot: DividendCalendarSnapshot = {
+      events: [
+        buildEvent({ id: "event-open", hasPostedLedgerEntry: true, dividendLedgerEntryId: "ledger-open" }),
+        buildEvent({ id: "event-unposted", ticker: "2317" }),
+      ],
+      ledgerEntries: [
+        buildLedger({ id: "ledger-open", dividendEventId: "event-open", reconciliationStatus: "open" }),
+      ],
+    };
+    shellContext.value = {
+      isSharedContext: true,
+      sharedContextPermissions: { canWriteDividends: false },
+      contextRefreshSignal: 0,
+      contextOwnerId: "owner-1",
+      sessionUserId: "viewer-1",
+    };
+    vi.mocked(fetchDividendCalendarSnapshot).mockResolvedValue(snapshot);
+
+    act(() => {
+      root.render(<DividendCalendarClient initialSnapshot={snapshot} initialMonth="2026-04" dict={dict} locale="en" />);
+    });
+    await act(async () => {});
+
+    expect(container.querySelector("[data-testid='dividend-mark-matched-event-open']")).toBeNull();
+    expect(container.querySelector("[data-testid='dividend-edit-event-open']")).toBeNull();
+    expect(container.querySelector("[data-testid='dividend-post-event-unposted']")).toBeNull();
+    expect(container.querySelector<HTMLButtonElement>("[data-testid='dividend-receipt-ledger-open']")?.disabled).toBe(true);
+    expect(container.textContent).toContain(dict.dividends.overview.openReview);
   });
 
   it("renders reconciliation labels for matched and explained rows", async () => {

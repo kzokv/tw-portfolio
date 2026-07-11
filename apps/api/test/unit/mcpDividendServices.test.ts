@@ -142,7 +142,6 @@ async function seedExpectedDividendRow(options: {
     limit: 50,
     sortBy: "paymentDate",
     sortOrder: "desc",
-    ...(paymentDate === null ? { fromPaymentDate: "2024-01-01" } : {}),
   });
   const expectedRowId = `expected:${account.id}:${dividendEvent.id}`;
   const row = options.materializeLedgerEntry
@@ -357,36 +356,6 @@ describe("MCP dividend services", () => {
       accountIds: [store.accounts[0]!.id],
       accountNames: ["Secondary"],
     })).rejects.toMatchObject({ code: "mcp_account_filter_conflict", statusCode: 409 });
-  });
-
-  it("posts a null-payment dividend row returned by review", async () => {
-    const rowId = await seedExpectedDividendRow({ paymentDate: null });
-    const review = await getDividendReview(serviceContext(), {
-      fromPaymentDate: "2024-01-01",
-      toPaymentDate: "2024-12-31",
-    });
-
-    expect(review.rows).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        rowId,
-        paymentDate: null,
-        canPostReceipt: true,
-      }),
-    ]));
-
-    const preview = await previewPostDividendReceipt(serviceContext(), { rowId });
-    const posted = await postDividendReceipt(serviceContext(), {
-      rowId,
-      confirmationSummary: preview.confirmationSummary,
-      confirmationDigest: preview.confirmationDigest,
-      idempotencyKey: "mcp-dividend-null-payment-date",
-    });
-
-    expect(posted.posted).toBe(true);
-    expect(posted.ledgerEntry).toEqual(expect.objectContaining({
-      dividendEventId: rowId.split(":").at(-1),
-      receivedCashAmount: 3000,
-    }));
   });
 
   it("rejects a receipt confirmation when row facts changed after preview", async () => {

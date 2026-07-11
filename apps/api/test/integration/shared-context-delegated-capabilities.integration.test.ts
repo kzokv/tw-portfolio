@@ -265,6 +265,29 @@ describe("shared-context delegated capabilities", () => {
     expect(posted.statusCode).toBe(200);
     const ledgerId = posted.json<{ dividendLedgerEntry: { id: string } }>().dividendLedgerEntry.id;
 
+    const amended = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/postings",
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+        "idempotency-key": "shared-dividend-posting-amend-1",
+      },
+      payload: {
+        accountId: "acc-1",
+        dividendEventId: "shared-dividend-write-event",
+        dividendLedgerEntryId: ledgerId,
+        expectedVersion: 1,
+        receivedCashAmount: 940,
+        receivedStockQuantity: 0,
+        deductions: [],
+        sourceLines: [],
+        sourceCompositionStatus: "unknown_pending_disclosure",
+      },
+    });
+    expect(amended.statusCode).toBe(200);
+
     const reconciled = await app.inject({
       method: "PATCH",
       url: `/portfolio/dividends/postings/${ledgerId}/reconciliation`,
@@ -280,6 +303,36 @@ describe("shared-context delegated capabilities", () => {
     });
 
     expect(reconciled.statusCode).toBe(200);
+
+    const delegatedAudits = (app.persistence as unknown as {
+      auditLog: Array<{ action: string; metadata: Record<string, unknown> }>;
+    }).auditLog.filter((entry) => entry.action === "delegated_portfolio_write");
+    expect(delegatedAudits).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          mutation: "dividend_posted",
+          dividendLedgerEntryId: ledgerId,
+          delegatedByUserId: viewerUserId,
+          ownerUserId: "user-1",
+        }),
+      }),
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          mutation: "dividend_posting_updated",
+          dividendLedgerEntryId: ledgerId,
+          delegatedByUserId: viewerUserId,
+          ownerUserId: "user-1",
+        }),
+      }),
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          mutation: "dividend_reconciliation_updated",
+          dividendLedgerEntryId: ledgerId,
+          delegatedByUserId: viewerUserId,
+          ownerUserId: "user-1",
+        }),
+      }),
+    ]));
   });
 
   it("[shared dividend write]: viewer with transaction:write and dividend:write can preview and confirm owner destructive dividend deletion", async () => {
