@@ -301,7 +301,7 @@ export function DividendPostingForm({
   const expectedNetAmount = row.ledgerEntry?.expectedNetAmount
     ?? (expectedGrossAmount - expectedNhiAmount - expectedBankFeeAmount - expectedOtherDeductionAmount);
   const actualNetAmount = row.ledgerEntry?.actualNetAmount
-    ?? (receivedCashAmount - expectedNhiAmount - expectedBankFeeAmount - expectedOtherDeductionAmount);
+    ?? receivedCashAmount;
   const varianceAmount = row.ledgerEntry?.varianceAmount ?? (actualNetAmount - expectedNetAmount);
   const stockRatioState = row.ledgerEntry?.stockDistributionRatioState ?? null;
   const expectedStockCalcState = row.ledgerEntry?.expectedStockCalcState

@@ -519,6 +519,47 @@ describe("DividendPostingForm", () => {
     expect(stockInput?.value).toBe("0");
   });
 
+  it("treats received cash as actual net when ledger net fields are absent", () => {
+    const row = buildRow({
+      event: { expectedCashAmount: 120 },
+      ledgerEntry: buildLedger({
+        expectedCashAmount: 120,
+        receivedCashAmount: 108,
+        expectedGrossAmount: 120,
+        expectedNetAmount: null,
+        actualNetAmount: null,
+        varianceAmount: null,
+        nhiAmount: 12,
+        bankFeeAmount: 0,
+        otherDeductionAmount: 0,
+        deductions: [{
+          id: "deduction-nhi",
+          dividendLedgerEntryId: "ledger-1",
+          deductionType: "NHI_SUPPLEMENTAL_PREMIUM",
+          amount: 12,
+          currencyCode: "TWD",
+          withheldAtSource: true,
+          source: "test",
+        }],
+      }),
+    });
+
+    act(() => {
+      root.render(
+        <DividendPostingForm
+          row={row}
+          dict={dict}
+          locale="en"
+          onCancel={() => undefined}
+          onSaved={() => undefined}
+        />,
+      );
+    });
+
+    expect(container.querySelector("[data-testid='dividend-variance-formula']")?.textContent)
+      .toContain("NT$108 - NT$108 = NT$0");
+  });
+
   it("prefills NHI for stock-only dividends using par value × received shares", () => {
     // 3,000 shares × NT$10 par = NT$30,000 premium base → NHI = 633
     const row = buildRow({
