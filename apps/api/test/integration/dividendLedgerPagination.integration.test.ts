@@ -3,6 +3,8 @@ import { Pool } from "pg";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PostgresPersistence } from "../../src/persistence/postgres.js";
 import type { DividendLedgerListOptions } from "../../src/persistence/types.js";
+import type { DividendLedgerRecomputeChange } from "../../src/services/dividends.js";
+import type { DividendLedgerEntry } from "../../src/types/store.js";
 
 // ── Postgres integration gate ─────────────────────────────────────────────────
 const databaseUrl = process.env.POSTGRES_TEST_DB_URL ?? process.env.DB_URL;
@@ -130,6 +132,90 @@ describePostgres("PostgresPersistence.listDividendLedgerEntries — pagination/s
     );
     return id;
   }
+
+  it("applies created, updated, and retired dividend rows without rewriting unrelated rows", async () => {
+    const updatedEventId = await insertDividendEvent("AAPL", "USD", "2026-03-01", "2026-03-20");
+    const createdEventId = await insertDividendEvent("MSFT", "USD", "2026-03-02", "2026-03-21");
+    const unrelatedEventId = await insertDividendEvent("GOOG", "USD", "2026-03-03", "2026-03-22");
+    const updatedId = await insertLedgerEntry({ eventId: updatedEventId, expectedCashAmount: 10 });
+    const unrelatedId = await insertLedgerEntry({ eventId: unrelatedEventId, expectedCashAmount: 30 });
+
+    const nextEntry = (overrides: Partial<DividendLedgerEntry>): DividendLedgerEntry => ({
+      id: overrides.id ?? updatedId,
+      accountId,
+      dividendEventId: overrides.dividendEventId ?? updatedEventId,
+      eligibleQuantity: overrides.eligibleQuantity ?? 20,
+      expectedCashAmount: overrides.expectedCashAmount ?? 20,
+      expectedStockQuantity: 0,
+      receivedCashAmount: 0,
+      receivedStockQuantity: 0,
+      postingStatus: "expected",
+      reconciliationStatus: "open",
+      version: overrides.version ?? 2,
+      sourceCompositionStatus: "unknown_pending_disclosure",
+      supersededAt: overrides.supersededAt,
+    });
+    const change = (
+      kind: DividendLedgerRecomputeChange["changeKind"],
+      entry: DividendLedgerEntry,
+      previousVersion: number,
+    ): DividendLedgerRecomputeChange => ({
+      changeKind: kind,
+      ledgerEntryId: entry.id,
+      accountId,
+      dividendEventId: entry.dividendEventId,
+      previousVersion,
+      nextVersion: entry.version,
+      previousEligibleQuantity: kind === "created" ? 0 : 10,
+      nextEligibleQuantity: entry.eligibleQuantity,
+      previousExpectedCashAmount: kind === "created" ? 0 : 10,
+      nextExpectedCashAmount: entry.expectedCashAmount,
+      previousExpectedStockQuantity: 0,
+      nextExpectedStockQuantity: 0,
+      reconciliationReset: false,
+      previousReconciliationStatus: "open",
+      nextReconciliationStatus: "open",
+      nextEntry: entry,
+    });
+
+    const createdEntry = nextEntry({
+      id: "recompute-created",
+      dividendEventId: createdEventId,
+      eligibleQuantity: 15,
+      expectedCashAmount: 15,
+      version: 1,
+    });
+    const applied = await persistence.applyDividendLedgerRecompute(userId, [
+      change("updated", nextEntry({}), 1),
+      change("created", createdEntry, 0),
+    ]);
+    expect(applied).toHaveLength(2);
+
+    const retiredEntry = nextEntry({ eligibleQuantity: 0, expectedCashAmount: 0, version: 3, supersededAt: "2026-04-01T00:00:00.000Z" });
+    expect(await persistence.applyDividendLedgerRecompute(userId, [change("retired", retiredEntry, 2)])).toHaveLength(1);
+    expect(await persistence.applyDividendLedgerRecompute(userId, [change("updated", nextEntry({ version: 4 }), 1)])).toEqual([]);
+
+    const rows = await pool.query<{
+      id: string;
+      expected_cash_amount: string;
+      version: number;
+      superseded_at: Date | null;
+    }>(
+      `SELECT id, expected_cash_amount, version, superseded_at
+         FROM dividend_ledger_entries
+        WHERE id = ANY($1::text[])
+        ORDER BY id`,
+      [[createdEntry.id, unrelatedId, updatedId]],
+    );
+    expect(rows.rows.map((row) => ({
+      ...row,
+      expected_cash_amount: Number(row.expected_cash_amount),
+    }))).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: createdEntry.id, expected_cash_amount: 15, version: 1 }),
+      expect.objectContaining({ id: unrelatedId, expected_cash_amount: 30, version: 1, superseded_at: null }),
+      expect.objectContaining({ id: updatedId, expected_cash_amount: 0, version: 3, superseded_at: expect.any(Date) }),
+    ]));
+  });
 
   /** Seed a DIVIDEND_RECEIPT cash ledger entry linked to a ledger row. */
   async function insertReceipt(

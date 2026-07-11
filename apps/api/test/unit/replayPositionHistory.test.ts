@@ -13,6 +13,7 @@ describe("replayPositionHistory", () => {
       deleteLotsForAccountTicker: vi.fn().mockResolvedValue(0),
       deleteLotAllocationsForAccountTicker: vi.fn().mockResolvedValue(0),
       deleteTradeCashEntriesForAccountTicker: vi.fn().mockResolvedValue(0),
+      applyDividendLedgerRecompute: vi.fn().mockResolvedValue([]),
       loadStore: vi.fn().mockResolvedValue({
         accounting: {
           facts: {

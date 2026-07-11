@@ -153,6 +153,7 @@ export interface DividendLedgerRecomputeChange {
   nextReconciliationStatus: DividendLedgerEntry["reconciliationStatus"];
   previousReconciliationStatus: DividendLedgerEntry["reconciliationStatus"];
   reconciliationNote?: string;
+  nextEntry: DividendLedgerEntry;
 }
 
 type DividendLedgerEligibleQuantityResolver = (
@@ -1336,6 +1337,7 @@ export function reconcileDividendEntitlementsForScope(
         previousReconciliationStatus: "open",
         nextReconciliationStatus: createdEntry.reconciliationStatus,
         reconciliationNote: createdEntry.reconciliationNote,
+        nextEntry: createdEntry,
       });
       continue;
     }
@@ -1374,6 +1376,7 @@ export function reconcileDividendEntitlementsForScope(
         previousReconciliationStatus: activeEntry.reconciliationStatus,
         nextReconciliationStatus: retiredEntry.reconciliationStatus,
         reconciliationNote: retiredEntry.reconciliationNote,
+        nextEntry: retiredEntry,
       });
       continue;
     }
@@ -1408,6 +1411,7 @@ export function reconcileDividendEntitlementsForScope(
       previousReconciliationStatus: activeEntry.reconciliationStatus,
       nextReconciliationStatus: updatedEntry.reconciliationStatus,
       reconciliationNote: updatedEntry.reconciliationNote,
+      nextEntry: updatedEntry,
     });
   }
 
@@ -1473,6 +1477,14 @@ export function planDividendLedgerRecompute(
       && (previousStatus === "matched" || previousStatus === "explained");
     const nextStatus = shouldResetReconciliation ? ("open" as const) : previousStatus;
 
+    const nextEntry: DividendLedgerEntry = {
+      ...entry,
+      eligibleQuantity: nextEligibleQuantity,
+      expectedCashAmount: nextExpectedCashAmount,
+      expectedStockQuantity: nextExpectedStockQuantity,
+      reconciliationStatus: nextStatus,
+      version: entry.version + 1,
+    };
     changes.push({
       ledgerEntryId: entry.id,
       accountId: entry.accountId,
@@ -1491,6 +1503,7 @@ export function planDividendLedgerRecompute(
       // 1a: preserve the note even on explained → open transitions so the
       // user can reuse it when re-reconciling.
       reconciliationNote: entry.reconciliationNote,
+      nextEntry,
     });
   }
 

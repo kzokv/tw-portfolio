@@ -10124,6 +10124,52 @@ export class PostgresPersistence implements Persistence {
       const applied: DividendLedgerRecomputeChange[] = [];
 
       for (const change of changes) {
+        const nextEntry = change.nextEntry;
+        if (change.changeKind === "created") {
+          const inserted = await client.query(
+            `INSERT INTO dividend_ledger_entries (
+               id, account_id, dividend_event_id, eligible_quantity,
+               expected_cash_amount, expected_stock_quantity,
+               expected_stock_calc_state, expected_stock_distribution_ratio, expected_stock_par_value_amount,
+               received_stock_quantity, posting_status, reconciliation_status, version,
+               source_composition_status, reconciliation_note, booked_at,
+               reversal_of_dividend_ledger_entry_id, superseded_at
+             )
+             SELECT $1, account.id, $3, $4,
+                    $5, $6, $7, $8, $9,
+                    $10, $11, $12, $13,
+                    $14, $15, $16,
+                    $17, $18
+               FROM accounts AS account
+              WHERE account.id = $2
+                AND account.user_id = $19
+                AND account.deleted_at IS NULL
+             ON CONFLICT (id) DO NOTHING`,
+            [
+              nextEntry.id,
+              nextEntry.accountId,
+              nextEntry.dividendEventId,
+              nextEntry.eligibleQuantity,
+              nextEntry.expectedCashAmount,
+              nextEntry.expectedStockQuantity,
+              nextEntry.expectedStockCalcState ?? null,
+              nextEntry.expectedStockDistributionRatio ?? null,
+              nextEntry.expectedStockParValueAmount ?? null,
+              nextEntry.receivedStockQuantity,
+              nextEntry.postingStatus,
+              nextEntry.reconciliationStatus,
+              nextEntry.version,
+              nextEntry.sourceCompositionStatus ?? "unknown_pending_disclosure",
+              nextEntry.reconciliationNote ?? null,
+              nextEntry.bookedAt ?? new Date().toISOString(),
+              nextEntry.reversalOfDividendLedgerEntryId ?? null,
+              nextEntry.supersededAt ?? null,
+              userId,
+            ],
+          );
+          if (inserted.rowCount) applied.push(change);
+          continue;
+        }
         // SELECT FOR UPDATE verifies ownership (via account join) and locks
         // the row against concurrent writers. Idempotency: if the current
         // stored version no longer matches change.previousVersion, another
@@ -10151,16 +10197,26 @@ export class PostgresPersistence implements Persistence {
               SET eligible_quantity = $2,
                   expected_cash_amount = $3,
                   expected_stock_quantity = $4,
-                  reconciliation_status = $5,
-                  version = $6
+                  expected_stock_calc_state = $5,
+                  expected_stock_distribution_ratio = $6,
+                  expected_stock_par_value_amount = $7,
+                  reconciliation_status = $8,
+                  reconciliation_note = $9,
+                  version = $10,
+                  superseded_at = $11
             WHERE id = $1`,
           [
             change.ledgerEntryId,
-            change.nextEligibleQuantity,
-            change.nextExpectedCashAmount,
-            change.nextExpectedStockQuantity,
-            change.nextReconciliationStatus,
-            change.nextVersion,
+            nextEntry.eligibleQuantity,
+            nextEntry.expectedCashAmount,
+            nextEntry.expectedStockQuantity,
+            nextEntry.expectedStockCalcState ?? null,
+            nextEntry.expectedStockDistributionRatio ?? null,
+            nextEntry.expectedStockParValueAmount ?? null,
+            nextEntry.reconciliationStatus,
+            nextEntry.reconciliationNote ?? null,
+            nextEntry.version,
+            nextEntry.supersededAt ?? null,
           ],
         );
 

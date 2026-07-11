@@ -195,7 +195,8 @@ export async function replayPositionHistory(
   // Reconciliation is reset (matched/explained → open, note preserved) per
   // Rule B because this path represents a runtime trade mutation.
   const storeAfterReplay = await persistence.loadStore(userId);
-  const dividendChanges = reconcileDividendEntitlementsForScope(storeAfterReplay, accountId, ticker, {
+  const dividendDraft = structuredClone(storeAfterReplay);
+  const dividendChanges = reconcileDividendEntitlementsForScope(dividendDraft, accountId, ticker, {
     reopenChangedReconciliation: true,
     marketCode: toSharedMarketCode(options.marketCode),
     eligibleQuantityResolver: (dividendEvent, dividendMarketCode) => deriveEligibleQuantityFromReplayStream(
@@ -207,10 +208,7 @@ export async function replayPositionHistory(
       dividendEvent,
     ),
   });
-  if (dividendChanges.length > 0) {
-    await persistence.saveStore(storeAfterReplay);
-  }
-  const appliedChanges = dividendChanges;
+  const appliedChanges = await persistence.applyDividendLedgerRecompute(userId, dividendChanges);
 
   // 8. Build summary
   const openLots = lots.filter((l) => l.openQuantity > 0);

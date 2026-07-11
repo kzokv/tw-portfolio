@@ -2669,21 +2669,23 @@ export class MemoryPersistence implements Persistence {
     const applied: DividendLedgerRecomputeChange[] = [];
 
     for (const change of changes) {
-      const entry = store.accounting.facts.dividendLedgerEntries.find(
+      const entryIndex = store.accounting.facts.dividendLedgerEntries.findIndex(
         (candidate) => candidate.id === change.ledgerEntryId && candidate.accountId === change.accountId,
       );
-      if (!entry) continue;
+      if (change.changeKind === "created") {
+        if (entryIndex >= 0) continue;
+        store.accounting.facts.dividendLedgerEntries.push(structuredClone(change.nextEntry));
+        applied.push(change);
+        continue;
+      }
+      if (entryIndex < 0) continue;
+      const entry = store.accounting.facts.dividendLedgerEntries[entryIndex]!;
       // Idempotency guard: if a concurrent write already moved the entry
       // forward past our previousVersion, skip — the next replay will
       // resynchronize.
       if (entry.version !== change.previousVersion) continue;
 
-      entry.eligibleQuantity = change.nextEligibleQuantity;
-      entry.expectedCashAmount = change.nextExpectedCashAmount;
-      entry.expectedStockQuantity = change.nextExpectedStockQuantity;
-      entry.version = change.nextVersion;
-      entry.reconciliationStatus = change.nextReconciliationStatus;
-      // Preserve the existing note (1a) — plan already carried it forward.
+      store.accounting.facts.dividendLedgerEntries[entryIndex] = structuredClone(change.nextEntry);
       applied.push(change);
     }
 
