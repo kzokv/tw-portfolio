@@ -10185,6 +10185,8 @@ export class PostgresPersistence implements Persistence {
     const result = await this.pool.query(
       `SELECT id, ticker, market_code, event_type, ex_dividend_date, payment_date,
               cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
+              stock_distribution_amount_raw, stock_distribution_ratio, stock_distribution_ratio_state,
+              stock_par_value_amount, stock_par_value_currency,
               source, source_reference, ingested_at AS created_at,
               fiscal_year_period, announcement_date, total_distribution_shares
        FROM market_data.dividend_events
@@ -10209,6 +10211,11 @@ export class PostgresPersistence implements Persistence {
       cashDividendPerShare: Number(row.cash_dividend_per_share),
       cashDividendCurrency: row.cash_dividend_currency,
       stockDividendPerShare: Number(row.stock_dividend_per_share),
+      stockDistributionAmountRaw: row.stock_distribution_amount_raw == null ? undefined : Number(row.stock_distribution_amount_raw),
+      stockDistributionRatio: row.stock_distribution_ratio == null ? null : Number(row.stock_distribution_ratio),
+      stockDistributionRatioState: row.stock_distribution_ratio_state ?? undefined,
+      stockParValueAmount: row.stock_par_value_amount == null ? null : Number(row.stock_par_value_amount),
+      stockParValueCurrency: row.stock_par_value_currency ?? null,
       source: row.source,
       sourceReference: row.source_reference ?? undefined,
       createdAt: normalizeDateTime(row.created_at),
@@ -10226,6 +10233,8 @@ export class PostgresPersistence implements Persistence {
     const eventsResult = await this.pool.query(
       `SELECT event.id, event.ticker, event.market_code, event.event_type, event.ex_dividend_date, event.payment_date,
               cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
+              stock_distribution_amount_raw, stock_distribution_ratio, stock_distribution_ratio_state,
+              stock_par_value_amount, stock_par_value_currency,
               source, source_reference, ingested_at AS created_at,
               fiscal_year_period, announcement_date, total_distribution_shares
        FROM market_data.dividend_events AS event
@@ -10292,6 +10301,11 @@ export class PostgresPersistence implements Persistence {
       cashDividendPerShare: Number(row.cash_dividend_per_share),
       cashDividendCurrency: row.cash_dividend_currency,
       stockDividendPerShare: Number(row.stock_dividend_per_share),
+      stockDistributionAmountRaw: row.stock_distribution_amount_raw == null ? undefined : Number(row.stock_distribution_amount_raw),
+      stockDistributionRatio: row.stock_distribution_ratio == null ? null : Number(row.stock_distribution_ratio),
+      stockDistributionRatioState: row.stock_distribution_ratio_state ?? undefined,
+      stockParValueAmount: row.stock_par_value_amount == null ? null : Number(row.stock_par_value_amount),
+      stockParValueCurrency: row.stock_par_value_currency ?? null,
       source: row.source,
       sourceReference: row.source_reference ?? undefined,
       createdAt: normalizeDateTime(row.created_at),
@@ -11720,25 +11734,35 @@ export class PostgresPersistence implements Persistence {
       workingStore.accounting.projections.lots = workingStore.accounting.projections.lots.filter(
         (entry) => !affectedLotIds.has(entry.id),
       );
-      await simulation.saveStore(workingStore);
-
-      for (const scope of affectedScopes.values()) {
-        await replayPositionHistory(simulation, ownerUserId, scope.accountId, scope.ticker, {
-          marketCode: scope.marketCode,
-        });
-      }
-
-      const repairedStore = await simulation.loadStore(ownerUserId);
-      const unresolvedEntitlements = repairedStore.accounting.facts.dividendLedgerEntries.filter((entry) => {
-        if (entry.reversalOfDividendLedgerEntryId || entry.supersededAt) return false;
-        const event = repairedStore.marketData.dividendEvents.find((item) => item.id === entry.dividendEventId);
-        if (!event || !affectedScopes.has(`${entry.accountId}:${event.ticker}:${event.marketCode ?? ""}`)) {
-          return false;
+      let repairedStore: Store;
+      let unresolvedEntitlements: number;
+      try {
+        await simulation.saveStore(workingStore);
+        for (const scope of affectedScopes.values()) {
+          await replayPositionHistory(simulation, ownerUserId, scope.accountId, scope.ticker, {
+            marketCode: scope.marketCode,
+          });
         }
-        return entry.expectedStockCalcState === "needs_action";
-      }).length;
 
-      validateAccountingStoreInvariants(repairedStore.accounting);
+        repairedStore = await simulation.loadStore(ownerUserId);
+        unresolvedEntitlements = repairedStore.accounting.facts.dividendLedgerEntries.filter((entry) => {
+          if (entry.reversalOfDividendLedgerEntryId || entry.supersededAt) return false;
+          const event = repairedStore.marketData.dividendEvents.find((item) => item.id === entry.dividendEventId);
+          if (!event || !affectedScopes.has(`${entry.accountId}:${event.ticker}:${event.marketCode ?? ""}`)) {
+            return false;
+          }
+          return entry.expectedStockCalcState === "needs_action";
+        }).length;
+        validateAccountingStoreInvariants(repairedStore.accounting);
+      } catch {
+        await this.recordSkippedLegacyDividendStockRepair({
+          ownerUserId,
+          affectedLedgerIds,
+          affectedCounts,
+          affectedScopeCount: affectedScopes.size,
+        });
+        continue;
+      }
       const client = await this.pool.connect();
       try {
         await client.query("BEGIN");
@@ -11811,6 +11835,68 @@ export class PostgresPersistence implements Persistence {
       } finally {
         client.release();
       }
+    }
+  }
+
+  private async recordSkippedLegacyDividendStockRepair(input: {
+    ownerUserId: string;
+    affectedLedgerIds: Set<string>;
+    affectedCounts: Record<string, number>;
+    affectedScopeCount: number;
+  }): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const ledgerIds = [...input.affectedLedgerIds];
+      const lockedQueue = await client.query(
+        `SELECT dividend_ledger_entry_id
+           FROM dividend_legacy_stock_repair_queue
+          WHERE owner_user_id = $1
+            AND dividend_ledger_entry_id = ANY($2::text[])
+          FOR UPDATE`,
+        [input.ownerUserId, ledgerIds],
+      );
+      if (lockedQueue.rowCount !== input.affectedLedgerIds.size) {
+        await client.query("ROLLBACK");
+        return;
+      }
+
+      await this.appendAuditLogTx(client, {
+        actorUserId: null,
+        action: "dividend_legacy_stock_purge_migrated",
+        targetUserId: input.ownerUserId,
+        metadata: {
+          result: "skipped",
+          reason: "replay_failed",
+          affectedCounts: input.affectedCounts,
+          queuedLedgerEntryCount: input.affectedLedgerIds.size,
+          regeneratedScopeCount: input.affectedScopeCount,
+        },
+      });
+      await this.createNotificationTx(client, {
+        userId: input.ownerUserId,
+        severity: "warning",
+        source: "dividend_legacy_stock_repair",
+        title: "Dividend records need review",
+        detail: {
+          result: "skipped",
+          reason: "replay_failed",
+          affectedCounts: input.affectedCounts,
+          queuedLedgerEntryCount: input.affectedLedgerIds.size,
+        },
+      });
+      await client.query(
+        `DELETE FROM dividend_legacy_stock_repair_queue
+          WHERE owner_user_id = $1
+            AND dividend_ledger_entry_id = ANY($2::text[])`,
+        [input.ownerUserId, ledgerIds],
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
     }
   }
 

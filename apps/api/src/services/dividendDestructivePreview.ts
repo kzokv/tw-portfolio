@@ -195,6 +195,19 @@ function applySourceDeletions(store: Store, state: OperationState): void {
   }
   if (state.deletedPositionActionIds.length > 0) {
     const deletedActionIds = new Set(state.deletedPositionActionIds);
+    const deletedStockDividendLotIds = new Set(
+      state.deletedPositionActions
+        .filter((entry) => entry.actionType === "STOCK_DIVIDEND")
+        .map((entry) => `lot-pa-${entry.id}`),
+    );
+    if (deletedStockDividendLotIds.size > 0) {
+      store.accounting.projections.lotAllocations = store.accounting.projections.lotAllocations.filter(
+        (entry) => !deletedStockDividendLotIds.has(entry.lotId),
+      );
+      store.accounting.projections.lots = store.accounting.projections.lots.filter(
+        (entry) => !deletedStockDividendLotIds.has(entry.id),
+      );
+    }
     store.accounting.facts.positionActions = store.accounting.facts.positionActions.filter((entry) => !deletedActionIds.has(entry.id));
   }
 }

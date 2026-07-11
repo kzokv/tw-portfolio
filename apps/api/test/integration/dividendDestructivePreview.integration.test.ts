@@ -268,6 +268,16 @@ describe("dividend destructive preview", () => {
       source: "test",
       sourceReference: "late-linked-stock-action",
     });
+    replayedStore.accounting.projections.lots.push({
+      id: "lot-pa-late-linked-stock-action",
+      accountId: "acc-1",
+      ticker: "2330",
+      openQuantity: 25,
+      totalCostAmount: 0,
+      costCurrency: "TWD",
+      openedAt: "2026-03-05",
+      openedSequence: 99,
+    });
     await app.persistence.saveStore(replayedStore);
 
     const seededStore = await app.persistence.loadStore("user-1");
@@ -501,6 +511,7 @@ describe("dividend destructive preview", () => {
     const updatedStore = await app.persistence.loadStore("user-1");
     expect(updatedStore.accounting.facts.tradeEvents.some((entry) => entry.id === "trade-cutoff-delete")).toBe(false);
     expect(updatedStore.accounting.facts.positionActions.some((entry) => entry.id === "cutoff-split-action")).toBe(false);
+    expect(updatedStore.accounting.projections.lots.some((entry) => entry.id === "lot-pa-late-linked-stock-action")).toBe(false);
     expect(updatedStore.accounting.facts.dividendLedgerEntries.some((entry) => entry.id === ids.cutoffExpectedLedgerId)).toBe(false);
 
     const regeneratedCutoff = updatedStore.accounting.facts.dividendLedgerEntries.find(
