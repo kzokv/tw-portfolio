@@ -81,6 +81,7 @@ export interface DividendLedgerEntryDetails {
   stockDistributionRatio?: number | null;
   stockDistributionRatioState?: "authoritative" | "derived_non_authoritative" | "unresolved" | null;
   expectedStockCalcState?: ExpectedStockCalcState | null;
+  expectedStockParValueAmount?: number | null;
   parValueAmount?: number | null;
   needsActionReasons?: string[] | null;
   snapshotRefreshStatus?: "idle" | "queued" | "running" | "complete" | "failed" | null;

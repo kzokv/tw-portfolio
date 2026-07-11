@@ -54,7 +54,7 @@ function expectedNetAmount(entry: DividendLedgerEntryDetails): number {
 
 function actualNetAmount(entry: DividendLedgerEntryDetails): number {
   if (entry.actualNetAmount != null) return entry.actualNetAmount;
-  return entry.receivedCashAmount - nhiAmount(entry) - bankFeeAmount(entry) - otherDeductionAmount(entry);
+  return entry.receivedCashAmount;
 }
 
 function premiumBaseAmount(entry: DividendLedgerEntryDetails): number | null {
@@ -111,7 +111,7 @@ export function buildDividendCalendarRowFromEntry(entry: DividendLedgerEntryDeta
       expectedCashAmount: entry.expectedCashAmount,
       expectedStockQuantity: entry.expectedStockQuantity,
       eligibleQuantity: entry.eligibleQuantity,
-      parValuePerShare: entry.parValueAmount ?? null,
+      parValuePerShare: entry.expectedStockParValueAmount ?? entry.parValueAmount ?? null,
       hasPostedLedgerEntry: isLedgerRow,
       dividendLedgerEntryId: isLedgerRow ? entry.id : null,
     },
