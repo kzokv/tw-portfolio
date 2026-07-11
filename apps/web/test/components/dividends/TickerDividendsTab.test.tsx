@@ -255,6 +255,7 @@ describe("TickerDividendsTab", () => {
     await act(async () => reviewButton?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     await flush();
 
+    expect(reviewService.fetch).toHaveBeenCalledWith(expect.objectContaining({ page: 2, limit: 25 }));
     expect(container.querySelector('[data-testid="shared-dividend-review-drawer"]')?.getAttribute("data-entry-id")).toBe("ledger-posted");
   });
 

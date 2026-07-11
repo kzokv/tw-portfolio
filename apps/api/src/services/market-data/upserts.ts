@@ -196,8 +196,18 @@ export async function upsertDividendEvents(
        total_distribution_shares = EXCLUDED.total_distribution_shares,
        raw_provider_data = EXCLUDED.raw_provider_data,
        stock_distribution_amount_raw = EXCLUDED.stock_distribution_amount_raw,
-       stock_distribution_ratio = EXCLUDED.stock_distribution_ratio,
-       stock_distribution_ratio_state = EXCLUDED.stock_distribution_ratio_state,
+       stock_distribution_ratio = CASE
+         WHEN market_data.dividend_events.stock_distribution_ratio_state = 'authoritative'
+           AND EXCLUDED.stock_distribution_ratio_state IS DISTINCT FROM 'authoritative'
+         THEN market_data.dividend_events.stock_distribution_ratio
+         ELSE EXCLUDED.stock_distribution_ratio
+       END,
+       stock_distribution_ratio_state = CASE
+         WHEN market_data.dividend_events.stock_distribution_ratio_state = 'authoritative'
+           AND EXCLUDED.stock_distribution_ratio_state IS DISTINCT FROM 'authoritative'
+         THEN market_data.dividend_events.stock_distribution_ratio_state
+         ELSE EXCLUDED.stock_distribution_ratio_state
+       END,
        stock_par_value_amount = EXCLUDED.stock_par_value_amount,
        stock_par_value_currency = EXCLUDED.stock_par_value_currency`,
     [ids, tickers, marketCodes, eventTypes, exDates, payDates, cashAmounts, stockAmounts, uniqueEvents.length,

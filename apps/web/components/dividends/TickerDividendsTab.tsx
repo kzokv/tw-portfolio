@@ -237,7 +237,11 @@ export function TickerDividendsTab({
     setRefreshVersion((version) => version + 1);
   }
 
-  async function openDrawer(item: DividendLedgerHistoryItemDto) {
+  async function openDrawer(
+    item: DividendLedgerHistoryItemDto,
+    lookupPage = 1,
+    lookupLimit: DividendReviewPageLimit = 50,
+  ) {
     const requestId = drawerRequestRef.current + 1;
     drawerRequestRef.current = requestId;
     setDrawerLoadingId(item.dividendLedgerEntryId);
@@ -248,8 +252,8 @@ export function TickerDividendsTab({
         marketCode: marketCode as MarketCode,
         accountId: item.accountId,
         excludeExpected: true,
-        page: 1,
-        limit: 50,
+        page: lookupPage,
+        limit: lookupLimit,
       });
       const entry = result.ledgerEntries.find((candidate) => candidate.id === item.dividendLedgerEntryId);
       if (!entry) throw new Error(`Dividend ledger entry ${item.dividendLedgerEntryId} was not found.`);
@@ -353,7 +357,7 @@ export function TickerDividendsTab({
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={cn("inline-flex rounded-full border px-3 py-1 text-xs font-semibold", statusClassName(item.reconciliationStatus))}>{resolveReconciliationStatusLabel(dict, item.reconciliationStatus)}</span>
-                        <Button size="sm" variant="secondary" onClick={() => void openDrawer(item)} disabled={drawerLoadingId === item.dividendLedgerEntryId} data-testid={`ticker-posted-dividend-review-${index}`}>{dict.dividends.ticker.openRowReview}</Button>
+                        <Button size="sm" variant="secondary" onClick={() => void openDrawer(item, postedPage, postedLimit)} disabled={drawerLoadingId === item.dividendLedgerEntryId} data-testid={`ticker-posted-dividend-review-${index}`}>{dict.dividends.ticker.openRowReview}</Button>
                       </div>
                     </article>
                   ))}</div>}

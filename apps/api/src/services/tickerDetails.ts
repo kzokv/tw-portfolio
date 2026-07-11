@@ -1509,8 +1509,8 @@ function comparePositionActionsDescending(left: HoldingActivityPositionActionDto
 
 function compareUpcomingDividendItems(left: DividendUpcomingListItemDto, right: DividendUpcomingListItemDto): number {
   return (
-    compareNullableDates(right.paymentDate, left.paymentDate)
-    || right.exDividendDate.localeCompare(left.exDividendDate)
+    (left.paymentDate ?? left.exDividendDate).localeCompare(right.paymentDate ?? right.exDividendDate)
+    || left.exDividendDate.localeCompare(right.exDividendDate)
     || left.accountId.localeCompare(right.accountId)
     || left.ticker.localeCompare(right.ticker)
     || left.id.localeCompare(right.id)

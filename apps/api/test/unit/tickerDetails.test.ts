@@ -390,6 +390,18 @@ describe("buildTickerDetails", () => {
         source: "test",
       },
       {
+        id: "bhp-au-nearest-paid-upcoming-dividend",
+        ticker: "BHP",
+        marketCode: "AU",
+        eventType: "CASH",
+        exDividendDate: "2026-07-10",
+        paymentDate: "2026-07-20",
+        cashDividendPerShare: 2.75,
+        cashDividendCurrency: "USD",
+        stockDividendPerShare: 0,
+        source: "test",
+      },
+      {
         id: "bhp-au-paid-upcoming-dividend",
         ticker: "BHP",
         marketCode: "AU",
@@ -513,8 +525,13 @@ describe("buildTickerDetails", () => {
         paymentDate: "2026-08-01",
       }),
     ]));
-    expect(details.dividends.upcomingCount).toBe(2);
-    expect(details.dividends.nextPaymentDate).toBe("2026-08-01");
+    expect(details.dividends.upcoming.map((item) => item.paymentDate)).toEqual([
+      null,
+      "2026-07-20",
+      "2026-08-01",
+    ]);
+    expect(details.dividends.upcomingCount).toBe(3);
+    expect(details.dividends.nextPaymentDate).toBe("2026-07-20");
     expect(details.dividends.recent).toEqual([
       expect.objectContaining({
         accountId: "acc-au",
