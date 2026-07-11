@@ -282,7 +282,7 @@ function applyPositionActionToLots(currentLots: Lot[], action: PositionAction): 
   });
 }
 
-function deriveEligibleQuantityFromReplayStream(
+export function deriveEligibleQuantityFromReplayStream(
   trades: readonly BookedTradeEvent[],
   positionActions: readonly PositionAction[],
   accountId: string,

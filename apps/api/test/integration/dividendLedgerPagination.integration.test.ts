@@ -147,6 +147,9 @@ describePostgres("PostgresPersistence.listDividendLedgerEntries — pagination/s
       eligibleQuantity: overrides.eligibleQuantity ?? 20,
       expectedCashAmount: overrides.expectedCashAmount ?? 20,
       expectedStockQuantity: 0,
+      expectedStockCalcState: overrides.expectedStockCalcState,
+      expectedStockDistributionRatio: overrides.expectedStockDistributionRatio,
+      expectedStockParValueAmount: overrides.expectedStockParValueAmount,
       receivedCashAmount: 0,
       receivedStockQuantity: 0,
       postingStatus: "expected",
@@ -183,6 +186,9 @@ describePostgres("PostgresPersistence.listDividendLedgerEntries — pagination/s
       dividendEventId: createdEventId,
       eligibleQuantity: 15,
       expectedCashAmount: 15,
+      expectedStockCalcState: "resolved",
+      expectedStockDistributionRatio: 0.1,
+      expectedStockParValueAmount: 10,
       version: 1,
     });
     const applied = await persistence.applyDividendLedgerRecompute(userId, [
@@ -190,6 +196,19 @@ describePostgres("PostgresPersistence.listDividendLedgerEntries — pagination/s
       change("created", createdEntry, 0),
     ]);
     expect(applied).toHaveLength(2);
+    expect(await persistence.findDividendLedgerEntryById(userId, createdEntry.id)).toEqual(expect.objectContaining({
+      expectedStockCalcState: "resolved",
+      expectedStockDistributionRatio: 0.1,
+      expectedStockParValueAmount: 10,
+    }));
+    expect((await persistence.listDividendLedgerEntries(userId, defaultOpts)).ledgerEntries).toContainEqual(
+      expect.objectContaining({
+        id: createdEntry.id,
+        expectedStockCalcState: "resolved",
+        expectedStockDistributionRatio: 0.1,
+        expectedStockParValueAmount: 10,
+      }),
+    );
     const competingCreatedEntry = nextEntry({
       id: "recompute-created-competing",
       dividendEventId: createdEventId,

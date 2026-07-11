@@ -298,10 +298,12 @@ export function DividendPostingForm({
   const expectedNetAmount = expectedGrossAmount - expectedNhiAmount - expectedBankFeeAmount - expectedOtherDeductionAmount;
   const actualNetAmount = receivedCashAmount;
   const varianceAmount = actualNetAmount - expectedNetAmount;
-  const stockRatioState = row.ledgerEntry?.stockDistributionRatioState ?? null;
+  const stockRatioState = row.ledgerEntry?.stockDistributionRatioState
+    ?? row.event.stockDistributionRatioState;
   const expectedStockCalcState = row.ledgerEntry?.expectedStockCalcState
     ?? (stockRatioState === "unresolved" ? "needs_action" : "resolved");
-  const stockDistributionRatio = row.ledgerEntry?.stockDistributionRatio ?? null;
+  const stockDistributionRatio = row.ledgerEntry?.stockDistributionRatio
+    ?? row.event.stockDistributionRatio;
   const sourceLineTotal = sourceLines.reduce((sum, entry) => sum + entry.amount, 0);
   const sourceLineVariance = sourceLineTotal - grossAmount;
   const amountsDirty = JSON.stringify({

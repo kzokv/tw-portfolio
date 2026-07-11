@@ -5,6 +5,7 @@ import { routeError } from "../lib/routeError.js";
 import { deriveRealizedPnlForTrade, listTradeEvents } from "./accountingStore.js";
 import { bookTradeSettlementRecompute } from "./cashLedgerService.js";
 import { reconcileDividendEntitlementsForScope } from "./dividends.js";
+import { deriveEligibleQuantityFromReplayStream } from "./replayPositionHistory.js";
 import type { RecomputeJob, RecomputePreviewItem, Store } from "../types/store.js";
 
 interface PreviewInput {
@@ -107,9 +108,23 @@ export function confirmRecompute(store: Store, userId: string, jobId: string): R
   }
 
   for (const scope of affectedScopes.values()) {
+    const scopedTrades = listTradeEvents(store).filter(
+      (trade) => trade.accountId === scope.accountId && trade.ticker === scope.ticker,
+    );
+    const scopedPositionActions = store.accounting.facts.positionActions.filter(
+      (action) => action.accountId === scope.accountId && action.ticker === scope.ticker,
+    );
     reconcileDividendEntitlementsForScope(store, scope.accountId, scope.ticker, {
       marketCode: scope.marketCode,
       reopenChangedReconciliation: true,
+      eligibleQuantityResolver: (dividendEvent, dividendMarketCode) => deriveEligibleQuantityFromReplayStream(
+        scopedTrades,
+        scopedPositionActions,
+        scope.accountId,
+        scope.ticker,
+        dividendMarketCode,
+        dividendEvent,
+      ),
     });
   }
 

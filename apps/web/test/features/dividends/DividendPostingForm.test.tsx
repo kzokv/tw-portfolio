@@ -541,6 +541,35 @@ describe("DividendPostingForm", () => {
     expect(stockInput?.value).toBe("0");
   });
 
+  it("uses authoritative event ratio math before a stock dividend is posted", () => {
+    const row = buildRow({
+      event: {
+        eventType: "STOCK",
+        expectedCashAmount: 0,
+        expectedStockQuantity: 25,
+        eligibleQuantity: 1_000,
+        stockDistributionRatio: 0.025,
+        stockDistributionRatioState: "authoritative",
+      },
+      ledgerEntry: null,
+    });
+
+    act(() => {
+      root.render(
+        <DividendPostingForm
+          row={row}
+          dict={dict}
+          locale="en"
+          onCancel={() => undefined}
+          onSaved={() => undefined}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("1,000 shares × 0.025 = 25");
+    expect(container.textContent).not.toContain("Needs Action: unresolved");
+  });
+
   it("treats received cash as actual net when ledger net fields are absent", () => {
     const row = buildRow({
       event: { expectedCashAmount: 120 },

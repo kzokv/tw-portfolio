@@ -9633,7 +9633,9 @@ export class PostgresPersistence implements Persistence {
   async findDividendLedgerEntryById(userId: string, dividendLedgerEntryId: string): Promise<DividendLedgerEntry | null> {
     const result = await this.pool.query(
       `SELECT dle.id, dle.account_id, dle.dividend_event_id, dle.eligible_quantity,
-              dle.expected_cash_amount, dle.expected_stock_quantity, dle.received_stock_quantity,
+              dle.expected_cash_amount, dle.expected_stock_quantity,
+              dle.expected_stock_calc_state, dle.expected_stock_distribution_ratio, dle.expected_stock_par_value_amount,
+              dle.received_stock_quantity,
               dle.posting_status, dle.reconciliation_status, dle.version,
               dle.source_composition_status, dle.reconciliation_note, dle.booked_at,
               dle.reversal_of_dividend_ledger_entry_id, dle.superseded_at,
@@ -9734,7 +9736,9 @@ export class PostgresPersistence implements Persistence {
       await client.query("BEGIN");
       const currentResult = await client.query(
         `SELECT dle.id, dle.account_id, dle.dividend_event_id, dle.eligible_quantity,
-                dle.expected_cash_amount, dle.expected_stock_quantity, dle.received_stock_quantity,
+                dle.expected_cash_amount, dle.expected_stock_quantity,
+                dle.expected_stock_calc_state, dle.expected_stock_distribution_ratio, dle.expected_stock_par_value_amount,
+                dle.received_stock_quantity,
                 dle.posting_status, dle.reconciliation_status, dle.version,
                 dle.source_composition_status, dle.reconciliation_note, dle.booked_at,
                 dle.reversal_of_dividend_ledger_entry_id, dle.superseded_at,
@@ -9808,7 +9812,9 @@ export class PostgresPersistence implements Persistence {
       const originalDividendLedgerEntryId = input.originalDividendLedgerEntryId ?? input.dividendLedgerEntry.id;
       const currentResult = await client.query(
         `SELECT dle.id, dle.account_id, dle.dividend_event_id, dle.eligible_quantity,
-                dle.expected_cash_amount, dle.expected_stock_quantity, dle.received_stock_quantity,
+                dle.expected_cash_amount, dle.expected_stock_quantity,
+                dle.expected_stock_calc_state, dle.expected_stock_distribution_ratio, dle.expected_stock_par_value_amount,
+                dle.received_stock_quantity,
                 dle.posting_status, dle.reconciliation_status, dle.version,
                 dle.source_composition_status, dle.reconciliation_note, dle.booked_at,
                 dle.reversal_of_dividend_ledger_entry_id, dle.superseded_at,
@@ -10444,7 +10450,9 @@ export class PostgresPersistence implements Persistence {
         : Promise.resolve({ rows: [] as Record<string, unknown>[] }),
       this.pool.query(
       `SELECT dle.id, dle.account_id, dle.dividend_event_id, dle.eligible_quantity,
-              dle.expected_cash_amount, dle.expected_stock_quantity, dle.received_stock_quantity,
+              dle.expected_cash_amount, dle.expected_stock_quantity,
+              dle.expected_stock_calc_state, dle.expected_stock_distribution_ratio, dle.expected_stock_par_value_amount,
+              dle.received_stock_quantity,
               dle.posting_status, dle.reconciliation_status, dle.version,
               dle.source_composition_status, dle.reconciliation_note, dle.booked_at,
               dle.reversal_of_dividend_ledger_entry_id, dle.superseded_at,
@@ -10715,7 +10723,9 @@ export class PostgresPersistence implements Persistence {
     const offset = (opts.page - 1) * opts.limit;
     const queryE = `
       SELECT dle.id, dle.account_id, dle.dividend_event_id, dle.eligible_quantity,
-             dle.expected_cash_amount, dle.expected_stock_quantity, dle.received_stock_quantity,
+             dle.expected_cash_amount, dle.expected_stock_quantity,
+             dle.expected_stock_calc_state, dle.expected_stock_distribution_ratio, dle.expected_stock_par_value_amount,
+             dle.received_stock_quantity,
              dle.posting_status, dle.reconciliation_status, dle.version,
              dle.source_composition_status, dle.reconciliation_note, dle.booked_at,
              dle.reversal_of_dividend_ledger_entry_id, dle.superseded_at,
