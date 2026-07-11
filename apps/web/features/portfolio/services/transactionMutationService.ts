@@ -1,4 +1,4 @@
-import { deleteJson, getJson, patchJson } from "../../../lib/api";
+import { getJson, patchJson, postJson } from "../../../lib/api";
 import type {
   PreviewImpactResponse,
   DeleteTransactionResponse,
@@ -23,9 +23,46 @@ export async function previewImpact(
 
 export async function deleteTransaction(
   tradeEventId: string,
+  confirmation: DividendDeleteConfirmation,
 ): Promise<DeleteTransactionResponse> {
-  return deleteJson<DeleteTransactionResponse>(
-    `/portfolio/transactions/${tradeEventId}`,
+  return postJson<DeleteTransactionResponse>(
+    `/portfolio/transactions/${tradeEventId}/dividend-delete-confirm`,
+    confirmation,
+  );
+}
+
+export interface DividendDeleteConfirmation {
+  previewId: string;
+  previewVersion: number;
+  fingerprint: string;
+}
+
+export interface DividendDeletePreviewResponse {
+  preview: DividendDeleteConfirmation & {
+    accountId: string;
+    targetTradeEventId: string | null;
+    expiresAt: string;
+  };
+  affectedCounts: {
+    dividendLedgerEntries: number;
+    cashLedgerEntries: number;
+    dividendDeductionEntries: number;
+    dividendSourceLines: number;
+    stockDividendPositionActions: number;
+  };
+  affectedDividends: Array<{
+    dividendLedgerEntryId: string;
+    requiresManualReceiptReentry: boolean;
+  }>;
+  manualReceiptReentryLedgerEntryIds: string[];
+}
+
+export async function previewDividendDelete(
+  tradeEventId: string,
+): Promise<DividendDeletePreviewResponse> {
+  return postJson<DividendDeletePreviewResponse>(
+    `/portfolio/transactions/${tradeEventId}/dividend-delete-preview`,
+    { reason: "User requested transaction deletion" },
   );
 }
 

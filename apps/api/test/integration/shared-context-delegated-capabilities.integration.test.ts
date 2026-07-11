@@ -1,8 +1,13 @@
+import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { InjectOptions, LightMyRequestResponse } from "fastify";
 import type { ShareCapability } from "@vakwen/shared-types";
 import { buildApp } from "../../src/app.js";
-import type { GoogleOAuthConfig } from "../../src/auth/googleOAuth.js";
+import { signSessionCookie, type GoogleOAuthConfig } from "../../src/auth/googleOAuth.js";
+import { createDividendEvent } from "../../src/services/dividends.js";
+import { replayPositionHistory } from "../../src/services/replayPositionHistory.js";
 
+const SESSION_COOKIE_NAME = "g_auth_session";
 const testOAuthConfig: GoogleOAuthConfig = {
   clientId: "test-client-id",
   clientSecret: "test-client-secret",
@@ -16,6 +21,34 @@ describe("shared-context delegated capabilities", () => {
 
   beforeEach(async () => {
     app = await buildApp({ persistenceBackend: "memory", oauthConfig: testOAuthConfig });
+    await (app.persistence as typeof app.persistence & { ensureDevBypassUser(): Promise<void> }).ensureDevBypassUser();
+    const originalInject = app.inject.bind(app) as (
+      options: string | InjectOptions,
+    ) => Promise<LightMyRequestResponse>;
+    app.inject = (async (options: string | InjectOptions) => {
+      let nextOptions = options;
+      if (typeof options === "object" && options && "headers" in options) {
+        const headers = { ...(options.headers ?? {}) } as Record<string, string>;
+        if (!headers.cookie) {
+          const viewerUserId = headers["x-user-id"];
+          if (viewerUserId) {
+            const authUser = await app.persistence.getAuthUserById(viewerUserId);
+            if (authUser) {
+              headers.cookie = `${SESSION_COOKIE_NAME}=${signSessionCookie(
+                viewerUserId,
+                testOAuthConfig.sessionSecret,
+                authUser.sessionVersion,
+              )}`;
+              nextOptions = {
+                ...options,
+                headers,
+              };
+            }
+          }
+        }
+      }
+      return originalInject(nextOptions);
+    }) as unknown as typeof app.inject;
   });
 
   afterEach(async () => {
@@ -27,6 +60,8 @@ describe("shared-context delegated capabilities", () => {
       email: "shared-context-viewer@example.com",
       name: "Shared Context Viewer",
     });
+    const authUser = await app.persistence.getAuthUserById(viewerUserId);
+    if (!authUser) throw new Error("expected viewer auth user");
     const share = await app.persistence.createShareGrant({
       ownerUserId: "user-1",
       granteeUserId: viewerUserId,
@@ -37,7 +72,12 @@ describe("shared-context delegated capabilities", () => {
       capabilities,
       grantedByUserId: "user-1",
     });
-    return { shareId: share.id, viewerUserId };
+    const cookieHeader = `${SESSION_COOKIE_NAME}=${signSessionCookie(
+      viewerUserId,
+      testOAuthConfig.sessionSecret,
+      authUser.sessionVersion,
+    )}`;
+    return { shareId: share.id, viewerUserId, cookieHeader };
   }
 
   async function createUser(label: string) {
@@ -54,7 +94,64 @@ describe("shared-context delegated capabilities", () => {
     };
   }
 
-  it("[shared transaction write]: viewer with transaction:write can create, patch, and delete owner transaction", async () => {
+  async function seedSharedDividendForOwner() {
+    const store = await app.persistence.loadStore("user-1");
+    store.accounting.facts.tradeEvents.push({
+      id: "shared-dividend-buy-1",
+      userId: "user-1",
+      accountId: "acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      instrumentType: "STOCK",
+      type: "BUY",
+      quantity: 1000,
+      unitPrice: 100,
+      priceCurrency: "TWD",
+      tradeDate: "2026-01-02",
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: store.feeProfiles[0]!,
+    });
+    store.accounting.facts.tradeEvents.push({
+      id: "shared-dividend-buy-2",
+      userId: "user-1",
+      accountId: "acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      instrumentType: "STOCK",
+      type: "BUY",
+      quantity: 500,
+      unitPrice: 102,
+      priceCurrency: "TWD",
+      tradeDate: "2026-01-03",
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: store.feeProfiles[0]!,
+    });
+    createDividendEvent(store, {
+      id: "shared-dividend-write-event",
+      ticker: "2330",
+      marketCode: "TW",
+      eventType: "CASH_AND_STOCK",
+      exDividendDate: "2026-02-01",
+      paymentDate: "2026-02-20",
+      cashDividendPerShare: 1,
+      cashDividendCurrency: "TWD",
+      stockDividendPerShare: 0.1,
+      stockDistributionAmountRaw: 0,
+      stockDistributionRatio: 0.1,
+      stockDistributionRatioState: "authoritative",
+      stockParValueAmount: 10,
+      stockParValueCurrency: "TWD",
+      source: "test",
+    });
+    await app.persistence.saveStore(store);
+    await replayPositionHistory(app.persistence, "user-1", "acc-1", "2330", { marketCode: "TW" });
+  }
+
+  it("[shared transaction write]: viewer with transaction:write can create and patch owner transaction", async () => {
     const { viewerUserId } = await createViewerShare(["portfolio:mcp_read", "transaction:write"]);
 
     const created = await app.inject({
@@ -98,16 +195,6 @@ describe("shared-context delegated capabilities", () => {
     });
     expect(patched.statusCode).toBe(202);
 
-    const deleted = await app.inject({
-      method: "DELETE",
-      url: `/portfolio/transactions/${tradeId}`,
-      headers: {
-        "x-user-id": viewerUserId,
-        "x-user-role": "viewer",
-        "x-context-user-id": "user-1",
-      },
-    });
-    expect(deleted.statusCode).toBe(202);
   });
 
   it("[shared transaction write]: viewer without transaction:write gets shared_capability_required", async () => {
@@ -140,6 +227,230 @@ describe("shared-context delegated capabilities", () => {
       metadata: {
         requiredCapability: "transaction:write",
         routeKey: "POST /portfolio/transactions",
+      },
+    });
+  });
+
+  it("[shared dividend write]: viewer with dividend:write can post and reconcile owner dividend entries", async () => {
+    const { viewerUserId } = await createViewerShare(["portfolio:mcp_read", "dividend:write"]);
+    await seedSharedDividendForOwner();
+
+    const posted = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/postings",
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+        "idempotency-key": "shared-dividend-posting-1",
+      },
+      payload: {
+        accountId: "acc-1",
+        dividendEventId: "shared-dividend-write-event",
+        receivedCashAmount: 950,
+        receivedStockQuantity: 0,
+        deductions: [{
+          id: "shared-dividend-deduction",
+          deductionType: "NHI_SUPPLEMENTAL_PREMIUM",
+          amount: 50,
+          currencyCode: "TWD",
+          withheldAtSource: true,
+          source: "test",
+        }],
+        sourceLines: [],
+        sourceCompositionStatus: "unknown_pending_disclosure",
+      },
+    });
+
+    expect(posted.statusCode).toBe(200);
+    const ledgerId = posted.json<{ dividendLedgerEntry: { id: string } }>().dividendLedgerEntry.id;
+
+    const reconciled = await app.inject({
+      method: "PATCH",
+      url: `/portfolio/dividends/postings/${ledgerId}/reconciliation`,
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+      },
+      payload: {
+        status: "matched",
+        expectedVersion: 1,
+      },
+    });
+
+    expect(reconciled.statusCode).toBe(200);
+  });
+
+  it("[shared dividend write]: viewer with transaction:write and dividend:write can preview and confirm owner destructive dividend deletion", async () => {
+    const { viewerUserId } = await createViewerShare(["portfolio:mcp_read", "transaction:write", "dividend:write"]);
+    await seedSharedDividendForOwner();
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions/shared-dividend-buy-2/dividend-delete-preview",
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+      },
+      payload: { reason: "Delegated cleanup" },
+    });
+
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json()).toMatchObject({
+      operation: {
+        kind: "trade_delete",
+        accountId: "acc-1",
+        targetTradeEventId: "shared-dividend-buy-2",
+      },
+      affectedGroups: {
+        source: {
+          tradeEventIds: ["shared-dividend-buy-2"],
+        },
+        derived: {
+          dividendLedgerEntryIds: [expect.any(String)],
+        },
+      },
+    });
+
+    const previewBody = preview.json<{
+      preview: { previewId: string; previewVersion: number; fingerprint: string };
+    }>();
+    const confirmed = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions/shared-dividend-buy-2/dividend-delete-confirm",
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+      },
+      payload: {
+        previewId: previewBody.preview.previewId,
+        previewVersion: previewBody.preview.previewVersion,
+        fingerprint: previewBody.preview.fingerprint,
+      },
+    });
+
+    expect(confirmed.statusCode).toBe(200);
+    expect(confirmed.json()).toMatchObject({
+      preview: {
+        consumedResult: "confirmed",
+      },
+    });
+  });
+
+  it("[shared dividend write]: viewer without dividend:write gets shared_capability_required", async () => {
+    const { viewerUserId } = await createViewerShare(["portfolio:mcp_read", "transaction:write"]);
+
+    const postingResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/postings",
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+        "idempotency-key": "shared-dividend-posting-denied",
+      },
+      payload: {
+        accountId: "acc-1",
+        dividendEventId: "missing-event",
+        receivedCashAmount: 1,
+        receivedStockQuantity: 0,
+        deductions: [],
+        sourceLines: [],
+        sourceCompositionStatus: "unknown_pending_disclosure",
+      },
+    });
+
+    expect(postingResponse.statusCode).toBe(403);
+    expect(postingResponse.json()).toMatchObject({
+      error: "shared_capability_required",
+      metadata: {
+        requiredCapability: "dividend:write",
+        routeKey: "POST /portfolio/dividends/postings",
+      },
+    });
+
+    const destructivePreviewResponse = await app.inject({
+      method: "POST",
+      url: `/portfolio/transactions/${randomUUID()}/dividend-delete-preview`,
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+      },
+      payload: { reason: "Denied destructive preview" },
+    });
+
+    expect(destructivePreviewResponse.statusCode).toBe(403);
+    expect(destructivePreviewResponse.json()).toMatchObject({
+      error: "shared_capability_required",
+      metadata: {
+        requiredCapability: "dividend:write",
+        routeKey: "POST /portfolio/transactions/:tradeEventId/dividend-delete-preview",
+      },
+    });
+
+    const cutoffPreviewResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/accounts/acc-1/purge-rebuild-preview",
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+      },
+      payload: { cutoffDate: "2026-01-01", reason: "Denied cutoff without dividend write" },
+    });
+    expect(cutoffPreviewResponse.statusCode).toBe(403);
+    expect(cutoffPreviewResponse.json()).toMatchObject({
+      error: "shared_capability_required",
+      metadata: {
+        requiredCapability: "dividend:write",
+        routeKey: "POST /portfolio/accounts/:accountId/purge-rebuild-preview",
+      },
+    });
+  });
+
+  it("[shared transaction delete]: viewer with dividend:write but without transaction:write is denied", async () => {
+    const { viewerUserId } = await createViewerShare(["portfolio:mcp_read", "dividend:write"]);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/portfolio/transactions/${randomUUID()}/dividend-delete-preview`,
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+      },
+      payload: { reason: "Denied without transaction write" },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({
+      error: "shared_capability_required",
+      metadata: {
+        requiredCapability: "transaction:write",
+        routeKey: "POST /portfolio/transactions/:tradeEventId/dividend-delete-preview",
+      },
+    });
+
+    const cutoffResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/accounts/acc-1/purge-rebuild-preview",
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+      },
+      payload: { cutoffDate: "2026-01-01", reason: "Denied cutoff without transaction write" },
+    });
+    expect(cutoffResponse.statusCode).toBe(403);
+    expect(cutoffResponse.json()).toMatchObject({
+      error: "shared_capability_required",
+      metadata: {
+        requiredCapability: "transaction:write",
+        routeKey: "POST /portfolio/accounts/:accountId/purge-rebuild-preview",
       },
     });
   });

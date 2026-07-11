@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { roundToDecimal, type Lot } from "@vakwen/domain";
-import { marketCodeFor, normalizeInstrumentSector } from "@vakwen/shared-types";
+import {
+  allocateSellLots,
+  applyBuyToLots,
+  calculateDividendCashReconciliation,
+  resolveDividendStockEntitlement,
+  roundToDecimal,
+  type Lot,
+} from "@vakwen/domain";
+import { currencyFor, marketCodeFor, normalizeInstrumentSector } from "@vakwen/shared-types";
 import type {
   AiConnectorAccessResult,
   AiConnectorProvider,
@@ -55,6 +62,7 @@ import type {
   AdminInviteListOptions,
   AdminUserListOptions,
   AnonymousShareTokenRecord,
+  AccountingStoreAuditOptions,
   AuditLogInput,
   AuthUserRecord,
   ConfirmAiTransactionDraftPostingInput,
@@ -73,9 +81,13 @@ import type {
   CatalogSyncResult,
   DelistingRecord,
   DeleteTradeEventResult,
+  DividendDestructivePreviewState,
+  DividendDestructivePreviewRecord,
+  DividendDestructivePreviewResult,
   DividendLedgerListOptions,
   DividendLedgerListResult,
   DividendCalendarSnapshotOptions,
+  DividendReviewListOptions,
   DividendReviewListResult,
   DividendReviewRowWithDetails,
   InviteRecord,
@@ -97,8 +109,10 @@ import type {
   McpOAuthAuthorizationRequestRecord,
   PendingShareInviteRecord,
   PersistedTickerFundamentalsRecord,
+  RecordDividendDestructiveOutcomeInput,
   RevokeAnonymousShareTokenInput,
   RecordTickerFundamentalsRefreshFailureInput,
+  SaveDividendDestructivePreviewInput,
   SaveTickerFundamentalsSnapshotInput,
   RevokeAnonymousShareTokenResult,
   ShareGrantRecord,
@@ -602,6 +616,13 @@ export class MemoryPersistence implements Persistence {
   private readonly anonymousShareTokens: MemoryAnonymousShareToken[] = [];
   /** Per-owner async mutex — ensures cap-check + insert is atomic for concurrent callers. */
   private readonly anonymousShareTokenLocks = new Map<string, Promise<unknown>>();
+  /** Per-account async mutex for destructive dividend confirmation. */
+  private readonly dividendDestructiveLocks = new Map<string, Promise<void>>();
+  private readonly dividendDestructivePreviews = new Map<string, DividendDestructivePreviewRecord>();
+  private readonly dividendDestructiveOutcomes = new Map<string, {
+    consumedAt: string;
+    consumedResult: Exclude<DividendDestructivePreviewResult, "previewed">;
+  }>();
   private readonly auditLog: MemoryAuditLogEntry[] = [];
   /** App config: repair cooldown override (KZO-133). null = unset, fall back to Env. */
   private _repairCooldownMinutes: number | null = null;
@@ -875,6 +896,165 @@ export class MemoryPersistence implements Persistence {
       ipAddress: input.ipAddress ?? null,
       createdAt: new Date().toISOString(),
     });
+  }
+
+  async saveDividendDestructivePreview(input: SaveDividendDestructivePreviewInput): Promise<void> {
+    const now = Date.now();
+    for (const [previewId, preview] of this.dividendDestructivePreviews) {
+      if (Date.parse(preview.expiresAt) <= now) {
+        this.dividendDestructivePreviews.set(previewId, {
+          ...preview,
+          affectedDividends: [],
+          manualReceiptReentryLedgerEntryIds: [],
+          reviewedArtifacts: {
+            source: {
+              tradeEventIds: [],
+              positionActionIds: [],
+              lotAllocationIds: [],
+              lotAllocationTradeEventIds: [],
+            },
+            derived: {
+              dividendEventIds: [],
+              dividendLedgerEntryIds: [],
+              cashLedgerEntryIds: [],
+              dividendDeductionEntryIds: [],
+              dividendSourceLineIds: [],
+              stockDividendPositionActionIds: [],
+              holdingSnapshotIds: [],
+            },
+          },
+        });
+      }
+    }
+    this.dividendDestructivePreviews.set(input.record.previewId, structuredClone(input.record));
+    await this.appendAuditLog({
+      actorUserId: input.record.actorUserId,
+      action: "dividend_destructive_preview_created",
+      targetUserId: input.record.ownerUserId,
+      ipAddress: input.ipAddress ?? null,
+      metadata: {
+        previewId: input.record.previewId,
+        previewVersion: input.record.previewVersion,
+        operationKind: input.record.operationKind,
+        operationKey: input.record.operationKey,
+        ownerUserId: input.record.ownerUserId,
+        actorUserId: input.record.actorUserId,
+        accountId: input.record.accountId,
+        targetTradeEventId: input.record.targetTradeEventId ?? null,
+        cutoffDate: input.record.cutoffDate ?? null,
+        reason: input.record.reason,
+        affectedCounts: input.record.affectedCounts,
+        result: "previewed",
+      },
+    });
+  }
+
+  async getDividendDestructivePreview(previewId: string): Promise<DividendDestructivePreviewState | null> {
+    const stored = this.dividendDestructivePreviews.get(previewId);
+    if (!stored) return null;
+    let preview = stored;
+    if (Date.parse(stored.expiresAt) <= Date.now() && stored.affectedDividends.length > 0) {
+      preview = {
+        ...stored,
+        affectedDividends: [],
+        manualReceiptReentryLedgerEntryIds: [],
+        reviewedArtifacts: {
+          source: { tradeEventIds: [], positionActionIds: [], lotAllocationIds: [], lotAllocationTradeEventIds: [] },
+          derived: {
+            dividendEventIds: [],
+            dividendLedgerEntryIds: [],
+            cashLedgerEntryIds: [],
+            dividendDeductionEntryIds: [],
+            dividendSourceLineIds: [],
+            stockDividendPositionActionIds: [],
+            holdingSnapshotIds: [],
+          },
+        },
+      };
+      this.dividendDestructivePreviews.set(previewId, preview);
+    }
+    const outcome = this.dividendDestructiveOutcomes.get(previewId);
+    return {
+      ...structuredClone(preview),
+      consumedAt: outcome?.consumedAt ?? null,
+      consumedResult: outcome?.consumedResult ?? null,
+    };
+  }
+
+  async countDividendDestructivePreviews(ownerUserId: string, operationKey: string): Promise<number> {
+    return [...this.dividendDestructivePreviews.values()].filter((preview) =>
+      preview.ownerUserId === ownerUserId && preview.operationKey === operationKey).length;
+  }
+
+  async recordDividendDestructiveOutcome(input: RecordDividendDestructiveOutcomeInput): Promise<void> {
+    this.dividendDestructiveOutcomes.set(input.previewId, {
+      consumedAt: input.completedAt,
+      consumedResult: input.result,
+    });
+    const preview = this.dividendDestructivePreviews.get(input.previewId);
+    if (preview) {
+      this.dividendDestructivePreviews.set(input.previewId, {
+        ...preview,
+        affectedDividends: [],
+        manualReceiptReentryLedgerEntryIds: [],
+        reviewedArtifacts: {
+          source: { tradeEventIds: [], positionActionIds: [], lotAllocationIds: [], lotAllocationTradeEventIds: [] },
+          derived: {
+            dividendEventIds: [],
+            dividendLedgerEntryIds: [],
+            cashLedgerEntryIds: [],
+            dividendDeductionEntryIds: [],
+            dividendSourceLineIds: [],
+            stockDividendPositionActionIds: [],
+            holdingSnapshotIds: [],
+          },
+        },
+      });
+    }
+    await this.appendAuditLog({
+      actorUserId: input.actorUserId ?? null,
+      action: input.result === "confirmed" ? "dividend_destructive_confirmed" : "dividend_destructive_failed",
+      targetUserId: input.ownerUserId,
+      ipAddress: input.ipAddress ?? null,
+      metadata: {
+        previewId: input.previewId,
+        previewVersion: input.previewVersion,
+        operationKind: input.operationKind,
+        operationKey: input.operationKey,
+        ownerUserId: input.ownerUserId,
+        actorUserId: input.actorUserId ?? null,
+        accountId: input.accountId,
+        targetTradeEventId: input.targetTradeEventId ?? null,
+        cutoffDate: input.cutoffDate ?? null,
+        reason: input.reason,
+        result: input.result,
+        affectedCounts: input.affectedCounts,
+        errorCode: input.errorCode ?? null,
+        errorMessage: input.errorMessage ?? null,
+        startedAt: input.startedAt,
+        completedAt: input.completedAt,
+      },
+    });
+  }
+
+  async withDividendDestructiveLock<T>(ownerUserId: string, accountId: string, execute: () => Promise<T>): Promise<T> {
+    const key = `${ownerUserId}:${accountId}`;
+    const previous = this.dividendDestructiveLocks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const queued = previous.then(() => current);
+    this.dividendDestructiveLocks.set(key, queued);
+    await previous;
+    try {
+      return await execute();
+    } finally {
+      release();
+      if (this.dividendDestructiveLocks.get(key) === queued) {
+        this.dividendDestructiveLocks.delete(key);
+      }
+    }
   }
 
   async bumpSessionVersion(userId: string): Promise<number> {
@@ -2214,9 +2394,70 @@ export class MemoryPersistence implements Persistence {
     userId: string,
     accounting: AccountingStore,
     auditEntry: AuditLogInput,
+    options?: AccountingStoreAuditOptions,
   ): Promise<void> {
-    await this.saveAccountingStore(userId, accounting);
-    await this.appendAuditLog(auditEntry);
+    const store = await this.loadStore(userId);
+    const previousAccounting = structuredClone(store.accounting);
+    const previousHoldingSnapshots = options?.deleteHoldingSnapshotScopes?.length
+      ? structuredClone(this.holdingSnapshots)
+      : null;
+    store.accounting = accounting;
+    this.stores.set(userId, store);
+    try {
+      for (const scope of options?.deleteHoldingSnapshotScopes ?? []) {
+        await this.deleteHoldingSnapshotsForTicker(
+          userId,
+          scope.accountId,
+          scope.ticker,
+          scope.fromDate,
+          scope.marketCode,
+        );
+      }
+      await this.appendAuditLog(auditEntry);
+      if (options?.clearDividendPreviewPayloadId) {
+        const preview = this.dividendDestructivePreviews.get(options.clearDividendPreviewPayloadId);
+        if (preview) {
+          this.dividendDestructivePreviews.set(options.clearDividendPreviewPayloadId, {
+            ...preview,
+            affectedDividends: [],
+            manualReceiptReentryLedgerEntryIds: [],
+            reviewedArtifacts: {
+              source: { tradeEventIds: [], positionActionIds: [], lotAllocationIds: [], lotAllocationTradeEventIds: [] },
+              derived: {
+                dividendEventIds: [],
+                dividendLedgerEntryIds: [],
+                cashLedgerEntryIds: [],
+                dividendDeductionEntryIds: [],
+                dividendSourceLineIds: [],
+                stockDividendPositionActionIds: [],
+                holdingSnapshotIds: [],
+              },
+            },
+          });
+        }
+        this.dividendDestructiveOutcomes.set(options.clearDividendPreviewPayloadId, {
+          consumedAt: typeof auditEntry.metadata?.completedAt === "string"
+            ? auditEntry.metadata.completedAt
+            : new Date().toISOString(),
+          consumedResult: "confirmed",
+        });
+      }
+    } catch (error) {
+      store.accounting = previousAccounting;
+      this.stores.set(userId, store);
+      if (previousHoldingSnapshots) {
+        this.holdingSnapshots.splice(0, this.holdingSnapshots.length, ...previousHoldingSnapshots);
+      }
+      throw error;
+    }
+  }
+
+  async getAccountAccountingRevision(userId: string, accountId: string): Promise<number> {
+    const store = await this.loadStore(userId);
+    if (!store.accounts.some((account) => account.id === accountId)) {
+      throw routeError(404, "account_not_found", "Account not found");
+    }
+    return 0;
   }
 
   async savePostedTrade(userId: string, accounting: AccountingStore): Promise<void> {
@@ -2691,7 +2932,7 @@ export class MemoryPersistence implements Persistence {
 
   async listDividendReviewRows(
     userId: string,
-    opts: DividendLedgerListOptions,
+    opts: DividendReviewListOptions,
   ): Promise<DividendReviewListResult> {
     const store = await this.loadStore(userId);
     const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
@@ -2755,6 +2996,19 @@ export class MemoryPersistence implements Persistence {
       if (opts.marketCode && eventMarketCode !== opts.marketCode) return [];
       if (!matchesDateFilter(event.paymentDate)) return [];
       if (opts.ticker && event.ticker !== opts.ticker) return [];
+      const deductions = store.accounting.facts.dividendDeductionEntries.filter(
+        (deduction) => deduction.dividendLedgerEntryId === entry.id,
+      );
+      const cashReconciliation = calculateDividendCashReconciliation({
+        expectedGrossAmount: entry.expectedCashAmount,
+        actualNetAmount: receivedByLedgerId.get(entry.id) ?? 0,
+        deductions: this.summarizeDividendDeductions(deductions),
+      });
+          const stockEntitlement = resolveDividendStockEntitlement({
+            eligibleQuantity: entry.eligibleQuantity,
+            stockDistributionRatio: event.stockDistributionRatio ?? null,
+            stockDistributionRatioState: event.stockDistributionRatioState ?? "unresolved",
+          });
       return [{
         ...entry,
         rowKind: "ledger",
@@ -2767,12 +3021,19 @@ export class MemoryPersistence implements Persistence {
         paymentDate: event.paymentDate,
         cashCurrency: event.cashDividendCurrency,
         receivedCashAmount: receivedByLedgerId.get(entry.id) ?? 0,
-        deductions: store.accounting.facts.dividendDeductionEntries.filter(
-          (deduction) => deduction.dividendLedgerEntryId === entry.id,
-        ),
+        deductions,
         sourceLines: store.accounting.facts.dividendSourceLines.filter(
           (line) => line.dividendLedgerEntryId === entry.id,
         ),
+        stockDistributionRatio: stockEntitlement.stockDistributionRatio,
+        stockDistributionRatioState: stockEntitlement.stockDistributionRatioState,
+        expectedStockCalcState: stockEntitlement.expectedStockCalcState,
+        nhiAmount: cashReconciliation.deductions.nhiAmount,
+        bankFeeAmount: cashReconciliation.deductions.bankFeeAmount,
+        otherDeductionAmount: cashReconciliation.deductions.otherDeductionAmount,
+        expectedNetAmount: cashReconciliation.expectedNetAmount,
+        actualNetAmount: cashReconciliation.actualNetAmount,
+        varianceAmount: cashReconciliation.varianceAmount,
       }];
     });
 
@@ -2797,23 +3058,26 @@ export class MemoryPersistence implements Persistence {
           if (opts.postingStatus && opts.postingStatus !== "expected") continue;
           if (activeLedgerKey.has(`${account.id}:${event.id}`)) continue;
 
-          const eligibleQuantity = Math.max(
-            0,
-            store.accounting.facts.tradeEvents
-              .filter(
-                (trade) =>
-                  trade.userId === userId &&
-                  trade.accountId === account.id &&
-                  trade.ticker === event.ticker &&
-                  trade.marketCode === eventMarketCode &&
-                  trade.tradeDate < event.exDividendDate &&
-                  !trade.reversalOfTradeEventId &&
-                  !reversedTradeIds.has(trade.id),
-              )
-              .reduce((sum, trade) => sum + (trade.type === "BUY" ? trade.quantity : -trade.quantity), 0),
+          const eligibleQuantity = deriveGeneratedDividendReviewEligibleQuantity(
+            store,
+            userId,
+            account.id,
+            event.ticker,
+            eventMarketCode,
+            event.exDividendDate,
+            reversedTradeIds,
           );
           if (eligibleQuantity <= 0) continue;
 
+          const cashReconciliation = calculateDividendCashReconciliation({
+            expectedGrossAmount: Math.max(0, Math.round(eligibleQuantity * event.cashDividendPerShare + Number.EPSILON)),
+            actualNetAmount: 0,
+          });
+          const stockEntitlement = resolveDividendStockEntitlement({
+            eligibleQuantity,
+            stockDistributionRatio: event.stockDistributionRatio ?? null,
+            stockDistributionRatioState: event.stockDistributionRatioState ?? "unresolved",
+          });
           expectedRows.push({
             id: `expected:${account.id}:${event.id}`,
             rowKind: "expected",
@@ -2828,8 +3092,8 @@ export class MemoryPersistence implements Persistence {
             paymentDate: event.paymentDate,
             cashCurrency: event.cashDividendCurrency,
             eligibleQuantity,
-            expectedCashAmount: Math.max(0, Math.round(eligibleQuantity * event.cashDividendPerShare + Number.EPSILON)),
-            expectedStockQuantity: Math.floor(eligibleQuantity * event.stockDividendPerShare),
+            expectedCashAmount: cashReconciliation.expectedGrossAmount,
+            expectedStockQuantity: stockEntitlement.expectedStockQuantity,
             receivedCashAmount: 0,
             receivedStockQuantity: 0,
             postingStatus: "expected",
@@ -2838,6 +3102,15 @@ export class MemoryPersistence implements Persistence {
             sourceCompositionStatus: "unknown_pending_disclosure",
             deductions: [],
             sourceLines: [],
+            stockDistributionRatio: stockEntitlement.stockDistributionRatio,
+            stockDistributionRatioState: stockEntitlement.stockDistributionRatioState,
+            expectedStockCalcState: stockEntitlement.expectedStockCalcState,
+            nhiAmount: cashReconciliation.deductions.nhiAmount,
+            bankFeeAmount: cashReconciliation.deductions.bankFeeAmount,
+            otherDeductionAmount: cashReconciliation.deductions.otherDeductionAmount,
+            expectedNetAmount: cashReconciliation.expectedNetAmount,
+            actualNetAmount: cashReconciliation.actualNetAmount,
+            varianceAmount: cashReconciliation.varianceAmount,
           });
         }
       }
@@ -2874,39 +3147,37 @@ export class MemoryPersistence implements Persistence {
       tickerCurrencyBucket.received += row.receivedCashAmount;
     }
 
-    const orderFactor = opts.sortOrder === "asc" ? 1 : -1;
     const sorted = rows.slice().sort((left, right) => {
-      let cmp = 0;
-      switch (opts.sortBy) {
-        case "paymentDate":
-          cmp = compareNullablePaymentDates(left, right);
-          break;
-        case "ticker":
-          cmp = left.ticker.localeCompare(right.ticker);
-          break;
-        case "account": {
-          const leftName = accountById.get(left.accountId)?.name ?? "";
-          const rightName = accountById.get(right.accountId)?.name ?? "";
-          cmp = leftName.localeCompare(rightName);
-          break;
-        }
-        case "expectedCashAmount":
-          cmp = left.expectedCashAmount - right.expectedCashAmount;
-          break;
-        case "receivedCashAmount":
-          cmp = left.receivedCashAmount - right.receivedCashAmount;
-          break;
-        case "reconciliationStatus":
-          cmp = left.reconciliationStatus.localeCompare(right.reconciliationStatus);
-          break;
-      }
-      if (cmp !== 0) return cmp * orderFactor;
+      const cmp = compareDividendReviewRows(left, right, accountById, opts);
+      if (cmp !== 0) return cmp;
       return left.id.localeCompare(right.id);
     });
 
     const total = sorted.length;
     const startIndex = (opts.page - 1) * opts.limit;
     return { rows: sorted.slice(startIndex, startIndex + opts.limit), total, aggregates };
+  }
+
+  private summarizeDividendDeductions(
+    deductions: readonly { deductionType: string; amount: number }[],
+  ): { nhiAmount: number; bankFeeAmount: number; otherDeductionAmount: number } {
+    let nhiAmount = 0;
+    let bankFeeAmount = 0;
+    let otherDeductionAmount = 0;
+
+    for (const deduction of deductions) {
+      if (deduction.deductionType === "NHI_SUPPLEMENTAL_PREMIUM") {
+        nhiAmount += deduction.amount;
+        continue;
+      }
+      if (deduction.deductionType === "BANK_FEE") {
+        bankFeeAmount += deduction.amount;
+        continue;
+      }
+      otherDeductionAmount += deduction.amount;
+    }
+
+    return { nhiAmount, bankFeeAmount, otherDeductionAmount };
   }
 
   async listCashLedgerEntries(
@@ -8291,6 +8562,250 @@ function compareNullablePaymentDates(
   const leftDate = left?.paymentDate ?? "";
   const rightDate = right?.paymentDate ?? "";
   return leftDate.localeCompare(rightDate);
+}
+
+function compareNullableIsoDateNullLast(
+  left: string | null | undefined,
+  right: string | null | undefined,
+  sortOrder: "asc" | "desc",
+): number {
+  const leftValue = left ?? null;
+  const rightValue = right ?? null;
+  if (leftValue === null && rightValue === null) return 0;
+  if (leftValue === null) return 1;
+  if (rightValue === null) return -1;
+  const cmp = leftValue.localeCompare(rightValue);
+  return sortOrder === "asc" ? cmp : -cmp;
+}
+
+function compareAscNullableIsoDateNullLast(
+  left: string | null | undefined,
+  right: string | null | undefined,
+): number {
+  return compareNullableIsoDateNullLast(left, right, "asc");
+}
+
+function compareNumberByOrder(left: number, right: number, sortOrder: "asc" | "desc"): number {
+  return sortOrder === "asc" ? left - right : right - left;
+}
+
+function compareStringByOrder(left: string, right: string, sortOrder: "asc" | "desc"): number {
+  const cmp = left.localeCompare(right);
+  return sortOrder === "asc" ? cmp : -cmp;
+}
+
+function compareDividendReviewRows(
+  left: DividendReviewRowWithDetails,
+  right: DividendReviewRowWithDetails,
+  accountById: ReadonlyMap<string, { name: string }>,
+  opts: Pick<DividendReviewListOptions, "sortBy" | "sortOrder">,
+): number {
+  const leftAccountName = accountById.get(left.accountId)?.name ?? "";
+  const rightAccountName = accountById.get(right.accountId)?.name ?? "";
+  let cmp = 0;
+
+  switch (opts.sortBy) {
+    case "paymentDate":
+      cmp = compareNullableIsoDateNullLast(left.paymentDate, right.paymentDate, opts.sortOrder);
+      break;
+    case "ticker":
+      cmp = compareStringByOrder(left.ticker, right.ticker, opts.sortOrder);
+      break;
+    case "account":
+      cmp = compareStringByOrder(leftAccountName, rightAccountName, opts.sortOrder);
+      break;
+    case "expectedCashAmount":
+    case "expectedGrossAmount":
+      cmp = compareNumberByOrder(left.expectedCashAmount, right.expectedCashAmount, opts.sortOrder);
+      break;
+    case "expectedNetAmount":
+      cmp = compareNumberByOrder(left.expectedNetAmount ?? 0, right.expectedNetAmount ?? 0, opts.sortOrder);
+      break;
+    case "nhiAmount":
+      cmp = compareNumberByOrder(left.nhiAmount ?? 0, right.nhiAmount ?? 0, opts.sortOrder);
+      break;
+    case "bankFeeAmount":
+      cmp = compareNumberByOrder(left.bankFeeAmount ?? 0, right.bankFeeAmount ?? 0, opts.sortOrder);
+      break;
+    case "otherDeductionAmount":
+      cmp = compareNumberByOrder(left.otherDeductionAmount ?? 0, right.otherDeductionAmount ?? 0, opts.sortOrder);
+      break;
+    case "receivedCashAmount":
+    case "actualNetAmount":
+      cmp = compareNumberByOrder(left.actualNetAmount ?? 0, right.actualNetAmount ?? 0, opts.sortOrder);
+      break;
+    case "varianceAmount":
+      cmp = compareNumberByOrder(left.varianceAmount ?? 0, right.varianceAmount ?? 0, opts.sortOrder);
+      break;
+    case "reconciliationStatus":
+      cmp = compareStringByOrder(left.reconciliationStatus, right.reconciliationStatus, opts.sortOrder);
+      break;
+  }
+  if (cmp !== 0) return cmp;
+
+  cmp = compareAscNullableIsoDateNullLast(left.paymentDate, right.paymentDate);
+  if (cmp !== 0) return cmp;
+
+  cmp = left.ticker.localeCompare(right.ticker);
+  if (cmp !== 0) return cmp;
+
+  cmp = leftAccountName.localeCompare(rightAccountName);
+  if (cmp !== 0) return cmp;
+
+  return 0;
+}
+
+type DividendReviewReplayEntry =
+  | { kind: "trade"; trade: BookedTradeEvent }
+  | { kind: "action"; action: PositionAction };
+
+function compareDividendReviewReplayEntries(left: DividendReviewReplayEntry, right: DividendReviewReplayEntry): number {
+  const leftDate = left.kind === "trade" ? left.trade.tradeDate : left.action.actionDate;
+  const rightDate = right.kind === "trade" ? right.trade.tradeDate : right.action.actionDate;
+  if (leftDate !== rightDate) return leftDate.localeCompare(rightDate);
+
+  const leftTimestamp = left.kind === "trade" ? left.trade.tradeTimestamp ?? null : left.action.actionTimestamp ?? null;
+  const rightTimestamp = right.kind === "trade" ? right.trade.tradeTimestamp ?? null : right.action.actionTimestamp ?? null;
+  if (leftTimestamp && rightTimestamp && leftTimestamp !== rightTimestamp) {
+    return leftTimestamp.localeCompare(rightTimestamp);
+  }
+  if (left.kind !== right.kind && (!leftTimestamp || !rightTimestamp)) {
+    return left.kind === "action" ? -1 : 1;
+  }
+
+  if (left.kind === "trade" && right.kind === "trade") {
+    return (
+      (left.trade.tradeTimestamp ?? "").localeCompare(right.trade.tradeTimestamp ?? "")
+      || (left.trade.bookingSequence ?? 0) - (right.trade.bookingSequence ?? 0)
+      || (left.trade.bookedAt ?? "").localeCompare(right.trade.bookedAt ?? "")
+      || left.trade.id.localeCompare(right.trade.id)
+    );
+  }
+  if (left.kind === "action" && right.kind === "action") {
+    return (
+      (left.action.bookedAt ?? "").localeCompare(right.action.bookedAt ?? "")
+      || left.action.id.localeCompare(right.action.id)
+    );
+  }
+  return left.kind === "action" ? -1 : 1;
+}
+
+function applyDividendReviewPositionActionToLots(currentLots: Lot[], action: PositionAction): Lot[] {
+  if (action.reversalOfPositionActionId || action.supersededAt) {
+    return currentLots;
+  }
+
+  if (action.actionType === "STOCK_DIVIDEND") {
+    const nextSequence =
+      currentLots
+        .filter((lot) => lot.accountId === action.accountId && lot.ticker === action.ticker && lot.openedAt === action.actionDate)
+        .reduce((max, lot) => Math.max(max, lot.openedSequence ?? 0), 0) + 1;
+    return [
+      ...currentLots,
+      {
+        id: `review-pa-${action.id}`,
+        accountId: action.accountId,
+        ticker: action.ticker,
+        openQuantity: action.quantity,
+        totalCostAmount: 0,
+        costCurrency: currencyFor(action.marketCode),
+        openedAt: action.actionDate,
+        openedSequence: nextSequence,
+      },
+    ];
+  }
+
+  const numerator = action.ratioNumerator ?? 1;
+  const denominator = action.ratioDenominator ?? 1;
+  if (numerator <= 0 || denominator <= 0) {
+    return currentLots;
+  }
+
+  const splitRatio = numerator / denominator;
+  return currentLots.map((lot) => {
+    if (lot.accountId !== action.accountId || lot.ticker !== action.ticker || lot.openQuantity <= 0) {
+      return lot;
+    }
+    const adjustedQuantity = lot.openQuantity * splitRatio;
+    const retainedQuantity = Math.floor(adjustedQuantity);
+    const hasFractionalQuantity = adjustedQuantity !== retainedQuantity;
+    if (hasFractionalQuantity && (action.cashInLieuAmount ?? 0) <= 0) {
+      throw new Error(`Position action ${action.id} creates fractional shares without cash-in-lieu`);
+    }
+    return {
+      ...lot,
+      openQuantity: hasFractionalQuantity ? retainedQuantity : adjustedQuantity,
+    };
+  });
+}
+
+function deriveGeneratedDividendReviewEligibleQuantity(
+  store: Store,
+  userId: string,
+  accountId: string,
+  ticker: string,
+  marketCode: MarketCode,
+  exDividendDate: string,
+  reversedTradeIds: ReadonlySet<string>,
+): number {
+  let lots: Lot[] = [];
+  const stream: DividendReviewReplayEntry[] = [
+    ...store.accounting.facts.tradeEvents
+      .filter((trade) =>
+        trade.userId === userId
+        && trade.accountId === accountId
+        && trade.ticker === ticker
+        && trade.marketCode === marketCode
+        && trade.tradeDate < exDividendDate
+        && !trade.reversalOfTradeEventId
+        && !reversedTradeIds.has(trade.id))
+      .map((trade) => ({ kind: "trade" as const, trade })),
+    ...store.accounting.facts.positionActions
+      .filter((action) =>
+        action.accountId === accountId
+        && action.ticker === ticker
+        && action.marketCode === marketCode
+        && action.actionDate < exDividendDate)
+      .map((action) => ({ kind: "action" as const, action })),
+  ].sort(compareDividendReviewReplayEntries);
+
+  try {
+    for (const entry of stream) {
+      if (entry.kind === "action") {
+        lots = applyDividendReviewPositionActionToLots(lots, entry.action);
+        continue;
+      }
+
+      if (entry.trade.type === "BUY") {
+        lots = applyBuyToLots(lots, {
+          id: `review-lot-${entry.trade.id}`,
+          accountId: entry.trade.accountId,
+          ticker: entry.trade.ticker,
+          openQuantity: entry.trade.quantity,
+          totalCostAmount: roundToDecimal(entry.trade.unitPrice * entry.trade.quantity, 2)
+            + entry.trade.commissionAmount
+            + entry.trade.taxAmount,
+          costCurrency: entry.trade.priceCurrency,
+          openedAt: entry.trade.tradeDate,
+          openedSequence: entry.trade.bookingSequence ?? 1,
+        }).updatedLots;
+        continue;
+      }
+
+      const openLots = lots.filter((lot) => lot.openQuantity > 0);
+      const result = allocateSellLots(openLots, entry.trade.quantity);
+      lots = lots.map((lot) => result.updatedLots.find((updated) => updated.id === lot.id) ?? lot);
+    }
+  } catch {
+    return 0;
+  }
+
+  return Math.max(
+    0,
+    lots
+      .filter((lot) => lot.accountId === accountId && lot.ticker === ticker && lot.openQuantity > 0)
+      .reduce((sum, lot) => sum + lot.openQuantity, 0),
+  );
 }
 
 function toShareGrantRecord(share: MemoryShare, owner: MemoryUser, grantee: MemoryUser): ShareGrantRecord {

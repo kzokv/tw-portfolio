@@ -494,16 +494,12 @@ function feeProfilesFor(testAccounts: AccountDto[]): FeeProfileDto[] {
 }
 
 describe("TickerHistoryClient", () => {
-  it("renders scoped account names instead of account ids in summary panels", () => {
+  it("does not render the duplicated position summary strip above the tabs", () => {
     vi.mocked(fetchTickerDetailsHydration).mockResolvedValue(details);
     const element = renderTickerHistoryClient();
 
-    const quantityCard = element.querySelector('[data-testid="ticker-history-quantity"]');
-    const totalCostCard = element.querySelector('[data-testid="ticker-history-total-cost"]');
-    expect(quantityCard?.textContent).toContain("Scope Brokerage");
-    expect(quantityCard?.textContent).not.toContain("acc-2");
-    expect(totalCostCard?.textContent).toContain("Scope Brokerage");
-    expect(totalCostCard?.textContent).not.toContain("acc-2");
+    expect(element.querySelector('[data-testid="ticker-stats-bar"]')).toBeNull();
+    expect(element.querySelector('[data-testid="ticker-history-quantity"]')).toBeNull();
   });
 
   it("scopes the repair action copy to ticker data", () => {

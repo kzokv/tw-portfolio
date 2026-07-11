@@ -30,6 +30,7 @@ function buildShellData(capabilities: AppShellData["currentSharedCapabilities"])
     sessionUserRole: "viewer",
     routeCachePolicy: null,
     isSharedContext: true,
+    switcherLoaded: true,
     currentSharedCapabilities: capabilities,
     sharedContextPermissions: deriveSharedContextPermissions(capabilities),
     canUseGlobalQuickActions: false,

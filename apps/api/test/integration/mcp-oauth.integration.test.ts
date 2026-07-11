@@ -36,6 +36,7 @@ const advertisedMcpScopes = [
   "transaction_draft:archive",
   "transaction_draft:delete",
   "transaction:write",
+  "dividend:write",
 ];
 
 function codeChallenge(verifier: string): string {

@@ -4,6 +4,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { AlertTriangle } from "lucide-react";
 import type { LocaleCode, PreviewImpactResponse, TransactionHistoryItemDto } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
+import type { DividendDeletePreviewResponse } from "../../features/portfolio/services/transactionMutationService";
 import { formatCurrencyAmount, formatDateLabel, formatNumber } from "../../lib/utils";
 import { Button } from "../ui/Button";
 
@@ -12,6 +13,7 @@ interface DeleteConfirmationDialogProps {
   onOpenChange: (open: boolean) => void;
   transaction: TransactionHistoryItemDto | null;
   preview: PreviewImpactResponse | null;
+  dividendPreview: DividendDeletePreviewResponse | null;
   isLoading: boolean;
   onConfirm: () => void;
   dict: AppDictionary;
@@ -23,6 +25,7 @@ export function DeleteConfirmationDialog({
   onOpenChange,
   transaction,
   preview,
+  dividendPreview,
   isLoading,
   onConfirm,
   dict,
@@ -35,14 +38,14 @@ export function DeleteConfirmationDialog({
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[70] bg-foreground/80" />
         <Dialog.Content
-          className="!fixed left-1/2 top-1/2 z-[71] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-card p-5 text-card-foreground shadow-xl focus:outline-none sm:p-6"
+          className="!fixed left-1/2 top-1/2 z-[71] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-card p-5 text-card-foreground shadow-xl focus:outline-none sm:p-6"
           data-testid="delete-confirmation-dialog"
         >
           <Dialog.Title className="text-base font-semibold text-foreground">
             {dict.mutations.deleteTitle}
           </Dialog.Title>
 
-          <div className="mt-3 rounded-[18px] border border-slate-200 bg-slate-50/90 p-3" data-testid="delete-trade-summary">
+          <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/90 p-3" data-testid="delete-trade-summary">
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
               {dict.mutations.deleteSummaryLabel}
             </p>
@@ -68,7 +71,7 @@ export function DeleteConfirmationDialog({
 
           {preview?.negativeLots.wouldOccur && (
             <div
-              className="mt-3 rounded-[18px] border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700"
+              className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700"
               data-testid="delete-negative-lots-warning"
             >
               <div className="flex items-start gap-2">
@@ -103,6 +106,30 @@ export function DeleteConfirmationDialog({
             </div>
           )}
 
+          {dividendPreview ? (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900" data-testid="delete-dividend-impact">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                <div>
+                  <p className="font-semibold">{dict.mutations.deleteDividendImpactTitle}</p>
+                  <p className="mt-1">
+                    {dict.mutations.deleteDividendImpactDetail
+                      .replace("{dividendEntries}", String(dividendPreview.affectedCounts.dividendLedgerEntries))
+                      .replace("{cashEntries}", String(dividendPreview.affectedCounts.cashLedgerEntries))}
+                  </p>
+                  {dividendPreview.manualReceiptReentryLedgerEntryIds.length > 0 ? (
+                    <p className="mt-1 font-medium" data-testid="delete-dividend-reentry-warning">
+                      {dict.mutations.deleteDividendReentryWarning.replace(
+                        "{manualReceipts}",
+                        String(dividendPreview.manualReceiptReentryLedgerEntryIds.length),
+                      )}
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           {isLoading && (
             <div className="mt-3 flex items-center gap-2 text-sm text-slate-500">
               <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
@@ -118,7 +145,7 @@ export function DeleteConfirmationDialog({
               <Button
                 type="button"
                 className="border-rose-300 bg-rose-600 text-white shadow-[0_18px_36px_rgba(225,29,72,0.24)] hover:border-rose-400 hover:bg-rose-700"
-                disabled={isLoading}
+                disabled={isLoading || !preview || !dividendPreview}
                 onClick={onConfirm}
                 data-testid="delete-confirm-button"
               >

@@ -4,7 +4,7 @@ import { currencyFor, MARKET_CODES, type MarketCode as SharedMarketCode } from "
 import type { Persistence } from "../persistence/types.js";
 import type { BookedTradeEvent, CashLedgerEntry, DividendEvent, LotAllocationProjection, PositionAction } from "../types/store.js";
 import type { EventBus } from "../events/types.js";
-import { planDividendLedgerRecompute, type DividendLedgerRecomputeChange } from "./dividends.js";
+import { reconcileDividendEntitlementsForScope, type DividendLedgerRecomputeChange } from "./dividends.js";
 import { recomputeSnapshotsForTicker } from "./snapshotGeneration.js";
 
 export interface ReplaySummary {
@@ -195,8 +195,8 @@ export async function replayPositionHistory(
   // Reconciliation is reset (matched/explained → open, note preserved) per
   // Rule B because this path represents a runtime trade mutation.
   const storeAfterReplay = await persistence.loadStore(userId);
-  const dividendChanges = planDividendLedgerRecompute(storeAfterReplay, accountId, ticker, {
-    resetReconciliation: true,
+  const dividendChanges = reconcileDividendEntitlementsForScope(storeAfterReplay, accountId, ticker, {
+    reopenChangedReconciliation: true,
     marketCode: toSharedMarketCode(options.marketCode),
     eligibleQuantityResolver: (dividendEvent, dividendMarketCode) => deriveEligibleQuantityFromReplayStream(
       trades,
@@ -207,9 +207,10 @@ export async function replayPositionHistory(
       dividendEvent,
     ),
   });
-  const appliedChanges = dividendChanges.length > 0
-    ? await persistence.applyDividendLedgerRecompute(userId, dividendChanges)
-    : [];
+  if (dividendChanges.length > 0) {
+    await persistence.saveStore(storeAfterReplay);
+  }
+  const appliedChanges = dividendChanges;
 
   // 8. Build summary
   const openLots = lots.filter((l) => l.openQuantity > 0);

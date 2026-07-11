@@ -227,6 +227,7 @@ type LocalizedCopy = {
   hiddenByPolicy: string;
   bearerScopeLocked: string;
   oauthScopeLocked: string;
+  advancedWriteScope: string;
   requiresScope: string;
   connectorInactive: string;
   disabledByOverride: string;
@@ -412,6 +413,7 @@ const COPY: Record<"en" | "zh-TW", LocalizedCopy> = {
     hiddenByPolicy: "Blocked by admin MCP policy.",
     bearerScopeLocked: "Bearer token grants are fixed. Create a new bearer connector to add this scope.",
     oauthScopeLocked: "OAuth consent is fixed. Reconnect this connector to add this scope.",
+    advancedWriteScope: "Advanced financial write. Keep this scope off unless you want guarded write tools enabled after explicit confirmation.",
     requiresScope: "Requires {scope}.",
     connectorInactive: "Blocked because the connector is {status}.",
     disabledByOverride: "Disabled by connector override.",
@@ -595,6 +597,7 @@ const COPY: Record<"en" | "zh-TW", LocalizedCopy> = {
     hiddenByPolicy: "已被管理員 MCP 策略封鎖。",
     bearerScopeLocked: "Bearer 權杖授權範圍建立後即固定。若要新增此 scope，請建立新的 Bearer 連接器。",
     oauthScopeLocked: "OAuth 同意授權建立後即固定。若要新增此 scope，請重新連線此連接器。",
+    advancedWriteScope: "進階財務寫入。除非你希望在明確確認後啟用受保護的寫入工具，否則請保持關閉。",
     requiresScope: "需要 {scope}。",
     connectorInactive: "因連接器狀態為 {status} 而被封鎖。",
     disabledByOverride: "已被連接器覆寫停用。",
@@ -634,8 +637,12 @@ const GROUPED_SCOPES: Array<{ key: "read" | "accounts" | "drafts" | "posting"; s
   { key: "read", scopes: ["portfolio:mcp_read"] },
   { key: "accounts", scopes: ["account:manage"] },
   { key: "drafts", scopes: ["transaction_draft:create", "transaction_draft:edit", "transaction_draft:archive", "transaction_draft:delete"] },
-  { key: "posting", scopes: ["transaction:write"] },
+  { key: "posting", scopes: ["transaction:write", "dividend:write"] },
 ];
+
+function isAdvancedFinancialWriteScope(scope: AiConnectorScope): boolean {
+  return scope === "transaction:write" || scope === "dividend:write";
+}
 
 const SECTION_ORDER: SectionId[] = ["overview", "connect", "connections", "history", "permissions", "tool-catalog", "activity"];
 const CLIENT_REGISTRY: CompatibleAiClientKind[] = [
@@ -1724,6 +1731,9 @@ export function AiConnectorsSettingsClient() {
                                         />
                                         <span className="min-w-0">
                                           <span className="block text-foreground">{getAiConnectorScopeLabel(locale, scope)}</span>
+                                          {isAdvancedFinancialWriteScope(scope) ? (
+                                            <span className="mt-1 block text-xs text-amber-700">{copy.advancedWriteScope}</span>
+                                          ) : null}
                                           {!scopeAllowed ? <span className="text-xs text-amber-700">{copy.hiddenByPolicy}</span> : null}
                                         </span>
                                       </label>
@@ -2723,6 +2733,9 @@ function PermissionRow({
                     <label key={scope} className="flex items-start justify-between gap-3 rounded-xl bg-background px-3 py-2 text-sm">
                       <span className="min-w-0">
                         <span className="block text-foreground">{getAiConnectorScopeLabel(locale, scope)}</span>
+                        {isAdvancedFinancialWriteScope(scope) ? (
+                          <span className="mt-1 block text-xs text-amber-700">{copy.advancedWriteScope}</span>
+                        ) : null}
                         {disabledByPolicy ? (
                           <span className="mt-1 block text-xs text-amber-700">{copy.hiddenByPolicy}</span>
                         ) : null}

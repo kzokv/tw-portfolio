@@ -24,7 +24,7 @@ function requestContext(): McpRequestContext {
       clientId: "vakwen-dev-client",
       sessionUserId: USER_ID,
       connection: null,
-      scopes: ["portfolio:mcp_read", "transaction:write"],
+      scopes: ["portfolio:mcp_read", "dividend:write"],
       toolToggles: {},
       expiresAt: null,
       authMode: "dev_token",
@@ -57,6 +57,7 @@ async function seedExpectedDividendRow(options: {
   cashDividendPerShare?: number;
   cashDividendCurrency?: DividendEvent["cashDividendCurrency"];
   stockDividendPerShare?: number;
+  stockParValueAmount?: number;
   paymentDate?: string | null;
   materializeLedgerEntry?: boolean;
 } = {}): Promise<string> {
@@ -102,6 +103,15 @@ async function seedExpectedDividendRow(options: {
     cashDividendPerShare: options.cashDividendPerShare ?? 3,
     cashDividendCurrency,
     stockDividendPerShare: options.stockDividendPerShare ?? 0,
+    stockDistributionAmountRaw: options.stockDividendPerShare ?? 0,
+    stockDistributionRatio: (options.stockDividendPerShare ?? 0) > 0
+      ? options.stockDividendPerShare!
+      : null,
+    stockDistributionRatioState: (options.stockDividendPerShare ?? 0) > 0
+      ? "authoritative"
+      : "unresolved",
+    stockParValueAmount: options.stockParValueAmount ?? null,
+    stockParValueCurrency: options.stockParValueAmount === undefined ? null : cashDividendCurrency,
     source: "test_seed",
   };
   store.accounting.facts.tradeEvents.push(trade);
@@ -449,6 +459,7 @@ describe("MCP dividend services", () => {
       eventType: "STOCK",
       cashDividendPerShare: 0,
       stockDividendPerShare: 0.1,
+      stockParValueAmount: 10,
     });
     const receiptInput = { rowId, receivedCashAmount: 0, receivedStockQuantity: 100 };
     const preview = await previewPostDividendReceipt(serviceContext(), receiptInput);
@@ -499,6 +510,7 @@ describe("MCP dividend services", () => {
       eventType: "STOCK",
       cashDividendPerShare: 0,
       stockDividendPerShare: 0.1,
+      stockParValueAmount: 10,
     });
     const posted = await postSeededReceipt(rowId, "mcp-dividend-stock-amend-post");
 
@@ -576,6 +588,7 @@ describe("MCP dividend services", () => {
       eventType: "CASH_AND_STOCK",
       cashDividendPerShare: 2,
       stockDividendPerShare: 0.1,
+      stockParValueAmount: 10,
     });
     const receiptInput = {
       rowId,

@@ -25,9 +25,11 @@ interface BuildAppShellDataValueOptions {
   uiDict: AppDictionary;
   locale: LocaleCode;
   sessionUserId: string | null;
+  contextOwnerId: string | null;
   sessionUserRole?: string | null;
   routeCachePolicy?: RouteCachePolicyDto | null;
   isSharedContext: boolean;
+  switcherLoaded: boolean;
   currentSharedCapabilities: ShareCapability[];
   sharedContextPermissions: SharedContextPermissions;
   canUseGlobalQuickActions: boolean;
@@ -64,9 +66,11 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
     uiDict,
     locale,
     sessionUserId,
+    contextOwnerId,
     sessionUserRole,
     routeCachePolicy,
     isSharedContext,
+    switcherLoaded,
     currentSharedCapabilities,
     sharedContextPermissions,
     canUseGlobalQuickActions,
@@ -98,9 +102,11 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
       uiDict,
       locale,
       sessionUserId,
+      contextOwnerId,
       sessionUserRole,
       routeCachePolicy,
       isSharedContext,
+      switcherLoaded,
       currentSharedCapabilities,
       sharedContextPermissions,
       canUseGlobalQuickActions,
@@ -129,6 +135,7 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
     [
       accounts,
       canUseGlobalQuickActions,
+      contextOwnerId,
       contextRefreshSignal,
       currentSharedCapabilities,
       feeProfileBindings,
@@ -139,6 +146,7 @@ export function useAppShellDataValue(options: BuildAppShellDataValueOptions): Ap
       isGeneratingSnapshots,
       isPortfolioConfigLoading,
       isSharedContext,
+      switcherLoaded,
       locale,
       mutations,
       openQuickActions,

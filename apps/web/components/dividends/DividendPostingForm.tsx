@@ -54,7 +54,6 @@ const SOURCE_BUCKETS = [
 const NHI_RATE = 0.0211;
 const NHI_THRESHOLD_TWD = 20_000;
 const DEFAULT_BANK_FEE_TWD = 10;
-const DEFAULT_PAR_VALUE_TWD = 10;
 
 const NHI_SUBJECT_BUCKETS = new Set<DividendSourceBucket>([
   "DIVIDEND_INCOME",
@@ -69,6 +68,15 @@ function roundTwd(value: number): number {
   return Math.round(value + Number.EPSILON);
 }
 
+function authoritativeStockPremiumBase(row: DividendCalendarRow): number | null {
+  if (row.event.expectedStockQuantity <= 0) return 0;
+  const parValuePerShare = row.event.parValuePerShare;
+  if (parValuePerShare == null || !Number.isFinite(parValuePerShare) || parValuePerShare <= 0) {
+    return null;
+  }
+  return row.event.expectedStockQuantity * parValuePerShare;
+}
+
 function buildDefaultDeductions(row: DividendCalendarRow): DividendDeductionInput[] {
   const defaults: DividendDeductionInput[] = [];
 
@@ -79,30 +87,35 @@ function buildDefaultDeductions(row: DividendCalendarRow): DividendDeductionInpu
     // Taiwan NHI supplemental premium (2.11% of single dividend receipts
     // NT$20,000 and above).
     //
-    // The premium base sums BOTH legs of the distribution:
+    // The premium base sums BOTH legs of the distribution when the stock leg
+    // has an authoritative par value. If that value is unknown, the form
+    // does not guess and leaves NHI unprefilled.
+    //
     //   - Cash leg: expectedCashAmount (eligibleQty × cashDividendPerShare)
-    //   - Stock leg: expectedStockQuantity × NT$10 par value
+    //   - Stock leg: expectedStockQuantity × authoritative par value
     //
     // This correctly handles all three event types:
     //   - CASH:           stock leg = 0, base = expectedCashAmount
-    //   - STOCK:          cash leg = 0, base = stockQty × NT$10
+    //   - STOCK:          cash leg = 0, base = stockQty × par value
     //   - CASH_AND_STOCK: both legs contribute (would otherwise understate)
     //
     // The row is still added when base < threshold (amount = 0) so the user
     // sees the prefill and can adjust manually.
     const cashPortionBase = row.event.expectedCashAmount;
-    const stockPortionBase = row.event.expectedStockQuantity * DEFAULT_PAR_VALUE_TWD;
-    const premiumBase = cashPortionBase + stockPortionBase;
+    const stockPortionBase = authoritativeStockPremiumBase(row);
+    if (stockPortionBase !== null) {
+      const premiumBase = cashPortionBase + stockPortionBase;
 
-    if (premiumBase > 0) {
-      const aboveThreshold = premiumBase >= NHI_THRESHOLD_TWD;
-      defaults.push({
-        deductionType: "NHI_SUPPLEMENTAL_PREMIUM",
-        amount: aboveThreshold ? roundTwd(premiumBase * NHI_RATE) : 0,
-        currencyCode: "TWD",
-        withheldAtSource: true,
-        source: "dividend_posting",
-      });
+      if (premiumBase > 0) {
+        const aboveThreshold = premiumBase >= NHI_THRESHOLD_TWD;
+        defaults.push({
+          deductionType: "NHI_SUPPLEMENTAL_PREMIUM",
+          amount: aboveThreshold ? roundTwd(premiumBase * NHI_RATE) : 0,
+          currencyCode: "TWD",
+          withheldAtSource: true,
+          source: "dividend_posting",
+        });
+      }
     }
   }
 
@@ -161,6 +174,22 @@ function createEmptySourceLine(): DividendSourceLineInput {
 
 function formatTemplate(template: string, values: Record<string, string | number>): string {
   return template.replace(/\{(\w+)\}/g, (_, key) => String(values[key] ?? ""));
+}
+
+function formatRatio(value: number, locale: LocaleCode): string {
+  return new Intl.NumberFormat(locale, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 6,
+  }).format(value);
+}
+
+function sumDeductions(
+  deductions: DividendDeductionInput[],
+  predicate: (deduction: DividendDeductionInput) => boolean,
+): number {
+  return deductions
+    .filter(predicate)
+    .reduce((sum, deduction) => sum + deduction.amount, 0);
 }
 
 export function DividendPostingForm({
@@ -259,6 +288,25 @@ export function DividendPostingForm({
   const grossAmount = receivedCashAmount + deductions
     .filter((entry) => entry.withheldAtSource)
     .reduce((sum, entry) => sum + entry.amount, 0);
+  const expectedGrossAmount = row.ledgerEntry?.expectedGrossAmount ?? row.event.expectedCashAmount;
+  const expectedNhiAmount = row.ledgerEntry?.nhiAmount
+    ?? sumDeductions(deductions, (entry) => entry.deductionType === "NHI_SUPPLEMENTAL_PREMIUM");
+  const expectedBankFeeAmount = row.ledgerEntry?.bankFeeAmount
+    ?? sumDeductions(deductions, (entry) => entry.deductionType === "BANK_FEE");
+  const expectedOtherDeductionAmount = row.ledgerEntry?.otherDeductionAmount
+    ?? sumDeductions(deductions, (entry) => (
+      entry.deductionType !== "NHI_SUPPLEMENTAL_PREMIUM"
+      && entry.deductionType !== "BANK_FEE"
+    ));
+  const expectedNetAmount = row.ledgerEntry?.expectedNetAmount
+    ?? (expectedGrossAmount - expectedNhiAmount - expectedBankFeeAmount - expectedOtherDeductionAmount);
+  const actualNetAmount = row.ledgerEntry?.actualNetAmount
+    ?? (receivedCashAmount - expectedNhiAmount - expectedBankFeeAmount - expectedOtherDeductionAmount);
+  const varianceAmount = row.ledgerEntry?.varianceAmount ?? (actualNetAmount - expectedNetAmount);
+  const stockRatioState = row.ledgerEntry?.stockDistributionRatioState ?? null;
+  const expectedStockCalcState = row.ledgerEntry?.expectedStockCalcState
+    ?? (stockRatioState === "unresolved" ? "needs_action" : "resolved");
+  const stockDistributionRatio = row.ledgerEntry?.stockDistributionRatio ?? null;
   const sourceLineTotal = sourceLines.reduce((sum, entry) => sum + entry.amount, 0);
   const sourceLineVariance = sourceLineTotal - grossAmount;
   const amountsDirty = JSON.stringify({
@@ -272,11 +320,18 @@ export function DividendPostingForm({
     reconcileStatus !== reconcileBaseline.status || reconcileNote !== reconcileBaseline.note;
   const isDirty = amountsDirty || reconcileDirty;
 
-  const canShowCashField = row.event.eventType !== "STOCK";
-  const canShowStockField =
-    row.event.eventType !== "CASH" &&
-    (!isEditMode || row.ledgerEntry?.correctionMode === "amend");
-  const reconcileOnlyMode = isEditMode && row.event.eventType !== "CASH" && !canShowStockField;
+  const showCashField = row.event.eventType !== "STOCK";
+  const showStockField = row.event.eventType !== "CASH";
+  const canEditStockField = showStockField && (!isEditMode || row.ledgerEntry?.correctionMode === "amend");
+  const hasAuthoritativeStockRatio = Boolean(
+    showStockField
+    && stockRatioState === "authoritative"
+    && stockDistributionRatio != null,
+  );
+  const needsStockRatioAction = Boolean(
+    showStockField
+    && (expectedStockCalcState === "needs_action" || !hasAuthoritativeStockRatio),
+  );
   const postingStatus = row.ledgerEntry?.postingStatus;
   const showReconcileSection =
     isEditMode && (postingStatus === "posted" || postingStatus === "adjusted");
@@ -304,8 +359,8 @@ export function DividendPostingForm({
     const payload: DividendPostingPayload = {
       dividendEventId: row.event.id,
       accountId: row.event.accountId,
-      receivedCashAmount: canShowCashField ? receivedCashAmount : 0,
-      receivedStockQuantity: canShowStockField ? receivedStockQuantity : 0,
+      receivedCashAmount: showCashField ? receivedCashAmount : 0,
+      receivedStockQuantity: showStockField ? receivedStockQuantity : 0,
       deductions: deductions
         .filter((entry) => entry.amount > 0)
         .map((entry) => ({
@@ -382,54 +437,180 @@ export function DividendPostingForm({
     </div>
   );
 
+  const expectedSummaryBlock = (
+    <section
+      className="space-y-3 rounded-[22px] border border-slate-200 bg-white/90 p-4"
+      data-testid="dividend-expected-summary"
+    >
+      <h4 className="text-sm font-semibold text-slate-900">{dict.dividends.form.expectedSectionTitle}</h4>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-2xl border border-slate-200/90 bg-slate-50/85 p-3">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{dict.dividends.form.receivedCash}</p>
+          <p className="mt-2 text-base font-semibold text-slate-950">
+            {formatCurrencyAmount(row.event.expectedCashAmount, row.event.cashDividendCurrency, locale)}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {formatTemplate(dict.dividends.form.expectedCashFormula, {
+              quantity: formatNumber(row.event.eligibleQuantity, locale),
+              rate: cashPerShare !== null
+                ? formatCurrencyAmount(cashPerShare, row.event.cashDividendCurrency, locale)
+                : formatCurrencyAmount(0, row.event.cashDividendCurrency, locale),
+              total: formatCurrencyAmount(row.event.expectedCashAmount, row.event.cashDividendCurrency, locale),
+            })}
+          </p>
+        </div>
+        <div className="rounded-2xl border border-slate-200/90 bg-slate-50/85 p-3">
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{dict.dividends.form.receivedStockQty}</p>
+          <p className="mt-2 text-base font-semibold text-slate-950">
+            {showStockField ? formatNumber(row.event.expectedStockQuantity, locale) : "—"}
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            {showStockField
+              ? hasAuthoritativeStockRatio
+                ? formatTemplate(dict.dividends.form.expectedStockFormula, {
+                  quantity: formatNumber(row.event.eligibleQuantity, locale),
+                  ratio: formatRatio(stockDistributionRatio ?? 0, locale),
+                  total: formatNumber(row.event.expectedStockQuantity, locale),
+                })
+                : formatTemplate(dict.dividends.form.expectedStockFormulaUnresolved, {
+                  quantity: formatNumber(row.event.eligibleQuantity, locale),
+                })
+              : "—"}
+          </p>
+          {needsStockRatioAction ? (
+            <p
+              className="mt-2 text-xs font-medium text-amber-700"
+              data-testid="dividend-expected-stock-needs-action"
+              title={dict.dividends.form.unresolvedStockRatio}
+            >
+              {dict.dividends.overview.needsAction}: {dict.dividends.form.unresolvedStockRatio}
+            </p>
+          ) : null}
+        </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <SummaryMetric
+          label={dict.dividends.review.table.expected}
+          value={formatCurrencyAmount(expectedGrossAmount, row.event.cashDividendCurrency, locale)}
+        />
+        <SummaryMetric
+          label={dict.dividends.review.table.nhi}
+          value={formatCurrencyAmount(expectedNhiAmount, row.event.cashDividendCurrency, locale)}
+        />
+        <SummaryMetric
+          label={dict.dividends.review.table.bankFee}
+          value={formatCurrencyAmount(expectedBankFeeAmount, row.event.cashDividendCurrency, locale)}
+        />
+        <SummaryMetric
+          label={dict.dividends.review.table.otherDeduction}
+          value={formatCurrencyAmount(expectedOtherDeductionAmount, row.event.cashDividendCurrency, locale)}
+        />
+        <SummaryMetric
+          label={dict.dividends.form.expectedNetLabel}
+          value={formatCurrencyAmount(expectedNetAmount, row.event.cashDividendCurrency, locale)}
+        />
+      </div>
+      <p className="text-xs text-slate-500" data-testid="dividend-expected-net-formula">
+        {formatTemplate(dict.dividends.form.expectedNetFormula, {
+          gross: formatCurrencyAmount(expectedGrossAmount, row.event.cashDividendCurrency, locale),
+          nhi: formatCurrencyAmount(expectedNhiAmount, row.event.cashDividendCurrency, locale),
+          bankFee: formatCurrencyAmount(expectedBankFeeAmount, row.event.cashDividendCurrency, locale),
+          other: formatCurrencyAmount(expectedOtherDeductionAmount, row.event.cashDividendCurrency, locale),
+          net: formatCurrencyAmount(expectedNetAmount, row.event.cashDividendCurrency, locale),
+        })}
+      </p>
+    </section>
+  );
+
   const amountsFormBlock = (
     <form className="space-y-6" onSubmit={handleSubmit} data-testid="dividend-posting-form">
-      {canShowCashField ? (
-        <label className="block space-y-2">
-          <span className="text-sm font-medium text-slate-800">{dict.dividends.form.receivedCash}</span>
-          <input
-            className={fieldClassName}
-            data-testid="dividend-received-cash"
-            inputMode="numeric"
-            min={0}
-            type="number"
-            value={receivedCashAmount}
-            onChange={(event) => setReceivedCashAmount(Number(event.target.value))}
-          />
-          {cashPerShare !== null ? (
-            <p className="text-xs text-slate-500" data-testid="dividend-received-cash-hint">
-              {formatTemplate(dict.dividends.form.receivedCashHint, {
-                perShare: formatCurrencyAmount(cashPerShare, row.event.cashDividendCurrency, locale),
-                quantity: formatNumber(row.event.eligibleQuantity, locale),
-                total: formatCurrencyAmount(row.event.expectedCashAmount, row.event.cashDividendCurrency, locale),
+      <section
+        className="space-y-4 rounded-[22px] border border-slate-200 bg-white/90 p-4"
+        data-testid="dividend-actual-inputs"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h4 className="text-sm font-semibold text-slate-900">{dict.dividends.form.actualSectionTitle}</h4>
+            <p className="mt-1 text-xs text-slate-500">
+              {dict.dividends.form.varianceLabel}: {formatCurrencyAmount(varianceAmount, row.event.cashDividendCurrency, locale)}
+            </p>
+            <p className="mt-1 text-xs text-slate-500" data-testid="dividend-variance-formula">
+              {formatTemplate(dict.dividends.form.varianceFormula, {
+                actualNet: formatCurrencyAmount(actualNetAmount, row.event.cashDividendCurrency, locale),
+                expectedNet: formatCurrencyAmount(expectedNetAmount, row.event.cashDividendCurrency, locale),
+                variance: formatCurrencyAmount(varianceAmount, row.event.cashDividendCurrency, locale),
               })}
             </p>
+          </div>
+          {!canEditStockField && showStockField ? (
+            <span
+              className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-600"
+              data-testid="dividend-stock-edit-disabled-label"
+            >
+              {dict.dividends.action.stockEditDisabled}
+            </span>
           ) : null}
-        </label>
-      ) : null}
+        </div>
 
-      {canShowStockField ? (
-        <label className="block space-y-2">
-          <span className="text-sm font-medium text-slate-800">{dict.dividends.form.receivedStockQty}</span>
-          <input
-            className={fieldClassName}
-            data-testid="dividend-received-stock"
-            inputMode="numeric"
-            min={0}
-            type="number"
-            value={receivedStockQuantity}
-            onChange={(event) => setReceivedStockQuantity(Number(event.target.value))}
+        <div className="grid gap-3 sm:grid-cols-2">
+          <SummaryMetric
+            label={dict.dividends.form.actualNetLabel}
+            value={formatCurrencyAmount(actualNetAmount, row.event.cashDividendCurrency, locale)}
           />
-          {row.event.expectedStockQuantity > 0 && row.event.eligibleQuantity > 0 ? (
-            <p className="text-xs text-slate-500" data-testid="dividend-received-stock-hint">
-              {formatTemplate(dict.dividends.form.receivedStockHint, {
-                quantity: formatNumber(row.event.eligibleQuantity, locale),
-                total: formatNumber(row.event.expectedStockQuantity, locale),
-              })}
-            </p>
-          ) : null}
-        </label>
-      ) : null}
+          <SummaryMetric
+            label={dict.dividends.form.varianceLabel}
+            value={formatCurrencyAmount(varianceAmount, row.event.cashDividendCurrency, locale)}
+          />
+        </div>
+
+        {showCashField ? (
+          <label className="block space-y-2">
+            <span className="text-sm font-medium text-slate-800">{dict.dividends.form.receivedCash}</span>
+            <input
+              className={fieldClassName}
+              data-testid="dividend-received-cash"
+              inputMode="numeric"
+              min={0}
+              type="number"
+              value={receivedCashAmount}
+              onChange={(event) => setReceivedCashAmount(Number(event.target.value))}
+            />
+            {cashPerShare !== null ? (
+              <p className="text-xs text-slate-500" data-testid="dividend-received-cash-hint">
+                {formatTemplate(dict.dividends.form.receivedCashHint, {
+                  perShare: formatCurrencyAmount(cashPerShare, row.event.cashDividendCurrency, locale),
+                  quantity: formatNumber(row.event.eligibleQuantity, locale),
+                  total: formatCurrencyAmount(row.event.expectedCashAmount, row.event.cashDividendCurrency, locale),
+                })}
+              </p>
+            ) : null}
+          </label>
+        ) : null}
+
+        {showStockField ? (
+          <label className="block space-y-2">
+            <span className="text-sm font-medium text-slate-800">{dict.dividends.form.receivedStockQty}</span>
+            <input
+              className={fieldClassName}
+              data-testid="dividend-received-stock"
+              inputMode="numeric"
+              min={0}
+              type="number"
+              value={receivedStockQuantity}
+              onChange={(event) => setReceivedStockQuantity(Number(event.target.value))}
+              disabled={!canEditStockField}
+            />
+            {row.event.expectedStockQuantity > 0 && row.event.eligibleQuantity > 0 ? (
+              <p className="text-xs text-slate-500" data-testid="dividend-received-stock-hint">
+                {formatTemplate(dict.dividends.form.receivedStockHint, {
+                  quantity: formatNumber(row.event.eligibleQuantity, locale),
+                  total: formatNumber(row.event.expectedStockQuantity, locale),
+                })}
+              </p>
+            ) : null}
+          </label>
+        ) : null}
+      </section>
 
       <section className="space-y-3 rounded-[22px] border border-slate-200 bg-white/90 p-4">
         <div className="flex items-center justify-between gap-3">
@@ -459,6 +640,7 @@ export function DividendPostingForm({
                   <select
                     className={fieldClassName}
                     data-testid={`dividend-deduction-type-${index}`}
+                    aria-label={`${dict.dividends.form.deductions.type} ${index + 1}`}
                     value={deduction.deductionType}
                     onChange={(event) => {
                       const nextType = event.target.value as DividendDeductionType;
@@ -474,6 +656,7 @@ export function DividendPostingForm({
                   <input
                     className={fieldClassName}
                     data-testid={`dividend-deduction-amount-${index}`}
+                    aria-label={`${dict.dividends.form.deductions.amount} ${index + 1}`}
                     inputMode="numeric"
                     min={0}
                     type="number"
@@ -567,6 +750,7 @@ export function DividendPostingForm({
                   <select
                     className={fieldClassName}
                     data-testid={`dividend-source-bucket-${index}`}
+                    aria-label={`${dict.dividends.form.sourceLines.title} ${index + 1}`}
                     value={sourceLine.sourceBucket}
                     onChange={(event) => {
                       const nextBucket = event.target.value as typeof SOURCE_BUCKETS[number];
@@ -582,6 +766,7 @@ export function DividendPostingForm({
                   <input
                     className={fieldClassName}
                     data-testid={`dividend-source-amount-${index}`}
+                    aria-label={`${dict.dividends.form.sourceLines.amount} ${index + 1}`}
                     inputMode="numeric"
                     min={0}
                     type="number"
@@ -701,16 +886,8 @@ export function DividendPostingForm({
   return (
     <div className="space-y-6" data-testid="dividend-posting-form-container">
       {headerBlock}
-      {reconcileOnlyMode ? (
-        <p
-          className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600"
-          data-testid="dividend-stock-edit-disabled-label"
-        >
-          {dict.dividends.action.stockEditDisabled}
-        </p>
-      ) : (
-        amountsFormBlock
-      )}
+      {expectedSummaryBlock}
+      {amountsFormBlock}
       {showReconcileSection ? reconcileSection : null}
       <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-4">
         <Button
@@ -722,6 +899,15 @@ export function DividendPostingForm({
           {dict.dividends.action.cancel}
         </Button>
       </div>
+    </div>
+  );
+}
+
+function SummaryMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-200/90 bg-slate-50/85 p-3">
+      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{label}</p>
+      <p className="mt-2 text-sm font-semibold text-slate-950">{value}</p>
     </div>
   );
 }

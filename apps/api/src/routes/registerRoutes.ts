@@ -92,6 +92,7 @@ import {
 } from "../services/market-data/quoteSnapshotService.js";
 import { enqueueDemandIntradayRefreshes } from "../services/market-data/intradayDemandRefresh.js";
 import { getRegularSessionState, isRegularSessionMarketCode } from "../services/market-data/marketRegularSession.js";
+import { getMarketLocalDate } from "../services/market-data/tradingCalendar.js";
 import {
   listPositionActions,
   listTradeEvents,
@@ -110,6 +111,12 @@ import {
   resolveDividendPostingDate,
 } from "../services/dividends.js";
 import { assertDividendUpdateReplayCanApply, assertPositionReplayCanApply } from "../services/dividendReplayPreflight.js";
+import {
+  confirmAccountCutoffPurge,
+  confirmTradeDividendDeletion,
+  previewAccountCutoffPurge,
+  previewTradeDividendDeletion,
+} from "../services/dividendDestructivePreview.js";
 import { applyCorporateAction, createPositionAction, createTransaction, listHoldings, previewPositionAction } from "../services/portfolio.js";
 import {
   archiveTransactionDraftBatch,
@@ -129,7 +136,7 @@ import {
 } from "../services/mcpConnectorLifecycle.js";
 import { confirmRecompute, previewRecompute } from "../services/recompute.js";
 import { replayPositionHistory, scheduleReplayWithRetry } from "../services/replayPositionHistory.js";
-import { generateHoldingSnapshots } from "../services/snapshotGeneration.js";
+import { generateHoldingSnapshots, recomputeSnapshotsForTicker } from "../services/snapshotGeneration.js";
 import { generateCurrencyWalletSnapshots } from "../services/currencyWalletSnapshotGeneration.js";
 import { ReadPathTiming } from "../services/readPathTiming.js";
 import { bookedChargeFieldSchema } from "../validation/bookedCharge.js";
@@ -213,7 +220,14 @@ import {
 } from "../lib/tickerPriceRefreshCloseRateLimit.js";
 import { registerProviderErrorTrailPurge } from "../lib/providerErrorTrailPurge.js";
 import { buildPublicShareView } from "../services/publicShareView.js";
-import { buildTickerDetails } from "../services/tickerDetails.js";
+import {
+  buildHoldingActivityDividends,
+  buildTickerDetails,
+  buildTickerDividendOpenReconciliationPage,
+  buildTickerDividendPostedHistoryPage,
+  buildTickerDividendUpcomingPage,
+  resolveTickerReadScope,
+} from "../services/tickerDetails.js";
 import type { AccountDto, AnonymousShareTokenDto, AnonymousShareTokenStatus } from "@vakwen/shared-types";
 import type { DailyBar, InstrumentType, MarketCode } from "@vakwen/domain";
 
@@ -255,6 +269,7 @@ const aiConnectorScopeValues = [
   "transaction_draft:archive",
   "transaction_draft:delete",
   "transaction:write",
+  "dividend:write",
 ] as const satisfies readonly AiConnectorScope[];
 const shareCapabilityValues = [
   ...aiConnectorScopeValues,
@@ -289,6 +304,48 @@ function normalizeAccountIdsQueryValue(value: unknown): string[] | undefined {
     .map((item) => item.trim())
     .filter(Boolean);
   return accountIds.length > 0 ? accountIds : undefined;
+}
+
+function buildScopedDividendReadStore(
+  store: Store,
+  userId: string,
+  accountId?: string,
+): Store {
+  const scopedStore = createStore();
+  scopedStore.userId = userId;
+  scopedStore.settings.userId = userId;
+  scopedStore.accounts = store.accounts.filter((account) => !accountId || account.id === accountId);
+  const allowedAccountIds = new Set(scopedStore.accounts.map((account) => account.id));
+  scopedStore.marketData.dividendEvents = store.marketData.dividendEvents;
+  scopedStore.accounting.facts.tradeEvents = store.accounting.facts.tradeEvents.filter((trade) => allowedAccountIds.has(trade.accountId));
+  scopedStore.accounting.facts.cashLedgerEntries = store.accounting.facts.cashLedgerEntries.filter((entry) => allowedAccountIds.has(entry.accountId));
+  scopedStore.accounting.facts.dividendLedgerEntries = store.accounting.facts.dividendLedgerEntries.filter(
+    (entry) => allowedAccountIds.has(entry.accountId),
+  );
+  const allowedLedgerIds = new Set(scopedStore.accounting.facts.dividendLedgerEntries.map((entry) => entry.id));
+  scopedStore.accounting.facts.dividendDeductionEntries = store.accounting.facts.dividendDeductionEntries.filter(
+    (entry) => allowedLedgerIds.has(entry.dividendLedgerEntryId),
+  );
+  scopedStore.accounting.facts.dividendSourceLines = store.accounting.facts.dividendSourceLines.filter(
+    (entry) => allowedLedgerIds.has(entry.dividendLedgerEntryId),
+  );
+  setStoreInstruments(scopedStore, store.instruments);
+  return scopedStore;
+}
+
+function sortDividendDailyHighlightItems<T extends {
+  applicableLocalDate: string;
+  marketCode: SharedMarketCode;
+  accountId: string;
+  ticker: string;
+  id: string;
+}>(items: readonly T[]): T[] {
+  return [...items].sort((left, right) =>
+    left.applicableLocalDate.localeCompare(right.applicableLocalDate)
+    || left.marketCode.localeCompare(right.marketCode)
+    || left.accountId.localeCompare(right.accountId)
+    || left.ticker.localeCompare(right.ticker)
+    || left.id.localeCompare(right.id));
 }
 
 // KZO-169: closed-set MarketCode chip ("ALL" not allowed at the route layer —
@@ -489,6 +546,67 @@ const dividendLedgerQuerySchema = z.object({
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
 
+const dividendReviewQuerySchema = z.object({
+  fromPaymentDate: isoDateSchema.optional(),
+  toPaymentDate: isoDateSchema.optional(),
+  accountId: userScopedIdSchema.optional(),
+  reconciliationStatus: z.enum(["open", "matched", "explained", "resolved"]).optional(),
+  postingStatus: z.enum(["expected", "posted", "adjusted"]).optional(),
+  excludeExpected: z.enum(["true", "false"]).transform((value) => value === "true").optional(),
+  ticker: tickerSchema.optional(),
+  marketCode: marketCodeSchema.optional(),
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().refine((value) => value === 10 || value === 25 || value === 50, {
+    message: "limit must be one of 10, 25, or 50",
+  }).default(10),
+  sortBy: z.enum([
+    "paymentDate",
+    "ticker",
+    "account",
+    "expectedCashAmount",
+    "expectedGrossAmount",
+    "expectedNetAmount",
+    "nhiAmount",
+    "bankFeeAmount",
+    "otherDeductionAmount",
+    "receivedCashAmount",
+    "actualNetAmount",
+    "varianceAmount",
+    "reconciliationStatus",
+  ]).default("paymentDate"),
+  sortOrder: z.enum(["asc", "desc"]).default("desc"),
+});
+
+const pagedDividendLimitSchema = z.coerce.number().int().refine((value) => value === 10 || value === 25 || value === 50, {
+  message: "limit must be one of 10, 25, or 50",
+});
+
+const holdingActivityDividendsQuerySchema = z.object({
+  accountId: userScopedIdSchema.optional(),
+  accountIds: z.preprocess(normalizeAccountIdsQueryValue, z.array(userScopedIdSchema).max(50).optional()),
+  marketCode: marketCodeSchema.optional(),
+  positionActionsPage: z.coerce.number().int().positive().default(1),
+  positionActionsLimit: pagedDividendLimitSchema.default(10),
+  upcomingPage: z.coerce.number().int().positive().default(1),
+  upcomingLimit: pagedDividendLimitSchema.default(10),
+  postedPage: z.coerce.number().int().positive().default(1),
+  postedLimit: pagedDividendLimitSchema.default(10),
+});
+
+const tickerDividendListQuerySchema = z.object({
+  accountId: userScopedIdSchema.optional(),
+  accountIds: z.preprocess(normalizeAccountIdsQueryValue, z.array(userScopedIdSchema).max(50).optional()),
+  marketCode: marketCodeSchema.optional(),
+  page: z.coerce.number().int().positive().default(1),
+  limit: pagedDividendLimitSchema.default(10),
+});
+
+const dividendDailyHighlightsQuerySchema = z.object({
+  accountId: userScopedIdSchema.optional(),
+  marketCode: marketCodeSchema.optional(),
+  at: isoDateTimeSchema.optional(),
+});
+
 const dividendReconciliationSchema = z.object({
   status: z.enum(["open", "matched", "explained", "resolved"]),
   note: z.string().trim().max(500).optional(),
@@ -655,7 +773,11 @@ const WRITER_ROLE_ROUTE_KEYS = new Set([
   "POST /portfolio/transactions",
   "DELETE /portfolio/transactions/:tradeEventId",
   "PATCH /portfolio/transactions/:tradeEventId",
+  "POST /portfolio/transactions/:tradeEventId/dividend-delete-preview",
+  "POST /portfolio/transactions/:tradeEventId/dividend-delete-confirm",
   "POST /portfolio/dividends/postings",
+  "POST /portfolio/accounts/:accountId/purge-rebuild-preview",
+  "POST /portfolio/accounts/:accountId/purge-rebuild-confirm",
   "PATCH /portfolio/dividends/postings/:dividendLedgerEntryId/reconciliation",
   "POST /corporate-actions",
   "POST /portfolio/snapshots/generate",
@@ -722,7 +844,11 @@ const SHARED_CONTEXT_WRITE_ROUTE_KEYS = new Set([
   "POST /portfolio/transactions",
   "DELETE /portfolio/transactions/:tradeEventId",
   "PATCH /portfolio/transactions/:tradeEventId",
+  "POST /portfolio/transactions/:tradeEventId/dividend-delete-preview",
+  "POST /portfolio/transactions/:tradeEventId/dividend-delete-confirm",
   "POST /portfolio/dividends/postings",
+  "POST /portfolio/accounts/:accountId/purge-rebuild-preview",
+  "POST /portfolio/accounts/:accountId/purge-rebuild-confirm",
   "PATCH /portfolio/dividends/postings/:dividendLedgerEntryId/reconciliation",
   "POST /corporate-actions",
   "POST /share-tokens",
@@ -761,6 +887,12 @@ const SHARED_CONTEXT_WRITE_CAPABILITY_MATRIX: Readonly<Record<string, ShareCapab
   "POST /portfolio/transactions": "transaction:write",
   "DELETE /portfolio/transactions/:tradeEventId": "transaction:write",
   "PATCH /portfolio/transactions/:tradeEventId": "transaction:write",
+  "POST /portfolio/transactions/:tradeEventId/dividend-delete-preview": "transaction:write",
+  "POST /portfolio/transactions/:tradeEventId/dividend-delete-confirm": "transaction:write",
+  "POST /portfolio/dividends/postings": "dividend:write",
+  "POST /portfolio/accounts/:accountId/purge-rebuild-preview": "transaction:write",
+  "POST /portfolio/accounts/:accountId/purge-rebuild-confirm": "transaction:write",
+  "PATCH /portfolio/dividends/postings/:dividendLedgerEntryId/reconciliation": "dividend:write",
   "POST /ai/transactions/confirm": "transaction:write",
   "POST /ai/transaction-drafts/:batchId/confirm": "transaction:write",
   "PATCH /ai/transaction-drafts/:batchId/rows/:rowId": "transaction_draft:edit",
@@ -775,6 +907,25 @@ const SHARED_CONTEXT_WRITE_CAPABILITY_MATRIX: Readonly<Record<string, ShareCapab
   "DELETE /shares/pending/:code": "sharing:manage",
   "DELETE /shares/:id": "sharing:manage",
 };
+
+function requireDelegatedDividendWriteForHistoryRewrite(
+  sharedContext: Awaited<ReturnType<typeof resolveActiveSharedCapabilityContext>>,
+  routeKey: string,
+): void {
+  if (!sharedContext || sharedContext.shareCapabilities.includes("dividend:write")) return;
+  throw routeError(
+    403,
+    "shared_capability_required",
+    "Shared portfolio capability dividend:write is required when a history rewrite can purge dividends.",
+    {
+      routeKey,
+      requiredCapability: "dividend:write",
+      shareId: sharedContext.shareId,
+      sessionUserId: sharedContext.sessionUserId,
+      contextUserId: sharedContext.ownerUserId,
+    },
+  );
+}
 const ADMIN_ROUTE_KEYS = new Set([
   "POST /invites",
   "DELETE /invites/:code",
@@ -5237,47 +5388,229 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     { message: "At least one field must be provided" },
   );
 
+  const destructivePreviewReasonSchema = z.object({
+    reason: z.string().trim().min(1).max(500),
+  });
+  const destructiveConfirmSchema = z.object({
+    previewId: userScopedIdSchema,
+    previewVersion: z.coerce.number().int().positive(),
+    fingerprint: z.string().trim().min(16).max(128),
+  });
+  const deleteTransactionAliasSchema = z.object({
+    previewId: userScopedIdSchema.optional(),
+    previewVersion: z.coerce.number().int().positive().optional(),
+    fingerprint: z.string().trim().min(16).max(128).optional(),
+  });
+
+  function scheduleDestructiveSnapshotRebuild(
+    userId: string,
+    scopes: Array<{ accountId: string; ticker: string; marketCode: string; fromDate: string }>,
+  ): void {
+    if (scopes.length === 0) return;
+    const generationRunId = randomUUID();
+    setImmediate(async () => {
+      try {
+        const results = [];
+        for (const scope of scopes) {
+          results.push(await recomputeSnapshotsForTicker(
+            userId,
+            scope.accountId,
+            scope.ticker,
+            scope.fromDate,
+            app.persistence,
+            scope.marketCode as SharedMarketCode,
+          ));
+        }
+        if (app.boss) {
+          for (const result of results) {
+            for (const { ticker, marketCode } of result.tickersNeedingBackfill) {
+              try {
+                await app.boss.send(
+                  BACKFILL_QUEUE,
+                  {
+                    ticker,
+                    marketCode: marketCode as BackfillJobData["marketCode"],
+                    trigger: "first_trade",
+                    includeBars: true,
+                  } satisfies BackfillJobData,
+                  { singletonKey: getBackfillSingletonKey(ticker, marketCode) },
+                );
+              } catch {
+                // Provisional snapshots remain usable when the backfill queue is unavailable.
+              }
+            }
+          }
+        }
+        await app.eventBus.publishEvent(userId, "snapshots_generated", {
+          status: "ok",
+          totalRows: results.reduce((sum, result) => sum + result.totalRows, 0),
+          provisionalRows: results.reduce((sum, result) => sum + result.provisionalRows, 0),
+          dateRange: null,
+          generationRunId,
+          trigger: "dividend_destructive_replay",
+          scopes: scopes.map(({ accountId, ticker, marketCode }) => ({ accountId, ticker, marketCode })),
+        });
+        try {
+          await generateCurrencyWalletSnapshots(userId, app.persistence);
+        } catch (walletError) {
+          const walletMessage = walletError instanceof Error ? walletError.message : String(walletError);
+          console.error("[dividend-destructive-confirm:wallet] Failed:", walletMessage);
+          try {
+            await app.eventBus.publishEvent(userId, "wallet_generation_failed", { error: walletMessage });
+          } catch { /* best effort */ }
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.error("[dividend-destructive-confirm:snapshots] Failed:", message);
+        try {
+          await app.eventBus.publishEvent(userId, "snapshots_generated", {
+            status: "error",
+            totalRows: 0,
+            provisionalRows: 0,
+            dateRange: null,
+            generationRunId,
+            error: message,
+            trigger: "dividend_destructive_replay",
+            scopes: scopes.map(({ accountId, ticker, marketCode }) => ({ accountId, ticker, marketCode })),
+          });
+        } catch { /* best effort */ }
+      }
+    });
+  }
+
+  app.post("/portfolio/transactions/:tradeEventId/dividend-delete-preview", async (req) => {
+    const { tradeEventId } = z.object({ tradeEventId: userScopedIdSchema }).parse(req.params);
+    const body = destructivePreviewReasonSchema.parse(req.body);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const sharedContext = await resolveActiveSharedCapabilityContext(req);
+    requireDelegatedDividendWriteForHistoryRewrite(
+      sharedContext,
+      "POST /portfolio/transactions/:tradeEventId/dividend-delete-preview",
+    );
+    return previewTradeDividendDeletion(app.persistence, {
+      ownerUserId: userId,
+      actorUserId: sharedContext?.sessionUserId ?? userId,
+      tradeEventId,
+      reason: body.reason,
+      ipAddress: req.ip,
+    });
+  });
+
+  app.post("/portfolio/transactions/:tradeEventId/dividend-delete-confirm", async (req) => {
+    const { tradeEventId } = z.object({ tradeEventId: userScopedIdSchema }).parse(req.params);
+    const body = destructiveConfirmSchema.parse(req.body);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const sharedContext = await resolveActiveSharedCapabilityContext(req);
+    requireDelegatedDividendWriteForHistoryRewrite(
+      sharedContext,
+      "POST /portfolio/transactions/:tradeEventId/dividend-delete-confirm",
+    );
+    const result = await confirmTradeDividendDeletion(app.persistence, {
+      ownerUserId: userId,
+      actorUserId: sharedContext?.sessionUserId ?? userId,
+      previewId: body.previewId,
+      previewVersion: body.previewVersion,
+      fingerprint: body.fingerprint,
+      tradeEventId,
+      ipAddress: req.ip,
+    });
+    scheduleDestructiveSnapshotRebuild(userId, result.operation.replayScopes);
+    await appendDelegatedWriteAudit(app, req, {
+      mutation: "dividend_trade_delete_confirmed",
+      routeKey: "POST /portfolio/transactions/:tradeEventId/dividend-delete-confirm",
+      previewId: body.previewId,
+      accountId: result.preview.accountId,
+      tradeEventId: result.preview.targetTradeEventId,
+    });
+    return result;
+  });
+
   app.delete("/portfolio/transactions/:tradeEventId", async (req, reply) => {
     const { tradeEventId } = z.object({ tradeEventId: userScopedIdSchema }).parse(req.params);
+    const body = deleteTransactionAliasSchema.parse(req.body ?? {});
+    if (!body.previewId || !body.previewVersion || !body.fingerprint) {
+      throw routeError(
+        409,
+        "dividend_destructive_preview_required",
+        "Transaction deletion now requires a dividend delete preview and confirm token.",
+      );
+    }
     const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
-
-    // Verify ownership and get accountId/ticker
-    const trade = await app.persistence.getTradeEvent(userId, tradeEventId);
-    if (!trade) throw routeError(404, "trade_event_not_found", "Trade event not found");
-
-    req.log.info({
-      msg: "trade_event_delete",
+    const sharedContext = await resolveActiveSharedCapabilityContext(req);
+    requireDelegatedDividendWriteForHistoryRewrite(
+      sharedContext,
+      "DELETE /portfolio/transactions/:tradeEventId",
+    );
+    const result = await confirmTradeDividendDeletion(app.persistence, {
+      ownerUserId: userId,
+      actorUserId: sharedContext?.sessionUserId ?? userId,
+      previewId: body.previewId,
+      previewVersion: body.previewVersion,
+      fingerprint: body.fingerprint,
       tradeEventId,
-      accountId: trade.accountId,
-      ticker: trade.ticker,
-      type: trade.type,
-      quantity: trade.quantity,
+      ipAddress: req.ip,
     });
-
-    const result = await app.persistence.deleteTradeEvent(userId, tradeEventId);
+    scheduleDestructiveSnapshotRebuild(userId, result.operation.replayScopes);
     await appendDelegatedWriteAudit(app, req, {
-      mutation: "transaction_deleted",
+      mutation: "dividend_trade_delete_confirmed",
       routeKey: "DELETE /portfolio/transactions/:tradeEventId",
-      tradeEventId,
-      accountId: result.accountId,
-      ticker: result.ticker,
+      previewId: body.previewId,
+      accountId: result.preview.accountId,
+      tradeEventId: result.preview.targetTradeEventId,
     });
+    reply.code(200);
+    return result;
+  });
 
-    // Schedule async recompute — snapshots from the deleted trade's date
-    // onward may change, nothing before that can.
-    scheduleReplayWithRetry(app.persistence, app.eventBus, userId, result.accountId, result.ticker, {
-      snapshotFromDate: trade.tradeDate,
-      marketCode: trade.marketCode,
-      deletedTradeEventIds: [trade.id],
+  app.post("/portfolio/accounts/:accountId/purge-rebuild-preview", async (req) => {
+    const { accountId } = z.object({ accountId: userScopedIdSchema }).parse(req.params);
+    const body = z.object({
+      cutoffDate: isoDateSchema,
+      reason: z.string().trim().min(1).max(500),
+    }).parse(req.body);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const sharedContext = await resolveActiveSharedCapabilityContext(req);
+    requireDelegatedDividendWriteForHistoryRewrite(
+      sharedContext,
+      "POST /portfolio/accounts/:accountId/purge-rebuild-preview",
+    );
+    return previewAccountCutoffPurge(app.persistence, {
+      ownerUserId: userId,
+      actorUserId: sharedContext?.sessionUserId ?? userId,
+      accountId,
+      cutoffDate: body.cutoffDate,
+      reason: body.reason,
+      ipAddress: req.ip,
     });
+  });
 
-    reply.code(202);
-    return {
-      accountId: result.accountId,
-      ticker: result.ticker,
-      deletedTradeEventId: tradeEventId,
-      deletedChildRows: result.deletedChildRows,
-    };
+  app.post("/portfolio/accounts/:accountId/purge-rebuild-confirm", async (req) => {
+    const { accountId } = z.object({ accountId: userScopedIdSchema }).parse(req.params);
+    const body = destructiveConfirmSchema.parse(req.body);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const sharedContext = await resolveActiveSharedCapabilityContext(req);
+    requireDelegatedDividendWriteForHistoryRewrite(
+      sharedContext,
+      "POST /portfolio/accounts/:accountId/purge-rebuild-confirm",
+    );
+    const result = await confirmAccountCutoffPurge(app.persistence, {
+      ownerUserId: userId,
+      actorUserId: sharedContext?.sessionUserId ?? userId,
+      previewId: body.previewId,
+      previewVersion: body.previewVersion,
+      fingerprint: body.fingerprint,
+      accountId,
+      ipAddress: req.ip,
+    });
+    scheduleDestructiveSnapshotRebuild(userId, result.operation.replayScopes);
+    await appendDelegatedWriteAudit(app, req, {
+      mutation: "dividend_cutoff_purge_confirmed",
+      routeKey: "POST /portfolio/accounts/:accountId/purge-rebuild-confirm",
+      previewId: body.previewId,
+      accountId: result.preview.accountId,
+      cutoffDate: result.preview.cutoffDate,
+    });
+    return result;
   });
 
   app.patch("/portfolio/transactions/:tradeEventId", async (req, reply) => {
@@ -5798,6 +6131,104 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return listHoldings(store, userId);
   });
 
+  app.get("/portfolio/holdings/:ticker/activity-dividends", async (req) => {
+    const params = z.object({ ticker: tickerSchema }).parse(req.params);
+    const query = holdingActivityDividendsQuerySchema.parse(req.query);
+    const { store, userId } = await loadUserStore(app, req);
+    const scope = await resolveTickerReadScope({
+      persistence: app.persistence,
+      store,
+      userId,
+      ticker: params.ticker,
+      accountId: query.accountId,
+      accountIds: query.accountIds,
+      marketCode: query.marketCode,
+    });
+    return buildHoldingActivityDividends(store, {
+      ticker: scope.normalizedTicker,
+      marketCode: scope.resolvedMarketCode,
+      scopedAccountIds: scope.scopedAccountIds,
+      positionActionsPage: query.positionActionsPage,
+      positionActionsLimit: query.positionActionsLimit,
+      upcomingPage: query.upcomingPage,
+      upcomingLimit: query.upcomingLimit,
+      postedPage: query.postedPage,
+      postedLimit: query.postedLimit,
+    });
+  });
+
+  app.get("/tickers/:ticker/dividends/upcoming", async (req) => {
+    const params = z.object({ ticker: tickerSchema }).parse(req.params);
+    const query = tickerDividendListQuerySchema.parse(req.query);
+    const { store, userId } = await loadUserStore(app, req);
+    const scope = await resolveTickerReadScope({
+      persistence: app.persistence,
+      store,
+      userId,
+      ticker: params.ticker,
+      accountId: query.accountId,
+      accountIds: query.accountIds,
+      marketCode: query.marketCode,
+    });
+    return {
+      upcomingDividends: buildTickerDividendUpcomingPage(
+        store,
+        scope.normalizedTicker,
+        scope.resolvedMarketCode,
+        scope.scopedAccountIds,
+        { page: query.page, limit: query.limit },
+      ),
+    };
+  });
+
+  app.get("/tickers/:ticker/dividends/open-reconciliation", async (req) => {
+    const params = z.object({ ticker: tickerSchema }).parse(req.params);
+    const query = tickerDividendListQuerySchema.parse(req.query);
+    const { store, userId } = await loadUserStore(app, req);
+    const scope = await resolveTickerReadScope({
+      persistence: app.persistence,
+      store,
+      userId,
+      ticker: params.ticker,
+      accountId: query.accountId,
+      accountIds: query.accountIds,
+      marketCode: query.marketCode,
+    });
+    return {
+      openReconciliation: buildTickerDividendOpenReconciliationPage(
+        store,
+        scope.normalizedTicker,
+        scope.resolvedMarketCode,
+        scope.scopedAccountIds,
+        { page: query.page, limit: query.limit },
+      ),
+    };
+  });
+
+  app.get("/tickers/:ticker/dividends/posted-history", async (req) => {
+    const params = z.object({ ticker: tickerSchema }).parse(req.params);
+    const query = tickerDividendListQuerySchema.parse(req.query);
+    const { store, userId } = await loadUserStore(app, req);
+    const scope = await resolveTickerReadScope({
+      persistence: app.persistence,
+      store,
+      userId,
+      ticker: params.ticker,
+      accountId: query.accountId,
+      accountIds: query.accountIds,
+      marketCode: query.marketCode,
+    });
+    return {
+      postedHistory: buildTickerDividendPostedHistoryPage(
+        store,
+        scope.normalizedTicker,
+        scope.resolvedMarketCode,
+        scope.scopedAccountIds,
+        { page: query.page, limit: query.limit },
+      ),
+    };
+  });
+
   app.get("/tickers/:ticker/primary", async (req): Promise<TickerPrimaryDto> => {
     const params = z.object({ ticker: tickerSchema }).parse(req.params);
     const query = tickerChartQuerySchema.parse(req.query);
@@ -6305,8 +6736,49 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     };
   });
 
+  app.get("/portfolio/dividends/daily-highlights", async (req) => {
+    const query = dividendDailyHighlightsQuerySchema.parse(req.query);
+    const { userId, store } = await loadUserStore(app, req);
+    const now = query.at ? new Date(query.at) : new Date();
+    const scopedStore = buildScopedDividendReadStore(store, userId, query.accountId);
+    const localDateByEventId = new Map<string, string>();
+
+    const matchesDailyHighlight = (
+      event: Store["marketData"]["dividendEvents"][number],
+      dateField: "paymentDate" | "exDividendDate",
+    ): boolean => {
+      const marketCode = resolveDividendEventMarketCode(event);
+      if (query.marketCode && marketCode !== query.marketCode) return false;
+      const localDate = getMarketLocalDate(marketCode, now);
+      localDateByEventId.set(event.id, localDate);
+      const eventDate = dateField === "paymentDate" ? event.paymentDate : event.exDividendDate;
+      return eventDate === localDate;
+    };
+
+    const payingToday = sortDividendDailyHighlightItems(
+      buildDividendEventListItems(
+        scopedStore,
+        scopedStore.marketData.dividendEvents.filter((event) => matchesDailyHighlight(event, "paymentDate")),
+      ).map((item) => ({
+        ...item,
+        applicableLocalDate: localDateByEventId.get(item.id) ?? item.paymentDate ?? "",
+      })),
+    );
+    const exDividendToday = sortDividendDailyHighlightItems(
+      buildDividendEventListItems(
+        scopedStore,
+        scopedStore.marketData.dividendEvents.filter((event) => matchesDailyHighlight(event, "exDividendDate")),
+      ).map((item) => ({
+        ...item,
+        applicableLocalDate: localDateByEventId.get(item.id) ?? item.exDividendDate,
+      })),
+    );
+
+    return { payingToday, exDividendToday };
+  });
+
   app.get("/portfolio/dividends/review", async (req) => {
-    const query = dividendLedgerQuerySchema.parse(req.query);
+    const query = dividendReviewQuerySchema.parse(req.query);
     const { userId, store } = await loadUserStore(app, req);
     const result = await app.persistence.listDividendReviewRows(userId, {
       accountId: query.accountId,

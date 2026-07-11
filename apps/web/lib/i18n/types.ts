@@ -326,6 +326,7 @@ export interface AppDictionary {
       "transaction_draft:archive": string;
       "transaction_draft:delete": string;
       "transaction:write": string;
+      "dividend:write": string;
     };
     editPermissionsDialog: {
       title: string;
@@ -971,6 +972,7 @@ export interface AppDictionary {
     repairDisabledDemo: string;
     repairDialogTitle: string;
     noHoldingData: string;
+    noWritePermission: string;
     positionSummaryReadyMessage: string;
     refreshingDetails: string;
     primaryReady: string;
@@ -1383,6 +1385,15 @@ export interface AppDictionary {
       noActionItems: string;
       noReceipts: string;
       monthInputLabel: string;
+      payingToday: string;
+      payingTodayDescription: string;
+      exDividendToday: string;
+      exDividendTodayDescription: string;
+      marketLabel: string;
+      dateLabel: string;
+      noPayingToday: string;
+      noExDividendToday: string;
+      viewAllNeedsAction: string;
     };
     ticker: {
       eyebrow: string;
@@ -1450,6 +1461,17 @@ export interface AppDictionary {
       premiumBase: string;
       note: string;
       unsavedChangesConfirm: string;
+      expectedSectionTitle: string;
+      actualSectionTitle: string;
+      expectedCashFormula: string;
+      expectedStockFormula: string;
+      expectedStockFormulaUnresolved: string;
+      unresolvedStockRatio: string;
+      expectedNetLabel: string;
+      actualNetLabel: string;
+      varianceLabel: string;
+      expectedNetFormula: string;
+      varianceFormula: string;
       nhi: {
         title: string;
         premiumBase: string;
@@ -1576,6 +1598,11 @@ export interface AppDictionary {
         account: string;
         expected: string;
         received: string;
+        nhi: string;
+        bankFee: string;
+        otherDeduction: string;
+        expectedNet: string;
+        actualNet: string;
         stockReceived: string;
         cashInLieu: string;
         variance: string;
@@ -1610,8 +1637,13 @@ export interface AppDictionary {
         page: string;
         of: string;
         totalSuffix: string;
+        pageSize: string;
         previous: string;
         next: string;
+        sortBy: string;
+        direction: string;
+        ascending: string;
+        descending: string;
       };
       nhiRollup: {
         title: string;
@@ -2002,6 +2034,9 @@ export interface AppDictionary {
     deleteImpactLabel: string;
     deleteImpactDetail: string;
     deleteSnapshotImpact: string;
+    deleteDividendImpactTitle: string;
+    deleteDividendImpactDetail: string;
+    deleteDividendReentryWarning: string;
     editSnapshotImpact: string;
     deleteNegativeLotsWarning: string;
     deleteSuccessMessage: string;

@@ -129,6 +129,8 @@ export interface SnapshotsGeneratedEvent {
   dateRange: { from: string; to: string } | null;
   generationRunId: string;
   error?: string;
+  trigger?: "dividend_destructive_replay";
+  scopes?: Array<{ accountId: string; ticker: string; marketCode: string }>;
 }
 
 /**

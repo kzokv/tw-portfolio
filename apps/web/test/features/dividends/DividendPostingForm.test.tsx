@@ -48,6 +48,16 @@ function buildLedger(overrides?: Partial<DividendLedgerEntryDetails>): DividendL
     expectedStockQuantity: overrides?.expectedStockQuantity ?? 0,
     receivedStockQuantity: overrides?.receivedStockQuantity ?? 0,
     eligibleQuantity: overrides?.eligibleQuantity ?? 1_000,
+    expectedGrossAmount: overrides?.expectedGrossAmount ?? null,
+    expectedNetAmount: overrides?.expectedNetAmount ?? null,
+    actualNetAmount: overrides?.actualNetAmount ?? null,
+    varianceAmount: overrides?.varianceAmount ?? null,
+    nhiAmount: overrides?.nhiAmount ?? null,
+    bankFeeAmount: overrides?.bankFeeAmount ?? null,
+    otherDeductionAmount: overrides?.otherDeductionAmount ?? null,
+    stockDistributionRatio: overrides?.stockDistributionRatio ?? null,
+    stockDistributionRatioState: overrides?.stockDistributionRatioState ?? null,
+    expectedStockCalcState: overrides?.expectedStockCalcState ?? null,
     sourceLines: overrides?.sourceLines ?? [],
     deductions: overrides?.deductions ?? [],
   };
@@ -241,6 +251,7 @@ describe("DividendPostingForm", () => {
         cashDividendCurrency: "TWD",
         expectedCashAmount: 30_000,
         eligibleQuantity: 1_000,
+        parValuePerShare: 10,
       },
     });
 
@@ -278,6 +289,7 @@ describe("DividendPostingForm", () => {
         eventType: "CASH",
         cashDividendCurrency: "TWD",
         expectedCashAmount: 6_000,
+        parValuePerShare: 10,
       },
     });
 
@@ -343,6 +355,170 @@ describe("DividendPostingForm", () => {
     expect(amountInputs[1]!.value).toBe("10");
   });
 
+  it("uses the authoritative par value for stock-leg NHI defaults", () => {
+    const row = buildRow({
+      event: {
+        instrumentType: "STOCK",
+        eventType: "CASH_AND_STOCK",
+        cashDividendCurrency: "TWD",
+        expectedCashAmount: 19_500,
+        expectedStockQuantity: 100,
+        parValuePerShare: 20,
+      },
+    });
+
+    act(() => {
+      root.render(
+        <DividendPostingForm
+          row={row}
+          dict={dict}
+          locale="en"
+          onCancel={() => undefined}
+          onSaved={() => undefined}
+        />,
+      );
+    });
+
+    const typeSelects = Array.from(
+      document.querySelectorAll<HTMLSelectElement>("[data-testid^='dividend-deduction-type-']"),
+    );
+    const amountInputs = Array.from(
+      document.querySelectorAll<HTMLInputElement>("[data-testid^='dividend-deduction-amount-']"),
+    );
+
+    expect(typeSelects[0]!.value).toBe("NHI_SUPPLEMENTAL_PREMIUM");
+    expect(amountInputs[0]!.value).toBe("454");
+  });
+
+  it("does not guess stock NHI base when the authoritative par value is unknown", () => {
+    const row = buildRow({
+      event: {
+        instrumentType: "STOCK",
+        eventType: "CASH_AND_STOCK",
+        cashDividendCurrency: "TWD",
+        expectedCashAmount: 19_500,
+        expectedStockQuantity: 100,
+        parValuePerShare: null,
+      },
+    });
+
+    act(() => {
+      root.render(
+        <DividendPostingForm
+          row={row}
+          dict={dict}
+          locale="en"
+          onCancel={() => undefined}
+          onSaved={() => undefined}
+        />,
+      );
+    });
+
+    const typeSelects = Array.from(
+      document.querySelectorAll<HTMLSelectElement>("[data-testid^='dividend-deduction-type-']"),
+    );
+
+    expect(typeSelects).toHaveLength(1);
+    expect(typeSelects[0]!.value).toBe("BANK_FEE");
+  });
+
+  it("shows expected cash and stock math before editable actual fields for unresolved stock-ratio rows", () => {
+    const row = buildRow({
+      event: {
+        eventType: "CASH_AND_STOCK",
+        expectedCashAmount: 3_000,
+        expectedStockQuantity: 0,
+        eligibleQuantity: 1_000,
+      },
+      ledgerEntry: buildLedger({
+        eventType: "CASH_AND_STOCK",
+        expectedCashAmount: 3_000,
+        expectedStockQuantity: 0,
+        receivedCashAmount: 2_927,
+        receivedStockQuantity: 0,
+        expectedNetAmount: 2_927,
+        actualNetAmount: 2_927,
+        varianceAmount: 0,
+        nhiAmount: 63,
+        bankFeeAmount: 10,
+        otherDeductionAmount: 0,
+        stockDistributionRatioState: "unresolved",
+      }),
+    });
+
+    act(() => {
+      root.render(
+        <DividendPostingForm
+          row={row}
+          dict={dict}
+          locale="en"
+          onCancel={() => undefined}
+          onSaved={() => undefined}
+        />,
+      );
+    });
+
+    const expectedSection = document.querySelector("[data-testid='dividend-expected-summary']");
+    const actualSection = document.querySelector("[data-testid='dividend-actual-inputs']");
+    expect(expectedSection).not.toBeNull();
+    expect(actualSection).not.toBeNull();
+    expect(container.textContent).toContain("Expected net");
+    expect(container.textContent).toContain("Actual net");
+    expect(container.textContent).toContain("Variance");
+    expect(container.textContent).toContain("Needs Action: unresolved");
+    expect(container.textContent).toContain("NT$3,000 - NT$63 - NT$10 - NT$0 = NT$2,927");
+    expect(container.textContent).toContain("NT$2,927 - NT$2,927 = NT$0");
+
+    expect(expectedSection?.compareDocumentPosition(actualSection!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it("shows authoritative stock math while keeping expected values read-only when actual stock is zero", () => {
+    const row = buildRow({
+      event: {
+        eventType: "CASH_AND_STOCK",
+        expectedCashAmount: 3_000,
+        expectedStockQuantity: 25,
+        eligibleQuantity: 1_000,
+      },
+      ledgerEntry: buildLedger({
+        eventType: "CASH_AND_STOCK",
+        expectedCashAmount: 3_000,
+        expectedStockQuantity: 25,
+        receivedCashAmount: 2_927,
+        receivedStockQuantity: 0,
+        expectedNetAmount: 2_927,
+        actualNetAmount: 2_927,
+        varianceAmount: 0,
+        nhiAmount: 63,
+        bankFeeAmount: 10,
+        otherDeductionAmount: 0,
+        stockDistributionRatio: 0.025,
+        stockDistributionRatioState: "authoritative",
+        correctionMode: "in_place",
+      }),
+    });
+
+    act(() => {
+      root.render(
+        <DividendPostingForm
+          row={row}
+          dict={dict}
+          locale="en"
+          onCancel={() => undefined}
+          onSaved={() => undefined}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("1,000 shares × 0.025 = 25");
+    expect(container.textContent).not.toContain("Needs Action: unresolved");
+
+    const stockInput = document.querySelector<HTMLInputElement>("[data-testid='dividend-received-stock']");
+    expect(stockInput).not.toBeNull();
+    expect(stockInput?.disabled).toBe(true);
+    expect(stockInput?.value).toBe("0");
+  });
+
   it("prefills NHI for stock-only dividends using par value × received shares", () => {
     // 3,000 shares × NT$10 par = NT$30,000 premium base → NHI = 633
     const row = buildRow({
@@ -353,6 +529,7 @@ describe("DividendPostingForm", () => {
         expectedCashAmount: 0,
         expectedStockQuantity: 3_000,
         eligibleQuantity: 10_000,
+        parValuePerShare: 10,
       },
     });
 
@@ -392,6 +569,7 @@ describe("DividendPostingForm", () => {
         expectedCashAmount: 18_000,
         expectedStockQuantity: 500,
         eligibleQuantity: 3_000,
+        parValuePerShare: 10,
       },
     });
 
@@ -471,7 +649,7 @@ describe("DividendPostingForm", () => {
     expect(hint?.textContent).toMatch(/NT\$6.*1,000 shares/);
   });
 
-  it("hides amounts form and shows reconcile-only label for stock ledger entries", () => {
+  it("shows expected and actual sections with stock editing disabled for non-amend stock ledger entries", () => {
     const row = buildRow({
       event: { eventType: "STOCK", expectedCashAmount: 0, expectedStockQuantity: 50 },
       ledgerEntry: buildLedger({
@@ -495,11 +673,13 @@ describe("DividendPostingForm", () => {
       );
     });
 
-    // Amounts form is NOT rendered in reconcile-only mode.
-    expect(document.querySelector("[data-testid='dividend-posting-form']")).toBeNull();
+    expect(document.querySelector("[data-testid='dividend-posting-form']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='dividend-expected-summary']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='dividend-actual-inputs']")).not.toBeNull();
     expect(document.querySelector("[data-testid='dividend-received-cash']")).toBeNull();
-    expect(document.querySelector("[data-testid='dividend-received-stock']")).toBeNull();
-    // Disabled label and reconcile section are visible.
+    const stockInput = document.querySelector<HTMLInputElement>("[data-testid='dividend-received-stock']");
+    expect(stockInput).not.toBeNull();
+    expect(stockInput?.disabled).toBe(true);
     expect(
       document.querySelector("[data-testid='dividend-stock-edit-disabled-label']")?.textContent,
     ).toContain(dict.dividends.action.stockEditDisabled);

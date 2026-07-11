@@ -2569,6 +2569,11 @@ describePostgres("postgres migrations", () => {
       cashDividendPerShare: 12,
       cashDividendCurrency: "TWD",
       stockDividendPerShare: 0.1,
+      stockDistributionAmountRaw: 0.1,
+      stockDistributionRatio: 0.1,
+      stockDistributionRatioState: "authoritative",
+      stockParValueAmount: 10,
+      stockParValueCurrency: "TWD",
       source: "manual_dividend_event",
       sourceReference: "dividend-event-kzo36",
     });
@@ -4428,6 +4433,303 @@ describePostgres("postgres migrations", () => {
         source_reference: "legacy-dividend-corporate-action",
       },
     ]);
+  });
+
+  it("migration 103 preserves raw stock amounts and retries the legacy repair atomically", async () => {
+    const before103 = await getNumberedMigrationsBefore("103_dividend_stock_ratio_repair_and_preview.sql");
+    await applyMigrationFiles(before103);
+    await seedAppliedMigrationLedger(before103);
+
+    await insertTradeEventWithSnapshot({
+      id: "migration-103-buy",
+      userId: "migration-103-user",
+      accountId: "migration-103-account",
+      ticker: "2330",
+      instrumentType: "STOCK",
+      tradeType: "BUY",
+      quantity: 1_000,
+      unitPrice: 100,
+      tradeDate: "2026-01-01",
+      tradeTimestamp: "2026-01-01T09:00:00.000Z",
+      bookingSequence: 1,
+      commissionAmount: 0,
+      taxAmount: 0,
+    });
+    await pool.query(
+      `INSERT INTO market_data.dividend_events (
+         id, ticker, market_code, event_type, ex_dividend_date, payment_date,
+         cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
+         source, source_reference
+       ) VALUES (
+         'migration-103-stock-event', '2330', 'TW', 'STOCK', DATE '2026-01-10', DATE '2026-01-20',
+         0, 'TWD', 0.5, 'finmind', 'migration-103-stock-event'
+       )`,
+    );
+    await pool.query(
+      `INSERT INTO market_data.dividend_events (
+         id, ticker, market_code, event_type, ex_dividend_date, payment_date,
+         cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
+         source, source_reference
+       ) VALUES (
+         'migration-103-expected-event', '2330', 'TW', 'STOCK', DATE '2026-02-10', DATE '2026-02-20',
+         0, 'TWD', 0.5, 'finmind', 'migration-103-expected-event'
+       )`,
+    );
+    await pool.query(
+      `INSERT INTO dividend_ledger_entries (
+         id, account_id, dividend_event_id, eligible_quantity, expected_cash_amount,
+         expected_stock_quantity, received_stock_quantity, posting_status,
+         reconciliation_status, booked_at
+       ) VALUES (
+         'migration-103-stock-ledger', 'migration-103-account', 'migration-103-stock-event',
+         1000, 0, 500, 500, 'posted', 'open', TIMESTAMP '2026-01-20 09:00:00'
+       )`,
+    );
+    await pool.query(
+      `INSERT INTO dividend_ledger_entries (
+         id, account_id, dividend_event_id, eligible_quantity, expected_cash_amount,
+         expected_stock_quantity, received_stock_quantity, posting_status,
+         reconciliation_status, booked_at
+       ) VALUES (
+         'migration-103-expected-ledger', 'migration-103-account', 'migration-103-expected-event',
+         1000, 0, 500, 0, 'expected', 'open', TIMESTAMP '2026-02-20 09:00:00'
+       )`,
+    );
+    await pool.query(
+      `INSERT INTO dividend_deduction_entries (
+         id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
+         withheld_at_source, source, booked_at
+       ) VALUES (
+         'migration-103-deduction', 'migration-103-stock-ledger', 'OTHER', 1, 'TWD',
+         true, 'legacy', TIMESTAMP '2026-01-20 09:00:00'
+       )`,
+    );
+    await pool.query(
+      `INSERT INTO dividend_source_lines (
+         id, dividend_ledger_entry_id, source_bucket, amount, currency_code, source, booked_at
+       ) VALUES (
+         'migration-103-source-line', 'migration-103-stock-ledger', 'OTHER', 1, 'TWD',
+         'legacy', TIMESTAMP '2026-01-20 09:00:00'
+       )`,
+    );
+    await pool.query(
+      `INSERT INTO cash_ledger_entries (
+         id, user_id, account_id, entry_date, entry_type, amount, currency,
+         related_dividend_ledger_entry_id, source, booked_at
+       ) VALUES (
+         'migration-103-cash', 'migration-103-user', 'migration-103-account', DATE '2026-01-20',
+         'DIVIDEND_DEDUCTION', -1, 'TWD', 'migration-103-stock-ledger', 'legacy',
+         TIMESTAMP '2026-01-20 09:00:00'
+       )`,
+    );
+    await pool.query(
+      `INSERT INTO position_actions (
+         id, account_id, ticker, market_code, action_type, action_date, quantity,
+         related_dividend_ledger_entry_id, source, source_reference
+       ) VALUES (
+         'migration-103-position-action', 'migration-103-account', '2330', 'TW',
+         'STOCK_DIVIDEND', DATE '2026-01-20', 500,
+         'migration-103-stock-ledger', 'legacy', 'migration-103-stock-ledger'
+       )`,
+    );
+    await pool.query(
+      `INSERT INTO lots (
+         id, account_id, ticker, open_quantity, total_cost_amount, opened_at, opened_sequence, cost_currency
+       ) VALUES (
+         'lot-pa-migration-103-position-action', 'migration-103-account', '2330',
+         500, 0, DATE '2026-01-20', 1, 'TWD'
+       )`,
+    );
+    await pool.query(
+      `INSERT INTO daily_holding_snapshots (
+         id, user_id, account_id, ticker, market_code, snapshot_date, quantity,
+         cost_basis, cumulative_realized_pnl, cumulative_dividends, currency, generation_run_id
+       ) VALUES (
+         'migration-103-snapshot', 'migration-103-user', 'migration-103-account', '2330', 'TW',
+         DATE '2026-01-20', 1500, 100000, 0, 0, 'TWD', 'migration-103-run'
+       )`,
+    );
+
+    await pool.query(
+      `CREATE OR REPLACE FUNCTION fail_migration_103_audit() RETURNS trigger AS $$
+       BEGIN
+         IF NEW.action = 'dividend_legacy_stock_purge_migrated' THEN
+           RAISE EXCEPTION 'forced migration 103 audit failure';
+         END IF;
+         RETURN NEW;
+       END;
+       $$ LANGUAGE plpgsql`,
+    );
+    await pool.query(
+      `CREATE TRIGGER fail_migration_103_audit_trigger
+       BEFORE INSERT ON audit_log
+       FOR EACH ROW EXECUTE FUNCTION fail_migration_103_audit()`,
+    );
+
+    persistence = new PostgresPersistence({ databaseUrl: databaseUrl!, redisUrl: redisUrl! });
+    await expect(persistence.init()).rejects.toThrow("forced migration 103 audit failure");
+
+    const migratedEvent = await pool.query<{
+      stock_distribution_amount_raw: string;
+      stock_distribution_ratio: string | null;
+      stock_distribution_ratio_state: string;
+    }>(
+      `SELECT stock_distribution_amount_raw, stock_distribution_ratio, stock_distribution_ratio_state
+         FROM market_data.dividend_events
+        WHERE id = 'migration-103-stock-event'`,
+    );
+    expect(migratedEvent.rows).toEqual([{
+      stock_distribution_amount_raw: "0.500000",
+      stock_distribution_ratio: null,
+      stock_distribution_ratio_state: "unresolved",
+    }]);
+    const failedAttemptState = await pool.query<{ ledger_count: string; queue_count: string; snapshot_count: string }>(
+      `SELECT
+         (SELECT COUNT(*)::text FROM dividend_ledger_entries WHERE id = 'migration-103-stock-ledger') AS ledger_count,
+         (SELECT COUNT(*)::text FROM dividend_legacy_stock_repair_queue WHERE dividend_ledger_entry_id = 'migration-103-stock-ledger') AS queue_count,
+         (SELECT COUNT(*)::text FROM daily_holding_snapshots WHERE id = 'migration-103-snapshot') AS snapshot_count`,
+    );
+    expect(failedAttemptState.rows[0]).toEqual({ ledger_count: "1", queue_count: "1", snapshot_count: "1" });
+
+    await pool.query("DROP TRIGGER fail_migration_103_audit_trigger ON audit_log");
+    await pool.query("DROP FUNCTION fail_migration_103_audit()");
+    await persistence.init();
+
+    const repairedCounts = await pool.query<{
+      legacy_ledger: string;
+      legacy_cash: string;
+      legacy_deduction: string;
+      legacy_source_line: string;
+      legacy_position_action: string;
+      legacy_lot: string;
+      legacy_snapshot: string;
+      queue_count: string;
+    }>(
+      `SELECT
+         (SELECT COUNT(*)::text FROM dividend_ledger_entries WHERE id = 'migration-103-stock-ledger') AS legacy_ledger,
+         (SELECT COUNT(*)::text FROM cash_ledger_entries WHERE id = 'migration-103-cash') AS legacy_cash,
+         (SELECT COUNT(*)::text FROM dividend_deduction_entries WHERE id = 'migration-103-deduction') AS legacy_deduction,
+         (SELECT COUNT(*)::text FROM dividend_source_lines WHERE id = 'migration-103-source-line') AS legacy_source_line,
+         (SELECT COUNT(*)::text FROM position_actions WHERE id = 'migration-103-position-action') AS legacy_position_action,
+         (SELECT COUNT(*)::text FROM lots WHERE id = 'lot-pa-migration-103-position-action') AS legacy_lot,
+         (SELECT COUNT(*)::text FROM daily_holding_snapshots WHERE id = 'migration-103-snapshot') AS legacy_snapshot,
+         (SELECT COUNT(*)::text FROM dividend_legacy_stock_repair_queue) AS queue_count`,
+    );
+    expect(repairedCounts.rows[0]).toEqual({
+      legacy_ledger: "0",
+      legacy_cash: "0",
+      legacy_deduction: "0",
+      legacy_source_line: "0",
+      legacy_position_action: "0",
+      legacy_lot: "0",
+      legacy_snapshot: "0",
+      queue_count: "0",
+    });
+
+    const regenerated = await pool.query<{
+      expected_stock_quantity: number;
+      expected_stock_calc_state: string;
+      expected_stock_distribution_ratio: string | null;
+      expected_stock_par_value_amount: string | null;
+    }>(
+      `SELECT expected_stock_quantity, expected_stock_calc_state,
+              expected_stock_distribution_ratio, expected_stock_par_value_amount
+         FROM dividend_ledger_entries
+        WHERE account_id = 'migration-103-account'
+          AND dividend_event_id = 'migration-103-stock-event'
+          AND superseded_at IS NULL`,
+    );
+    expect(regenerated.rows).toEqual([{
+      expected_stock_quantity: 0,
+      expected_stock_calc_state: "needs_action",
+      expected_stock_distribution_ratio: null,
+      expected_stock_par_value_amount: null,
+    }]);
+
+    const repairedLegacyExpectation = await pool.query<{
+      expected_stock_quantity: number;
+      expected_stock_calc_state: string;
+    }>(
+      `SELECT expected_stock_quantity, expected_stock_calc_state
+         FROM dividend_ledger_entries
+        WHERE id = 'migration-103-expected-ledger'`,
+    );
+    expect(repairedLegacyExpectation.rows).toEqual([{
+      expected_stock_quantity: 0,
+      expected_stock_calc_state: "needs_action",
+    }]);
+
+    const capabilityConstraints = await pool.query<{ constraint_name: string; definition: string }>(
+      `SELECT conname AS constraint_name, pg_get_constraintdef(oid) AS definition
+         FROM pg_constraint
+        WHERE conname IN (
+          'ai_connector_connection_scopes_scope_check',
+          'portfolio_share_capabilities_capability_check',
+          'pending_share_invite_capabilities_capability_check'
+        )
+        ORDER BY conname`,
+    );
+    expect(capabilityConstraints.rows).toHaveLength(3);
+    expect(capabilityConstraints.rows.every((row) => row.definition.includes("dividend:write"))).toBe(true);
+
+    const repairAudit = await pool.query<{ metadata: Record<string, unknown> }>(
+      `SELECT metadata FROM audit_log
+        WHERE action = 'dividend_legacy_stock_purge_migrated'
+          AND target_user_id = 'migration-103-user'`,
+    );
+    expect(repairAudit.rows).toHaveLength(1);
+    expect(repairAudit.rows[0]!.metadata).toMatchObject({
+      result: "migrated",
+      deletedPayloadSnapshotsRetained: false,
+      queuedLedgerEntryCount: 1,
+      unresolvedEntitlementCount: 2,
+      affectedCounts: {
+        dividendLedgerEntries: 1,
+        cashLedgerEntries: 1,
+        dividendDeductionEntries: 1,
+        dividendSourceLines: 1,
+        positionActions: 1,
+        lots: 1,
+        holdingSnapshots: 1,
+      },
+    });
+    expect(JSON.stringify(repairAudit.rows[0]!.metadata)).not.toContain("migration-103-stock-ledger");
+
+    const queueForeignKeys = await pool.query<{ definition: string }>(
+      `SELECT pg_get_constraintdef(oid) AS definition
+         FROM pg_constraint
+        WHERE conrelid = 'dividend_legacy_stock_repair_queue'::regclass
+          AND contype = 'f'`,
+    );
+    expect(queueForeignKeys.rows.map((row) => row.definition).join("\n")).not.toContain("dividend_ledger_entries");
+
+    await persistence.init();
+    const repeatCounts = await pool.query<{ audits: string; notifications: string }>(
+      `SELECT
+         (SELECT COUNT(*)::text FROM audit_log
+           WHERE action = 'dividend_legacy_stock_purge_migrated'
+             AND target_user_id = 'migration-103-user') AS audits,
+         (SELECT COUNT(*)::text FROM notifications
+           WHERE source = 'dividend_legacy_stock_repair'
+             AND user_id = 'migration-103-user') AS notifications`,
+    );
+    expect(repeatCounts.rows[0]).toEqual({ audits: "1", notifications: "1" });
+
+    const auditCheck = await pool.query<{ def: string }>(
+      `SELECT pg_get_constraintdef(oid) AS def
+         FROM pg_constraint
+        WHERE conname = 'audit_log_action_check'
+          AND conrelid = 'audit_log'::regclass`,
+    );
+    for (const action of [
+      "share_capabilities_updated",
+      "delegated_portfolio_write",
+      "market_calendar_source_updated",
+      "quote_fallback_manual_refresh_requested",
+      "dividend_legacy_stock_purge_migrated",
+    ]) {
+      expect(auditCheck.rows[0]?.def).toContain(action);
+    }
   });
 
   it("KZO-197: migration 070 backfills provider incidents idempotently from error trail", async () => {

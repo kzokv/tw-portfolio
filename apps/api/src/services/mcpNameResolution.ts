@@ -52,6 +52,7 @@ const AI_CONNECTOR_SCOPE_VALUES = [
   "transaction_draft:archive",
   "transaction_draft:delete",
   "transaction:write",
+  "dividend:write",
 ] as const satisfies readonly AiConnectorScope[];
 
 const AI_CONNECTOR_SCOPE_SET: ReadonlySet<ShareCapability> = new Set(AI_CONNECTOR_SCOPE_VALUES);

@@ -1,6 +1,9 @@
 import { resolvePresetDates, type DatePreset } from "./dividendReviewUtils";
 import type { DividendQuery, DividendReviewQuery } from "../../features/dividends/services/dividendService";
 
+const REVIEW_PAGE_SIZE_VALUES = [10, 25, 50] as const;
+const DEFAULT_REVIEW_PAGE_SIZE = 10;
+
 export type DividendsSearchParamsRecord = Record<string, string | string[] | undefined>;
 
 function currentMonthKey(): string {
@@ -75,6 +78,13 @@ function normalizeStatusFilter(status: string): string {
   return status;
 }
 
+function normalizeReviewLimit(value: string | undefined): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return REVIEW_PAGE_SIZE_VALUES.includes(parsed as (typeof REVIEW_PAGE_SIZE_VALUES)[number])
+    ? parsed
+    : DEFAULT_REVIEW_PAGE_SIZE;
+}
+
 export function searchParamsToReviewQuery(
   searchParams: DividendsSearchParamsRecord | URLSearchParams,
 ): DividendReviewQuery {
@@ -87,7 +97,8 @@ export function searchParamsToReviewQuery(
   const status = normalizeStatusFilter(getValue(searchParams, "status") ?? "all");
   const sortBy = getValue(searchParams, "sortBy") ?? "paymentDate";
   const sortOrder = (getValue(searchParams, "sortOrder") ?? "desc") as "asc" | "desc";
-  const page = parseInt(getValue(searchParams, "page") ?? "1", 10) || 1;
+  const page = Math.max(1, parseInt(getValue(searchParams, "page") ?? "1", 10) || 1);
+  const limit = normalizeReviewLimit(getValue(searchParams, "limit"));
   const ticker = getValue(searchParams, "ticker");
   const marketCode = getValue(searchParams, "marketCode");
   const accountId = getValue(searchParams, "accountId");
@@ -114,6 +125,6 @@ export function searchParamsToReviewQuery(
     sortBy,
     sortOrder,
     page,
-    limit: 25,
+    limit,
   };
 }

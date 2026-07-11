@@ -2,6 +2,7 @@ import type {
   CurrencyCode,
   DividendSourceBucket,
   DividendSourceLine,
+  ExpectedStockCalcState,
   InstrumentType,
   SourceCompositionStatus,
 } from "@vakwen/shared-types";
@@ -70,6 +71,18 @@ export interface DividendLedgerEntryDetails {
   premiumBaseAmount?: number | null;
   nhiPremiumBaseAmount?: number | null;
   portfolioCostBasisAddedAmount?: number | null;
+  expectedGrossAmount?: number | null;
+  expectedNetAmount?: number | null;
+  actualNetAmount?: number | null;
+  varianceAmount?: number | null;
+  nhiAmount?: number | null;
+  bankFeeAmount?: number | null;
+  otherDeductionAmount?: number | null;
+  stockDistributionRatio?: number | null;
+  stockDistributionRatioState?: "authoritative" | "derived_non_authoritative" | "unresolved" | null;
+  expectedStockCalcState?: ExpectedStockCalcState | null;
+  parValueAmount?: number | null;
+  needsActionReasons?: string[] | null;
   snapshotRefreshStatus?: "idle" | "queued" | "running" | "complete" | "failed" | null;
   expectedCashAmount: number;
   receivedCashAmount: number;
@@ -106,6 +119,7 @@ export interface DividendEventListItem {
   expectedCashAmount: number;
   expectedStockQuantity: number;
   eligibleQuantity: number;
+  parValuePerShare?: number | null;
   hasPostedLedgerEntry: boolean;
   dividendLedgerEntryId: string | null;
 }

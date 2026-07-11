@@ -501,7 +501,7 @@ describe("buildTickerDetails", () => {
         tickerName: "BHP Group",
         marketCode: "AU",
         currency: "USD",
-        expectedAmount: 7.5,
+        expectedAmount: 8,
         paymentDate: null,
       }),
       expect.objectContaining({

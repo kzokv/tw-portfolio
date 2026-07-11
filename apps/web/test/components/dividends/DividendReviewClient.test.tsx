@@ -7,6 +7,7 @@ import type { DividendLedgerEntryDetails } from "../../../features/dividends/typ
 import type { DividendLedgerReviewResponse } from "../../../features/dividends/services/dividendService";
 
 const searchParamsState = { value: "" };
+const smallScreenState = { value: false };
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(searchParamsState.value),
@@ -14,6 +15,10 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("../../../hooks/useEventStream", () => ({
   useEventStream: () => undefined,
+}));
+
+vi.mock("../../../lib/hooks/use-small-screen", () => ({
+  useIsSmallScreen: () => smallScreenState.value,
 }));
 
 vi.mock("../../../features/dividends/services/dividendService", () => ({
@@ -67,12 +72,29 @@ const reviewRow: DividendLedgerEntryDetails = {
   sourceLines: [],
 };
 
+const postedReviewRow: DividendLedgerEntryDetails = {
+  ...reviewRow,
+  id: "ledger-1",
+  rowKind: "ledger",
+  postingStatus: "posted",
+  receivedCashAmount: 270,
+  reconciliationStatus: "open",
+  expectedGrossAmount: 300,
+  expectedNetAmount: 280,
+  actualNetAmount: 270,
+  varianceAmount: -10,
+  nhiAmount: 12,
+  bankFeeAmount: 8,
+  otherDeductionAmount: 0,
+};
+
 describe("DividendReviewClient", () => {
   let container: HTMLDivElement;
   let root: Root;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    smallScreenState.value = false;
     searchParamsState.value = "view=ledger&ticker=2330&marketCode=TW";
     window.history.replaceState(null, "", `/dividends?${searchParamsState.value}`);
     vi.mocked(fetchDividendLedgerReview).mockResolvedValue(emptyReviewData);
@@ -121,6 +143,69 @@ describe("DividendReviewClient", () => {
     expect(window.location.search).not.toContain("ticker=2330");
   });
 
+  it("clears the hidden market filter when the ticker changes", async () => {
+    act(() => {
+      root.render(
+        <DividendReviewClient
+          initialData={emptyReviewData}
+          dict={dict}
+          locale="en"
+          accounts={[]}
+          years={[2026]}
+        />,
+      );
+    });
+    await act(async () => {});
+
+    const tickerInput = container.querySelector<HTMLInputElement>("[data-testid='filter-ticker']")!;
+    await act(async () => {
+      tickerInput.value = "0050";
+      tickerInput.dispatchEvent(new Event("input", { bubbles: true }));
+      tickerInput.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+
+    expect(vi.mocked(fetchDividendLedgerReview).mock.calls).toContainEqual([
+      expect.objectContaining({ ticker: "0050", marketCode: undefined }),
+    ]);
+    expect(window.location.search).toContain("ticker=0050");
+    expect(window.location.search).not.toContain("marketCode=TW");
+  });
+
+  it("does not submit a stale market when another filter follows a ticker edit", async () => {
+    act(() => {
+      root.render(
+        <DividendReviewClient
+          initialData={emptyReviewData}
+          dict={dict}
+          locale="en"
+          accounts={[{ id: "acc-1", name: "Main", userId: "user-1", feeProfileId: "fee-1", accountType: "broker", defaultCurrency: "TWD" }]}
+          years={[2026]}
+        />,
+      );
+    });
+    await act(async () => {});
+
+    const tickerInput = container.querySelector<HTMLInputElement>("[data-testid='filter-ticker']")!;
+    await act(async () => {
+      tickerInput.focus();
+      tickerInput.value = "0050";
+      tickerInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      container.querySelector<HTMLSelectElement>("[data-testid='filter-account']")!.focus();
+    });
+    await act(async () => {});
+    const accountSelect = container.querySelector<HTMLSelectElement>("[data-testid='filter-account']")!;
+    await act(async () => {
+      accountSelect.value = "acc-1";
+      accountSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(vi.mocked(fetchDividendLedgerReview).mock.calls).toContainEqual([
+      expect.objectContaining({ ticker: "0050", marketCode: undefined, accountId: "acc-1" }),
+    ]);
+  });
+
   it("renders ticker and instrument display name in review rows", async () => {
     act(() => {
       root.render(
@@ -141,6 +226,250 @@ describe("DividendReviewClient", () => {
 
     const row = container.querySelector<HTMLElement>("[data-testid='review-row-expected:acc-1:event-1']");
     expect(row).not.toBeNull();
+  });
+
+  it("uses URL-backed review page size options and refetches with the selected limit", async () => {
+    searchParamsState.value = "view=ledger&limit=25";
+    window.history.replaceState(null, "", "/dividends?view=ledger&limit=25");
+
+    act(() => {
+      root.render(
+        <DividendReviewClient
+          initialData={emptyReviewData}
+          dict={dict}
+          locale="en"
+          accounts={[]}
+          years={[2026]}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    const pageSize = container.querySelector<HTMLSelectElement>("[data-testid='review-page-size']");
+    expect(pageSize).not.toBeNull();
+    expect(pageSize?.value).toBe("25");
+    expect(Array.from(pageSize?.options ?? []).map((option) => option.value)).toEqual(["10", "25", "50"]);
+
+    await act(async () => {
+      pageSize!.value = "50";
+      pageSize!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(vi.mocked(fetchDividendLedgerReview).mock.calls).toContainEqual([
+      expect.objectContaining({
+        limit: 50,
+        page: 1,
+      }),
+    ]);
+    expect(window.location.search).toContain("limit=50");
+  });
+
+  it("normalizes unsupported review page sizes in the URL back to the allowed defaults", async () => {
+    searchParamsState.value = "view=ledger&limit=13&page=7";
+    window.history.replaceState(null, "", "/dividends?view=ledger&limit=13&page=7");
+
+    act(() => {
+      root.render(
+        <DividendReviewClient
+          initialData={emptyReviewData}
+          dict={dict}
+          locale="en"
+          accounts={[]}
+          years={[2026]}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    const pageSize = container.querySelector<HTMLSelectElement>("[data-testid='review-page-size']");
+    expect(pageSize?.value).toBe("10");
+    expect(window.location.search).not.toContain("limit=13");
+    expect(window.location.search).toContain("page=7");
+  });
+
+  it("renders additive net and deduction review columns from additive DTO fields", async () => {
+    act(() => {
+      root.render(
+        <DividendReviewClient
+          initialData={{ ...emptyReviewData, ledgerEntries: [postedReviewRow], total: 1 }}
+          dict={dict}
+          locale="en"
+          accounts={[{ id: "acc-1", name: "Main", userId: "user-1", feeProfileId: "fee-1", accountType: "broker", defaultCurrency: "TWD" }]}
+          years={[2026]}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    expect(container.textContent).toContain("NHI");
+    expect(container.textContent).toContain("Bank fee");
+    expect(container.textContent).toContain("Actual net");
+    expect(container.textContent).toContain("Expected net");
+    expect(container.textContent).toContain("NT$280");
+    expect(container.textContent).toContain("NT$270");
+    expect(container.textContent).toContain("NT$12");
+    expect(container.textContent).toContain("NT$8");
+  });
+
+  it("opens the ticker route from the row link without opening the review drawer", async () => {
+    act(() => {
+      root.render(
+        <DividendReviewClient
+          initialData={{ ...emptyReviewData, ledgerEntries: [postedReviewRow], total: 1 }}
+          dict={dict}
+          locale="en"
+          accounts={[{ id: "acc-1", name: "Main", userId: "user-1", feeProfileId: "fee-1", accountType: "broker", defaultCurrency: "TWD" }]}
+          years={[2026]}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    const tickerLink = container.querySelector<HTMLAnchorElement>("[data-testid='review-ticker-link-ledger-1']");
+    expect(tickerLink).not.toBeNull();
+    expect(tickerLink?.getAttribute("href")).toBe("/tickers/2330?marketCode=TW");
+
+    await act(async () => {
+      tickerLink!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.querySelector("[data-testid='drawer-content']")).toBeNull();
+  });
+
+  it("opens the drawer from keyboard interaction on a review row", async () => {
+    act(() => {
+      root.render(
+        <DividendReviewClient
+          initialData={{ ...emptyReviewData, ledgerEntries: [postedReviewRow], total: 1 }}
+          dict={dict}
+          locale="en"
+          accounts={[{ id: "acc-1", name: "Main", userId: "user-1", feeProfileId: "fee-1", accountType: "broker", defaultCurrency: "TWD" }]}
+          years={[2026]}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    const row = container.querySelector<HTMLElement>("[data-testid='review-row-ledger-1']");
+    expect(row).not.toBeNull();
+
+    await act(async () => {
+      row!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+
+    expect(document.querySelector("[data-testid='ui-drawer-body']")).not.toBeNull();
+  });
+
+  it("resets the page to 1 when sorting changes", async () => {
+    searchParamsState.value = "view=ledger&page=3";
+    window.history.replaceState(null, "", "/dividends?view=ledger&page=3");
+
+    act(() => {
+      root.render(
+        <DividendReviewClient
+          initialData={{ ...emptyReviewData, ledgerEntries: [postedReviewRow], total: 1 }}
+          dict={dict}
+          locale="en"
+          accounts={[{ id: "acc-1", name: "Main", userId: "user-1", feeProfileId: "fee-1", accountType: "broker", defaultCurrency: "TWD" }]}
+          years={[2026]}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    const sortButton = container.querySelector<HTMLButtonElement>("[data-testid='review-sort-variance']");
+    expect(sortButton).not.toBeNull();
+
+    await act(async () => {
+      sortButton!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(vi.mocked(fetchDividendLedgerReview).mock.calls).toContainEqual([
+      expect.objectContaining({
+        page: 1,
+        sortBy: "varianceAmount",
+      }),
+    ]);
+    expect(window.location.search).toContain("page=1");
+    expect(window.location.search).toContain("sortBy=varianceAmount");
+  });
+
+  it("offers URL-backed sort field and direction controls on small screens", async () => {
+    smallScreenState.value = true;
+    searchParamsState.value = "view=ledger&page=3";
+    window.history.replaceState(null, "", "/dividends?view=ledger&page=3");
+
+    act(() => {
+      root.render(
+        <DividendReviewClient
+          initialData={{ ...emptyReviewData, ledgerEntries: [postedReviewRow], total: 1 }}
+          dict={dict}
+          locale="en"
+          accounts={[]}
+          years={[2026]}
+        />,
+      );
+    });
+    await act(async () => {});
+
+    const field = container.querySelector<HTMLSelectElement>("[data-testid='review-mobile-sort-field']")!;
+    await act(async () => {
+      field.value = "varianceAmount";
+      field.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const direction = container.querySelector<HTMLSelectElement>("[data-testid='review-mobile-sort-direction']")!;
+    await act(async () => {
+      direction.value = "asc";
+      direction.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(vi.mocked(fetchDividendLedgerReview).mock.calls).toContainEqual([
+      expect.objectContaining({ page: 1, sortBy: "varianceAmount", sortOrder: "asc" }),
+    ]);
+    expect(window.location.search).toContain("sortBy=varianceAmount");
+    expect(window.location.search).toContain("sortOrder=asc");
+  });
+
+  it("resets the page to 1 when the page size changes", async () => {
+    searchParamsState.value = "view=ledger&page=4&limit=25";
+    window.history.replaceState(null, "", "/dividends?view=ledger&page=4&limit=25");
+
+    act(() => {
+      root.render(
+        <DividendReviewClient
+          initialData={{ ...emptyReviewData, ledgerEntries: [postedReviewRow], total: 1 }}
+          dict={dict}
+          locale="en"
+          accounts={[{ id: "acc-1", name: "Main", userId: "user-1", feeProfileId: "fee-1", accountType: "broker", defaultCurrency: "TWD" }]}
+          years={[2026]}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    const pageSize = container.querySelector<HTMLSelectElement>("[data-testid='review-page-size']");
+    expect(pageSize?.value).toBe("25");
+
+    await act(async () => {
+      pageSize!.value = "10";
+      pageSize!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(vi.mocked(fetchDividendLedgerReview).mock.calls).toContainEqual([
+      expect.objectContaining({
+        limit: 10,
+        page: 1,
+      }),
+    ]);
+    expect(window.location.search).toContain("page=1");
+    expect(window.location.search).not.toContain("limit=25");
   });
 
   it("applies selected year range through URL and review fetch query", async () => {

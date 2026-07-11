@@ -39,6 +39,7 @@ test.describe("sharing delegated capabilities", () => {
     );
     await page.getByTestId("edit-share-capability-account:manage").click();
     await page.getByTestId("edit-share-capability-transaction:write").click();
+    await page.getByTestId("edit-share-capability-dividend:write").click();
     await Promise.all([
       page.waitForResponse((response) =>
         response.request().method() === "PATCH"
@@ -57,6 +58,10 @@ test.describe("sharing delegated capabilities", () => {
       /Create, edit, and delete transactions/.test(activeRowText ?? ""),
       "active share row shows transaction write capability",
     );
+    await appShell.assert.mxAssertTruthy(
+      /Post, reconcile, and delete dividends/.test(activeRowText ?? ""),
+      "active share row shows dividend write capability",
+    );
 
     await page.getByTestId(`sharing-edit-permissions-${pending.inviteCode}`).scrollIntoViewIfNeeded();
     await page.getByTestId(`sharing-edit-permissions-${pending.inviteCode}`).click();
@@ -74,6 +79,71 @@ test.describe("sharing delegated capabilities", () => {
       /Manage accounts and fee settings/.test(pendingRowText ?? ""),
       "pending share row shows account manage capability",
     );
+  });
+
+  test("[shared dividends]: dividend review drawer is read-only until dividend:write is delegated, then edits the owner's posting", async ({
+    appShell,
+    dividendReview,
+    page,
+    sharing,
+    testUser,
+  }) => {
+    const posted = await dividendReview.arrange.seedPostedDividend({
+      ticker: "7795",
+      exDividendDate: "2026-06-01",
+      paymentDate: "2026-07-01",
+      cashDividendPerShare: 0.12,
+      receivedCashAmount: 108,
+    });
+    const grantee = await seedUser({
+      sub: "e2e-shared-dividend-grantee-sub",
+      email: "shared-dividend-grantee@example.com",
+      name: "Shared Dividend Grantee",
+      role: "viewer",
+    });
+    const { shareId } = await seedResolvedShareFromAdmin(grantee.email, testUser.userId);
+
+    await switchIdentity(page, { userId: grantee.userId, role: "viewer" });
+    await sharing.actions.navigateToSharing();
+    await appShell.assert.appIsReady();
+    await sharing.actions.navigateToInboundShares();
+    await page.getByTestId(`sharing-open-dashboard-${shareId}`).click();
+    await appShell.assert.appIsReady();
+
+    const unexpectedReadFailures: string[] = [];
+    page.on("response", (response) => {
+      if (response.status() >= 400) unexpectedReadFailures.push(`${response.status()} ${response.request().method()} ${response.url()}`);
+    });
+    const reviewResponse = page.waitForResponse((response) =>
+      response.request().method() === "GET"
+      && response.url().includes("/portfolio/dividends/review"));
+    await dividendReview.actions.navigateToReview();
+    await appShell.assert.mxAssertEqual((await reviewResponse).status(), 200, "delegated review data loads");
+    await dividendReview.actions.clickRow(posted.dividendLedgerEntryId);
+    await page.getByText("You can review this dividend, but dividend write permission is required to make changes.").waitFor();
+    await appShell.assert.mxAssertEqual(
+      await page.getByTestId("dividend-posting-form").count(),
+      0,
+      "delegate without dividend:write sees a read-only drawer",
+    );
+    await appShell.assert.mxAssertEqual(
+      unexpectedReadFailures.join("\n"),
+      "",
+      "read-only dividend review does not issue forbidden background requests",
+    );
+
+    await updateActiveShareCapabilities(shareId, testUser.userId, ["portfolio:mcp_read", "dividend:write"]);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await appShell.assert.appIsReady();
+    await dividendReview.actions.navigateToReview();
+    await dividendReview.actions.clickRow(posted.dividendLedgerEntryId);
+    await page.getByTestId("dividend-received-cash").fill("109");
+    const saveResponse = page.waitForResponse((response) =>
+      response.request().method() === "POST"
+      && response.url().endsWith("/portfolio/dividends/postings"));
+    await page.getByTestId("dividend-save").click();
+    await appShell.assert.mxAssertEqual((await saveResponse).status(), 200, "delegated dividend edit succeeds");
+    await page.getByRole("dialog").waitFor({ state: "hidden" });
   });
 
   test("[shared transactions]: transaction form is gated by transaction:write", async ({

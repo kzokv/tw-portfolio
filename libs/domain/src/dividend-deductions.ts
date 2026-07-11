@@ -4,6 +4,9 @@ export interface DividendDeductionLikeEvent {
   cashDividendCurrency: CurrencyCode;
   cashDividendPerShare: number;
   stockDividendPerShare: number;
+  stockDistributionRatio?: number | null;
+  stockDistributionRatioState?: "authoritative" | "derived_non_authoritative" | "unresolved";
+  stockParValueAmount?: number | null;
 }
 
 export interface SourceLineLike {
@@ -13,11 +16,10 @@ export interface SourceLineLike {
 
 export type NhiPremiumPrefillResult =
   | { kind: "exact"; premiumBase: number; premiumAmount: number }
-  | { kind: "estimate"; premiumBase: 0; premiumAmount: 0 };
+  | { kind: "estimate"; premiumBase: number; premiumAmount: number };
 
 export const NHI_RATE = 0.0211;
 export const NHI_THRESHOLD_TWD = 20_000;
-export const DEFAULT_PAR_VALUE_TWD = 10;
 export const SOURCE_LINE_RECONCILIATION_TOLERANCE_TWD = 1;
 
 export const NHI_SUBJECT_BUCKETS = new Set<DividendSourceBucket>(["DIVIDEND_INCOME", "INTEREST_INCOME"]);
@@ -61,10 +63,23 @@ export function prefillNhiPremium(
   }
 
   // Non-ETF: existing logic
-  const premiumBase =
-    event.stockDividendPerShare > 0
-      ? prefillStockPremiumBase(eligibleQty * event.stockDividendPerShare)
-      : roundTwd(eligibleQty * event.cashDividendPerShare);
+  const cashPremiumBase = roundTwd(eligibleQty * event.cashDividendPerShare);
+  let premiumBase = cashPremiumBase;
+  if (event.stockDividendPerShare > 0) {
+    if (
+      event.stockDistributionRatioState !== "authoritative"
+      || event.stockDistributionRatio == null
+      || event.stockParValueAmount == null
+    ) {
+      return {
+        kind: "estimate",
+        premiumBase: cashPremiumBase,
+        premiumAmount: cashPremiumBase >= NHI_THRESHOLD_TWD ? roundTwd(cashPremiumBase * NHI_RATE) : 0,
+      };
+    }
+    const expectedStockQuantity = Math.floor(eligibleQty * event.stockDistributionRatio);
+    premiumBase += prefillStockPremiumBase(expectedStockQuantity, event.stockParValueAmount);
+  }
 
   if (premiumBase < NHI_THRESHOLD_TWD) {
     return null;
@@ -77,7 +92,7 @@ export function prefillNhiPremium(
   };
 }
 
-export function prefillStockPremiumBase(eligibleQty: number, parValuePerShare: number = DEFAULT_PAR_VALUE_TWD): number {
+export function prefillStockPremiumBase(eligibleQty: number, parValuePerShare: number): number {
   return roundTwd(eligibleQty * parValuePerShare);
 }
 

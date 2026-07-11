@@ -198,6 +198,95 @@ describe("replayPositionHistory", () => {
     });
   });
 
+  it("creates missing expected rows and retires stale system-generated expected rows during replay", async () => {
+    const persistence = new MemoryPersistence();
+    const userId = "user-1";
+    const store = await persistence.loadStore(userId);
+    const accountId = store.accounts[0]!.id;
+
+    store.accounting.facts.tradeEvents.push(
+      makeTradeEvent("buy-before-events", userId, accountId, "TW", "TWD", 10, "BUY", "2026-01-05"),
+      makeTradeEvent("sell-before-late-event", userId, accountId, "TW", "TWD", 10, "SELL", "2026-02-15"),
+    );
+
+    const earlyEvent = makeCashDividendEvent("cash-early", "TW", "TWD", "2026-02-01");
+    const lateEvent = makeCashDividendEvent("cash-late", "TW", "TWD", "2026-03-01");
+    store.marketData.dividendEvents.push(earlyEvent, lateEvent);
+    store.accounting.facts.dividendLedgerEntries.push(
+      makeDividendLedgerEntry(accountId, lateEvent.id, "dle-stale-expected", {
+        eligibleQuantity: 10,
+        expectedCashAmount: 15,
+        postingStatus: "expected",
+      }),
+    );
+
+    const summary = await replayPositionHistory(persistence, userId, accountId, "BHP", { marketCode: "TW" });
+
+    expect(summary.dividendLedgerChanges).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        dividendEventId: earlyEvent.id,
+        nextEligibleQuantity: 10,
+        nextExpectedCashAmount: 15,
+      }),
+      expect.objectContaining({
+        ledgerEntryId: "dle-stale-expected",
+        dividendEventId: lateEvent.id,
+        nextEligibleQuantity: 0,
+        nextExpectedCashAmount: 0,
+      }),
+    ]));
+
+    const updatedStore = await persistence.loadStore(userId);
+    const createdEntry = updatedStore.accounting.facts.dividendLedgerEntries.find(
+      (entry) => entry.dividendEventId === earlyEvent.id && !entry.supersededAt,
+    );
+    const retiredEntry = updatedStore.accounting.facts.dividendLedgerEntries.find(
+      (entry) => entry.id === "dle-stale-expected",
+    );
+
+    expect(createdEntry).toMatchObject({
+      accountId,
+      eligibleQuantity: 10,
+      expectedCashAmount: 15,
+      postingStatus: "expected",
+      reconciliationStatus: "open",
+    });
+    expect(retiredEntry?.supersededAt).toEqual(expect.any(String));
+  });
+
+  it("regenerates raw-amount stock events as unresolved without assuming a par value", async () => {
+    const persistence = new MemoryPersistence();
+    const userId = "user-raw-stock-dividend";
+    const store = await persistence.loadStore(userId);
+    const accountId = store.accounts[0]!.id;
+
+    store.accounting.facts.tradeEvents.push(
+      makeTradeEvent("buy-before-raw-stock-event", userId, accountId, "TW", "TWD", 1_000),
+    );
+    store.marketData.dividendEvents.push({
+      ...makeStockDividendEvent("raw-stock-event", "TW", "TWD"),
+      stockDistributionAmountRaw: 0.5,
+      stockDistributionRatio: null,
+      stockDistributionRatioState: "unresolved",
+      stockParValueAmount: null,
+      stockParValueCurrency: null,
+    });
+
+    await replayPositionHistory(persistence, userId, accountId, "BHP", { marketCode: "TW" });
+
+    const updatedStore = await persistence.loadStore(userId);
+    expect(updatedStore.accounting.facts.dividendLedgerEntries).toEqual([
+      expect.objectContaining({
+        dividendEventId: "raw-stock-event",
+        eligibleQuantity: 1_000,
+        expectedStockQuantity: 0,
+        expectedStockCalcState: "needs_action",
+        expectedStockDistributionRatio: null,
+        expectedStockParValueAmount: null,
+      }),
+    ]);
+  });
+
   it("orders same-day position actions before trades when either side lacks a timestamp", async () => {
     const persistence = new MemoryPersistence();
     const userId = "user-1";
@@ -296,6 +385,8 @@ function makeTradeEvent(
   marketCode: MarketCode,
   priceCurrency: BookedTradeEvent["priceCurrency"],
   quantity: number,
+  type: BookedTradeEvent["type"] = "BUY",
+  tradeDate: string = "2026-01-02",
 ): BookedTradeEvent {
   return {
     id,
@@ -304,11 +395,11 @@ function makeTradeEvent(
     ticker: "BHP",
     marketCode,
     instrumentType: "STOCK",
-    type: "BUY",
+    type,
     quantity,
     unitPrice: 100,
     priceCurrency,
-    tradeDate: "2026-01-02",
+    tradeDate,
     commissionAmount: 0,
     taxAmount: 0,
     isDayTrade: false,
@@ -355,13 +446,14 @@ function makeCashDividendEvent(
   id: string,
   marketCode: MarketCode,
   cashDividendCurrency: DividendEvent["cashDividendCurrency"],
+  exDividendDate: string = "2026-01-15",
 ): DividendEvent & { marketCode: MarketCode } {
   return {
     id,
     ticker: "BHP",
     marketCode,
     eventType: "CASH",
-    exDividendDate: "2026-01-15",
+    exDividendDate,
     paymentDate: "2026-01-31",
     cashDividendPerShare: 1.5,
     cashDividendCurrency,

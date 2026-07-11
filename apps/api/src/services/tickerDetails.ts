@@ -1,13 +1,26 @@
-import { resolveRangeBounds, roundToDecimal, type DailyBar } from "@vakwen/domain";
+import {
+  calculateDividendCashReconciliation,
+  resolveDividendStockEntitlement,
+  resolveRangeBounds,
+  roundToDecimal,
+  type DailyBar,
+} from "@vakwen/domain";
 import {
   MARKET_CODES,
   type AccountDefaultCurrency,
   currencyFor,
   marketCodeFor,
+  type DividendLedgerHistoryItemDto,
+  type DividendLedgerHistoryPageDto,
+  type DividendUpcomingListItemDto,
+  type DividendUpcomingPageDto,
   type DashboardOverviewHoldingChildDto,
   type DashboardOverviewHoldingGroupDto,
   type DashboardOverviewRecentDividendDto,
   type DashboardOverviewUpcomingDividendDto,
+  type HoldingActivityDividendsDto,
+  type HoldingActivityPositionActionDto,
+  type HoldingActivityPositionActionPageDto,
   type MarketCode,
   type TickerDetailsDto,
   type TransactionHistoryItemDto,
@@ -57,9 +70,28 @@ interface BuildTickerDetailsInput {
   now?: Date;
 }
 
-export async function buildTickerDetails(
-  input: BuildTickerDetailsInput,
-): Promise<{ details: TickerDetailsDto; marketCode: MarketCode }> {
+interface ResolveTickerReadScopeInput {
+  persistence: Pick<BuildTickerDetailsInput["persistence"], "getInstrument">;
+  store: Store;
+  userId: string;
+  ticker: string;
+  accountId?: string;
+  accountIds?: readonly string[];
+  marketCode?: MarketCode;
+}
+
+export interface ResolvedTickerReadScope {
+  normalizedTicker: string;
+  resolvedMarketCode: MarketCode;
+  scopedAccountIds: Set<string>;
+  filteredTransactions: Transaction[];
+  filteredHoldings: ReturnType<typeof listHoldings>;
+  instrument: Awaited<ReturnType<BuildTickerDetailsInput["persistence"]["getInstrument"]>>;
+}
+
+export async function resolveTickerReadScope(
+  input: ResolveTickerReadScopeInput,
+): Promise<ResolvedTickerReadScope> {
   const normalizedTicker = input.ticker.trim().toUpperCase();
   const accountById = new Map(input.store.accounts.map((account) => [account.id, account]));
 
@@ -72,6 +104,7 @@ export async function buildTickerDetails(
       throw routeError(404, "account_not_found", "Account not found");
     }
   }
+
   const requestedAccountIdSet = new Set(requestedAccountIds);
   const matchesRequestedAccountScope = (accountId: string) => (
     input.accountId
@@ -84,7 +117,6 @@ export async function buildTickerDetails(
   const matchingTrades = listTradeEvents(input.store)
     .filter((trade) => trade.ticker === normalizedTicker)
     .filter((trade) => matchesRequestedAccountScope(trade.accountId));
-
   const matchingHoldings = listHoldings(input.store, input.userId)
     .filter((holding) => holding.ticker === normalizedTicker)
     .filter((holding) => matchesRequestedAccountScope(holding.accountId));
@@ -111,7 +143,6 @@ export async function buildTickerDetails(
       throw routeError(400, "account_market_mismatch", "Account does not match the requested market");
     }
   }
-
   for (const requestedAccountId of requestedAccountIds) {
     const account = accountById.get(requestedAccountId)!;
     if (marketCodeFor(account.defaultCurrency) !== resolvedMarketCode) {
@@ -124,16 +155,36 @@ export async function buildTickerDetails(
       ? [input.accountId]
       : requestedAccountIds.length > 0
         ? requestedAccountIds
-      : input.store.accounts
-        .filter((account) => marketCodeFor(account.defaultCurrency) === resolvedMarketCode)
-        .map((account) => account.id),
+        : input.store.accounts
+          .filter((account) => marketCodeFor(account.defaultCurrency) === resolvedMarketCode)
+          .map((account) => account.id),
   );
 
-  const filteredTransactions = matchingTrades
-    .filter((trade) => trade.marketCode === resolvedMarketCode)
-    .filter((trade) => scopedAccountIds.has(trade.accountId))
-    .sort(compareTransactionsForHistory);
-  const filteredHoldings = matchingHoldings.filter((holding) => scopedAccountIds.has(holding.accountId));
+  return {
+    normalizedTicker,
+    resolvedMarketCode,
+    scopedAccountIds,
+    filteredTransactions: matchingTrades
+      .filter((trade) => trade.marketCode === resolvedMarketCode)
+      .filter((trade) => scopedAccountIds.has(trade.accountId))
+      .sort(compareTransactionsForHistory),
+    filteredHoldings: matchingHoldings.filter((holding) => scopedAccountIds.has(holding.accountId)),
+    instrument,
+  };
+}
+
+export async function buildTickerDetails(
+  input: BuildTickerDetailsInput,
+): Promise<{ details: TickerDetailsDto; marketCode: MarketCode }> {
+  const accountById = new Map(input.store.accounts.map((account) => [account.id, account]));
+  const {
+    normalizedTicker,
+    resolvedMarketCode,
+    scopedAccountIds,
+    filteredTransactions,
+    filteredHoldings,
+    instrument,
+  } = await resolveTickerReadScope(input);
 
   const loadChart = input.loadChart ?? true;
   const { allLocalBars, latestBarDate, quoteBars } = loadChart
@@ -190,8 +241,23 @@ export async function buildTickerDetails(
     reportingCurrency,
     quote.asOf ?? filteredTransactions[0]?.tradeDate ?? new Date().toISOString().slice(0, 10),
   );
-  const upcomingDividends = buildUpcomingDividends(input.store, normalizedTicker, resolvedMarketCode, scopedAccountIds);
-  const recentDividends = buildRecentDividends(input.store, normalizedTicker, resolvedMarketCode, scopedAccountIds);
+  const upcomingDividendPage = buildTickerDividendUpcomingPage(input.store, normalizedTicker, resolvedMarketCode, scopedAccountIds, {
+    page: 1,
+    limit: 50,
+  });
+  const openReconciliationPage = buildTickerDividendOpenReconciliationPage(
+    input.store,
+    normalizedTicker,
+    resolvedMarketCode,
+    scopedAccountIds,
+    { page: 1, limit: 50 },
+  );
+  const postedHistoryPage = buildTickerDividendPostedHistoryPage(input.store, normalizedTicker, resolvedMarketCode, scopedAccountIds, {
+    page: 1,
+    limit: 50,
+  });
+  const upcomingDividends = upcomingDividendPage.items.map(mapUpcomingDividendListItemToLegacyDto);
+  const recentDividends = postedHistoryPage.items.map(mapDividendLedgerHistoryItemToLegacyRecentDto);
   const rawAccountBreakdown = buildAccountBreakdown({
     holdings: filteredHoldings,
     accountById,
@@ -260,10 +326,10 @@ export async function buildTickerDetails(
     unrealizedPnlHistory,
     transactions: filteredTransactions.map((trade) => mapTransactionHistoryItem(trade, accountById, buildRealizedPnlBreakdown)),
     dividends: {
-      upcomingCount: upcomingDividends.length,
+      upcomingCount: upcomingDividendPage.total,
       nextPaymentDate: minNullableDate(upcomingDividends.map((dividend) => dividend.paymentDate)),
-      lastPostedDate: maxNullableDate(recentDividends.map((dividend) => dividend.postedAt)),
-      openReconciliationCount: recentDividends.filter((dividend) => dividend.reconciliationStatus === "open").length,
+      lastPostedDate: maxNullableDate(postedHistoryPage.items.map((dividend) => dividend.postedAt)),
+      openReconciliationCount: openReconciliationPage.total,
       upcoming: upcomingDividends,
       recent: recentDividends,
     },
@@ -991,20 +1057,111 @@ function assertCustomRangeWithinTenYears(startDate: string, endDate: string): vo
   }
 }
 
-function buildUpcomingDividends(
+export function buildHoldingActivityDividends(
+  store: Store,
+  input: {
+    ticker: string;
+    marketCode: MarketCode;
+    scopedAccountIds: ReadonlySet<string>;
+    positionActionsPage: number;
+    positionActionsLimit: 10 | 25 | 50;
+    upcomingPage: number;
+    upcomingLimit: 10 | 25 | 50;
+    postedPage: number;
+    postedLimit: 10 | 25 | 50;
+  },
+): HoldingActivityDividendsDto {
+  return {
+    positionActions: buildHoldingActivityPositionActionPage(
+      store,
+      input.ticker,
+      input.marketCode,
+      input.scopedAccountIds,
+      { page: input.positionActionsPage, limit: input.positionActionsLimit },
+    ),
+    upcomingDividends: buildTickerDividendUpcomingPage(
+      store,
+      input.ticker,
+      input.marketCode,
+      input.scopedAccountIds,
+      { page: input.upcomingPage, limit: input.upcomingLimit },
+    ),
+    postedDividends: buildTickerDividendPostedHistoryPage(
+      store,
+      input.ticker,
+      input.marketCode,
+      input.scopedAccountIds,
+      { page: input.postedPage, limit: input.postedLimit },
+    ),
+  };
+}
+
+export function buildHoldingActivityPositionActionPage(
   store: Store,
   ticker: string,
   marketCode: MarketCode,
   scopedAccountIds: ReadonlySet<string>,
-): DashboardOverviewUpcomingDividendDto[] {
-  const activeLedgerByAccountAndEvent = new Map<string, { postingStatus: string }>();
+  pageInput: { page: number; limit: 10 | 25 | 50 },
+): HoldingActivityPositionActionPageDto {
+  const accountById = new Map(store.accounts.map((account) => [account.id, account]));
+  const reversedActionIds = new Set(
+    store.accounting.facts.positionActions
+      .map((action) => action.reversalOfPositionActionId)
+      .filter((value): value is string => Boolean(value)),
+  );
+  const items = store.accounting.facts.positionActions
+    .filter((action) => action.ticker === ticker)
+    .filter((action) => action.marketCode === marketCode)
+    .filter((action) => scopedAccountIds.has(action.accountId))
+    .filter((action) => !action.reversalOfPositionActionId)
+    .filter((action) => !action.supersededAt)
+    .filter((action) => !reversedActionIds.has(action.id))
+    .map((action): HoldingActivityPositionActionDto => ({
+      id: action.id,
+      accountId: action.accountId,
+      accountName: accountById.get(action.accountId)?.name ?? action.accountId,
+      ticker: action.ticker,
+      marketCode: action.marketCode as MarketCode,
+      actionType: action.actionType,
+      actionDate: action.actionDate,
+      actionTimestamp: action.actionTimestamp ?? null,
+      bookedAt: action.bookedAt ?? null,
+      quantity: action.quantity,
+      ratioNumerator: action.ratioNumerator ?? null,
+      ratioDenominator: action.ratioDenominator ?? null,
+      cashInLieuQuantity: action.cashInLieuQuantity ?? null,
+      cashInLieuAmount: action.cashInLieuAmount ?? null,
+      cashInLieuCurrency: action.cashInLieuCurrency ?? null,
+      parValuePerShare: action.parValuePerShare ?? null,
+      premiumBaseAmount: action.premiumBaseAmount ?? null,
+      nhiPremiumBaseAmount: action.nhiPremiumBaseAmount ?? null,
+      relatedDividendLedgerEntryId: action.relatedDividendLedgerEntryId ?? null,
+      source: action.source,
+      sourceReference: action.sourceReference ?? null,
+    }))
+    .sort(comparePositionActionsDescending);
+  return paginateItems(items, pageInput);
+}
+
+export function buildTickerDividendUpcomingPage(
+  store: Store,
+  ticker: string,
+  marketCode: MarketCode,
+  scopedAccountIds: ReadonlySet<string>,
+  pageInput: { page: number; limit: 10 | 25 | 50 },
+): DividendUpcomingPageDto {
+  const activeLedgerByAccountAndEvent = new Map<string, Store["accounting"]["facts"]["dividendLedgerEntries"][number]>();
   const postedEventKeys = new Set<string>();
+  const reversedLedgerIds = new Set(
+    listDividendLedgerEntries(store)
+      .map((entry) => entry.reversalOfDividendLedgerEntryId)
+      .filter((value): value is string => Boolean(value)),
+  );
 
   for (const entry of listDividendLedgerEntries(store)) {
     const key = `${entry.accountId}:${entry.dividendEventId}`;
-    if (!entry.reversalOfDividendLedgerEntryId && !entry.supersededAt) {
-      activeLedgerByAccountAndEvent.set(key, { postingStatus: entry.postingStatus });
-    }
+    if (entry.reversalOfDividendLedgerEntryId || entry.supersededAt || reversedLedgerIds.has(entry.id)) continue;
+    activeLedgerByAccountAndEvent.set(key, entry);
     if (entry.postingStatus === "posted" || entry.postingStatus === "adjusted") {
       postedEventKeys.add(key);
     }
@@ -1015,10 +1172,10 @@ function buildUpcomingDividends(
   horizon.setUTCDate(horizon.getUTCDate() + 365);
   const horizonDate = horizon.toISOString().slice(0, 10);
 
-  return store.accounts
+  const items = store.accounts
     .filter((account) => scopedAccountIds.has(account.id))
     .flatMap((account) =>
-      store.marketData.dividendEvents.flatMap((event): DashboardOverviewUpcomingDividendDto[] => {
+      store.marketData.dividendEvents.flatMap((event): DividendUpcomingListItemDto[] => {
         if (event.ticker !== ticker) return [];
         if (resolveDividendEventMarketCode(event) !== marketCode) return [];
         const ledgerKey = `${account.id}:${event.id}`;
@@ -1028,79 +1185,200 @@ function buildUpcomingDividends(
           if (event.paymentDate > horizonDate) return [];
         }
 
-        const eligibleQuantity = deriveEligibleQuantity(store, account.id, event.ticker, event.exDividendDate, marketCode);
-        if (eligibleQuantity <= 0) return [];
+        const activeEntry = activeLedgerByAccountAndEvent.get(ledgerKey);
+        const eligibleQuantity = activeEntry?.eligibleQuantity
+          ?? deriveEligibleQuantity(store, account.id, event.ticker, event.exDividendDate, marketCode);
+        if (!activeEntry && eligibleQuantity <= 0) return [];
+
+        const stockEntitlement = resolveDividendStockEntitlement({
+          eligibleQuantity,
+          stockDistributionRatio: event.stockDistributionRatio ?? null,
+          stockDistributionRatioState: event.stockDistributionRatioState ?? "unresolved",
+        });
+        const cashReconciliation = calculateDividendCashReconciliation({
+          expectedGrossAmount: activeEntry?.expectedCashAmount
+            ?? Math.max(0, Math.round(eligibleQuantity * event.cashDividendPerShare + Number.EPSILON)),
+          actualNetAmount: 0,
+        });
 
         return [{
+          id: event.id,
           accountId: account.id,
           accountName: account.name,
           ticker: event.ticker,
           tickerName: resolveDividendTickerName(store, event.ticker, marketCode),
           marketCode,
+          instrumentType: resolveInstrumentType(store, event.ticker, marketCode),
+          eventType: event.eventType,
           exDividendDate: event.exDividendDate,
           paymentDate: event.paymentDate,
-          expectedAmount: event.cashDividendPerShare > 0
-            ? eligibleQuantity * event.cashDividendPerShare
-            : null,
-          currency: event.cashDividendCurrency,
-          status: resolveUpcomingStatus(event.paymentDate, activeLedgerByAccountAndEvent.get(ledgerKey)?.postingStatus),
+          expectedCashAmount: cashReconciliation.expectedGrossAmount,
+          expectedNetAmount: cashReconciliation.expectedNetAmount,
+          expectedStockQuantity: activeEntry?.expectedStockQuantity ?? stockEntitlement.expectedStockQuantity,
+          eligibleQuantity,
+          stockDistributionRatio: stockEntitlement.stockDistributionRatio,
+          stockDistributionRatioState: stockEntitlement.stockDistributionRatioState,
+          expectedStockCalcState: activeEntry?.expectedStockCalcState ?? stockEntitlement.expectedStockCalcState,
+          cashDividendCurrency: event.cashDividendCurrency,
+          hasPostedLedgerEntry: activeEntry ? activeEntry.postingStatus !== "expected" : false,
+          dividendLedgerEntryId: activeEntry?.id ?? null,
+          status: resolveUpcomingStatus(event.paymentDate, activeEntry?.postingStatus),
         }];
       }),
     )
-    .sort((left, right) => (
-      (left.paymentDate ?? left.exDividendDate ?? "").localeCompare(right.paymentDate ?? right.exDividendDate ?? "")
-      || left.accountId.localeCompare(right.accountId)
-    ));
+    .sort(compareUpcomingDividendItems);
+
+  return paginateItems(items, pageInput);
 }
 
-function buildRecentDividends(
+export function buildTickerDividendOpenReconciliationPage(
   store: Store,
   ticker: string,
   marketCode: MarketCode,
   scopedAccountIds: ReadonlySet<string>,
-): DashboardOverviewRecentDividendDto[] {
+  pageInput: { page: number; limit: 10 | 25 | 50 },
+): DividendLedgerHistoryPageDto {
+  return paginateItems(
+    buildActivePostedDividendHistoryItems(store, ticker, marketCode, scopedAccountIds)
+      .filter((item) => item.reconciliationStatus === "open"),
+    pageInput,
+  );
+}
+
+export function buildTickerDividendPostedHistoryPage(
+  store: Store,
+  ticker: string,
+  marketCode: MarketCode,
+  scopedAccountIds: ReadonlySet<string>,
+  pageInput: { page: number; limit: 10 | 25 | 50 },
+): DividendLedgerHistoryPageDto {
+  return paginateItems(buildActivePostedDividendHistoryItems(store, ticker, marketCode, scopedAccountIds), pageInput);
+}
+
+function buildActivePostedDividendHistoryItems(
+  store: Store,
+  ticker: string,
+  marketCode: MarketCode,
+  scopedAccountIds: ReadonlySet<string>,
+): DividendLedgerHistoryItemDto[] {
+  const accountById = new Map(store.accounts.map((account) => [account.id, account]));
   const eventById = new Map(
     store.marketData.dividendEvents
       .filter((event) => event.ticker === ticker)
       .filter((event) => resolveDividendEventMarketCode(event) === marketCode)
       .map((event) => [event.id, event]),
   );
-  const accountById = new Map(store.accounts.map((account) => [account.id, account]));
-  const deductionsByLedgerId = new Map<string, number>();
-
+  const reversedLedgerIds = new Set(
+    listDividendLedgerEntries(store)
+      .map((entry) => entry.reversalOfDividendLedgerEntryId)
+      .filter((value): value is string => Boolean(value)),
+  );
+  const deductionsByLedgerId = new Map<string, ReturnType<typeof listDividendDeductionEntries>>();
   for (const deduction of listDividendDeductionEntries(store)) {
-    deductionsByLedgerId.set(
-      deduction.dividendLedgerEntryId,
-      (deductionsByLedgerId.get(deduction.dividendLedgerEntryId) ?? 0) + deduction.amount,
-    );
+    const group = deductionsByLedgerId.get(deduction.dividendLedgerEntryId) ?? [];
+    group.push(deduction);
+    deductionsByLedgerId.set(deduction.dividendLedgerEntryId, group);
   }
 
   return listDividendLedgerEntries(store)
-    .filter((entry) => ["posted", "adjusted"].includes(entry.postingStatus) && !entry.reversalOfDividendLedgerEntryId)
     .filter((entry) => scopedAccountIds.has(entry.accountId))
-    .flatMap((entry): DashboardOverviewRecentDividendDto[] => {
+    .filter((entry) => entry.postingStatus === "posted" || entry.postingStatus === "adjusted")
+    .filter((entry) => !entry.reversalOfDividendLedgerEntryId)
+    .filter((entry) => !entry.supersededAt)
+    .filter((entry) => !reversedLedgerIds.has(entry.id))
+    .flatMap((entry): DividendLedgerHistoryItemDto[] => {
       const event = eventById.get(entry.dividendEventId);
       if (!event) return [];
-      const deductionAmount = deductionsByLedgerId.get(entry.id) ?? 0;
+      const deductions = summarizeDividendDeductions(deductionsByLedgerId.get(entry.id) ?? []);
+      const cashReconciliation = calculateDividendCashReconciliation({
+        expectedGrossAmount: entry.expectedCashAmount,
+        actualNetAmount: entry.receivedCashAmount,
+        deductions,
+      });
+      const stockEntitlement = resolveDividendStockEntitlement({
+        eligibleQuantity: entry.eligibleQuantity,
+        stockDistributionRatio: event.stockDistributionRatio ?? null,
+        stockDistributionRatioState: event.stockDistributionRatioState ?? "unresolved",
+      });
       return [{
+        dividendLedgerEntryId: entry.id,
         accountId: entry.accountId,
         accountName: accountById.get(entry.accountId)?.name ?? entry.accountId,
         ticker: event.ticker,
         tickerName: resolveDividendTickerName(store, event.ticker, marketCode),
         marketCode,
-        dividendLedgerEntryId: entry.id,
+        instrumentType: resolveInstrumentType(store, event.ticker, marketCode),
+        eventType: event.eventType,
         paymentDate: event.paymentDate,
-        postedAt: entry.bookedAt ?? event.paymentDate ?? new Date().toISOString(),
-        netAmount: entry.receivedCashAmount,
-        grossAmount: entry.receivedCashAmount + deductionAmount,
-        deductionAmount: deductionAmount || null,
-        currency: event.cashDividendCurrency,
-        sourceSummary: resolveSourceSummary(event.eventType),
+        exDividendDate: event.exDividendDate,
+        postedAt: entry.bookedAt ?? event.paymentDate ?? entry.id,
+        expectedCashAmount: entry.expectedCashAmount,
+        expectedNetAmount: cashReconciliation.expectedNetAmount,
+        receivedCashAmount: entry.receivedCashAmount,
+        actualNetAmount: cashReconciliation.actualNetAmount,
+        varianceAmount: cashReconciliation.varianceAmount,
+        expectedStockQuantity: entry.expectedStockQuantity,
+        receivedStockQuantity: entry.receivedStockQuantity,
+        stockDistributionRatio: stockEntitlement.stockDistributionRatio,
+        stockDistributionRatioState: stockEntitlement.stockDistributionRatioState,
+        expectedStockCalcState: entry.expectedStockCalcState ?? stockEntitlement.expectedStockCalcState,
+        cashDividendCurrency: event.cashDividendCurrency,
+        nhiAmount: deductions.nhiAmount,
+        bankFeeAmount: deductions.bankFeeAmount,
+        otherDeductionAmount: deductions.otherDeductionAmount,
+        deductions,
+        postingStatus: entry.postingStatus as "posted" | "adjusted",
         reconciliationStatus: entry.reconciliationStatus,
-        status: entry.reconciliationStatus === "matched" ? "posted" : "unreconciled",
       }];
     })
-    .sort((left, right) => right.postedAt.localeCompare(left.postedAt));
+    .sort(compareDividendLedgerHistoryItems);
+}
+
+function mapUpcomingDividendListItemToLegacyDto(item: DividendUpcomingListItemDto): DashboardOverviewUpcomingDividendDto {
+  return {
+    accountId: item.accountId,
+    accountName: item.accountName,
+    ticker: item.ticker,
+    tickerName: item.tickerName,
+    marketCode: item.marketCode,
+    exDividendDate: item.exDividendDate,
+    paymentDate: item.paymentDate,
+    expectedAmount: item.expectedCashAmount,
+    expectedNetAmount: item.expectedNetAmount,
+    stockDistributionRatio: item.stockDistributionRatio,
+    stockDistributionRatioState: item.stockDistributionRatioState,
+    expectedStockCalcState: item.expectedStockCalcState,
+    currency: item.cashDividendCurrency,
+    status: item.status,
+  };
+}
+
+function mapDividendLedgerHistoryItemToLegacyRecentDto(item: DividendLedgerHistoryItemDto): DashboardOverviewRecentDividendDto {
+  const deductionAmount = item.nhiAmount + item.bankFeeAmount + item.otherDeductionAmount;
+  return {
+    accountId: item.accountId,
+    accountName: item.accountName,
+    ticker: item.ticker,
+    tickerName: item.tickerName,
+    marketCode: item.marketCode,
+    dividendLedgerEntryId: item.dividendLedgerEntryId,
+    paymentDate: item.paymentDate,
+    postedAt: item.postedAt,
+    netAmount: item.receivedCashAmount,
+    grossAmount: item.receivedCashAmount + deductionAmount,
+    deductionAmount: deductionAmount || null,
+    reconciliation: {
+      expectedGrossAmount: item.expectedCashAmount,
+      expectedNetAmount: item.expectedNetAmount,
+      actualNetAmount: item.actualNetAmount,
+      varianceAmount: item.varianceAmount,
+      deductions: item.deductions,
+    },
+    currency: item.cashDividendCurrency,
+    sourceSummary: resolveSourceSummary(item.eventType),
+    reconciliationStatus: item.reconciliationStatus,
+    status: item.reconciliationStatus === "matched" ? "posted" : "unreconciled",
+  };
 }
 
 function resolveDividendEventMarketCode(event: Pick<DividendEvent, "marketCode" | "cashDividendCurrency">): MarketCode {
@@ -1178,6 +1456,79 @@ function compareTransactionsForHistory(left: Transaction, right: Transaction): n
     || (right.bookedAt ?? "").localeCompare(left.bookedAt ?? "")
     || right.id.localeCompare(left.id)
   );
+}
+
+function paginateItems<T>(
+  items: readonly T[],
+  pageInput: { page: number; limit: 10 | 25 | 50 },
+): { items: T[]; page: number; limit: 10 | 25 | 50; total: number } {
+  const total = items.length;
+  const startIndex = (pageInput.page - 1) * pageInput.limit;
+  return {
+    items: items.slice(startIndex, startIndex + pageInput.limit),
+    page: pageInput.page,
+    limit: pageInput.limit,
+    total,
+  };
+}
+
+function summarizeDividendDeductions(
+  deductions: readonly { deductionType: string; amount: number }[],
+): { nhiAmount: number; bankFeeAmount: number; otherDeductionAmount: number } {
+  let nhiAmount = 0;
+  let bankFeeAmount = 0;
+  let otherDeductionAmount = 0;
+
+  for (const deduction of deductions) {
+    if (deduction.deductionType === "NHI_SUPPLEMENTAL_PREMIUM") {
+      nhiAmount += deduction.amount;
+      continue;
+    }
+    if (deduction.deductionType === "BANK_FEE") {
+      bankFeeAmount += deduction.amount;
+      continue;
+    }
+    otherDeductionAmount += deduction.amount;
+  }
+
+  return { nhiAmount, bankFeeAmount, otherDeductionAmount };
+}
+
+function resolveInstrumentType(store: Store, ticker: string, marketCode: MarketCode) {
+  return store.instruments.find((instrument) => instrument.ticker === ticker && instrument.marketCode === marketCode)?.type ?? "STOCK";
+}
+
+function comparePositionActionsDescending(left: HoldingActivityPositionActionDto, right: HoldingActivityPositionActionDto): number {
+  return (
+    right.actionDate.localeCompare(left.actionDate)
+    || (right.actionTimestamp ?? "").localeCompare(left.actionTimestamp ?? "")
+    || (right.bookedAt ?? "").localeCompare(left.bookedAt ?? "")
+    || left.id.localeCompare(right.id)
+  );
+}
+
+function compareUpcomingDividendItems(left: DividendUpcomingListItemDto, right: DividendUpcomingListItemDto): number {
+  return (
+    compareNullableDates(right.paymentDate, left.paymentDate)
+    || right.exDividendDate.localeCompare(left.exDividendDate)
+    || left.accountId.localeCompare(right.accountId)
+    || left.ticker.localeCompare(right.ticker)
+    || left.id.localeCompare(right.id)
+  );
+}
+
+function compareDividendLedgerHistoryItems(left: DividendLedgerHistoryItemDto, right: DividendLedgerHistoryItemDto): number {
+  return (
+    compareNullableDates(right.paymentDate, left.paymentDate)
+    || right.postedAt.localeCompare(left.postedAt)
+    || left.dividendLedgerEntryId.localeCompare(right.dividendLedgerEntryId)
+  );
+}
+
+function compareNullableDates(left: string | null | undefined, right: string | null | undefined): number {
+  const leftValue = left ?? "";
+  const rightValue = right ?? "";
+  return leftValue.localeCompare(rightValue);
 }
 
 function resolveSourceSummary(eventType: string | undefined): string | null {

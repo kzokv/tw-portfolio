@@ -687,7 +687,11 @@ describe("dividends", () => {
     // seed buy before the dividend lifecycle events. Filter for dividend
     // events only — their relative order is the load-bearing contract.
     const dividendOnly = events.filter((event) => event.type.startsWith("dividend_"));
-    expect(dividendOnly.map((event) => event.type)).toEqual(["dividend_posted", "dividend_updated"]);
+    expect(dividendOnly.map((event) => event.type)).toEqual([
+      "dividend_updated",
+      "dividend_posted",
+      "dividend_updated",
+    ]);
   });
 
   it("posts stock dividends through the non-cash holdings path, amends before sells, and reverses/replaces after sells", async () => {

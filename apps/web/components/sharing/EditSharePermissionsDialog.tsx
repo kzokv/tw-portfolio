@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { LocaleCode, ShareCapability } from "@vakwen/shared-types";
-import { ASSIGNABLE_SHARE_CAPABILITIES } from "../../features/sharing/capabilities";
+import { ASSIGNABLE_SHARE_CAPABILITIES, DIVIDEND_WRITE_CAPABILITY } from "../../features/sharing/capabilities";
 import type { OutboundShareRow } from "../../features/sharing/types";
 import { getDictionary } from "../../lib/i18n";
 import { Button } from "../ui/Button";
@@ -27,6 +27,18 @@ interface EditSharePermissionsDialogProps {
   onOpenChange: (open: boolean) => void;
   onSave: (row: OutboundShareRow, capabilities: ShareCapability[]) => void | Promise<void>;
 }
+
+const CAPABILITY_LABELS: Record<string, string> = {
+  "portfolio:mcp_read": "ChatGPT portfolio read",
+  "account:manage": "Manage accounts and fee settings",
+  "sharing:manage": "Manage named shares and invites",
+  "transaction_draft:create": "Create AI drafts",
+  "transaction_draft:edit": "Edit AI drafts",
+  "transaction_draft:archive": "Archive AI drafts",
+  "transaction_draft:delete": "Delete AI drafts",
+  "transaction:write": "Create, edit, and delete transactions",
+  [DIVIDEND_WRITE_CAPABILITY]: "Post, reconcile, and delete dividends",
+};
 
 export function EditSharePermissionsDialog({
   open,
@@ -83,7 +95,7 @@ export function EditSharePermissionsDialog({
                   htmlFor={checkboxId}
                   className="flex items-center justify-between gap-3 rounded-md border border-border bg-background px-3 py-2 text-sm"
                 >
-                  <span>{dict.sharing.capabilityLabels[capability]}</span>
+                  <span>{dict.sharing.capabilityLabels[capability as keyof typeof dict.sharing.capabilityLabels] ?? CAPABILITY_LABELS[capability]}</span>
                   <Checkbox
                     id={checkboxId}
                     checked={selected.includes(capability)}

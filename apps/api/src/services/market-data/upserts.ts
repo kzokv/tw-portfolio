@@ -99,6 +99,11 @@ export async function upsertDividendEvents(
     announcementDate?: string;
     totalDistributionShares?: number;
     rawProviderData?: Record<string, unknown>;
+    stockDistributionAmountRaw?: number | null;
+    stockDistributionRatio?: number | null;
+    stockDistributionRatioState?: "authoritative" | "derived_non_authoritative" | "unresolved";
+    stockParValueAmount?: number | null;
+    stockParValueCurrency?: string | null;
     sourceId?: string;
   }>,
 ): Promise<number> {
@@ -132,6 +137,11 @@ export async function upsertDividendEvents(
   const announcementDates: (string | null)[] = [];
   const totalDistShares: (number | null)[] = [];
   const rawProviderDataArr: (string | null)[] = [];
+  const stockDistributionAmountsRaw: (number | null)[] = [];
+  const stockDistributionRatios: (number | null)[] = [];
+  const stockDistributionRatioStates: (string | null)[] = [];
+  const stockParValueAmounts: (number | null)[] = [];
+  const stockParValueCurrencies: (string | null)[] = [];
 
   for (const ev of uniqueEvents) {
     const { eventType, id } = deriveDividendKey(ev);
@@ -149,6 +159,11 @@ export async function upsertDividendEvents(
     announcementDates.push(ev.announcementDate ?? null);
     totalDistShares.push(ev.totalDistributionShares ?? null);
     rawProviderDataArr.push(ev.rawProviderData ? JSON.stringify(ev.rawProviderData) : null);
+    stockDistributionAmountsRaw.push(ev.stockDistributionAmountRaw ?? null);
+    stockDistributionRatios.push(ev.stockDistributionRatio ?? null);
+    stockDistributionRatioStates.push(ev.stockDistributionRatioState ?? null);
+    stockParValueAmounts.push(ev.stockParValueAmount ?? null);
+    stockParValueCurrencies.push(ev.stockParValueCurrency ?? null);
   }
 
   // KZO-169: stamp market_code on every dividend row. ON CONFLICT keys on
@@ -159,13 +174,16 @@ export async function upsertDividendEvents(
     `INSERT INTO market_data.dividend_events
        (id, ticker, market_code, event_type, ex_dividend_date, payment_date, cash_dividend_per_share, stock_dividend_per_share,
         cash_dividend_currency, source, ingested_at,
-        fiscal_year_period, announcement_date, total_distribution_shares, raw_provider_data)
+        fiscal_year_period, announcement_date, total_distribution_shares, raw_provider_data,
+        stock_distribution_amount_raw, stock_distribution_ratio, stock_distribution_ratio_state,
+        stock_par_value_amount, stock_par_value_currency)
      SELECT * FROM unnest(
        $1::text[], $2::text[], $3::text[], $4::text[], $5::date[], $6::date[], $7::numeric[], $8::numeric[],
        $15::text[],
        $10::text[],
        array_fill(CURRENT_TIMESTAMP::timestamp, ARRAY[$9::int]),
-       $11::text[], $12::date[], $13::numeric[], $14::jsonb[]
+       $11::text[], $12::date[], $13::numeric[], $14::jsonb[],
+       $16::numeric[], $17::numeric[], $18::text[], $19::numeric[], $20::text[]
      )
      ON CONFLICT (id) DO UPDATE SET
        cash_dividend_per_share = EXCLUDED.cash_dividend_per_share,
@@ -176,9 +194,16 @@ export async function upsertDividendEvents(
        fiscal_year_period = EXCLUDED.fiscal_year_period,
        announcement_date = EXCLUDED.announcement_date,
        total_distribution_shares = EXCLUDED.total_distribution_shares,
-       raw_provider_data = EXCLUDED.raw_provider_data`,
+       raw_provider_data = EXCLUDED.raw_provider_data,
+       stock_distribution_amount_raw = EXCLUDED.stock_distribution_amount_raw,
+       stock_distribution_ratio = EXCLUDED.stock_distribution_ratio,
+       stock_distribution_ratio_state = EXCLUDED.stock_distribution_ratio_state,
+       stock_par_value_amount = EXCLUDED.stock_par_value_amount,
+       stock_par_value_currency = EXCLUDED.stock_par_value_currency`,
     [ids, tickers, marketCodes, eventTypes, exDates, payDates, cashAmounts, stockAmounts, uniqueEvents.length,
-     sources, fiscalYearPeriods, announcementDates, totalDistShares, rawProviderDataArr, currencies],
+     sources, fiscalYearPeriods, announcementDates, totalDistShares, rawProviderDataArr, currencies,
+     stockDistributionAmountsRaw, stockDistributionRatios, stockDistributionRatioStates,
+     stockParValueAmounts, stockParValueCurrencies],
   );
   return result.rowCount ?? 0;
 }

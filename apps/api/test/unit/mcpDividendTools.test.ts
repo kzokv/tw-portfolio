@@ -7,12 +7,12 @@ describe("MCP dividend tools", () => {
 
     expect(tools).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "get_dividend_review", scope: "portfolio:mcp_read", accessKind: "read" }),
-      expect.objectContaining({ name: "preview_post_dividend_receipt", scope: "transaction:write", accessKind: "write" }),
-      expect.objectContaining({ name: "post_dividend_receipt", scope: "transaction:write", accessKind: "write" }),
-      expect.objectContaining({ name: "preview_amend_dividend_receipt", scope: "transaction:write", accessKind: "write" }),
-      expect.objectContaining({ name: "amend_dividend_receipt", scope: "transaction:write", accessKind: "write" }),
-      expect.objectContaining({ name: "preview_update_dividend_reconciliation", scope: "transaction:write", accessKind: "write" }),
-      expect.objectContaining({ name: "update_dividend_reconciliation", scope: "transaction:write", accessKind: "write" }),
+      expect.objectContaining({ name: "preview_post_dividend_receipt", scope: "dividend:write", accessKind: "write" }),
+      expect.objectContaining({ name: "post_dividend_receipt", scope: "dividend:write", accessKind: "write" }),
+      expect.objectContaining({ name: "preview_amend_dividend_receipt", scope: "dividend:write", accessKind: "write" }),
+      expect.objectContaining({ name: "amend_dividend_receipt", scope: "dividend:write", accessKind: "write" }),
+      expect.objectContaining({ name: "preview_update_dividend_reconciliation", scope: "dividend:write", accessKind: "write" }),
+      expect.objectContaining({ name: "update_dividend_reconciliation", scope: "dividend:write", accessKind: "write" }),
     ]));
   });
 

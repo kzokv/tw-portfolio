@@ -183,6 +183,11 @@ function getMarketLocalParts(market: SupportedMarketCode, now: Date): {
   };
 }
 
+export function getMarketLocalDate(market: MarketCode, now: Date): string {
+  assertSupportedMarket(market);
+  return getMarketLocalParts(market, now).localDate;
+}
+
 function resolveMarketSettlementCandidate(
   market: MarketCode,
   now: Date,
