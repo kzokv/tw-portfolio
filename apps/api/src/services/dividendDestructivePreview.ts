@@ -11,6 +11,7 @@ import type {
 } from "../persistence/types.js";
 import { routeError } from "../lib/routeError.js";
 import { replayPositionHistory } from "./replayPositionHistory.js";
+import { resolveDividendEventMarketCode, resolveDividendPostingDate } from "./dividends.js";
 import type {
   AccountingStore,
   BookedTradeEvent,
@@ -171,6 +172,18 @@ function buildOperationState(store: Store, ownerUserId: string, operation: Destr
       marketCode: action.marketCode,
     });
   }
+  const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
+  for (const entry of store.accounting.facts.dividendLedgerEntries) {
+    if (entry.accountId !== operation.accountId || entry.reversalOfDividendLedgerEntryId || entry.supersededAt) continue;
+    const event = eventById.get(entry.dividendEventId);
+    if (!event || resolveDividendPostingDate(event.paymentDate, entry.bookedAt) < operation.cutoffDate) continue;
+    const marketCode = resolveDividendEventMarketCode(event);
+    scopeMap.set(`${entry.accountId}:${event.ticker}:${marketCode}`, {
+      accountId: entry.accountId,
+      ticker: event.ticker,
+      marketCode,
+    });
+  }
 
   return {
     ownerUserId,
@@ -286,6 +299,35 @@ async function simulateReplayChanges(store: Store, state: OperationState): Promi
   await memory.saveStore(workingStore);
 
   const allChanges = new Map<string, DividendDestructiveDividendImpactRecord>();
+  if (state.operationKind === "account_cutoff_purge" && state.cutoffDate) {
+    const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
+    for (const current of store.accounting.facts.dividendLedgerEntries) {
+      if (current.accountId !== state.accountId || current.reversalOfDividendLedgerEntryId || current.supersededAt) continue;
+      const event = eventById.get(current.dividendEventId);
+      if (!event || resolveDividendPostingDate(event.paymentDate, current.bookedAt) < state.cutoffDate) continue;
+      allChanges.set(`${current.accountId}:${current.dividendEventId}`, {
+        accountId: current.accountId,
+        dividendEventId: current.dividendEventId,
+        dividendLedgerEntryId: current.id,
+        postingStatus: current.postingStatus,
+        beforeEligibleQuantity: current.eligibleQuantity,
+        afterEligibleQuantity: current.eligibleQuantity,
+        beforeExpectedCashAmount: current.expectedCashAmount,
+        afterExpectedCashAmount: current.expectedCashAmount,
+        beforeExpectedStockQuantity: current.expectedStockQuantity,
+        afterExpectedStockQuantity: current.expectedStockQuantity,
+        cashLedgerEntryIds: sortIds(store.accounting.facts.cashLedgerEntries
+          .filter((entry) => entry.relatedDividendLedgerEntryId === current.id).map((entry) => entry.id)),
+        dividendDeductionEntryIds: sortIds(store.accounting.facts.dividendDeductionEntries
+          .filter((entry) => entry.dividendLedgerEntryId === current.id).map((entry) => entry.id)),
+        dividendSourceLineIds: sortIds(store.accounting.facts.dividendSourceLines
+          .filter((entry) => entry.dividendLedgerEntryId === current.id).map((entry) => entry.id)),
+        stockDividendPositionActionIds: sortIds(store.accounting.facts.positionActions
+          .filter((entry) => entry.relatedDividendLedgerEntryId === current.id).map((entry) => entry.id)),
+        requiresManualReceiptReentry: current.postingStatus !== "expected",
+      });
+    }
+  }
   for (const scope of state.touchedScopes) {
     const currentEntries = activeDividendEntries(store, scope.accountId, scope.ticker, scope.marketCode);
     const currentByEventId = new Map(currentEntries.map((entry) => [entry.dividendEventId, entry]));
@@ -562,8 +604,8 @@ async function createPreview(
 ): Promise<PreviewResponse> {
   const simulation = await buildSimulation(persistence, ownerUserId, operation);
   return persistence.withDividendDestructiveLock(ownerUserId, simulation.operation.accountId, async () => {
-    const accountRevision = await persistence.getAccountAccountingRevision(ownerUserId, simulation.operation.accountId);
     const lockedSimulation = await buildSimulation(persistence, ownerUserId, operation);
+    const accountRevision = await persistence.getAccountAccountingRevision(ownerUserId, lockedSimulation.operation.accountId);
     const previewId = randomUUID();
     const previewVersion = await persistence.countDividendDestructivePreviews(ownerUserId, lockedSimulation.operation.operationKey) + 1;
     const createdAt = new Date().toISOString();

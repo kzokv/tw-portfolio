@@ -534,6 +534,99 @@ describe("dividend destructive preview", () => {
     });
   });
 
+  it("purges standalone posted dividends at or after an account cutoff", async () => {
+    const store = await app.persistence.loadStore("user-1");
+    createDividendEvent(store, {
+      id: "standalone-dividend",
+      ticker: "0050",
+      marketCode: "TW",
+      eventType: "CASH",
+      exDividendDate: "2026-04-01",
+      paymentDate: "2026-04-20",
+      cashDividendPerShare: 1,
+      cashDividendCurrency: "TWD",
+      stockDividendPerShare: 0,
+      stockDistributionAmountRaw: 0,
+      stockDistributionRatio: null,
+      stockDistributionRatioState: "unresolved",
+      stockParValueAmount: null,
+      stockParValueCurrency: null,
+      source: "test",
+    });
+    store.accounting.facts.dividendLedgerEntries.push({
+      id: "standalone-ledger",
+      accountId: "acc-1",
+      dividendEventId: "standalone-dividend",
+      eligibleQuantity: 100,
+      expectedCashAmount: 100,
+      expectedStockQuantity: 0,
+      receivedCashAmount: 95,
+      receivedStockQuantity: 0,
+      postingStatus: "posted",
+      reconciliationStatus: "open",
+      version: 1,
+      sourceCompositionStatus: "provided",
+      bookedAt: "2026-04-20T02:00:00.000Z",
+    });
+    store.accounting.facts.cashLedgerEntries.push({
+      id: "standalone-cash",
+      userId: "user-1",
+      accountId: "acc-1",
+      entryDate: "2026-04-20",
+      entryType: "DIVIDEND_RECEIPT",
+      amount: 95,
+      currency: "TWD",
+      relatedDividendLedgerEntryId: "standalone-ledger",
+      source: "test",
+    });
+    store.accounting.facts.dividendDeductionEntries.push({
+      id: "standalone-deduction",
+      dividendLedgerEntryId: "standalone-ledger",
+      deductionType: "BANK_FEE",
+      amount: 5,
+      currencyCode: "TWD",
+      withheldAtSource: true,
+      source: "test",
+    });
+    store.accounting.facts.dividendSourceLines.push({
+      id: "standalone-source",
+      dividendLedgerEntryId: "standalone-ledger",
+      sourceBucket: "DIVIDEND_INCOME",
+      amount: 100,
+      currencyCode: "TWD",
+      source: "test",
+    });
+    await app.persistence.saveStore(store);
+
+    const preview = await previewAccountCutoffPurge(app.persistence, {
+      ownerUserId: "user-1",
+      actorUserId: "user-1",
+      accountId: "acc-1",
+      cutoffDate: "2026-04-01",
+      reason: "Restart April history",
+    }) as PreviewBody;
+
+    expect(preview.operation.replayScopes).toContainEqual({
+      accountId: "acc-1",
+      ticker: "0050",
+      marketCode: "TW",
+      fromDate: "2026-04-01",
+    });
+    expect(preview.affectedGroups.derived).toMatchObject({
+      dividendLedgerEntryIds: ["standalone-ledger"],
+      cashLedgerEntryIds: ["standalone-cash"],
+      dividendDeductionEntryIds: ["standalone-deduction"],
+      dividendSourceLineIds: ["standalone-source"],
+    });
+
+    await confirmCutoff(preview);
+    const updatedStore = await app.persistence.loadStore("user-1");
+    expect(updatedStore.accounting.facts.dividendLedgerEntries.some((entry) => entry.id === "standalone-ledger")).toBe(false);
+    expect(updatedStore.accounting.facts.cashLedgerEntries.some((entry) => entry.id === "standalone-cash")).toBe(false);
+    expect(updatedStore.accounting.facts.dividendDeductionEntries.some((entry) => entry.id === "standalone-deduction")).toBe(false);
+    expect(updatedStore.accounting.facts.dividendSourceLines.some((entry) => entry.id === "standalone-source")).toBe(false);
+  });
+
   it("rejects stale and consumed previews", async () => {
     await seedScenario();
 
