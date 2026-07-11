@@ -100,6 +100,13 @@ interface TickerHistoryClientProps {
   tickerPriceIntradayRefreshIntervalMinutes?: number | null;
 }
 
+export function canDeleteTickerTransactions(
+  isSharedContext: boolean,
+  permissions: { canWriteTransactions: boolean; canWriteDividends: boolean },
+): boolean {
+  return !isSharedContext || (permissions.canWriteTransactions && permissions.canWriteDividends);
+}
+
 const REPAIR_EVENT_TYPES: string[] = ["repair_started", "repair_complete", "repair_failed"];
 const TICKER_DETAILS_CACHE_TTL_MS = 3 * 60 * 1000;
 const TICKER_RANGE_ITEMS = [...TICKER_CHART_RANGES, "CUSTOM"] as const;
@@ -638,6 +645,7 @@ export function TickerHistoryClient({
   const isSharedContext = sharedContextOwnerId !== null;
   const canWriteTransactions = !isSharedContext || sharedContextPermissions.canWriteTransactions;
   const canWriteDividends = !isSharedContext || sharedContextPermissions.canWriteDividends;
+  const canDeleteTransactions = canDeleteTickerTransactions(isSharedContext, sharedContextPermissions);
   const currency = detailsState.identity.currency;
   const identityDisplayName = detailsState.identity.name?.trim();
   const tickerTitle = identityDisplayName ? `${identityDisplayName} (${ticker})` : ticker;
@@ -1835,7 +1843,7 @@ export function TickerHistoryClient({
               transactions={displayTransactions}
               dict={dict}
               locale={locale}
-              onDeleteRequest={canWriteTransactions ? mutations.startDelete : undefined}
+              onDeleteRequest={canDeleteTransactions ? mutations.startDelete : undefined}
               editingId={canWriteTransactions ? mutations.editingId : null}
               onEditStart={canWriteTransactions ? mutations.startEdit : undefined}
               onEditCancel={canWriteTransactions ? mutations.cancelEdit : undefined}

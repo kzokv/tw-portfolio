@@ -8,7 +8,7 @@ import type {
   InstrumentCatalogItemDto,
   TransactionHistoryItemDto,
 } from "@vakwen/shared-types";
-import { TickerHistoryClient } from "../../../app/tickers/[ticker]/TickerHistoryClient";
+import { canDeleteTickerTransactions, TickerHistoryClient } from "../../../app/tickers/[ticker]/TickerHistoryClient";
 import type { TickerDetailsModel } from "../../../features/portfolio/services/tickerDetailsService";
 import { getDictionary } from "../../../lib/i18n";
 import { testPriceState } from "../../fixtures/priceState";
@@ -494,6 +494,21 @@ function feeProfilesFor(testAccounts: AccountDto[]): FeeProfileDto[] {
 }
 
 describe("TickerHistoryClient", () => {
+  it("requires both delegated write permissions for transaction deletion", () => {
+    expect(canDeleteTickerTransactions(true, {
+      canWriteTransactions: true,
+      canWriteDividends: false,
+    })).toBe(false);
+    expect(canDeleteTickerTransactions(true, {
+      canWriteTransactions: true,
+      canWriteDividends: true,
+    })).toBe(true);
+    expect(canDeleteTickerTransactions(false, {
+      canWriteTransactions: false,
+      canWriteDividends: false,
+    })).toBe(true);
+  });
+
   it("does not render the duplicated position summary strip above the tabs", () => {
     vi.mocked(fetchTickerDetailsHydration).mockResolvedValue(details);
     const element = renderTickerHistoryClient();
