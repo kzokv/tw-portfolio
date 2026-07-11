@@ -79,13 +79,25 @@ describePostgres("dividend read model parity", () => {
         eligibleQuantity: 10,
         expectedCashAmount: 100,
         expectedStockQuantity: 0,
-        receivedCashAmount: 100,
+        receivedCashAmount: 0,
         receivedStockQuantity: 0,
         postingStatus: "posted",
         reconciliationStatus: index === 1 ? "open" : "matched",
         version: 1,
         sourceCompositionStatus: "provided",
         bookedAt: `2026-02-${day}T09:00:00.000Z`,
+      });
+      store.accounting.facts.cashLedgerEntries.push({
+        id: `cash-receipt-${day}`,
+        userId: "user-1",
+        accountId,
+        entryDate: `2026-02-${day}`,
+        entryType: "DIVIDEND_RECEIPT",
+        amount: 100 + index,
+        currency: "TWD",
+        relatedDividendLedgerEntryId: `ledger-${day}`,
+        source: "test",
+        bookedAt: `2026-02-${day}T09:00:01.000Z`,
       });
     }
     await persistence.saveStore(store);
@@ -103,6 +115,8 @@ describePostgres("dividend read model parity", () => {
 
     expect(posted.total).toBe(12);
     expect(posted.items.map((item) => item.dividendLedgerEntryId)).toEqual(["ledger-02", "ledger-01"]);
+    expect(posted.items.map((item) => item.receivedCashAmount)).toEqual([102, 101]);
+    expect(posted.items.map((item) => item.actualNetAmount)).toEqual([102, 101]);
     expect(open.total).toBe(1);
     expect(open.items.map((item) => item.dividendLedgerEntryId)).toEqual(["ledger-01"]);
   });
@@ -125,6 +139,9 @@ describePostgres("dividend read model parity", () => {
       source: "test",
     }];
     store.accounting.facts.dividendLedgerEntries = [];
+    store.accounting.facts.cashLedgerEntries = store.accounting.facts.cashLedgerEntries.filter(
+      (entry) => entry.entryType !== "DIVIDEND_RECEIPT",
+    );
     store.accounting.facts.tradeEvents.push({
       id: "buy-expected-generated",
       userId: "user-1",

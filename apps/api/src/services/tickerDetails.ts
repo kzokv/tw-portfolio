@@ -1280,6 +1280,14 @@ function buildActivePostedDividendHistoryItems(
     group.push(deduction);
     deductionsByLedgerId.set(deduction.dividendLedgerEntryId, group);
   }
+  const receivedCashByLedgerId = new Map<string, number>();
+  for (const cashEntry of store.accounting.facts.cashLedgerEntries) {
+    if (cashEntry.entryType !== "DIVIDEND_RECEIPT" || !cashEntry.relatedDividendLedgerEntryId) continue;
+    receivedCashByLedgerId.set(
+      cashEntry.relatedDividendLedgerEntryId,
+      (receivedCashByLedgerId.get(cashEntry.relatedDividendLedgerEntryId) ?? 0) + cashEntry.amount,
+    );
+  }
 
   return listDividendLedgerEntries(store)
     .filter((entry) => scopedAccountIds.has(entry.accountId))
@@ -1290,10 +1298,11 @@ function buildActivePostedDividendHistoryItems(
     .flatMap((entry): DividendLedgerHistoryItemDto[] => {
       const event = eventById.get(entry.dividendEventId);
       if (!event) return [];
+      const receivedCashAmount = receivedCashByLedgerId.get(entry.id) ?? entry.receivedCashAmount;
       const deductions = summarizeDividendDeductions(deductionsByLedgerId.get(entry.id) ?? []);
       const cashReconciliation = calculateDividendCashReconciliation({
         expectedGrossAmount: entry.expectedCashAmount,
-        actualNetAmount: entry.receivedCashAmount,
+        actualNetAmount: receivedCashAmount,
         deductions,
       });
       const stockEntitlement = resolveDividendStockEntitlement({
@@ -1316,7 +1325,7 @@ function buildActivePostedDividendHistoryItems(
         postedAt: entry.bookedAt ?? event.paymentDate ?? entry.id,
         expectedCashAmount: entry.expectedCashAmount,
         expectedNetAmount: cashReconciliation.expectedNetAmount,
-        receivedCashAmount: entry.receivedCashAmount,
+        receivedCashAmount,
         actualNetAmount: cashReconciliation.actualNetAmount,
         varianceAmount: cashReconciliation.varianceAmount,
         expectedStockQuantity: entry.expectedStockQuantity,

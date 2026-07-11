@@ -41,7 +41,7 @@ const PRESETS: Array<{
   { key: "viewer", capabilities: [] },
   { key: "aiViewer", capabilities: ["portfolio:mcp_read"] },
   { key: "draftCollaborator", capabilities: ["portfolio:mcp_read", "transaction_draft:create", "transaction_draft:edit"] },
-  { key: "delegateManager", capabilities: ["portfolio:mcp_read", "account:manage", "sharing:manage", "transaction:write"] },
+  { key: "delegateManager", capabilities: ["portfolio:mcp_read", "account:manage", "sharing:manage", "transaction:write", DIVIDEND_WRITE_CAPABILITY] },
   { key: "fullDelegate", capabilities: [...ASSIGNABLE_SHARE_CAPABILITIES] },
 ];
 
@@ -207,6 +207,7 @@ export function GrantShareDialog({
                     <button
                       key={preset.key}
                       type="button"
+                      data-testid={`grant-share-preset-${preset.key}`}
                       className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
                       onClick={() => {
                         setCapabilities(preset.capabilities.filter((capability) => capabilityOptions.includes(capability)));
@@ -222,6 +223,7 @@ export function GrantShareDialog({
                       <span>{dict.sharing.capabilityLabels[capability as keyof typeof dict.sharing.capabilityLabels] ?? CAPABILITY_LABELS[capability]}</span>
                       <input
                         type="checkbox"
+                        data-testid={`grant-share-capability-${capability}`}
                         checked={capabilities.includes(capability)}
                         onChange={(event) => toggleCapability(capability, event.target.checked)}
                       />
