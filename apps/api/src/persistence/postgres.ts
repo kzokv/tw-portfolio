@@ -12488,8 +12488,13 @@ export class PostgresPersistence implements Persistence {
     accounting: AccountingStore,
     accountIds: string[],
   ): Promise<void> {
-    await client.query(`DELETE FROM cash_ledger_entries WHERE user_id = $1`, [userId]);
     if (accountIds.length) {
+      await client.query(
+        `DELETE FROM cash_ledger_entries
+          WHERE user_id = $1
+            AND account_id = ANY($2::text[])`,
+        [userId, accountIds],
+      );
       await client.query(
         `DELETE FROM dividend_deduction_entries dde
          USING dividend_ledger_entries dle
@@ -12499,10 +12504,38 @@ export class PostgresPersistence implements Persistence {
       );
       await client.query(`DELETE FROM position_actions WHERE account_id = ANY($1)`, [accountIds]);
       await client.query(`DELETE FROM dividend_ledger_entries WHERE account_id = ANY($1)`, [accountIds]);
+      await client.query(
+        `DELETE FROM lot_allocations
+          WHERE user_id = $1
+            AND account_id = ANY($2::text[])`,
+        [userId, accountIds],
+      );
+      const feePolicySnapshotIds = await client.query<{ fee_policy_snapshot_id: string | null }>(
+        `SELECT DISTINCT fee_policy_snapshot_id
+           FROM trade_events
+          WHERE user_id = $1
+            AND account_id = ANY($2::text[])
+            AND fee_policy_snapshot_id IS NOT NULL`,
+        [userId, accountIds],
+      );
+      await client.query(
+        `DELETE FROM trade_events
+          WHERE user_id = $1
+            AND account_id = ANY($2::text[])`,
+        [userId, accountIds],
+      );
+      const snapshotIds = feePolicySnapshotIds.rows
+        .map((row) => row.fee_policy_snapshot_id)
+        .filter((id): id is string => id !== null);
+      if (snapshotIds.length) {
+        await client.query(
+          `DELETE FROM trade_fee_policy_snapshots
+            WHERE user_id = $1
+              AND id = ANY($2::text[])`,
+          [userId, snapshotIds],
+        );
+      }
     }
-    await client.query(`DELETE FROM lot_allocations WHERE user_id = $1`, [userId]);
-    await client.query(`DELETE FROM trade_events WHERE user_id = $1`, [userId]);
-    await client.query(`DELETE FROM trade_fee_policy_snapshots WHERE user_id = $1`, [userId]);
     for (const dividendLedgerEntry of accounting.facts.dividendLedgerEntries) {
       const dividendLedgerVersion = dividendLedgerEntry.version ?? 1;
       const dividendSourceCompositionStatus =
