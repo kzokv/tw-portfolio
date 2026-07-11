@@ -1125,7 +1125,7 @@ export function DividendReviewClient({
                           </span>
                         </td>
                         <td className="px-4 py-3">
-                          {entry.rowKind !== "expected" && entry.reconciliationStatus === "open" ? (
+                          {canWriteDividends && entry.rowKind !== "expected" && entry.reconciliationStatus === "open" ? (
                             <Button
                               size="sm"
                               variant="secondary"

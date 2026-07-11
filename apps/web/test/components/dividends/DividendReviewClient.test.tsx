@@ -324,6 +324,30 @@ describe("DividendReviewClient", () => {
     expect(container.textContent).toContain("NT$8");
   });
 
+  it("hides the quick reconciliation action without delegated dividend write access", async () => {
+    shellContext.value = {
+      isSharedContext: true,
+      sharedContextPermissions: { canWriteDividends: false },
+      contextRefreshSignal: 0,
+    };
+
+    act(() => {
+      root.render(
+        <DividendReviewClient
+          initialData={{ ...emptyReviewData, ledgerEntries: [postedReviewRow], total: 1 }}
+          dict={dict}
+          locale="en"
+          accounts={[{ id: "acc-1", name: "Main", userId: "user-1", feeProfileId: "fee-1", accountType: "broker", defaultCurrency: "TWD" }]}
+          years={[2026]}
+        />,
+      );
+    });
+
+    await act(async () => {});
+
+    expect(container.querySelector("[data-testid='mark-matched-ledger-1']")).toBeNull();
+  });
+
   it("opens the ticker route from the row link without opening the review drawer", async () => {
     act(() => {
       root.render(
