@@ -212,7 +212,14 @@ describe("TickerDividendsTab", () => {
     await act(async () => reviewButton?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     await flush();
 
-    expect(reviewService.fetch).toHaveBeenCalledWith(expect.objectContaining({ ticker: "2330", accountId: "acc-1", excludeExpected: true }));
+    expect(reviewService.fetch).toHaveBeenCalledWith(expect.objectContaining({
+      ticker: "2330",
+      accountId: "acc-1",
+      excludeExpected: true,
+      reconciliationStatus: "open",
+      page: 1,
+      limit: 50,
+    }));
     const drawer = container.querySelector('[data-testid="shared-dividend-review-drawer"]');
     expect(drawer?.getAttribute("data-entry-id")).toBe("ledger-open");
     expect(drawer?.getAttribute("data-allow-mutations")).toBe("false");
