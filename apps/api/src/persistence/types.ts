@@ -1021,6 +1021,7 @@ export interface DividendDestructivePreviewRecord {
   ownerUserId: string;
   actorUserId: string | null;
   accountId: string;
+  accountRevision: number;
   targetTradeEventId?: string | null;
   cutoffDate?: string | null;
   reason: string;

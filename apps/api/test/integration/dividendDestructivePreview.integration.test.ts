@@ -703,6 +703,31 @@ describe("dividend destructive preview", () => {
     expect(after.accounting.facts.dividendLedgerEntries.some((entry) => entry.id === ids.primaryPostedLedgerId)).toBe(true);
   });
 
+  it("rejects amount-only accounting drift against the preview-time revision", async () => {
+    const ids = await seedScenario();
+    const preview = await previewTradeDividendDeletion(app.persistence, {
+      ownerUserId: "user-1",
+      actorUserId: "user-1",
+      tradeEventId: "trade-delete",
+      reason: "Review before amount drift",
+    }) as PreviewBody;
+
+    const store = await app.persistence.loadStore("user-1");
+    const deduction = store.accounting.facts.dividendDeductionEntries.find(
+      (entry) => ids.primaryDeductionEntryIds.includes(entry.id),
+    );
+    expect(deduction).toBeDefined();
+    deduction!.amount += 1;
+    await app.persistence.saveStore(store);
+
+    await expect(confirmTrade(preview)).rejects.toMatchObject({
+      code: "dividend_destructive_preview_row_drift",
+      statusCode: 409,
+    });
+    const after = await app.persistence.loadStore("user-1");
+    expect(after.accounting.facts.tradeEvents.some((entry) => entry.id === "trade-delete")).toBe(true);
+  });
+
   it("rolls back the memory store when audited confirm persistence fails", async () => {
     const ids = await seedScenario();
 

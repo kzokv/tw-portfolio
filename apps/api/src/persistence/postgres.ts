@@ -1376,6 +1376,7 @@ export class PostgresPersistence implements Persistence {
     const affectedCountsPayload = {
       counts: input.record.affectedCounts,
       reviewedArtifacts: input.record.reviewedArtifacts,
+      accountRevision: input.record.accountRevision,
     };
     const client = await this.pool.connect();
     try {
@@ -1519,6 +1520,7 @@ export class PostgresPersistence implements Persistence {
       | {
           counts: DividendDestructivePreviewState["affectedCounts"];
           reviewedArtifacts?: DividendDestructivePreviewState["reviewedArtifacts"];
+          accountRevision?: number;
         };
     const affectedCounts = "counts" in affectedCountsPayload ? affectedCountsPayload.counts : affectedCountsPayload;
     const reviewedArtifacts = "counts" in affectedCountsPayload
@@ -1570,6 +1572,7 @@ export class PostgresPersistence implements Persistence {
       ownerUserId: previewRow.owner_user_id,
       actorUserId: previewRow.actor_user_id,
       accountId: previewRow.account_id,
+      accountRevision: "counts" in affectedCountsPayload ? (affectedCountsPayload.accountRevision ?? 0) : 0,
       targetTradeEventId: previewRow.target_trade_event_id,
       cutoffDate: previewRow.cutoff_date,
       reason: previewRow.reason,
@@ -19713,6 +19716,8 @@ function compareDividendReviewRows(
       cmp = compareNumberByOrder(left.otherDeductionAmount ?? 0, right.otherDeductionAmount ?? 0, opts.sortOrder);
       break;
     case "receivedCashAmount":
+      cmp = compareNumberByOrder(left.receivedCashAmount, right.receivedCashAmount, opts.sortOrder);
+      break;
     case "actualNetAmount":
       cmp = compareNumberByOrder(left.actualNetAmount ?? 0, right.actualNetAmount ?? 0, opts.sortOrder);
       break;

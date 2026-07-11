@@ -561,34 +561,37 @@ async function createPreview(
 ): Promise<PreviewResponse> {
   const simulation = await buildSimulation(persistence, ownerUserId, operation);
   return persistence.withDividendDestructiveLock(ownerUserId, simulation.operation.accountId, async () => {
+    const accountRevision = await persistence.getAccountAccountingRevision(ownerUserId, simulation.operation.accountId);
+    const lockedSimulation = await buildSimulation(persistence, ownerUserId, operation);
     const previewId = randomUUID();
-    const previewVersion = await persistence.countDividendDestructivePreviews(ownerUserId, simulation.operation.operationKey) + 1;
+    const previewVersion = await persistence.countDividendDestructivePreviews(ownerUserId, lockedSimulation.operation.operationKey) + 1;
     const createdAt = new Date().toISOString();
     const record: DividendDestructivePreviewRecord = {
       previewId,
       previewVersion,
-      fingerprint: simulation.fingerprint,
-      operationKind: simulation.operation.operationKind,
-      operationKey: simulation.operation.operationKey,
+      fingerprint: lockedSimulation.fingerprint,
+      operationKind: lockedSimulation.operation.operationKind,
+      operationKey: lockedSimulation.operation.operationKey,
       ownerUserId,
       actorUserId,
-      accountId: simulation.operation.accountId,
-      targetTradeEventId: simulation.operation.targetTradeEventId,
-      cutoffDate: simulation.operation.cutoffDate,
-      reason: simulation.operation.reason,
+      accountId: lockedSimulation.operation.accountId,
+      accountRevision,
+      targetTradeEventId: lockedSimulation.operation.targetTradeEventId,
+      cutoffDate: lockedSimulation.operation.cutoffDate,
+      reason: lockedSimulation.operation.reason,
       expiresAt: new Date(Date.now() + PREVIEW_TTL_MS).toISOString(),
       createdAt,
-      affectedCounts: simulation.affectedCounts,
-      affectedDividends: simulation.affectedDividends,
-      manualReceiptReentryLedgerEntryIds: simulation.manualReceiptReentryLedgerEntryIds,
-      reviewedArtifacts: simulation.reviewedArtifacts,
+      affectedCounts: lockedSimulation.affectedCounts,
+      affectedDividends: lockedSimulation.affectedDividends,
+      manualReceiptReentryLedgerEntryIds: lockedSimulation.manualReceiptReentryLedgerEntryIds,
+      reviewedArtifacts: lockedSimulation.reviewedArtifacts,
     };
     await persistence.saveDividendDestructivePreview({ record, ipAddress });
     return toPreviewResponse({
       ...record,
       consumedAt: null,
       consumedResult: null,
-    }, simulation.operation);
+    }, lockedSimulation.operation);
   });
 }
 
@@ -652,7 +655,6 @@ async function confirmPreview(
     const startedAt = new Date().toISOString();
 
     try {
-      const expectedAccountRevision = await persistence.getAccountAccountingRevision(ownerUserId, lockedPreview.accountId);
       const simulation = await buildSimulation(persistence, ownerUserId, operation);
       if (simulation.fingerprint !== lockedPreview.fingerprint) {
         throw routeError(409, "dividend_destructive_preview_row_drift", "Underlying records changed after preview");
@@ -686,7 +688,7 @@ async function confirmPreview(
       }, {
         expectedAccountRevision: {
           accountId: lockedPreview.accountId,
-          revision: expectedAccountRevision,
+          revision: lockedPreview.accountRevision,
         },
         deleteHoldingSnapshotScopes: simulation.operation.touchedScopes.map((scope) => ({
           ...scope,

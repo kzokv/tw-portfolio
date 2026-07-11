@@ -618,6 +618,7 @@ export class MemoryPersistence implements Persistence {
   private readonly anonymousShareTokenLocks = new Map<string, Promise<unknown>>();
   /** Per-account async mutex for destructive dividend confirmation. */
   private readonly dividendDestructiveLocks = new Map<string, Promise<void>>();
+  private readonly accountAccountingRevisions = new Map<string, number>();
   private readonly dividendDestructivePreviews = new Map<string, DividendDestructivePreviewRecord>();
   private readonly dividendDestructiveOutcomes = new Map<string, {
     consumedAt: string;
@@ -2370,6 +2371,10 @@ export class MemoryPersistence implements Persistence {
     validateMemoryStoreOwnership(store);
     syncInstruments(store);
     this.stores.set(store.userId, store);
+    for (const account of store.accounts) {
+      const key = `${store.userId}:${account.id}`;
+      this.accountAccountingRevisions.set(key, (this.accountAccountingRevisions.get(key) ?? 0) + 1);
+    }
   }
 
   async upsertInstruments(userId: string, instruments: Store["instruments"]): Promise<void> {
@@ -2388,6 +2393,10 @@ export class MemoryPersistence implements Persistence {
     const store = await this.loadStore(userId);
     store.accounting = accounting;
     this.stores.set(userId, store);
+    for (const account of store.accounts) {
+      const key = `${userId}:${account.id}`;
+      this.accountAccountingRevisions.set(key, (this.accountAccountingRevisions.get(key) ?? 0) + 1);
+    }
   }
 
   async saveAccountingStoreWithAudit(
@@ -2397,6 +2406,12 @@ export class MemoryPersistence implements Persistence {
     options?: AccountingStoreAuditOptions,
   ): Promise<void> {
     const store = await this.loadStore(userId);
+    if (options?.expectedAccountRevision) {
+      const currentRevision = await this.getAccountAccountingRevision(userId, options.expectedAccountRevision.accountId);
+      if (currentRevision !== options.expectedAccountRevision.revision) {
+        throw routeError(409, "dividend_destructive_preview_row_drift", "Underlying records changed after preview");
+      }
+    }
     const previousAccounting = structuredClone(store.accounting);
     const previousHoldingSnapshots = options?.deleteHoldingSnapshotScopes?.length
       ? structuredClone(this.holdingSnapshots)
@@ -2442,6 +2457,10 @@ export class MemoryPersistence implements Persistence {
           consumedResult: "confirmed",
         });
       }
+      for (const account of store.accounts) {
+        const key = `${userId}:${account.id}`;
+        this.accountAccountingRevisions.set(key, (this.accountAccountingRevisions.get(key) ?? 0) + 1);
+      }
     } catch (error) {
       store.accounting = previousAccounting;
       this.stores.set(userId, store);
@@ -2457,7 +2476,7 @@ export class MemoryPersistence implements Persistence {
     if (!store.accounts.some((account) => account.id === accountId)) {
       throw routeError(404, "account_not_found", "Account not found");
     }
-    return 0;
+    return this.accountAccountingRevisions.get(`${userId}:${accountId}`) ?? 0;
   }
 
   async savePostedTrade(userId: string, accounting: AccountingStore): Promise<void> {
@@ -8633,6 +8652,8 @@ function compareDividendReviewRows(
       cmp = compareNumberByOrder(left.otherDeductionAmount ?? 0, right.otherDeductionAmount ?? 0, opts.sortOrder);
       break;
     case "receivedCashAmount":
+      cmp = compareNumberByOrder(left.receivedCashAmount, right.receivedCashAmount, opts.sortOrder);
+      break;
     case "actualNetAmount":
       cmp = compareNumberByOrder(left.actualNetAmount ?? 0, right.actualNetAmount ?? 0, opts.sortOrder);
       break;
