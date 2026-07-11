@@ -442,6 +442,26 @@ describe("DividendPostingForm", () => {
         nhiAmount: 63,
         bankFeeAmount: 10,
         otherDeductionAmount: 0,
+        deductions: [
+          {
+            id: "deduction-nhi",
+            dividendLedgerEntryId: "ledger-1",
+            deductionType: "NHI_SUPPLEMENTAL_PREMIUM",
+            amount: 63,
+            currencyCode: "TWD",
+            withheldAtSource: true,
+            source: "test",
+          },
+          {
+            id: "deduction-bank-fee",
+            dividendLedgerEntryId: "ledger-1",
+            deductionType: "BANK_FEE",
+            amount: 10,
+            currencyCode: "TWD",
+            withheldAtSource: false,
+            source: "test",
+          },
+        ],
         stockDistributionRatioState: "unresolved",
       }),
     });
@@ -558,6 +578,49 @@ describe("DividendPostingForm", () => {
 
     expect(container.querySelector("[data-testid='dividend-variance-formula']")?.textContent)
       .toContain("NT$108 - NT$108 = NT$0");
+  });
+
+  it("recomputes variance from edited receipt values instead of persisted ledger totals", () => {
+    const row = buildRow({
+      event: { expectedCashAmount: 120 },
+      ledgerEntry: buildLedger({
+        expectedCashAmount: 120,
+        receivedCashAmount: 108,
+        expectedGrossAmount: 120,
+        expectedNetAmount: 108,
+        actualNetAmount: 108,
+        varianceAmount: 0,
+        deductions: [{
+          id: "deduction-nhi",
+          dividendLedgerEntryId: "ledger-1",
+          deductionType: "NHI_SUPPLEMENTAL_PREMIUM",
+          amount: 12,
+          currencyCode: "TWD",
+          withheldAtSource: true,
+          source: "test",
+        }],
+      }),
+    });
+
+    act(() => {
+      root.render(
+        <DividendPostingForm
+          row={row}
+          dict={dict}
+          locale="en"
+          onCancel={() => undefined}
+          onSaved={() => undefined}
+        />,
+      );
+    });
+    const cashInput = container.querySelector<HTMLInputElement>("[data-testid='dividend-received-cash']")!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(cashInput, "90");
+      cashInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    expect(container.querySelector("[data-testid='dividend-variance-formula']")?.textContent)
+      .toContain("NT$90 - NT$108 = -NT$18");
   });
 
   it("prefills NHI for stock-only dividends using par value × received shares", () => {

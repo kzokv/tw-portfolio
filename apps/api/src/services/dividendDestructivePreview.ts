@@ -20,6 +20,7 @@ import type {
 } from "../types/store.js";
 
 const PREVIEW_TTL_MS = 15 * 60 * 1000;
+const USER_WIDE_DESTRUCTIVE_LOCK = "__all_accounts__";
 
 type TouchedScope = {
   accountId: string;
@@ -613,7 +614,7 @@ async function confirmPreview(
   if (!preview) throw routeError(404, "dividend_destructive_preview_not_found", "Destructive preview not found");
   if (preview.ownerUserId !== ownerUserId) throw routeError(404, "dividend_destructive_preview_not_found", "Destructive preview not found");
 
-  return persistence.withDividendDestructiveLock(ownerUserId, preview.accountId, async () => {
+  return persistence.withDividendDestructiveLock(ownerUserId, USER_WIDE_DESTRUCTIVE_LOCK, async () => {
     const lockedPreview = await persistence.getDividendDestructivePreview(previewId);
     if (!lockedPreview) throw routeError(404, "dividend_destructive_preview_not_found", "Destructive preview not found");
     if (

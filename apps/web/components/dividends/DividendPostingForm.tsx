@@ -289,20 +289,15 @@ export function DividendPostingForm({
     .filter((entry) => entry.withheldAtSource)
     .reduce((sum, entry) => sum + entry.amount, 0);
   const expectedGrossAmount = row.ledgerEntry?.expectedGrossAmount ?? row.event.expectedCashAmount;
-  const expectedNhiAmount = row.ledgerEntry?.nhiAmount
-    ?? sumDeductions(deductions, (entry) => entry.deductionType === "NHI_SUPPLEMENTAL_PREMIUM");
-  const expectedBankFeeAmount = row.ledgerEntry?.bankFeeAmount
-    ?? sumDeductions(deductions, (entry) => entry.deductionType === "BANK_FEE");
-  const expectedOtherDeductionAmount = row.ledgerEntry?.otherDeductionAmount
-    ?? sumDeductions(deductions, (entry) => (
+  const expectedNhiAmount = sumDeductions(deductions, (entry) => entry.deductionType === "NHI_SUPPLEMENTAL_PREMIUM");
+  const expectedBankFeeAmount = sumDeductions(deductions, (entry) => entry.deductionType === "BANK_FEE");
+  const expectedOtherDeductionAmount = sumDeductions(deductions, (entry) => (
       entry.deductionType !== "NHI_SUPPLEMENTAL_PREMIUM"
       && entry.deductionType !== "BANK_FEE"
     ));
-  const expectedNetAmount = row.ledgerEntry?.expectedNetAmount
-    ?? (expectedGrossAmount - expectedNhiAmount - expectedBankFeeAmount - expectedOtherDeductionAmount);
-  const actualNetAmount = row.ledgerEntry?.actualNetAmount
-    ?? receivedCashAmount;
-  const varianceAmount = row.ledgerEntry?.varianceAmount ?? (actualNetAmount - expectedNetAmount);
+  const expectedNetAmount = expectedGrossAmount - expectedNhiAmount - expectedBankFeeAmount - expectedOtherDeductionAmount;
+  const actualNetAmount = receivedCashAmount;
+  const varianceAmount = actualNetAmount - expectedNetAmount;
   const stockRatioState = row.ledgerEntry?.stockDistributionRatioState ?? null;
   const expectedStockCalcState = row.ledgerEntry?.expectedStockCalcState
     ?? (stockRatioState === "unresolved" ? "needs_action" : "resolved");
