@@ -1096,6 +1096,17 @@ describe("dividends", () => {
     });
     const postedEntryId = postResponse.json().dividendLedgerEntry.id as string;
 
+    const detailResponse = await app.inject({
+      method: "GET",
+      url: `/portfolio/dividends/postings/${postedEntryId}`,
+    });
+    expect(detailResponse.statusCode).toBe(200);
+    expect(detailResponse.json()).toEqual(expect.objectContaining({
+      id: postedEntryId,
+      ticker: "2330",
+      postingStatus: "posted",
+    }));
+
     const matchedResponse = await app.inject({
       method: "PATCH",
       url: `/portfolio/dividends/postings/${postedEntryId}/reconciliation`,

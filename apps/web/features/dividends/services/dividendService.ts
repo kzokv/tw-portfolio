@@ -166,6 +166,12 @@ export async function fetchDividendLedgerReview(params: DividendReviewQuery): Pr
   };
 }
 
+export async function fetchDividendLedgerEntry(dividendLedgerEntryId: string): Promise<DividendLedgerEntryDetails> {
+  return getJson<DividendLedgerEntryDetails>(
+    `/portfolio/dividends/postings/${encodeURIComponent(dividendLedgerEntryId)}`,
+  );
+}
+
 export async function fetchDividendLedgerYears(): Promise<number[]> {
   const payload = await getJson<{ years: number[] }>("/portfolio/dividends/ledger/years");
   return payload.years ?? [];

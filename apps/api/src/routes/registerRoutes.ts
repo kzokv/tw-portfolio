@@ -7092,6 +7092,24 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
+  app.get("/portfolio/dividends/postings/:dividendLedgerEntryId", async (req) => {
+    const params = z.object({ dividendLedgerEntryId: userScopedIdSchema }).parse(req.params);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const detailedEntry = await app.persistence.getDividendLedgerEntryWithDetails(
+      userId,
+      params.dividendLedgerEntryId,
+    );
+    if (!detailedEntry) {
+      throw routeError(404, "dividend_ledger_entry_not_found", "Dividend ledger entry not found");
+    }
+    const store = await app.persistence.loadStore(userId);
+    const ledgerEntry = buildDividendLedgerEntryDetails(store, [detailedEntry])[0];
+    if (!ledgerEntry) {
+      throw routeError(404, "dividend_ledger_entry_not_found", "Dividend ledger entry not found");
+    }
+    return ledgerEntry;
+  });
+
   app.patch("/portfolio/dividends/postings/:dividendLedgerEntryId/reconciliation", async (req) => {
     const params = z.object({ dividendLedgerEntryId: userScopedIdSchema }).parse(req.params);
     const body = dividendReconciliationSchema.parse(req.body);

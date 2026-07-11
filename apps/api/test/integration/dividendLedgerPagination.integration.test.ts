@@ -382,6 +382,22 @@ describePostgres("PostgresPersistence.listDividendLedgerEntries — pagination/s
     });
   });
 
+  it("IG-R2: excludeExpected removes materialized expected ledger rows", async () => {
+    const eventId = await insertDividendEvent("AAPL", "USD", "2024-03-15", "2024-04-15");
+    await insertLedgerEntry({ eventId, expectedCashAmount: 10, postingStatus: "expected" });
+
+    const result = await persistence.listDividendReviewRows(userId, {
+      ...defaultOpts,
+      ticker: "AAPL",
+      reconciliationStatus: "open",
+      excludeExpected: true,
+    });
+
+    expect(result.rows).toEqual([]);
+    expect(result.total).toBe(0);
+    expect(result.aggregates.openCount).toBe(0);
+  });
+
   // ── IG-03: Ticker filter ───────────────────────────────────────────────────
 
   it("IG-03: ticker filter returns only matching rows", async () => {

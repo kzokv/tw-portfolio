@@ -18,7 +18,7 @@ const tickerService = vi.hoisted(() => ({
   posted: vi.fn(),
 }));
 
-const reviewService = vi.hoisted(() => ({ fetch: vi.fn() }));
+const reviewService = vi.hoisted(() => ({ fetchEntry: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => navigation.pathname,
@@ -33,7 +33,7 @@ vi.mock("../../../features/dividends/services/tickerDividendService", () => ({
 }));
 
 vi.mock("../../../features/dividends/services/dividendService", () => ({
-  fetchDividendLedgerReview: reviewService.fetch,
+  fetchDividendLedgerEntry: reviewService.fetchEntry,
 }));
 
 vi.mock("../../../components/dividends/DividendReviewDrawer", () => ({
@@ -152,8 +152,7 @@ beforeEach(() => {
   tickerService.upcoming.mockResolvedValue(upcomingPage);
   tickerService.open.mockResolvedValue(page([historyItem("ledger-open", { reconciliationStatus: "open" })]));
   tickerService.posted.mockResolvedValue(page([historyItem("ledger-posted")], 2, 25, 26));
-  reviewService.fetch.mockResolvedValue({
-    ledgerEntries: [{
+  reviewService.fetchEntry.mockResolvedValue({
       id: "ledger-open",
       dividendEventId: "event-open",
       accountId: "acc-1",
@@ -177,9 +176,6 @@ beforeEach(() => {
       eligibleQuantity: 10,
       sourceLines: [],
       deductions: [],
-    }],
-    total: 1,
-    aggregates: {},
   });
 });
 
@@ -212,14 +208,7 @@ describe("TickerDividendsTab", () => {
     await act(async () => reviewButton?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     await flush();
 
-    expect(reviewService.fetch).toHaveBeenCalledWith(expect.objectContaining({
-      ticker: "2330",
-      accountId: "acc-1",
-      excludeExpected: true,
-      reconciliationStatus: "open",
-      page: 1,
-      limit: 50,
-    }));
+    expect(reviewService.fetchEntry).toHaveBeenCalledWith("ledger-open");
     const drawer = container.querySelector('[data-testid="shared-dividend-review-drawer"]');
     expect(drawer?.getAttribute("data-entry-id")).toBe("ledger-open");
     expect(drawer?.getAttribute("data-allow-mutations")).toBe("false");
@@ -227,8 +216,7 @@ describe("TickerDividendsTab", () => {
   });
 
   it("opens posted history in the shared review drawer", async () => {
-    reviewService.fetch.mockResolvedValueOnce({
-      ledgerEntries: [{
+    reviewService.fetchEntry.mockResolvedValueOnce({
         id: "ledger-posted",
         dividendEventId: "event-posted",
         accountId: "acc-1",
@@ -252,9 +240,6 @@ describe("TickerDividendsTab", () => {
         eligibleQuantity: 10,
         sourceLines: [],
         deductions: [],
-      }],
-      total: 1,
-      aggregates: {},
     });
     await renderTab();
 
@@ -262,7 +247,7 @@ describe("TickerDividendsTab", () => {
     await act(async () => reviewButton?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     await flush();
 
-    expect(reviewService.fetch).toHaveBeenCalledWith(expect.objectContaining({ page: 2, limit: 25 }));
+    expect(reviewService.fetchEntry).toHaveBeenCalledWith("ledger-posted");
     expect(container.querySelector('[data-testid="shared-dividend-review-drawer"]')?.getAttribute("data-entry-id")).toBe("ledger-posted");
   });
 
@@ -271,8 +256,8 @@ describe("TickerDividendsTab", () => {
     let resolvePosted!: (value: never) => void;
     const openPromise = new Promise<never>((resolve) => { resolveOpen = resolve; });
     const postedPromise = new Promise<never>((resolve) => { resolvePosted = resolve; });
-    const reviewResponse = (id: string) => ({ ledgerEntries: [{ id }], total: 1, aggregates: {} }) as never;
-    reviewService.fetch
+    const reviewResponse = (id: string) => ({ id }) as never;
+    reviewService.fetchEntry
       .mockReturnValueOnce(openPromise)
       .mockReturnValueOnce(postedPromise);
     await renderTab();
@@ -291,14 +276,14 @@ describe("TickerDividendsTab", () => {
 
   it("does not reopen a closed drawer when its request resolves later", async () => {
     let resolveReview!: (value: never) => void;
-    reviewService.fetch.mockReturnValueOnce(new Promise<never>((resolve) => { resolveReview = resolve; }));
+    reviewService.fetchEntry.mockReturnValueOnce(new Promise<never>((resolve) => { resolveReview = resolve; }));
     await renderTab();
 
     await act(async () => {
       container.querySelector('[data-testid="ticker-open-reconciliation-review-0"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       container.querySelector('[data-testid="shared-dividend-review-close"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    resolveReview({ ledgerEntries: [{ id: "ledger-open" }], total: 1, aggregates: {} } as never);
+    resolveReview({ id: "ledger-open" } as never);
     await flush();
 
     expect(container.querySelector('[data-testid="shared-dividend-review-drawer"]')?.getAttribute("data-entry-id")).toBe("");

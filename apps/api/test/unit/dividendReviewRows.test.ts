@@ -162,6 +162,22 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
     expect(review.aggregates.openCount).toBe(1);
   });
 
+  it("excludes materialized expected ledger rows when expected rows are disabled", async () => {
+    const accountId = await seedTwdAccount();
+    const event = await seedDividendEvent();
+    await seedLedgerEntry(accountId, event.id, { postingStatus: "expected" });
+
+    const review = await app.persistence.listDividendReviewRows(USER_ID, {
+      ...defaultOpts,
+      excludeExpected: true,
+      reconciliationStatus: "open",
+    });
+
+    expect(review.rows).toEqual([]);
+    expect(review.total).toBe(0);
+    expect(review.aggregates.openCount).toBe(0);
+  });
+
   it("excludes undated events when a payment-date range is active", async () => {
     const accountId = await seedTwdAccount();
     const event = await seedDividendEvent({ paymentDate: null });

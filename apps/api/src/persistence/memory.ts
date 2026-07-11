@@ -3011,6 +3011,7 @@ export class MemoryPersistence implements Persistence {
 
     const ledgerRows: DividendReviewRowWithDetails[] = activeLedgerEntries.flatMap((entry) => {
       if (opts.accountId && entry.accountId !== opts.accountId) return [];
+      if (opts.excludeExpected && entry.postingStatus === "expected") return [];
       if (opts.reconciliationStatus && entry.reconciliationStatus !== opts.reconciliationStatus) return [];
       if (opts.postingStatus && entry.postingStatus !== opts.postingStatus) return [];
       const event = eventById.get(entry.dividendEventId);

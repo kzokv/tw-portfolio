@@ -10,11 +10,10 @@ import type {
   DividendUpcomingListItemDto,
   DividendUpcomingPageDto,
   LocaleCode,
-  MarketCode,
 } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../lib/utils";
-import { fetchDividendLedgerReview } from "../../features/dividends/services/dividendService";
+import { fetchDividendLedgerEntry } from "../../features/dividends/services/dividendService";
 import {
   fetchTickerOpenReconciliation,
   fetchTickerPostedDividendHistory,
@@ -239,26 +238,13 @@ export function TickerDividendsTab({
 
   async function openDrawer(
     item: DividendLedgerHistoryItemDto,
-    lookupPage = 1,
-    lookupLimit: DividendReviewPageLimit = 50,
-    reconciliationStatus?: "open",
   ) {
     const requestId = drawerRequestRef.current + 1;
     drawerRequestRef.current = requestId;
     setDrawerLoadingId(item.dividendLedgerEntryId);
     setDrawerError("");
     try {
-      const result = await fetchDividendLedgerReview({
-        ticker,
-        marketCode: marketCode as MarketCode,
-        accountId: item.accountId,
-        excludeExpected: true,
-        reconciliationStatus,
-        page: lookupPage,
-        limit: lookupLimit,
-      });
-      const entry = result.ledgerEntries.find((candidate) => candidate.id === item.dividendLedgerEntryId);
-      if (!entry) throw new Error(`Dividend ledger entry ${item.dividendLedgerEntryId} was not found.`);
+      const entry = await fetchDividendLedgerEntry(item.dividendLedgerEntryId);
       if (drawerRequestRef.current === requestId) setDrawerEntry(entry);
     } catch (error: unknown) {
       if (drawerRequestRef.current === requestId) setDrawerError(error instanceof Error ? error.message : String(error));
@@ -359,7 +345,7 @@ export function TickerDividendsTab({
                       </div>
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={cn("inline-flex rounded-full border px-3 py-1 text-xs font-semibold", statusClassName(item.reconciliationStatus))}>{resolveReconciliationStatusLabel(dict, item.reconciliationStatus)}</span>
-                        <Button size="sm" variant="secondary" onClick={() => void openDrawer(item, postedPage, postedLimit)} disabled={drawerLoadingId === item.dividendLedgerEntryId} data-testid={`ticker-posted-dividend-review-${index}`}>{dict.dividends.ticker.openRowReview}</Button>
+                        <Button size="sm" variant="secondary" onClick={() => void openDrawer(item)} disabled={drawerLoadingId === item.dividendLedgerEntryId} data-testid={`ticker-posted-dividend-review-${index}`}>{dict.dividends.ticker.openRowReview}</Button>
                       </div>
                     </article>
                   ))}</div>}
@@ -380,7 +366,7 @@ export function TickerDividendsTab({
                     <div className="flex items-start justify-between gap-3"><div><p className="text-lg font-semibold text-slate-950">{item.ticker}{item.tickerName ? ` ${item.tickerName}` : ""}</p><p className="mt-1 text-sm text-slate-600">{dict.dividends.ticker.reconciliation.openReceiptDetail.replace("{entryId}", item.dividendLedgerEntryId)}</p></div><span className={cn("inline-flex rounded-full border px-3 py-1 text-xs font-semibold", statusClassName("open"))}>{dict.dividends.form.reconciliation.statusOpen}</span></div>
                     <div className="mt-4 flex flex-wrap gap-2">
                       {canWriteDividends ? <Button size="sm" onClick={async () => { await onMarkMatched(item.dividendLedgerEntryId); refreshSections(); }} disabled={pendingLedgerEntryId === item.dividendLedgerEntryId} data-testid={`ticker-reconciliation-mark-matched-${item.dividendLedgerEntryId}`}>{dict.dividends.action.markMatched}</Button> : null}
-                      <Button size="sm" variant="secondary" onClick={() => void openDrawer(item, 1, 50, "open")} disabled={drawerLoadingId === item.dividendLedgerEntryId} data-testid={`ticker-open-reconciliation-review-${index}`}>{dict.dividends.ticker.openRowReview}</Button>
+                      <Button size="sm" variant="secondary" onClick={() => void openDrawer(item)} disabled={drawerLoadingId === item.dividendLedgerEntryId} data-testid={`ticker-open-reconciliation-review-${index}`}>{dict.dividends.ticker.openRowReview}</Button>
                     </div>
                   </article>
                 ))}</div>}
