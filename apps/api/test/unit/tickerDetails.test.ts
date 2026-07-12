@@ -1431,4 +1431,87 @@ describe("buildTickerDetails", () => {
       quality: "close_only",
     }));
   });
+
+  it("builds account dividend dates from rows beyond the 50-item previews", async () => {
+    const store = buildCrossMarketStore();
+    const feeProfile = createDefaultFeeProfile("acc-au-2", "AUD", "fp-au-2");
+    store.accounts.push({
+      id: "acc-au-2", userId: "user-1", name: "Second AU Broker",
+      feeProfileId: feeProfile.id, defaultCurrency: "AUD", accountType: "broker",
+    });
+    store.feeProfiles.push(feeProfile);
+    store.accounting.projections.holdings.push({
+      accountId: "acc-au-2", ticker: "BHP", quantity: 1, costBasisAmount: 40, currency: "AUD",
+    });
+
+    const addDividend = (input: {
+      id: string;
+      accountId: string;
+      paymentDate: string;
+      bookedAt?: string;
+    }) => {
+      store.marketData.dividendEvents.push({
+        id: input.id,
+        ticker: "BHP",
+        marketCode: "AU",
+        eventType: "CASH",
+        exDividendDate: input.paymentDate < "2026-07-12" ? "2026-02-01" : "2026-07-20",
+        paymentDate: input.paymentDate,
+        cashDividendPerShare: 1,
+        cashDividendCurrency: "AUD",
+        stockDividendPerShare: 0,
+        source: "test",
+      });
+      store.accounting.facts.dividendLedgerEntries.push({
+        id: `${input.id}-ledger`,
+        accountId: input.accountId,
+        dividendEventId: input.id,
+        eligibleQuantity: 1,
+        expectedCashAmount: 1,
+        expectedStockQuantity: 0,
+        receivedCashAmount: input.bookedAt ? 1 : 0,
+        receivedStockQuantity: 0,
+        postingStatus: input.bookedAt ? "posted" : "expected",
+        reconciliationStatus: input.bookedAt ? "matched" : "open",
+        version: 1,
+        sourceCompositionStatus: "provided",
+        bookedAt: input.bookedAt,
+      });
+    };
+
+    for (let index = 0; index < 50; index += 1) {
+      addDividend({ id: `bulk-upcoming-${index}`, accountId: "acc-au", paymentDate: "2026-08-01" });
+      addDividend({
+        id: `bulk-posted-${index}`,
+        accountId: "acc-au",
+        paymentDate: "2026-05-01",
+        bookedAt: "2026-05-02T00:00:00.000Z",
+      });
+    }
+    addDividend({ id: "second-upcoming", accountId: "acc-au-2", paymentDate: "2026-09-01" });
+    addDividend({
+      id: "second-posted",
+      accountId: "acc-au-2",
+      paymentDate: "2026-03-01",
+      bookedAt: "2026-03-02T00:00:00.000Z",
+    });
+
+    const { details } = await buildTickerDetails({
+      persistence: createPersistence(),
+      store,
+      userId: "user-1",
+      ticker: "BHP",
+      marketCode: "AU",
+      reportingCurrency: "AUD",
+      loadChart: false,
+      fundamentalsRecord: null,
+    });
+
+    expect(details.dividends.upcoming).toHaveLength(50);
+    expect(details.dividends.recent).toHaveLength(50);
+    expect(details.accountBreakdown.find((row) => row.accountId === "acc-au-2")).toEqual(expect.objectContaining({
+      nextDividendDate: "2026-09-01",
+      lastDividendPostedDate: "2026-03-02T00:00:00.000Z",
+    }));
+  });
 });

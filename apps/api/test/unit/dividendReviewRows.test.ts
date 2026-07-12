@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp, type AppInstance } from "../../src/app.js";
-import { planDividendLedgerRecompute } from "../../src/services/dividends.js";
+import { planDividendLedgerRecompute, reconcileDividendEntitlementsForScope } from "../../src/services/dividends.js";
 import type { BookedTradeEvent, DividendEvent, DividendLedgerEntry, PositionAction } from "../../src/types/store.js";
 
 const USER_ID = "user-1";
@@ -213,6 +213,39 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
       expectedStockDistributionRatio: null,
       expectedStockParValueAmount: 10,
     }));
+  });
+
+  it("does not recompute a legacy original referenced by a reversal row", async () => {
+    const accountId = await seedTwdAccount();
+    await seedBuy(accountId, "2330", 100, "2024-05-20");
+    const event = await seedDividendEvent();
+    const originalId = randomUUID();
+    await seedLedgerEntry(accountId, event.id, {
+      id: originalId,
+      eligibleQuantity: 50,
+      expectedCashAmount: 150,
+      reconciliationStatus: "matched",
+    });
+    await seedLedgerEntry(accountId, event.id, {
+      expectedCashAmount: -150,
+      receivedCashAmount: -150,
+      postingStatus: "adjusted",
+      reversalOfDividendLedgerEntryId: originalId,
+    });
+
+    const store = await app.persistence.loadStore(USER_ID);
+    const changes = reconcileDividendEntitlementsForScope(store, accountId, "2330", {
+      reopenChangedReconciliation: false,
+      marketCode: "TW",
+    });
+
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toEqual(expect.objectContaining({
+      changeKind: "created",
+      previousEligibleQuantity: 0,
+      nextEligibleQuantity: 100,
+    }));
+    expect(changes[0]?.ledgerEntryId).not.toBe(originalId);
   });
 
   it("preserves undated events when a payment-date range is active", async () => {

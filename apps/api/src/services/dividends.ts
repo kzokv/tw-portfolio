@@ -1296,9 +1296,15 @@ export function reconcileDividendEntitlementsForScope(
 ): DividendLedgerRecomputeChange[] {
   const now = options.now ?? new Date().toISOString();
   const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
-  const activeEntries = listDividendLedgerEntries(store).filter((entry) => {
+  const ledgerEntries = listDividendLedgerEntries(store);
+  const reversedLedgerEntryIds = new Set(
+    ledgerEntries
+      .map((entry) => entry.reversalOfDividendLedgerEntryId)
+      .filter((value): value is string => Boolean(value)),
+  );
+  const activeEntries = ledgerEntries.filter((entry) => {
     if (entry.accountId !== accountId) return false;
-    if (entry.reversalOfDividendLedgerEntryId || entry.supersededAt) return false;
+    if (entry.reversalOfDividendLedgerEntryId || entry.supersededAt || reversedLedgerEntryIds.has(entry.id)) return false;
     const dividendEvent = eventById.get(entry.dividendEventId);
     if (!dividendEvent) return false;
     if (dividendEvent.ticker !== ticker) return false;

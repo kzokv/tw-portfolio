@@ -259,6 +259,12 @@ export async function buildTickerDetails(
   });
   const upcomingDividends = upcomingDividendPage.items.map(mapUpcomingDividendListItemToLegacyDto);
   const recentDividends = postedHistoryPage.items.map(mapDividendLedgerHistoryItemToLegacyRecentDto);
+  const allUpcomingDividends = collectAllDividendPageItems(upcomingDividendPage, (page) =>
+    buildTickerDividendUpcomingPage(input.store, normalizedTicker, resolvedMarketCode, scopedAccountIds, { page, limit: 50 }))
+    .map(mapUpcomingDividendListItemToLegacyDto);
+  const allRecentDividends = collectAllDividendPageItems(postedHistoryPage, (page) =>
+    buildTickerDividendPostedHistoryPage(input.store, normalizedTicker, resolvedMarketCode, scopedAccountIds, { page, limit: 50 }))
+    .map(mapDividendLedgerHistoryItemToLegacyRecentDto);
   const rawAccountBreakdown = buildAccountBreakdown({
     holdings: filteredHoldings,
     accountById,
@@ -267,8 +273,8 @@ export async function buildTickerDetails(
     quote,
     reportingCurrency,
     fxRateToReporting,
-    upcomingDividends,
-    recentDividends,
+    upcomingDividends: allUpcomingDividends,
+    recentDividends: allRecentDividends,
   });
   const marketAllocationTotal = await buildTickerMarketAllocationTotal({
     persistence: input.persistence,
@@ -328,8 +334,8 @@ export async function buildTickerDetails(
     transactions: filteredTransactions.map((trade) => mapTransactionHistoryItem(trade, accountById, buildRealizedPnlBreakdown)),
     dividends: {
       upcomingCount: upcomingDividendPage.total,
-      nextPaymentDate: minNullableDate(upcomingDividends.map((dividend) => dividend.paymentDate)),
-      lastPostedDate: maxNullableDate(postedHistoryPage.items.map((dividend) => dividend.postedAt)),
+      nextPaymentDate: minNullableDate(allUpcomingDividends.map((dividend) => dividend.paymentDate)),
+      lastPostedDate: maxNullableDate(allRecentDividends.map((dividend) => dividend.postedAt)),
       openReconciliationCount: openReconciliationPage.total,
       upcoming: upcomingDividends,
       recent: recentDividends,
@@ -1499,6 +1505,19 @@ function paginateItems<T>(
     limit: pageInput.limit,
     total,
   };
+}
+
+function collectAllDividendPageItems<T>(
+  firstPage: { items: T[]; total: number },
+  loadPage: (page: number) => { items: T[] },
+): T[] {
+  const items = [...firstPage.items];
+  for (let page = 2; items.length < firstPage.total; page += 1) {
+    const nextItems = loadPage(page).items;
+    if (nextItems.length === 0) break;
+    items.push(...nextItems);
+  }
+  return items;
 }
 
 function summarizeDividendDeductions(
