@@ -10911,7 +10911,7 @@ export class PostgresPersistence implements Persistence {
     const dateFilterActive = opts.fromPaymentDate != null || opts.toPaymentDate != null;
     const matchesDateFilter = (paymentDate: string | null | undefined): boolean => {
       if (dateFilterActive) {
-        return paymentDate != null && matchesNullableDateRange(paymentDate, opts.fromPaymentDate, opts.toPaymentDate);
+        return matchesNullableDateRange(paymentDate, opts.fromPaymentDate, opts.toPaymentDate);
       }
       return paymentDate != null;
     };

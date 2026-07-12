@@ -215,7 +215,7 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
     }));
   });
 
-  it("excludes undated events when a payment-date range is active", async () => {
+  it("preserves undated events when a payment-date range is active", async () => {
     const accountId = await seedTwdAccount();
     const event = await seedDividendEvent({ paymentDate: null });
     await seedLedgerEntry(accountId, event.id);
@@ -226,7 +226,11 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
       toPaymentDate: "2024-07-31",
     });
 
-    expect(review.rows).toEqual([]);
+    expect(review.rows).toHaveLength(1);
+    expect(review.rows[0]).toEqual(expect.objectContaining({
+      dividendEventId: event.id,
+      paymentDate: null,
+    }));
   });
 
   it("builds generated expected rows from replay-style eligibility and authoritative stock ratios", async () => {
