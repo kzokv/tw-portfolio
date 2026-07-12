@@ -461,6 +461,23 @@ describe("buildTickerDetails", () => {
         bookedAt: "2026-04-12T00:00:00.000Z",
       },
     );
+    store.accounting.facts.tradeEvents.push({
+      id: "rio-au-unrelated-sell",
+      userId: "user-1",
+      accountId: "acc-au",
+      ticker: "RIO",
+      marketCode: "AU",
+      instrumentType: "STOCK",
+      type: "SELL",
+      quantity: 1,
+      unitPrice: 100,
+      priceCurrency: "AUD",
+      tradeDate: "2026-03-01",
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: store.feeProfiles.find((profile) => profile.accountId === "acc-au")!,
+    });
 
     const { details, marketCode } = await buildTickerDetails({
       persistence: createPersistence(),

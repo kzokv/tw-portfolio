@@ -1187,10 +1187,20 @@ export function buildTickerDividendUpcomingPage(
         }
 
         const activeEntry = activeLedgerByAccountAndEvent.get(ledgerKey);
+        const scopedTrades = store.accounting.facts.tradeEvents.filter((trade) =>
+          trade.accountId === account.id
+          && trade.ticker === event.ticker
+          && trade.marketCode === marketCode
+        );
+        const scopedPositionActions = store.accounting.facts.positionActions.filter((action) =>
+          action.accountId === account.id
+          && action.ticker === event.ticker
+          && action.marketCode === marketCode
+        );
         const eligibleQuantity = activeEntry?.eligibleQuantity
           ?? deriveEligibleQuantityFromReplayStream(
-            store.accounting.facts.tradeEvents,
-            store.accounting.facts.positionActions,
+            scopedTrades,
+            scopedPositionActions,
             account.id,
             event.ticker,
             marketCode,
