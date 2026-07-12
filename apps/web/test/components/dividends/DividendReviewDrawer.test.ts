@@ -40,4 +40,15 @@ describe("buildDividendCalendarRowFromEntry", () => {
 
     expect(row.event.parValuePerShare).toBe(10);
   });
+
+  it("maps materialized expected ledger rows to a new posting", () => {
+    const row = buildDividendCalendarRowFromEntry(buildEntry({
+      rowKind: "ledger",
+      postingStatus: "expected",
+    }));
+
+    expect(row.event.hasPostedLedgerEntry).toBe(false);
+    expect(row.event.dividendLedgerEntryId).toBeNull();
+    expect(row.ledgerEntry).toBeNull();
+  });
 });

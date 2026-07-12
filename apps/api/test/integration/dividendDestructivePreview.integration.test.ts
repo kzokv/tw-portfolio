@@ -448,6 +448,9 @@ describe("dividend destructive preview", () => {
     expect(updatedStore.accounting.facts.dividendDeductionEntries.some((entry) => ids.primaryDeductionEntryIds.includes(entry.id))).toBe(false);
     expect(updatedStore.accounting.facts.dividendSourceLines.some((entry) => ids.primarySourceLineIds.includes(entry.id))).toBe(false);
     expect(updatedStore.accounting.facts.positionActions.some((entry) => ids.primaryStockActionIds.includes(entry.id))).toBe(false);
+    expect(updatedStore.accounting.projections.lots.some(
+      (entry) => ids.primaryStockActionIds.some((actionId) => entry.id === `lot-pa-${actionId}`),
+    )).toBe(false);
     expect(await app.persistence.countHoldingSnapshotsAfterDate("user-1", "acc-1", "2330", "2026-01-03", "TW")).toBe(0);
 
     const regeneratedPrimary = updatedStore.accounting.facts.dividendLedgerEntries.find(

@@ -93,7 +93,7 @@ function linkedPositionActionStatusLabel(dict: AppDictionary, status: DividendLe
 }
 
 export function buildDividendCalendarRowFromEntry(entry: DividendLedgerEntryDetails): DividendCalendarRow {
-  const isLedgerRow = entry.rowKind !== "expected";
+  const isLedgerRow = entry.rowKind !== "expected" && entry.postingStatus !== "expected";
   return {
     key: `${entry.accountId}:${entry.dividendEventId}`,
     event: {

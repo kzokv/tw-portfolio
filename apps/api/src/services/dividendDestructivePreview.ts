@@ -471,6 +471,22 @@ function sameReviewedSet(simulation: SimulationResult, preview: DividendDestruct
 
 function purgeAffectedDividendArtifacts(store: Store, affectedLedgerEntryIds: Set<string>): void {
   if (affectedLedgerEntryIds.size === 0) return;
+  const deletedStockDividendLotIds = new Set(
+    store.accounting.facts.positionActions
+      .filter((entry) => (
+        entry.actionType === "STOCK_DIVIDEND"
+        && affectedLedgerEntryIds.has(entry.relatedDividendLedgerEntryId ?? "")
+      ))
+      .map((entry) => `lot-pa-${entry.id}`),
+  );
+  if (deletedStockDividendLotIds.size > 0) {
+    store.accounting.projections.lotAllocations = store.accounting.projections.lotAllocations.filter(
+      (entry) => !deletedStockDividendLotIds.has(entry.lotId),
+    );
+    store.accounting.projections.lots = store.accounting.projections.lots.filter(
+      (entry) => !deletedStockDividendLotIds.has(entry.id),
+    );
+  }
   store.accounting.facts.dividendLedgerEntries = store.accounting.facts.dividendLedgerEntries.filter(
     (entry) => !affectedLedgerEntryIds.has(entry.id),
   );
