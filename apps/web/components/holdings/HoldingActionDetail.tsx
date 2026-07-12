@@ -33,6 +33,16 @@ type ActionMode = "SPLIT" | "REVERSE_SPLIT";
 type PageSize = 10 | 25 | 50;
 
 const PAGE_SIZE_OPTIONS: readonly PageSize[] = [10, 25, 50] as const;
+const DIVIDEND_FETCH_LIMIT = 500;
+
+async function fetchAllDividendEntries(ticker: string, marketCode: MarketCode): Promise<DividendLedgerEntryDetails[]> {
+  const entries: DividendLedgerEntryDetails[] = [];
+  for (let page = 1; ; page += 1) {
+    const review = await fetchDividendLedgerReview({ ticker, marketCode, page, limit: DIVIDEND_FETCH_LIMIT });
+    entries.push(...review.ledgerEntries);
+    if (entries.length >= review.total || review.ledgerEntries.length === 0) return entries;
+  }
+}
 
 export function HoldingActionDetail({
   dict,
@@ -85,15 +95,11 @@ export function HoldingActionDetail({
                 accountIds: "children" in row ? row.children.map((child) => child.accountId) : [row.accountId],
                 marketCode: marketCode as MarketCode,
               }),
-          fetchDividendLedgerReview({
-            ticker: row.ticker,
-            marketCode: marketCode as MarketCode,
-            limit: 50,
-          }),
+          fetchAllDividendEntries(row.ticker, marketCode as MarketCode),
         ]);
         if (!active) return;
         setTimelineTransactions(nextTransactions);
-        setDividendEntries(review.ledgerEntries.filter((entry) => entry.ticker === row.ticker && entry.marketCode === marketCode));
+        setDividendEntries(review.filter((entry) => entry.ticker === row.ticker && entry.marketCode === marketCode));
       } catch (error) {
         if (!active) return;
         setErrorMessage(error instanceof Error ? error.message : String(error));

@@ -28,7 +28,8 @@ import {
 import type { PersistedTickerFundamentalsRecord, Persistence } from "../persistence/types.js";
 import { routeError } from "../lib/routeError.js";
 import { listDividendDeductionEntries, listDividendLedgerEntries, listTradeEvents } from "./accountingStore.js";
-import { deriveEligibleQuantity, resolveDividendTickerName } from "./dividends.js";
+import { resolveDividendTickerName } from "./dividends.js";
+import { deriveEligibleQuantityFromReplayStream } from "./replayPositionHistory.js";
 import { createEmptyTickerFundamentals } from "./fundamentals/types.js";
 import { historyStartFor } from "./market-data/types.js";
 import {
@@ -1187,7 +1188,14 @@ export function buildTickerDividendUpcomingPage(
 
         const activeEntry = activeLedgerByAccountAndEvent.get(ledgerKey);
         const eligibleQuantity = activeEntry?.eligibleQuantity
-          ?? deriveEligibleQuantity(store, account.id, event.ticker, event.exDividendDate, marketCode);
+          ?? deriveEligibleQuantityFromReplayStream(
+            store.accounting.facts.tradeEvents,
+            store.accounting.facts.positionActions,
+            account.id,
+            event.ticker,
+            marketCode,
+            event,
+          );
         if (!activeEntry && eligibleQuantity <= 0) return [];
 
         const stockEntitlement = resolveDividendStockEntitlement({
