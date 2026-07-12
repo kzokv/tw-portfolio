@@ -168,6 +168,7 @@ export function TickerDividendsTab({
   const [upcoming, setUpcoming] = useState<SectionState<DividendUpcomingPageDto>>({ data: null, isLoading: true, error: "" });
   const [openReconciliation, setOpenReconciliation] = useState<SectionState<DividendLedgerHistoryPageDto>>({ data: null, isLoading: true, error: "" });
   const [posted, setPosted] = useState<SectionState<DividendLedgerHistoryPageDto>>({ data: null, isLoading: true, error: "" });
+  const [latestPosted, setLatestPosted] = useState<DividendLedgerHistoryItemDto | null>(null);
   const [drawerEntry, setDrawerEntry] = useState<DividendLedgerEntryDetails | null>(null);
   const [drawerLoadingId, setDrawerLoadingId] = useState<string | null>(null);
   const [drawerError, setDrawerError] = useState("");
@@ -223,6 +224,16 @@ export function TickerDividendsTab({
     return () => controller.abort();
   }, [accountId, marketCode, postedLimit, postedPage, refreshVersion, scopeKey, ticker]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchTickerPostedDividendHistory(ticker, { ...queryScope, page: 1, limit: 10 }, { signal: controller.signal })
+      .then((data) => setLatestPosted(data.items[0] ?? null))
+      .catch((error: unknown) => {
+        if ((error as { name?: string } | null)?.name !== "AbortError") setLatestPosted(null);
+      });
+    return () => controller.abort();
+  }, [accountId, marketCode, refreshVersion, scopeKey, ticker]);
+
   function updatePostedRoute(page: number, limit: DividendReviewPageLimit) {
     setPostedPage(page);
     setPostedLimit(limit);
@@ -268,8 +279,8 @@ export function TickerDividendsTab({
   const nextPaymentDate = upcoming.data
     ? upcomingRows.find((row) => row.paymentDate)?.paymentDate ?? null
     : dividends.nextPaymentDate;
-  const lastPosted = postedRows[0] ?? null;
-  const lastPostedDate = posted.data ? lastPosted?.postedAt ?? null : dividends.lastPostedDate;
+  const lastPosted = latestPosted;
+  const lastPostedDate = latestPosted?.postedAt ?? dividends.lastPostedDate;
   const hasUpcomingRows = upcomingCount > 0;
   const resolvedTickerName = tickerName
     ?? upcomingRows.find((row) => row.tickerName?.trim())?.tickerName?.trim()
@@ -310,7 +321,7 @@ export function TickerDividendsTab({
               : upcoming.error && !upcoming.data ? <SectionMessage message={loadError} testId="ticker-upcoming-error" />
                 : upcomingRows.length === 0 ? <SectionMessage message={dict.dividends.ticker.upcoming.empty} testId="ticker-upcoming-empty" />
                   : <div className="divide-y divide-slate-200">{upcomingRows.map((item, index) => (
-                    <article key={item.id} className="grid gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1.3fr)_repeat(3,minmax(0,0.8fr))_auto]" data-testid={`ticker-upcoming-dividend-${index}`}>
+                    <article key={`${item.accountId}:${item.id}`} className="grid gap-4 px-5 py-4 sm:grid-cols-[minmax(0,1.3fr)_repeat(3,minmax(0,0.8fr))_auto]" data-testid={`ticker-upcoming-dividend-${index}`}>
                       <div><p className="text-lg font-semibold text-slate-950">{item.ticker}{item.tickerName ? ` ${item.tickerName}` : ""}</p><p className="mt-1 text-sm text-slate-500">{item.accountName ?? item.accountId}</p></div>
                       <KeyValueRow label={dict.dashboardHome.exDividendDateLabel} value={formatDateLabel(item.exDividendDate, locale)} />
                       <KeyValueRow label={dict.dashboardHome.paymentDateLabel} value={item.paymentDate ? formatDateLabel(item.paymentDate, locale) : dict.dividends.paymentDateTbdSection} />

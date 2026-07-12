@@ -151,7 +151,11 @@ beforeEach(() => {
   navigation.search = "tickerDividendPostedPage=2&tickerDividendPostedLimit=25";
   tickerService.upcoming.mockResolvedValue(upcomingPage);
   tickerService.open.mockResolvedValue(page([historyItem("ledger-open", { reconciliationStatus: "open" })]));
-  tickerService.posted.mockResolvedValue(page([historyItem("ledger-posted")], 2, 25, 26));
+  tickerService.posted.mockImplementation(async (_ticker: string, params: { page?: number; limit?: 10 | 25 | 50 }) => (
+    params.page === 1 && params.limit === 10
+      ? page([historyItem("ledger-latest", { actualNetAmount: 888, postedAt: "2026-01-02T00:00:00.000Z" })], 1, 10, 26)
+      : page([historyItem("ledger-posted")], 2, 25, 26)
+  ));
   reviewService.fetchEntry.mockResolvedValue({
       id: "ledger-open",
       dividendEventId: "event-open",
@@ -194,6 +198,7 @@ describe("TickerDividendsTab", () => {
     expect(tickerService.posted).toHaveBeenCalledWith("2330", expect.objectContaining({ accountId: "acc-1", page: 2, limit: 25 }), expect.anything());
     expect(container.querySelector('[data-testid="ticker-open-reconciliation-0"]')?.textContent).toContain("ledger-open");
     expect(container.querySelector('[data-testid="ticker-posted-dividend-0"]')?.textContent).not.toContain("ledger-open");
+    expect(container.querySelector('[data-testid="ticker-dividends-summary-last-posted"]')?.textContent).toContain("888");
     expect(container.textContent).not.toContain("99");
     const reviewLinks = Array.from(container.querySelectorAll<HTMLAnchorElement>('a[href^="/dividends?"]'));
     expect(reviewLinks.length).toBeGreaterThan(0);
