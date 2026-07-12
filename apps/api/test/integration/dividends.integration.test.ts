@@ -278,6 +278,40 @@ describe("dividends", () => {
     expect(body.ledgerEntries[0]).toHaveProperty("id");
   });
 
+  it("returns authoritative par value for an expected stock dividend before posting", async () => {
+    await seedInstrument();
+    await seedBuy(1_000);
+    const dividendEvent = await seedDividendEvent({
+      ticker: "2330",
+      eventType: "STOCK",
+      exDividendDate: "2026-07-15",
+      paymentDate: "2026-08-20",
+      cashDividendPerShare: 0,
+      stockDividendPerShare: 0.1,
+      stockDistributionRatio: 0.1,
+      stockDistributionRatioState: "authoritative",
+      stockParValueAmount: 10,
+      stockParValueCurrency: "TWD",
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/calendar?fromPaymentDate=2026-08-01&toPaymentDate=2026-08-31&limit=20",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      events: [expect.objectContaining({
+        id: dividendEvent.id,
+        expectedStockQuantity: 100,
+        stockDistributionRatio: 0.1,
+        stockDistributionRatioState: "authoritative",
+        parValuePerShare: 10,
+        hasPostedLedgerEntry: false,
+      })],
+    });
+  });
+
   it("filters the dividend ledger route by marketCode", async () => {
     const accountResponse = await app.inject({
       method: "POST",
@@ -687,7 +721,11 @@ describe("dividends", () => {
     // seed buy before the dividend lifecycle events. Filter for dividend
     // events only — their relative order is the load-bearing contract.
     const dividendOnly = events.filter((event) => event.type.startsWith("dividend_"));
-    expect(dividendOnly.map((event) => event.type)).toEqual(["dividend_posted", "dividend_updated"]);
+    expect(dividendOnly.map((event) => event.type)).toEqual([
+      "dividend_updated",
+      "dividend_posted",
+      "dividend_updated",
+    ]);
   });
 
   it("posts stock dividends through the non-cash holdings path, amends before sells, and reverses/replaces after sells", async () => {
@@ -1059,6 +1097,17 @@ describe("dividends", () => {
       }),
     });
     const postedEntryId = postResponse.json().dividendLedgerEntry.id as string;
+
+    const detailResponse = await app.inject({
+      method: "GET",
+      url: `/portfolio/dividends/postings/${postedEntryId}`,
+    });
+    expect(detailResponse.statusCode).toBe(200);
+    expect(detailResponse.json()).toEqual(expect.objectContaining({
+      id: postedEntryId,
+      ticker: "2330",
+      postingStatus: "posted",
+    }));
 
     const matchedResponse = await app.inject({
       method: "PATCH",

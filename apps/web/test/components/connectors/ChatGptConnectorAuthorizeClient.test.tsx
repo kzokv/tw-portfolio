@@ -192,6 +192,23 @@ describe("ChatGptConnectorAuthorizeClient", () => {
     expect(document.body.textContent).toContain("post_transaction_draft_rows");
   });
 
+  it("keeps dividend:write unchecked and warns as an advanced financial write scope", async () => {
+    mockFetchMcpOAuthConsent.mockResolvedValue(buildConsent({
+      scopes: ["portfolio:mcp_read", "dividend:write"],
+    }));
+
+    await act(async () => root.render(<ChatGptConnectorAuthorizeClient />));
+    await flushEffects();
+
+    const dividendLabel = Array.from(document.querySelectorAll("label"))
+      .find((candidate) => candidate.textContent?.includes("Post dividends and other financial writes"));
+    const dividendCheckbox = dividendLabel?.querySelector("input[type='checkbox']") as HTMLInputElement | null;
+
+    expect(dividendCheckbox?.checked).toBe(false);
+    expect(document.body.textContent).toContain("Advanced scope. Off by default");
+    expect(document.body.textContent).toContain("post_dividend_receipt");
+  });
+
   it("shows account management consent as a standard checked scope", async () => {
     mockFetchMcpOAuthConsent.mockResolvedValue(buildConsent({
       scopes: ["portfolio:mcp_read", "account:manage", "transaction_draft:create"],
@@ -210,7 +227,7 @@ describe("ChatGptConnectorAuthorizeClient", () => {
 
   it("renders zh-TW connector labels and scope copy when locale is explicit", async () => {
     mockFetchMcpOAuthConsent.mockResolvedValue(buildConsent({
-      scopes: ["portfolio:mcp_read", "account:manage", "transaction:write"],
+      scopes: ["portfolio:mcp_read", "account:manage", "transaction:write", "dividend:write"],
     }));
 
     await act(async () => root.render(<ChatGptConnectorAuthorizeClient locale="zh-TW" />));
@@ -220,5 +237,6 @@ describe("ChatGptConnectorAuthorizeClient", () => {
     expect(document.body.textContent).toContain("ChatGPT / OpenAI Apps");
     expect(document.body.textContent).toContain("管理帳戶");
     expect(document.body.textContent).toContain("送出已確認交易");
+    expect(document.body.textContent).toContain("送出股利與其他財務寫入");
   });
 });

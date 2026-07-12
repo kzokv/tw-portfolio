@@ -4,7 +4,7 @@ import { currencyFor, MARKET_CODES, type MarketCode as SharedMarketCode } from "
 import type { Persistence } from "../persistence/types.js";
 import type { BookedTradeEvent, CashLedgerEntry, DividendEvent, LotAllocationProjection, PositionAction } from "../types/store.js";
 import type { EventBus } from "../events/types.js";
-import { planDividendLedgerRecompute, type DividendLedgerRecomputeChange } from "./dividends.js";
+import { reconcileDividendEntitlementsForScope, type DividendLedgerRecomputeChange } from "./dividends.js";
 import { recomputeSnapshotsForTicker } from "./snapshotGeneration.js";
 
 export interface ReplaySummary {
@@ -195,8 +195,9 @@ export async function replayPositionHistory(
   // Reconciliation is reset (matched/explained → open, note preserved) per
   // Rule B because this path represents a runtime trade mutation.
   const storeAfterReplay = await persistence.loadStore(userId);
-  const dividendChanges = planDividendLedgerRecompute(storeAfterReplay, accountId, ticker, {
-    resetReconciliation: true,
+  const dividendDraft = structuredClone(storeAfterReplay);
+  const dividendChanges = reconcileDividendEntitlementsForScope(dividendDraft, accountId, ticker, {
+    reopenChangedReconciliation: true,
     marketCode: toSharedMarketCode(options.marketCode),
     eligibleQuantityResolver: (dividendEvent, dividendMarketCode) => deriveEligibleQuantityFromReplayStream(
       trades,
@@ -207,9 +208,7 @@ export async function replayPositionHistory(
       dividendEvent,
     ),
   });
-  const appliedChanges = dividendChanges.length > 0
-    ? await persistence.applyDividendLedgerRecompute(userId, dividendChanges)
-    : [];
+  const appliedChanges = await persistence.applyDividendLedgerRecompute(userId, dividendChanges);
 
   // 8. Build summary
   const openLots = lots.filter((l) => l.openQuantity > 0);
@@ -283,7 +282,7 @@ function applyPositionActionToLots(currentLots: Lot[], action: PositionAction): 
   });
 }
 
-function deriveEligibleQuantityFromReplayStream(
+export function deriveEligibleQuantityFromReplayStream(
   trades: readonly BookedTradeEvent[],
   positionActions: readonly PositionAction[],
   accountId: string,
@@ -292,11 +291,30 @@ function deriveEligibleQuantityFromReplayStream(
   dividendEvent: Pick<DividendEvent, "exDividendDate">,
 ): number {
   let lots: Lot[] = [];
+  const reversedTradeIds = new Set(
+    trades
+      .map((trade) => trade.reversalOfTradeEventId)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const reversedPositionActionIds = new Set(
+    positionActions
+      .map((action) => action.reversalOfPositionActionId)
+      .filter((id): id is string => Boolean(id)),
+  );
   const stream = [
     ...trades.map((trade) => ({ kind: "trade" as const, trade })),
     ...positionActions.map((action) => ({ kind: "action" as const, action })),
   ]
     .filter((entry) => {
+      if (entry.kind === "trade") {
+        if (entry.trade.reversalOfTradeEventId || reversedTradeIds.has(entry.trade.id)) return false;
+      } else if (
+        entry.action.reversalOfPositionActionId
+        || entry.action.supersededAt
+        || reversedPositionActionIds.has(entry.action.id)
+      ) {
+        return false;
+      }
       const entryDate = entry.kind === "trade" ? entry.trade.tradeDate : entry.action.actionDate;
       const entryMarketCode = entry.kind === "trade" ? entry.trade.marketCode : entry.action.marketCode;
       return entryDate < dividendEvent.exDividendDate && entryMarketCode === marketCode;

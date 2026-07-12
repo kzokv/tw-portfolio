@@ -87,6 +87,7 @@ import {
   getHoldingsQuoteStatusLabel,
 } from "../holdings/HoldingsDataHealth";
 import { HoldingsDetailSheet } from "../holdings/HoldingsDetailSheet";
+import { HoldingActivityDetail } from "../holdings/HoldingActivityDetail";
 import { CalendarUnknownWarnings } from "../holdings/CalendarUnknownWarnings";
 import { PriceStateChip } from "../holdings/PriceStateChip";
 import {
@@ -102,6 +103,7 @@ import { buildMissingPriceState, buildPriceStateActivityPath, getPriceState, isN
 
 type HoldingsPreviewSort = "value" | "daily" | "pnl" | "unitPnl" | "ticker";
 type DashboardHoldingsColumn = "ticker" | "position" | "avgCost" | "price" | "unitPnl" | "marketValue" | "costBasis" | "daily" | "pnl" | "health" | "action";
+type DashboardHoldingDetailRow = DashboardOverviewHoldingGroupDto | DashboardOverviewHoldingChildDto;
 
 const DASHBOARD_HOLDINGS_COLUMNS: Array<HoldingsGridColumnDefinition<DashboardHoldingsColumn>> = [
   { id: "ticker", label: "Ticker", defaultWidth: 176, canHide: false },
@@ -173,6 +175,7 @@ export function DashboardHoldingsPreview({
   );
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<DashboardOverviewHoldingGroupDto | null>(null);
+  const [selectedActivity, setSelectedActivity] = useState<DashboardHoldingDetailRow | null>(null);
   const [selectedPreset, setSelectedPreset] = useState<DashboardHoldingFocusPreset>(
     DEFAULT_DASHBOARD_HOLDING_FOCUS_PREFERENCE.selectedPreset,
   );
@@ -623,6 +626,7 @@ export function DashboardHoldingsPreview({
                       summaryColumns={mobileColumnSplit.summaryColumns}
                       visibleColumns={[...mobileColumnSplit.summaryColumns, ...mobileColumnSplit.detailColumns]}
                       onOpen={() => setSelected(group)}
+                      onOpenActivity={() => setSelectedActivity(group)}
                       quoteRefreshVersion={index < MAX_ANIMATED_DASHBOARD_HOLDING_ROWS ? quoteRefreshVersion : 0}
                       reportingCurrency={reportingCurrency}
                       showAdminActivityLinks={showAdminActivityLinks}
@@ -634,7 +638,8 @@ export function DashboardHoldingsPreview({
                   fxRates={fxRates}
                   groups={visibleGroups}
                   locale={locale}
-                  onOpen={(group) => setSelected(group)}
+                  onOpen={(row) => setSelected(row)}
+                  onOpenActivity={(row) => setSelectedActivity(row)}
                   expandedRows={expandedRows}
                   selectedAccountIds={selectedAccountIds}
                   columnSettings={columnSettings}
@@ -663,20 +668,31 @@ export function DashboardHoldingsPreview({
         </Card>
       </div>
       <HoldingsDetailSheet
-        description={dict.dashboardHome.topHoldingsHoldingDetailsDescription}
+        description={dict.dashboardHome.topHoldingsOpenDetailsExactValues}
         onOpenChange={(open) => { if (!open) setSelected(null); }}
         selected={selected}
-        title={(group) => `${group.ticker} · ${group.marketCode}`}
-        renderDetail={(group) => (
-        <DashboardHoldingDetail
+        title={(row) => `${row.ticker} · ${row.marketCode}`}
+        renderDetail={(row) => (
+          <DashboardHoldingDetail
             dict={dict}
-            fxRate={findFxRate(fxRates, group.currency, reportingCurrency)}
-            group={group}
-            locale={locale}
             detailColumns={mobileColumnSplit.detailColumns}
-            visibleColumns={[...mobileColumnSplit.summaryColumns, ...mobileColumnSplit.detailColumns]}
+            fxRate={findFxRate(fxRates, row.currency, reportingCurrency)}
+            group={row}
+            locale={locale}
             reportingCurrency={reportingCurrency}
+            visibleColumns={[...mobileColumnSplit.summaryColumns, ...mobileColumnSplit.detailColumns]}
           />
+        )}
+      />
+      <HoldingsDetailSheet
+        description={dict.tickerHistory.actionTimelineSubtitle}
+        onOpenChange={(open) => { if (!open) setSelectedActivity(null); }}
+        selected={selectedActivity}
+        title={(row) => "accountId" in row
+          ? `${row.ticker} · ${row.marketCode} · ${row.accountName?.trim() || row.accountId}`
+          : `${row.ticker} · ${row.marketCode}`}
+        renderDetail={(row) => (
+          <HoldingActivityDetail dict={dict} locale={locale} row={row} />
         )}
       />
     </TooltipProvider>
@@ -743,6 +759,36 @@ function formatFilterSummary(selectedIds: string[], allLabel: string, label: str
   return `${selectedIds.length} ${label}`;
 }
 
+function DashboardHoldingActivityQuickLink({
+  label,
+  onOpen,
+  testId,
+}: {
+  label: string;
+  onOpen: () => void;
+  testId: string;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="h-8 w-8 shrink-0 rounded-md"
+          aria-label={label}
+          title={label}
+          onClick={onOpen}
+          data-testid={testId}
+        >
+          <Search className="h-4 w-4" aria-hidden="true" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="top">{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
 function DashboardHoldingRow({
   dict,
   fxRate,
@@ -751,6 +797,7 @@ function DashboardHoldingRow({
   summaryColumns,
   visibleColumns,
   onOpen,
+  onOpenActivity,
   quoteRefreshVersion,
   reportingCurrency,
   showAdminActivityLinks,
@@ -762,6 +809,7 @@ function DashboardHoldingRow({
   summaryColumns: DashboardHoldingsColumn[];
   visibleColumns: DashboardHoldingsColumn[];
   onOpen: () => void;
+  onOpenActivity: () => void;
   quoteRefreshVersion: number;
   reportingCurrency: AccountDefaultCurrency;
   showAdminActivityLinks: boolean;
@@ -792,6 +840,11 @@ function DashboardHoldingRow({
             <Badge variant="outline">{group.marketCode}</Badge>
           </div>
         </div>
+        <DashboardHoldingActivityQuickLink
+          label={`${dict.tickerHistory.actionTimelineTitle}: ${group.ticker}`}
+          onOpen={onOpenActivity}
+          testId={`dashboard-holding-open-activity-${group.ticker}-${group.marketCode}`}
+        />
       </div>
 
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
@@ -813,7 +866,7 @@ function DashboardHoldingRow({
           />
         ))}
       </div>
-      <div className="mt-3 flex items-center justify-between gap-3 border-t border-border/70 pt-3">
+      <div className="mt-3 border-t border-border/70 pt-3">
         <p className="text-xs text-muted-foreground">
           {visibleColumns.includes("price") && nativePrice !== null && group.currency !== reportingCurrency
             ? formatTopHoldingsMessage(dict.dashboardHome.topHoldingsNativePriceAvailable, {
@@ -821,7 +874,7 @@ function DashboardHoldingRow({
               })
             : dict.dashboardHome.topHoldingsOpenDetailsExactValues}
         </p>
-        <Button size="sm" variant="ghost" onClick={onOpen}>
+        <Button type="button" size="sm" variant="ghost" className="mt-2" onClick={onOpen}>
           {dict.dashboardHome.topHoldingsDetailsLabel}
         </Button>
       </div>
@@ -838,6 +891,7 @@ function DashboardHoldingsTable({
   groups,
   locale,
   onOpen,
+  onOpenActivity,
   onToggleExpanded,
   quoteRefreshVersion,
   reportingCurrency,
@@ -850,7 +904,8 @@ function DashboardHoldingsTable({
   fxRates: FxConversionRateDto[];
   groups: DashboardOverviewHoldingGroupDto[];
   locale: LocaleCode;
-  onOpen: (group: DashboardOverviewHoldingGroupDto) => void;
+  onOpen: (row: DashboardOverviewHoldingGroupDto) => void;
+  onOpenActivity: (row: DashboardHoldingDetailRow) => void;
   onToggleExpanded: (key: string) => void;
   quoteRefreshVersion: number;
   reportingCurrency: AccountDefaultCurrency;
@@ -911,6 +966,7 @@ function DashboardHoldingsTable({
                     isExpanded,
                     locale,
                     onOpen,
+                    onOpenActivity,
                     onToggleExpanded: () => onToggleExpanded(rowKey),
                     quoteRefreshVersion: index < MAX_ANIMATED_DASHBOARD_HOLDING_ROWS ? quoteRefreshVersion : 0,
                     reportingCurrency,
@@ -930,6 +986,7 @@ function DashboardHoldingsTable({
                         dict,
                         group,
                         locale,
+                        onOpenActivity,
                         quoteRefreshVersion: 0,
                         reportingCurrency,
                       }))}
@@ -990,6 +1047,7 @@ function renderDashboardGroupCell({
   isExpanded,
   locale,
   onOpen,
+  onOpenActivity,
   onToggleExpanded,
   quoteRefreshVersion,
   reportingCurrency,
@@ -1006,6 +1064,7 @@ function renderDashboardGroupCell({
   isExpanded: boolean;
   locale: LocaleCode;
   onOpen: (group: DashboardOverviewHoldingGroupDto) => void;
+  onOpenActivity: (row: DashboardHoldingDetailRow) => void;
   onToggleExpanded: () => void;
   quoteRefreshVersion: number;
   reportingCurrency: AccountDefaultCurrency;
@@ -1036,15 +1095,22 @@ function renderDashboardGroupCell({
               className={cn("transition-transform", isExpanded && "rotate-90")}
             />
           </Button>
-          <div className="flex min-w-0 flex-col gap-1">
-            <Link
-              href={`/tickers/${encodeURIComponent(group.ticker)}?marketCode=${encodeURIComponent(group.marketCode)}`}
-              className="break-words font-semibold text-foreground underline decoration-primary/30 underline-offset-4 hover:text-primary"
-            >
-              {group.ticker}
-            </Link>
-            {group.instrumentName ? <span className="break-words text-xs text-muted-foreground">{group.instrumentName}</span> : null}
-            <span className="text-xs text-muted-foreground">{group.marketCode}</span>
+          <div className="flex min-w-0 items-start gap-2">
+            <div className="flex min-w-0 flex-col gap-1">
+              <Link
+                href={`/tickers/${encodeURIComponent(group.ticker)}?marketCode=${encodeURIComponent(group.marketCode)}`}
+                className="break-words font-semibold text-foreground underline decoration-primary/30 underline-offset-4 hover:text-primary"
+              >
+                {group.ticker}
+              </Link>
+              {group.instrumentName ? <span className="break-words text-xs text-muted-foreground">{group.instrumentName}</span> : null}
+              <span className="text-xs text-muted-foreground">{group.marketCode}</span>
+            </div>
+            <DashboardHoldingActivityQuickLink
+              label={`${dict.tickerHistory.actionTimelineTitle}: ${group.ticker}`}
+              onOpen={() => onOpenActivity(group)}
+              testId={`dashboard-holding-table-open-activity-${group.ticker}-${group.marketCode}`}
+            />
           </div>
         </div>
       </td>
@@ -1186,6 +1252,7 @@ function renderDashboardChildCell({
   dict,
   group,
   locale,
+  onOpenActivity,
   quoteRefreshVersion,
   reportingCurrency,
 }: {
@@ -1195,6 +1262,7 @@ function renderDashboardChildCell({
   dict: ReturnType<typeof getDictionary>;
   group: DashboardOverviewHoldingGroupDto;
   locale: LocaleCode;
+  onOpenActivity: (row: DashboardHoldingDetailRow) => void;
   quoteRefreshVersion: number;
   reportingCurrency: AccountDefaultCurrency;
 }) {
@@ -1202,9 +1270,16 @@ function renderDashboardChildCell({
   if (column === "ticker") {
     return (
       <td key={column} className={dashboardCellClassName(column, "bg-muted")} style={style}>
-        <div className="flex flex-col gap-1 pl-10">
-          <span className="font-medium text-foreground">{child.accountName ?? child.accountId}</span>
-          <span className="text-xs text-muted-foreground">{dict.dashboardHome.topHoldingsAccountPosition}</span>
+        <div className="flex items-start gap-2 pl-10">
+          <div className="flex min-w-0 flex-col gap-1">
+            <span className="font-medium text-foreground">{child.accountName ?? child.accountId}</span>
+            <span className="text-xs text-muted-foreground">{dict.dashboardHome.topHoldingsAccountPosition}</span>
+          </div>
+          <DashboardHoldingActivityQuickLink
+            label={`${dict.tickerHistory.actionTimelineTitle}: ${child.ticker} · ${child.accountName?.trim() || child.accountId}`}
+            onOpen={() => onOpenActivity(child)}
+            testId={`dashboard-holding-account-open-activity-${child.ticker}-${child.marketCode}-${child.accountId}`}
+          />
         </div>
       </td>
     );

@@ -1,4 +1,4 @@
-import type { DividendLedgerAggregates, MarketCode } from "@vakwen/shared-types";
+import type { DividendDailyHighlightsDto, DividendLedgerAggregates, MarketCode } from "@vakwen/shared-types";
 import { getJson, patchJson, postJson } from "../../../lib/api";
 import type {
   DividendCalendarSnapshot,
@@ -132,6 +132,16 @@ export async function fetchDividendCalendarSnapshot(
   return { events, ledgerEntries };
 }
 
+export async function fetchDividendDailyHighlights(
+  options: DividendRequestOptions = {},
+): Promise<DividendDailyHighlightsDto> {
+  const payload = await getJson<DividendDailyHighlightsDto>("/portfolio/dividends/daily-highlights", { signal: options.signal });
+  return {
+    payingToday: payload.payingToday ?? [],
+    exDividendToday: payload.exDividendToday ?? [],
+  };
+}
+
 export async function submitDividendPosting(payload: DividendPostingPayload): Promise<DividendPostingResult> {
   return postJson<DividendPostingResult>(
     "/portfolio/dividends/postings",
@@ -154,6 +164,12 @@ export async function fetchDividendLedgerReview(params: DividendReviewQuery): Pr
       byTicker: {},
     },
   };
+}
+
+export async function fetchDividendLedgerEntry(dividendLedgerEntryId: string): Promise<DividendLedgerEntryDetails> {
+  return getJson<DividendLedgerEntryDetails>(
+    `/portfolio/dividends/postings/${encodeURIComponent(dividendLedgerEntryId)}`,
+  );
 }
 
 export async function fetchDividendLedgerYears(): Promise<number[]> {

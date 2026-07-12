@@ -59,10 +59,11 @@ import { CalendarUnknownWarnings } from "../holdings/CalendarUnknownWarnings";
 import { PriceStateChip } from "../holdings/PriceStateChip";
 import { holdingsFinanceToneClass, holdingsStickyFirstColumnClassName } from "../holdings/holdingsStyle";
 import { HoldingsDetailSheet } from "../holdings/HoldingsDetailSheet";
-import { HoldingActionDetail } from "../holdings/HoldingActionDetail";
+import { HoldingActivityDetail } from "../holdings/HoldingActivityDetail";
 import { buildPriceStateActivityPath, getPriceState } from "../../features/price-state/priceState";
 
 type HoldingsDisplayMode = "aggregated" | "expanded" | "accounts";
+type DetailHoldingRow = DashboardOverviewHoldingGroupDto | DashboardOverviewHoldingChildDto;
 type HoldingsColumn =
   | "ticker"
   | "accounts"
@@ -210,7 +211,7 @@ export function HoldingsTable({
   const [displayMode, setDisplayMode] = useState<HoldingsDisplayMode>("aggregated");
   const [selectedStatuses, setSelectedStatuses] = useState<DashboardOverviewHoldingDto["quoteStatus"][]>([]);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
-  const [selectedGroup, setSelectedGroup] = useState<DashboardOverviewHoldingGroupDto | null>(null);
+  const [selectedHolding, setSelectedHolding] = useState<DetailHoldingRow | null>(null);
   const deferredQuery = useDeferredValue(query);
   const columnSettings = useHoldingsColumnSettings<HoldingsColumn>({
     columns: PORTFOLIO_HOLDINGS_COLUMNS,
@@ -564,6 +565,7 @@ export function HoldingsTable({
                       detailColumns={mobileColumnSplit.detailColumns}
                       nested={false}
                       showFreshnessBadge={showFreshnessBadge}
+                      onOpenDetail={() => setSelectedHolding(child)}
                       summaryColumns={mobileColumnSplit.summaryColumns}
                       quoteRefreshVersion={index < MAX_ANIMATED_HOLDING_VALUE_ROWS ? quoteRefreshVersion : 0}
                     />
@@ -585,13 +587,13 @@ export function HoldingsTable({
                         allocationPercent={groupAllocationMap.get(groupKey) ?? null}
                         allocationBasis={effectiveAllocationBasis}
                         detailColumns={mobileColumnSplit.detailColumns}
-                      expanded={showChildren}
-                      showFreshnessBadge={showFreshnessBadge}
-                      showAdminActivityLinks={showAdminActivityLinks}
-                      quoteRefreshVersion={index < MAX_ANIMATED_HOLDING_VALUE_ROWS ? quoteRefreshVersion : 0}
-                      summaryColumns={mobileColumnSplit.summaryColumns}
-                      onToggle={() => toggleGroup(groupKey)}
-                      onOpenDetail={() => setSelectedGroup(group)}
+                        expanded={showChildren}
+                        showFreshnessBadge={showFreshnessBadge}
+                        showAdminActivityLinks={showAdminActivityLinks}
+                        quoteRefreshVersion={index < MAX_ANIMATED_HOLDING_VALUE_ROWS ? quoteRefreshVersion : 0}
+                        summaryColumns={mobileColumnSplit.summaryColumns}
+                        onToggle={() => toggleGroup(groupKey)}
+                        onOpenDetail={() => setSelectedHolding(group)}
                       />
                       {showChildren
                         ? visibleChildren.map((child) => (
@@ -605,6 +607,7 @@ export function HoldingsTable({
                             detailColumns={mobileColumnSplit.detailColumns}
                             nested
                             showFreshnessBadge={showFreshnessBadge}
+                            onOpenDetail={() => setSelectedHolding(child)}
                             summaryColumns={mobileColumnSplit.summaryColumns}
                             quoteRefreshVersion={0}
                           />
@@ -653,6 +656,7 @@ export function HoldingsTable({
                       allocationPercent={childAllocationMap.get(`${child.accountId}:${child.ticker}:${child.marketCode}`) ?? null}
                       allocationBasis={effectiveAllocationBasis}
                       isRecomputing={recomputingSymbols?.has(`${child.accountId}:${child.ticker}`) ?? false}
+                      onOpenDetail={() => setSelectedHolding(child)}
                       quoteRefreshVersion={index < MAX_ANIMATED_HOLDING_VALUE_ROWS ? quoteRefreshVersion : 0}
                     />
                   ))
@@ -676,7 +680,7 @@ export function HoldingsTable({
                           allocationBasis={effectiveAllocationBasis}
                           expanded={showChildren}
                           onToggle={() => toggleGroup(groupKey)}
-                          onOpenDetail={() => setSelectedGroup(group)}
+                          onOpenDetail={() => setSelectedHolding(group)}
                           showFreshnessBadge={showFreshnessBadge}
                           showAdminActivityLinks={showAdminActivityLinks}
                           isRecomputing={hasRecomputingChild(group, recomputingSymbols)}
@@ -692,11 +696,12 @@ export function HoldingsTable({
                               visibleColumns={visibleColumns}
                               columnSettings={columnSettings}
                               allocationPercent={childAllocationMap.get(`${child.accountId}:${child.ticker}:${child.marketCode}`) ?? null}
-                                  allocationBasis={effectiveAllocationBasis}
-                                  isRecomputing={recomputingSymbols?.has(`${child.accountId}:${child.ticker}`) ?? false}
-                                  nested
-                                  quoteRefreshVersion={0}
-                                />
+                              allocationBasis={effectiveAllocationBasis}
+                              isRecomputing={recomputingSymbols?.has(`${child.accountId}:${child.ticker}`) ?? false}
+                              nested
+                              onOpenDetail={() => setSelectedHolding(child)}
+                              quoteRefreshVersion={0}
+                            />
                           ))
                           : null}
                       </React.Fragment>
@@ -710,15 +715,16 @@ export function HoldingsTable({
       </Card>
       <HoldingsDetailSheet
         description={dict.tickerHistory.actionTimelineSubtitle}
-        onOpenChange={(open) => { if (!open) setSelectedGroup(null); }}
-        selected={selectedGroup}
-        title={(group) => `${group.ticker} · ${group.marketCode}`}
-        renderDetail={(group) => (
-          <HoldingActionDetail
+        onOpenChange={(open) => { if (!open) setSelectedHolding(null); }}
+        selected={selectedHolding}
+        title={(selected) => "accountId" in selected
+          ? `${selected.ticker} · ${selected.marketCode} · ${selected.accountName?.trim() || selected.accountId}`
+          : `${selected.ticker} · ${selected.marketCode}`}
+        renderDetail={(selected) => (
+          <HoldingActivityDetail
             dict={dict}
             locale={locale}
-            marketCode={group.marketCode}
-            row={group}
+            row={selected}
           />
         )}
       />
@@ -808,9 +814,11 @@ function HoldingGroupMobileCard({
             <Button type="button" size="sm" variant="ghost" onClick={() => setDetailsOpen((open) => !open)}>
               {dict.reports.viewDetails}
             </Button>
-            <Button type="button" size="sm" variant="secondary" onClick={onOpenDetail} data-testid={`holding-group-open-detail-${group.ticker}-${group.marketCode}`}>
-              {dict.tickerHistory.actionTimelineTitle}
-            </Button>
+            <HoldingActivityQuickLink
+              label={`${dict.tickerHistory.actionTimelineTitle}: ${group.ticker}`}
+              onOpenDetail={onOpenDetail}
+              testId={`holding-group-open-detail-${group.ticker}-${group.marketCode}`}
+            />
           </div>
           {detailsOpen ? (
             <div className="mt-3 grid grid-cols-2 gap-2">
@@ -852,6 +860,7 @@ function HoldingChildMobileCard({
   detailColumns,
   nested,
   showFreshnessBadge,
+  onOpenDetail,
   quoteRefreshVersion,
   summaryColumns,
 }: {
@@ -863,6 +872,7 @@ function HoldingChildMobileCard({
   detailColumns: HoldingsColumn[];
   nested: boolean;
   showFreshnessBadge: boolean;
+  onOpenDetail: () => void;
   quoteRefreshVersion: number;
   summaryColumns: HoldingsColumn[];
 }) {
@@ -887,6 +897,11 @@ function HoldingChildMobileCard({
           <p className="mt-1 text-xs text-muted-foreground">{child.marketCode} · {child.currency}</p>
           <p className="mt-1 text-xs text-muted-foreground">{child.accountName?.trim() || child.accountId}</p>
         </div>
+        <HoldingActivityQuickLink
+          label={`${dict.tickerHistory.actionTimelineTitle}: ${child.ticker} · ${child.accountName?.trim() || child.accountId}`}
+          onOpenDetail={onOpenDetail}
+          testId={`holding-child-open-detail-${child.ticker}-${child.marketCode}-${child.accountId}`}
+        />
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2">
@@ -1172,6 +1187,7 @@ function HoldingChildRow({
   allocationBasis,
   isRecomputing,
   nested = false,
+  onOpenDetail,
   quoteRefreshVersion,
 }: {
   columnSettings: HoldingsColumnSettingsState<HoldingsColumn>;
@@ -1183,6 +1199,7 @@ function HoldingChildRow({
   allocationBasis: HoldingAllocationBasis;
   isRecomputing: boolean;
   nested?: boolean;
+  onOpenDetail: () => void;
   quoteRefreshVersion: number;
 }) {
   const allocation = getAmountForAllocationBasis(child, allocationBasis);
@@ -1203,6 +1220,7 @@ function HoldingChildRow({
           locale={locale}
           marketValueAmount={child.reportingMarketValueAmount}
           nested={nested}
+          onOpenDetail={onOpenDetail}
           reportingCurrency={reportingCurrency}
           unrealizedPnlAmount={child.reportingUnrealizedPnlAmount}
           quoteRefreshVersion={quoteRefreshVersion}
@@ -1295,15 +1313,19 @@ function HoldingGroupCell({
           >
             {expanded ? <ChevronDown /> : <ChevronRight />}
           </button>
-          <div className="min-w-0">
-            <Link href={groupLinkHref(group)} className="break-words font-semibold text-foreground hover:text-primary">
-              {group.ticker}
-            </Link>
-            {group.instrumentName ? <p className="mt-1 break-words text-sm text-muted-foreground">{group.instrumentName}</p> : null}
-            <p className="text-xs text-muted-foreground">{group.marketCode} · {group.currency}</p>
-            <Button type="button" size="sm" variant="ghost" className="mt-1 h-auto px-0 text-xs" onClick={onOpenDetail} data-testid={`holding-group-open-detail-${group.ticker}-${group.marketCode}`}>
-              {dict.tickerHistory.actionTimelineTitle}
-            </Button>
+          <div className="flex min-w-0 items-start gap-2">
+            <div className="min-w-0">
+              <Link href={groupLinkHref(group)} className="break-words font-semibold text-foreground hover:text-primary">
+                {group.ticker}
+              </Link>
+              {group.instrumentName ? <p className="mt-1 break-words text-sm text-muted-foreground">{group.instrumentName}</p> : null}
+              <p className="text-xs text-muted-foreground">{group.marketCode} · {group.currency}</p>
+            </div>
+            <HoldingActivityQuickLink
+              label={`${dict.tickerHistory.actionTimelineTitle}: ${group.ticker}`}
+              onOpenDetail={onOpenDetail}
+              testId={`holding-group-open-detail-${group.ticker}-${group.marketCode}`}
+            />
           </div>
         </div>
       </td>
@@ -1429,6 +1451,7 @@ function HoldingChildCell({
   locale,
   marketValueAmount,
   nested,
+  onOpenDetail,
   reportingCurrency,
   unrealizedPnlAmount,
   quoteRefreshVersion,
@@ -1443,6 +1466,7 @@ function HoldingChildCell({
   locale: LocaleCode;
   marketValueAmount: number | null;
   nested: boolean;
+  onOpenDetail: () => void;
   reportingCurrency: AccountDefaultCurrency;
   unrealizedPnlAmount: number | null;
   quoteRefreshVersion: number;
@@ -1451,11 +1475,18 @@ function HoldingChildCell({
   if (column === "ticker") {
     return (
       <td className="sticky left-0 z-10 bg-muted px-4 py-3" style={style}>
-        <div className={cn("min-w-0", nested && "pl-8")}>
-          <Link href={childLinkHref(child)} className="break-words font-medium text-primary hover:underline">
-            {child.accountName?.trim() || child.accountId}
-          </Link>
-          <p className="text-xs text-muted-foreground">{child.ticker} · {child.marketCode}</p>
+        <div className={cn("flex min-w-0 items-start gap-2", nested && "pl-8")}>
+          <div className="min-w-0">
+            <Link href={childLinkHref(child)} className="break-words font-medium text-primary hover:underline">
+              {child.accountName?.trim() || child.accountId}
+            </Link>
+            <p className="text-xs text-muted-foreground">{child.ticker} · {child.marketCode}</p>
+          </div>
+          <HoldingActivityQuickLink
+            label={`${dict.tickerHistory.actionTimelineTitle}: ${child.ticker} · ${child.accountName?.trim() || child.accountId}`}
+            onOpenDetail={onOpenDetail}
+            testId={`holding-child-open-detail-${child.ticker}-${child.marketCode}-${child.accountId}`}
+          />
         </div>
       </td>
     );
@@ -1642,4 +1673,38 @@ function splitMobileHoldingColumns<ColumnId extends string>(
     summaryColumns: visibleColumns.slice(0, settings.mobileSummaryCount),
     detailColumns: visibleColumns.slice(settings.mobileSummaryCount),
   };
+}
+
+function HoldingActivityQuickLink({
+  label,
+  onOpenDetail,
+  testId,
+}: {
+  label: string;
+  onOpenDetail: () => void;
+  testId: string;
+}) {
+  return (
+    <Tooltip.Root>
+      <Tooltip.Trigger asChild>
+        <Button
+          type="button"
+          size="icon"
+          variant="ghost"
+          className="h-8 w-8 shrink-0 rounded-md"
+          aria-label={label}
+          title={label}
+          onClick={onOpenDetail}
+          data-testid={testId}
+        >
+          <Search className="h-4 w-4" aria-hidden="true" />
+        </Button>
+      </Tooltip.Trigger>
+      <Tooltip.Portal>
+        <Tooltip.Content side="top" sideOffset={6} className="z-50 rounded-md border border-border bg-popover px-2 py-1 text-xs text-popover-foreground shadow-md">
+          {label}
+        </Tooltip.Content>
+      </Tooltip.Portal>
+    </Tooltip.Root>
+  );
 }

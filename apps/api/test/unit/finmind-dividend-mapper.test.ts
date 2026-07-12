@@ -52,6 +52,11 @@ describe("FinMindMarketDataProvider.fetchDividends mapper", () => {
       paymentDate: "2025-07-15",
       cashDividendPerShare: 2.5,
       stockDividendPerShare: 0,
+      stockDistributionAmountRaw: 0,
+      stockDistributionRatio: null,
+      stockDistributionRatioState: "unresolved",
+      stockParValueAmount: null,
+      stockParValueCurrency: null,
       fiscalYearPeriod: "2024",
       announcementDate: "2025-05-01",
       totalDistributionShares: 25933632588,
@@ -145,6 +150,9 @@ describe("FinMindMarketDataProvider.fetchDividends mapper", () => {
       paymentDate: "2025-08-15",
       cashDividendPerShare: 0,
       stockDividendPerShare: 0.07,
+      stockDistributionAmountRaw: 0.07,
+      stockDistributionRatio: null,
+      stockDistributionRatioState: "unresolved",
       sourceId: "finmind",
     });
     expect(records[1]).toMatchObject({
@@ -153,6 +161,9 @@ describe("FinMindMarketDataProvider.fetchDividends mapper", () => {
       paymentDate: "2025-10-15",
       cashDividendPerShare: 2,
       stockDividendPerShare: 0.13,
+      stockDistributionAmountRaw: 0.13,
+      stockDistributionRatio: null,
+      stockDistributionRatioState: "unresolved",
       sourceId: "finmind",
     });
     expect(records[0]!.rawProviderData).toEqual(stockOnlyRow);

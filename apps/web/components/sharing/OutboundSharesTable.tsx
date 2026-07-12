@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import type { LocaleCode } from "@vakwen/shared-types";
+import { DIVIDEND_WRITE_CAPABILITY } from "../../features/sharing/capabilities";
 import type { OutboundShareRow, SharingPageData } from "../../features/sharing/types";
 import { getDictionary } from "../../lib/i18n";
 import { cn, formatDateLabel } from "../../lib/utils";
@@ -18,6 +19,18 @@ interface OutboundSharesTableProps {
   onRevoke: (row: OutboundShareRow) => void;
   onReshare: (row: OutboundShareRow) => void;
 }
+
+const CAPABILITY_LABELS: Record<string, string> = {
+  "portfolio:mcp_read": "ChatGPT portfolio read",
+  "account:manage": "Manage accounts and fee settings",
+  "sharing:manage": "Manage named shares and invites",
+  "transaction_draft:create": "Create AI drafts",
+  "transaction_draft:edit": "Edit AI drafts",
+  "transaction_draft:archive": "Archive AI drafts",
+  "transaction_draft:delete": "Delete AI drafts",
+  "transaction:write": "Create, edit, and delete transactions",
+  [DIVIDEND_WRITE_CAPABILITY]: "Post, reconcile, and delete dividends",
+};
 
 const STATUS_STYLES: Record<OutboundShareRow["status"], string> = {
   active: "border-emerald-200 bg-emerald-50 text-emerald-700",
@@ -37,7 +50,7 @@ function formatCapabilities(
 ): string {
   if (row.capabilities.length === 0) return readOnlyLabel;
   return row.capabilities
-    .map((capability) => labels[capability])
+    .map((capability) => labels[capability as keyof typeof labels] ?? CAPABILITY_LABELS[capability] ?? capability)
     .join(", ");
 }
 

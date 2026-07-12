@@ -30,9 +30,11 @@ export interface AppShellData {
   uiDict: ReturnType<typeof getDictionary>;
   locale: LocaleCode;
   sessionUserId: string | null;
+  contextOwnerId?: string | null;
   sessionUserRole?: string | null;
   routeCachePolicy?: RouteCachePolicyDto | null;
   isSharedContext: boolean;
+  switcherLoaded: boolean;
   currentSharedCapabilities: ShareCapability[];
   sharedContextPermissions: SharedContextPermissions;
   canUseGlobalQuickActions: boolean;

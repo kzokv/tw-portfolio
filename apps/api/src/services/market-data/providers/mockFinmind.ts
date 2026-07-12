@@ -39,6 +39,11 @@ function generateMockDividends(ticker: string): DividendRecord[] {
       paymentDate: "2025-07-15",
       cashDividendPerShare: 2.5,
       stockDividendPerShare: 0,
+      stockDistributionAmountRaw: 0,
+      stockDistributionRatio: null,
+      stockDistributionRatioState: "unresolved",
+      stockParValueAmount: null,
+      stockParValueCurrency: null,
       sourceId: "finmind",
     },
     {
@@ -47,6 +52,11 @@ function generateMockDividends(ticker: string): DividendRecord[] {
       paymentDate: "2026-01-15",
       cashDividendPerShare: 3.0,
       stockDividendPerShare: 0.5,
+      stockDistributionAmountRaw: 0.5,
+      stockDistributionRatio: null,
+      stockDistributionRatioState: "unresolved",
+      stockParValueAmount: null,
+      stockParValueCurrency: null,
       sourceId: "finmind",
     },
   ];

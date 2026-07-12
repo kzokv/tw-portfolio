@@ -83,8 +83,12 @@ export class TickerDetailActions extends AppBaseActions {
 
   @Step()
   async confirmDelete(): Promise<import("@playwright/test").Response> {
+    await expect(this.el.deleteDialog.confirmButton).toBeEnabled({ timeout: 15_000 });
     const responsePromise = this.mxWaitForResponse(
-      (r) => r.url().includes("/portfolio/transactions/") && r.request().method() === "DELETE",
+      (r) =>
+        r.url().includes("/portfolio/transactions/")
+        && r.url().endsWith("/dividend-delete-confirm")
+        && r.request().method() === "POST",
     );
     await this.uiActions.click.perform(this.el.deleteDialog.confirmButton);
     return responsePromise;

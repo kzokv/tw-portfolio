@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { upsertDailyBars } from "../../../src/services/market-data/upserts.js";
+import { upsertDailyBars, upsertDividendEvents } from "../../../src/services/market-data/upserts.js";
 
 describe("upsertDailyBars quality semantics", () => {
   it("stamps quality values and keeps full_bar rows authoritative on conflict", async () => {
@@ -69,5 +69,31 @@ describe("upsertDailyBars quality semantics", () => {
 
     await expect(upsertDailyBars(pool, [])).resolves.toBe(0);
     expect(query).not.toHaveBeenCalled();
+  });
+});
+
+describe("upsertDividendEvents ratio authority", () => {
+  it("preserves a repaired authoritative ratio and par value when a refresh is unresolved", async () => {
+    const query = vi.fn().mockResolvedValue({ rowCount: 1 });
+    const pool = { query } as unknown as Parameters<typeof upsertDividendEvents>[0];
+
+    await upsertDividendEvents(pool, [{
+      ticker: "2330",
+      marketCode: "TW",
+      exDividendDate: "2026-07-01",
+      paymentDate: "2026-07-31",
+      cashDividendPerShare: 0,
+      stockDividendPerShare: 0.1,
+      stockDistributionRatio: null,
+      stockDistributionRatioState: "unresolved",
+    }]);
+
+    const [sql] = query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain("market_data.dividend_events.stock_distribution_ratio_state = 'authoritative'");
+    expect(sql).toContain("EXCLUDED.stock_distribution_ratio_state IS DISTINCT FROM 'authoritative'");
+    expect(sql).toContain("THEN market_data.dividend_events.stock_distribution_ratio");
+    expect(sql).toContain("THEN market_data.dividend_events.stock_distribution_ratio_state");
+    expect(sql).toContain("THEN market_data.dividend_events.stock_par_value_amount");
+    expect(sql).toContain("THEN market_data.dividend_events.stock_par_value_currency");
   });
 });

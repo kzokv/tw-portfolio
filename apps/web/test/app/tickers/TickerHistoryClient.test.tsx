@@ -8,7 +8,7 @@ import type {
   InstrumentCatalogItemDto,
   TransactionHistoryItemDto,
 } from "@vakwen/shared-types";
-import { TickerHistoryClient } from "../../../app/tickers/[ticker]/TickerHistoryClient";
+import { canDeleteTickerTransactions, TickerHistoryClient } from "../../../app/tickers/[ticker]/TickerHistoryClient";
 import type { TickerDetailsModel } from "../../../features/portfolio/services/tickerDetailsService";
 import { getDictionary } from "../../../lib/i18n";
 import { testPriceState } from "../../fixtures/priceState";
@@ -494,16 +494,27 @@ function feeProfilesFor(testAccounts: AccountDto[]): FeeProfileDto[] {
 }
 
 describe("TickerHistoryClient", () => {
-  it("renders scoped account names instead of account ids in summary panels", () => {
+  it("requires both delegated write permissions for transaction deletion", () => {
+    expect(canDeleteTickerTransactions(true, {
+      canWriteTransactions: true,
+      canWriteDividends: false,
+    })).toBe(false);
+    expect(canDeleteTickerTransactions(true, {
+      canWriteTransactions: true,
+      canWriteDividends: true,
+    })).toBe(true);
+    expect(canDeleteTickerTransactions(false, {
+      canWriteTransactions: false,
+      canWriteDividends: false,
+    })).toBe(true);
+  });
+
+  it("does not render the duplicated position summary strip above the tabs", () => {
     vi.mocked(fetchTickerDetailsHydration).mockResolvedValue(details);
     const element = renderTickerHistoryClient();
 
-    const quantityCard = element.querySelector('[data-testid="ticker-history-quantity"]');
-    const totalCostCard = element.querySelector('[data-testid="ticker-history-total-cost"]');
-    expect(quantityCard?.textContent).toContain("Scope Brokerage");
-    expect(quantityCard?.textContent).not.toContain("acc-2");
-    expect(totalCostCard?.textContent).toContain("Scope Brokerage");
-    expect(totalCostCard?.textContent).not.toContain("acc-2");
+    expect(element.querySelector('[data-testid="ticker-stats-bar"]')).toBeNull();
+    expect(element.querySelector('[data-testid="ticker-history-quantity"]')).toBeNull();
   });
 
   it("scopes the repair action copy to ticker data", () => {

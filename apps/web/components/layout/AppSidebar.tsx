@@ -149,7 +149,10 @@ export function AppSidebar({
   const [aiInboxCount, setAiInboxCount] = useState(0);
   const navigationFeedback = useOptionalNavigationFeedback();
   const appShellData = useOptionalAppShellData();
-  const canReadAiDrafts = !appShellData?.isSharedContext || appShellData.sharedContextPermissions.canReadAiDrafts;
+  const canReadAiDrafts = Boolean(
+    appShellData?.switcherLoaded
+    && (!appShellData.isSharedContext || appShellData.sharedContextPermissions.canReadAiDrafts),
+  );
   const canManageSharedAccounts = !appShellData?.isSharedContext || appShellData.sharedContextPermissions.canManageAccounts;
   const canManageSharedSharing = !appShellData?.isSharedContext || appShellData.sharedContextPermissions.canManageSharing;
   const sharedSettingsLabel = appShellData?.uiDict.switcher.sharedPortfolioSettings;

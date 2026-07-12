@@ -14,8 +14,10 @@ import { buildRouteDtoCacheTag, clearRouteDtoCacheByTags } from "../../../lib/ro
 import { useEventStream } from "../../../hooks/useEventStream";
 import {
   previewImpact,
+  previewDividendDelete,
   deleteTransaction,
   patchTransaction,
+  type DividendDeletePreviewResponse,
 } from "../services/transactionMutationService";
 
 export interface TransactionPatch {
@@ -41,6 +43,7 @@ export interface UseTransactionMutationsResult {
   // Delete flow
   deleteTarget: TransactionHistoryItemDto | null;
   deletePreview: PreviewImpactResponse | null;
+  deleteDividendPreview: DividendDeletePreviewResponse | null;
   isDeletePreviewLoading: boolean;
   isDeleteDialogOpen: boolean;
   startDelete: (transaction: TransactionHistoryItemDto) => void;
@@ -95,6 +98,7 @@ export function useTransactionMutations({
   // Delete flow state
   const [deleteTarget, setDeleteTarget] = useState<TransactionHistoryItemDto | null>(null);
   const [deletePreview, setDeletePreview] = useState<PreviewImpactResponse | null>(null);
+  const [deleteDividendPreview, setDeleteDividendPreview] = useState<DividendDeletePreviewResponse | null>(null);
   const [isDeletePreviewLoading, setIsDeletePreviewLoading] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
 
@@ -131,6 +135,8 @@ export function useTransactionMutations({
   onSnapshotsGeneratedRef.current = onSnapshotsGenerated;
   const onDeleteAcceptedRef = useRef(onDeleteAccepted);
   onDeleteAcceptedRef.current = onDeleteAccepted;
+  const recomputingSymbolsRef = useRef(recomputingSymbols);
+  recomputingSymbolsRef.current = recomputingSymbols;
 
   const sseDeliveredRef = useRef(false);
   const safetyNetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -183,14 +189,22 @@ export function useTransactionMutations({
       if (isSymbolRecomputing(transaction.accountId, transaction.ticker)) return;
       setDeleteTarget(transaction);
       setDeletePreview(null);
+      setDeleteDividendPreview(null);
       setIsDeletePreviewLoading(true);
       setIsDeleteDialogOpen(true);
       setMessage("");
       setErrorMessage("");
 
       previewImpact(transaction.id, "delete")
-        .then((preview) => {
-          setDeletePreview(preview);
+        .then(async (impactPreview) => {
+          setDeletePreview(impactPreview);
+          if (impactPreview.negativeLots.wouldOccur) {
+            setIsDeletePreviewLoading(false);
+            return;
+          }
+
+          const dividendPreview = await previewDividendDelete(transaction.id);
+          setDeleteDividendPreview(dividendPreview);
           setIsDeletePreviewLoading(false);
         })
         .catch((err: Error) => {
@@ -206,25 +220,32 @@ export function useTransactionMutations({
     setIsDeleteDialogOpen(false);
     setDeleteTarget(null);
     setDeletePreview(null);
+    setDeleteDividendPreview(null);
   }, []);
 
   const confirmDelete = useCallback(async () => {
-    if (!deleteTarget) return;
-    setIsDeleteDialogOpen(false);
-    setMessage(dictRef.current.mutations.deleteSuccessMessage);
+    if (!deleteTarget || !deleteDividendPreview) return;
+    setMessage("");
+    setErrorMessage("");
 
     try {
-      const result = await deleteTransaction(deleteTarget.id);
+      await deleteTransaction(deleteTarget.id, {
+        previewId: deleteDividendPreview.preview.previewId,
+        previewVersion: deleteDividendPreview.preview.previewVersion,
+        fingerprint: deleteDividendPreview.preview.fingerprint,
+      });
       onDeleteAcceptedRef.current?.(deleteTarget.id);
-      addRecomputing(deleteTarget.id, result.accountId, result.ticker);
+      addRecomputing(deleteTarget.id, deleteTarget.accountId, deleteTarget.ticker);
       setEditingId(null);
+      setIsDeleteDialogOpen(false);
+      setMessage(dictRef.current.mutations.deleteSuccessMessage);
+      setDeleteTarget(null);
+      setDeletePreview(null);
+      setDeleteDividendPreview(null);
     } catch (err: unknown) {
       setErrorMessage(err instanceof Error ? err.message : "Delete failed");
-      setMessage("");
     }
-    setDeleteTarget(null);
-    setDeletePreview(null);
-  }, [deleteTarget, addRecomputing]);
+  }, [deleteDividendPreview, deleteTarget, addRecomputing]);
 
   // --- Edit flow ---
   const startEdit = useCallback(
@@ -343,23 +364,41 @@ export function useTransactionMutations({
   // --- SSE integration ---
   const handleSSEEvent = useCallback(
     (data: unknown) => {
-      // SSE delivered — cancel safety net
-      sseDeliveredRef.current = true;
-      if (safetyNetTimerRef.current !== null) {
-        clearTimeout(safetyNetTimerRef.current);
-        safetyNetTimerRef.current = null;
-      }
+      const markMutationEventDelivered = () => {
+        sseDeliveredRef.current = true;
+        if (safetyNetTimerRef.current !== null) {
+          clearTimeout(safetyNetTimerRef.current);
+          safetyNetTimerRef.current = null;
+        }
+      };
 
       const event = data as RecomputeCompleteEvent | RecomputeFailedEvent | SnapshotsGeneratedEvent;
 
       if (event.type === "snapshots_generated") {
         clearRouteDtoCacheByTags(MUTATION_ROUTE_CACHE_TAGS);
         onSnapshotsGeneratedRef.current?.(event);
+        const matchedScopeKeys = event.trigger === "dividend_destructive_replay"
+          ? (event.scopes ?? [])
+            .map((scope) => `${scope.accountId}:${scope.ticker}`)
+            .filter((key) => recomputingSymbolsRef.current.has(key))
+          : [];
+        if (matchedScopeKeys.length > 0) {
+          markMutationEventDelivered();
+          for (const key of matchedScopeKeys) removeRecomputingBySymbol(key);
+          if (event.status === "ok") {
+            refreshAndReportSuccess(dictRef.current.mutations.recomputeCompleteMessage);
+          } else {
+            setMessage("");
+            setErrorMessage(event.error ?? dictRef.current.mutations.recomputeExhaustedMessage);
+          }
+        }
         return;
       }
 
       const recomputeEvent = event as RecomputeCompleteEvent | RecomputeFailedEvent;
       const key = `${recomputeEvent.accountId}:${recomputeEvent.ticker}`;
+      if (!recomputingSymbolsRef.current.has(key)) return;
+      markMutationEventDelivered();
 
       if (recomputeEvent.type === "recompute_complete") {
         removeRecomputingBySymbol(key);
@@ -412,6 +451,7 @@ export function useTransactionMutations({
   return {
     deleteTarget,
     deletePreview,
+    deleteDividendPreview,
     isDeletePreviewLoading,
     isDeleteDialogOpen,
     startDelete,

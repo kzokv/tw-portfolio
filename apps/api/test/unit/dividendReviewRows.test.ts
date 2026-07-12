@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp, type AppInstance } from "../../src/app.js";
+import { planDividendLedgerRecompute, reconcileDividendEntitlementsForScope } from "../../src/services/dividends.js";
 import type { BookedTradeEvent, DividendEvent, DividendLedgerEntry, PositionAction } from "../../src/types/store.js";
 
 const USER_ID = "user-1";
@@ -19,6 +20,19 @@ async function seedTwdAccount(): Promise<string> {
   const account = store.accounts[0]!;
   account.defaultCurrency = "TWD";
   return account.id;
+}
+
+async function seedSecondTwdAccount(name: string = "Account B"): Promise<string> {
+  const store = await app.persistence.loadStore(USER_ID);
+  const primary = store.accounts[0]!;
+  const accountId = `acc-${store.accounts.length + 1}`;
+  store.accounts.push({
+    ...primary,
+    id: accountId,
+    name,
+    defaultCurrency: "TWD",
+  });
+  return accountId;
 }
 
 async function seedInstrumentName(
@@ -80,7 +94,11 @@ async function seedDividendEvent(overrides: Partial<DividendEvent> = {}): Promis
   return event;
 }
 
-async function seedLedgerEntry(accountId: string, dividendEventId: string): Promise<void> {
+async function seedLedgerEntry(
+  accountId: string,
+  dividendEventId: string,
+  overrides: Partial<DividendLedgerEntry> = {},
+): Promise<void> {
   const store = await app.persistence.loadStore(USER_ID);
   const entry: DividendLedgerEntry = {
     id: randomUUID(),
@@ -95,8 +113,14 @@ async function seedLedgerEntry(accountId: string, dividendEventId: string): Prom
     reconciliationStatus: "open",
     version: 1,
     sourceCompositionStatus: "provided",
+    ...overrides,
   };
   store.accounting.facts.dividendLedgerEntries.push(entry);
+}
+
+async function seedPositionAction(action: PositionAction): Promise<void> {
+  const store = await app.persistence.loadStore(USER_ID);
+  store.accounting.facts.positionActions.push(action);
 }
 
 describe("MemoryPersistence.listDividendReviewRows", () => {
@@ -128,12 +152,195 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
       cashCurrency: "TWD",
       eligibleQuantity: 1000,
       expectedCashAmount: 3000,
+      expectedStockQuantity: 0,
+      expectedStockCalcState: "resolved",
+      stockDistributionRatio: null,
       receivedCashAmount: 0,
       postingStatus: "expected",
       reconciliationStatus: "open",
     });
     expect(review.aggregates.totalExpectedCashAmount).toEqual({ TWD: 3000 });
     expect(review.aggregates.openCount).toBe(1);
+  });
+
+  it("excludes materialized expected ledger rows when expected rows are disabled", async () => {
+    const accountId = await seedTwdAccount();
+    const event = await seedDividendEvent();
+    await seedLedgerEntry(accountId, event.id, { postingStatus: "expected" });
+
+    const review = await app.persistence.listDividendReviewRows(USER_ID, {
+      ...defaultOpts,
+      excludeExpected: true,
+      reconciliationStatus: "open",
+    });
+
+    expect(review.rows).toEqual([]);
+    expect(review.total).toBe(0);
+    expect(review.aggregates.openCount).toBe(0);
+  });
+
+  it("backfill recompute refreshes unresolved stock entitlement state when quantity changes", async () => {
+    const accountId = await seedTwdAccount();
+    await seedBuy(accountId, "2330", 100, "2024-05-20");
+    const event = await seedDividendEvent({
+      eventType: "STOCK",
+      cashDividendPerShare: 0,
+      stockDividendPerShare: 3,
+      stockDistributionRatio: null,
+      stockDistributionRatioState: "unresolved",
+      stockParValueAmount: 10,
+    });
+    await seedLedgerEntry(accountId, event.id, {
+      eligibleQuantity: 0,
+      expectedCashAmount: 0,
+      expectedStockQuantity: 0,
+      expectedStockCalcState: "resolved",
+      expectedStockDistributionRatio: 0,
+      expectedStockParValueAmount: null,
+    });
+
+    const store = await app.persistence.loadStore(USER_ID);
+    const changes = planDividendLedgerRecompute(store, accountId, "2330", {
+      resetReconciliation: false,
+      marketCode: "TW",
+    });
+
+    expect(changes).toHaveLength(1);
+    expect(changes[0]?.nextEntry).toEqual(expect.objectContaining({
+      eligibleQuantity: 100,
+      expectedStockQuantity: 0,
+      expectedStockCalcState: "needs_action",
+      expectedStockDistributionRatio: null,
+      expectedStockParValueAmount: 10,
+    }));
+  });
+
+  it("does not recompute a legacy original referenced by a reversal row", async () => {
+    const accountId = await seedTwdAccount();
+    await seedBuy(accountId, "2330", 100, "2024-05-20");
+    const event = await seedDividendEvent();
+    const originalId = randomUUID();
+    await seedLedgerEntry(accountId, event.id, {
+      id: originalId,
+      eligibleQuantity: 50,
+      expectedCashAmount: 150,
+      reconciliationStatus: "matched",
+    });
+    await seedLedgerEntry(accountId, event.id, {
+      expectedCashAmount: -150,
+      receivedCashAmount: -150,
+      postingStatus: "adjusted",
+      reversalOfDividendLedgerEntryId: originalId,
+    });
+
+    const store = await app.persistence.loadStore(USER_ID);
+    const changes = reconcileDividendEntitlementsForScope(store, accountId, "2330", {
+      reopenChangedReconciliation: false,
+      marketCode: "TW",
+    });
+
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toEqual(expect.objectContaining({
+      changeKind: "created",
+      previousEligibleQuantity: 0,
+      nextEligibleQuantity: 100,
+    }));
+    expect(changes[0]?.ledgerEntryId).not.toBe(originalId);
+  });
+
+  it("preserves undated events when a payment-date range is active", async () => {
+    const accountId = await seedTwdAccount();
+    const event = await seedDividendEvent({ paymentDate: null });
+    await seedLedgerEntry(accountId, event.id);
+
+    const review = await app.persistence.listDividendReviewRows(USER_ID, {
+      ...defaultOpts,
+      fromPaymentDate: "2024-07-01",
+      toPaymentDate: "2024-07-31",
+    });
+
+    expect(review.rows).toHaveLength(1);
+    expect(review.rows[0]).toEqual(expect.objectContaining({
+      dividendEventId: event.id,
+      paymentDate: null,
+    }));
+  });
+
+  it("builds generated expected rows from replay-style eligibility and authoritative stock ratios", async () => {
+    const accountId = await seedTwdAccount();
+    const buy = await seedBuy(accountId, "2330", 100, "2024-05-01");
+    await seedPositionAction({
+      id: "split-before-ex-div",
+      accountId,
+      ticker: "2330",
+      marketCode: "TW",
+      actionType: "SPLIT",
+      actionDate: "2024-05-10",
+      quantity: 100,
+      ratioNumerator: 2,
+      ratioDenominator: 1,
+      source: "test",
+    });
+    await seedPositionAction({
+      id: "stock-dividend-before-ex-div",
+      accountId,
+      ticker: "2330",
+      marketCode: "TW",
+      actionType: "STOCK_DIVIDEND",
+      actionDate: "2024-05-20",
+      quantity: 10,
+      relatedDividendLedgerEntryId: "prior-ledger",
+      source: "test",
+    });
+    const event = await seedDividendEvent({
+      eventType: "CASH_AND_STOCK",
+      cashDividendPerShare: 3,
+      stockDividendPerShare: 3,
+      stockDistributionRatio: 0.25,
+      stockDistributionRatioState: "authoritative",
+      stockParValueAmount: 10,
+      exDividendDate: "2024-06-01",
+      paymentDate: "2024-07-10",
+    });
+
+    const review = await app.persistence.listDividendReviewRows(USER_ID, defaultOpts);
+
+    expect(buy.id).toBeTruthy();
+    expect(review.rows).toHaveLength(1);
+    expect(review.rows[0]).toMatchObject({
+      id: `expected:${accountId}:${event.id}`,
+      rowKind: "expected",
+      eligibleQuantity: 210,
+      expectedCashAmount: 630,
+      expectedStockQuantity: 52,
+      stockDistributionRatio: 0.25,
+      stockDistributionRatioState: "authoritative",
+      expectedStockCalcState: "resolved",
+    });
+  });
+
+  it("marks generated expected stock quantity as needs-action when the authoritative ratio is unresolved", async () => {
+    const accountId = await seedTwdAccount();
+    await seedBuy(accountId, "2330", 100, "2024-05-01");
+    const event = await seedDividendEvent({
+      eventType: "CASH_AND_STOCK",
+      cashDividendPerShare: 3,
+      stockDividendPerShare: 3,
+      stockDistributionRatio: null,
+      stockDistributionRatioState: "unresolved",
+      stockParValueAmount: 10,
+    });
+
+    const review = await app.persistence.listDividendReviewRows(USER_ID, defaultOpts);
+
+    expect(review.rows).toHaveLength(1);
+    expect(review.rows[0]).toMatchObject({
+      id: `expected:${accountId}:${event.id}`,
+      expectedStockQuantity: 0,
+      stockDistributionRatio: null,
+      stockDistributionRatioState: "unresolved",
+      expectedStockCalcState: "needs_action",
+    });
   });
 
   it("does not duplicate an expected row when a ledger row already exists for the account and dividend event", async () => {
@@ -146,6 +353,202 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
 
     expect(review.total).toBe(1);
     expect(review.rows.map(row => row.rowKind)).toEqual(["ledger"]);
+  });
+
+  it("derives typed net reconciliation fields and unresolved stock state for review rows", async () => {
+    const accountId = await seedTwdAccount();
+    await seedBuy(accountId, "2330", 1000, "2024-05-20");
+    const event = await seedDividendEvent({
+      eventType: "CASH_AND_STOCK",
+      cashDividendPerShare: 3,
+      stockDividendPerShare: 0.1,
+      stockDistributionRatio: null,
+      stockDistributionRatioState: "unresolved",
+    });
+    const store = await app.persistence.loadStore(USER_ID);
+    const entry: DividendLedgerEntry = {
+      id: randomUUID(),
+      accountId,
+      dividendEventId: event.id,
+      eligibleQuantity: 1000,
+      expectedCashAmount: 3000,
+      expectedStockQuantity: 0,
+      receivedCashAmount: 0,
+      receivedStockQuantity: 0,
+      postingStatus: "posted",
+      reconciliationStatus: "open",
+      version: 1,
+      sourceCompositionStatus: "provided",
+    };
+    store.accounting.facts.dividendLedgerEntries.push(entry);
+    store.accounting.facts.cashLedgerEntries.push({
+      id: randomUUID(),
+      userId: USER_ID,
+      accountId,
+      entryDate: "2024-07-10",
+      entryType: "DIVIDEND_RECEIPT",
+      amount: 2860,
+      currency: "TWD",
+      relatedDividendLedgerEntryId: entry.id,
+      source: "test",
+    });
+    store.accounting.facts.dividendDeductionEntries.push(
+      {
+        id: randomUUID(),
+        dividendLedgerEntryId: entry.id,
+        deductionType: "NHI_SUPPLEMENTAL_PREMIUM",
+        amount: 100,
+        currencyCode: "TWD",
+        withheldAtSource: true,
+        source: "test",
+      },
+      {
+        id: randomUUID(),
+        dividendLedgerEntryId: entry.id,
+        deductionType: "BANK_FEE",
+        amount: 20,
+        currencyCode: "TWD",
+        withheldAtSource: true,
+        source: "test",
+      },
+      {
+        id: randomUUID(),
+        dividendLedgerEntryId: entry.id,
+        deductionType: "OTHER",
+        amount: 5,
+        currencyCode: "TWD",
+        withheldAtSource: true,
+        source: "test",
+      },
+    );
+
+    const review = await app.persistence.listDividendReviewRows(USER_ID, defaultOpts);
+
+    expect(review.rows[0]).toMatchObject({
+      stockDistributionRatio: null,
+      stockDistributionRatioState: "unresolved",
+      expectedStockCalcState: "needs_action",
+      nhiAmount: 100,
+      bankFeeAmount: 20,
+      otherDeductionAmount: 5,
+      expectedNetAmount: 2875,
+      actualNetAmount: 2860,
+      varianceAmount: -15,
+    });
+  });
+
+  it("orders mixed ledger and expected review rows deterministically when the primary sort ties", async () => {
+    const accountA = await seedTwdAccount();
+    const accountB = await seedSecondTwdAccount();
+    const store = await app.persistence.loadStore(USER_ID);
+    store.accounts.find((account) => account.id === accountA)!.name = "Account A";
+    await seedBuy(accountA, "AAA", 100, "2024-05-01");
+    await seedBuy(accountB, "AAA", 100, "2024-05-01");
+    await seedBuy(accountA, "ZZZ", 100, "2024-05-01");
+
+    const sharedEventA = await seedDividendEvent({
+      id: "event-aaa-a",
+      ticker: "AAA",
+      marketCode: "TW",
+      exDividendDate: "2024-06-01",
+      paymentDate: "2024-07-10",
+      cashDividendPerShare: 2,
+    });
+    const sharedEventB = await seedDividendEvent({
+      id: "event-aaa-b",
+      ticker: "AAA",
+      marketCode: "TW",
+      exDividendDate: "2024-06-01",
+      paymentDate: "2024-07-10",
+      cashDividendPerShare: 2,
+    });
+    const earlierEvent = await seedDividendEvent({
+      id: "event-zzz-earlier",
+      ticker: "ZZZ",
+      marketCode: "TW",
+      exDividendDate: "2024-05-25",
+      paymentDate: "2024-07-09",
+      cashDividendPerShare: 2,
+    });
+    const laterTickerEvent = await seedDividendEvent({
+      id: "event-zzz-later",
+      ticker: "ZZZ",
+      marketCode: "TW",
+      exDividendDate: "2024-06-01",
+      paymentDate: "2024-07-10",
+      cashDividendPerShare: 2,
+    });
+    const tiedLedgerValues = { eligibleQuantity: 100, expectedCashAmount: 200 };
+    await seedLedgerEntry(accountB, sharedEventA.id, { id: "ledger-aaa-a", ...tiedLedgerValues });
+    await seedLedgerEntry(accountB, sharedEventB.id, { id: "ledger-aaa-b", ...tiedLedgerValues });
+    await seedLedgerEntry(accountA, earlierEvent.id, { id: "ledger-zzz-earlier", ...tiedLedgerValues });
+    await seedLedgerEntry(accountA, laterTickerEvent.id, { id: "ledger-zzz-later", ...tiedLedgerValues });
+
+    const review = await app.persistence.listDividendReviewRows(USER_ID, {
+      ...defaultOpts,
+      page: 1,
+      limit: 10,
+      sortBy: "expectedNetAmount",
+      sortOrder: "asc",
+    });
+
+    expect(review.rows.map((row) => ({
+      id: row.id,
+      rowKind: row.rowKind,
+      accountId: row.accountId,
+      ticker: row.ticker,
+      paymentDate: row.paymentDate,
+      expectedNetAmount: row.expectedNetAmount,
+    }))).toEqual([
+      {
+        id: "ledger-zzz-earlier",
+        rowKind: "ledger",
+        accountId: accountA,
+        ticker: "ZZZ",
+        paymentDate: "2024-07-09",
+        expectedNetAmount: 200,
+      },
+      {
+        id: `expected:${accountA}:${sharedEventA.id}`,
+        rowKind: "expected",
+        accountId: accountA,
+        ticker: "AAA",
+        paymentDate: "2024-07-10",
+        expectedNetAmount: 200,
+      },
+      {
+        id: `expected:${accountA}:${sharedEventB.id}`,
+        rowKind: "expected",
+        accountId: accountA,
+        ticker: "AAA",
+        paymentDate: "2024-07-10",
+        expectedNetAmount: 200,
+      },
+      {
+        id: "ledger-aaa-a",
+        rowKind: "ledger",
+        accountId: accountB,
+        ticker: "AAA",
+        paymentDate: "2024-07-10",
+        expectedNetAmount: 200,
+      },
+      {
+        id: "ledger-aaa-b",
+        rowKind: "ledger",
+        accountId: accountB,
+        ticker: "AAA",
+        paymentDate: "2024-07-10",
+        expectedNetAmount: 200,
+      },
+      {
+        id: "ledger-zzz-later",
+        rowKind: "ledger",
+        accountId: accountA,
+        ticker: "ZZZ",
+        paymentDate: "2024-07-10",
+        expectedNetAmount: 200,
+      },
+    ]);
   });
 
   it("does not build expected rows from same-ticker trades in another market", async () => {
@@ -338,6 +741,57 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
     });
   });
 
+  it("returns paying-today and ex-dividend-today independently by market-local date", async () => {
+    const accountId = await seedTwdAccount();
+    await seedBuy(accountId, "2330", 1000, "2024-05-20");
+    await seedBuy(accountId, "AAPL", 1000, "2024-05-20", {
+      marketCode: "US",
+      priceCurrency: "USD",
+    });
+    await seedDividendEvent({
+      ticker: "2330",
+      marketCode: "TW",
+      cashDividendCurrency: "TWD",
+      exDividendDate: "2026-07-10",
+      paymentDate: "2026-08-20",
+      cashDividendPerShare: 3,
+    });
+    await seedDividendEvent({
+      ticker: "AAPL",
+      marketCode: "US",
+      cashDividendCurrency: "USD",
+      exDividendDate: "2026-07-25",
+      paymentDate: "2026-07-09",
+      cashDividendPerShare: 1,
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/daily-highlights?at=2026-07-10T03:30:00.000Z",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      payingToday: [
+        expect.objectContaining({
+          ticker: "AAPL",
+          marketCode: "US",
+          paymentDate: "2026-07-09",
+          applicableLocalDate: "2026-07-09",
+        }),
+      ],
+      exDividendToday: [
+        expect.objectContaining({
+          ticker: "2330",
+          marketCode: "TW",
+          exDividendDate: "2026-07-10",
+          paymentDate: "2026-08-20",
+          applicableLocalDate: "2026-07-10",
+        }),
+      ],
+    });
+  });
+
   it("enriches stock dividend review route rows with amendable correction metadata", async () => {
     const accountId = await seedTwdAccount();
     await seedInstrumentName("2330", "TW", "TSMC");
@@ -378,6 +832,7 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
     };
     store.accounting.facts.dividendLedgerEntries.push(ledgerEntry);
     store.accounting.facts.positionActions.push(positionAction);
+    const loadStoreSpy = vi.spyOn(app.persistence, "loadStore");
 
     const reviewResponse = await app.inject({
       method: "GET",
@@ -385,6 +840,7 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
     });
 
     expect(reviewResponse.statusCode).toBe(200);
+    expect(loadStoreSpy).toHaveBeenCalledTimes(1);
     expect(reviewResponse.json()).toMatchObject({
       total: 1,
       reviewRows: [

@@ -142,21 +142,19 @@ test.describe("transaction mutations", () => {
     await ticker.assert.rowMatchingTextsCount(["500"], 0);
   });
 
-  test("weighted-average cost correctness after delete", async ({ ticker }) => {
+  test("delete replay recomputes the retained position quantity and cost basis", async ({ ticker }) => {
     await ticker.arrange.seedTrade({ quantity: 100, unitPrice: 500, tradeDate: "2026-01-10" });
     await ticker.arrange.seedTrade({ quantity: 200, unitPrice: 600, tradeDate: "2026-01-15" });
 
     await ticker.actions.navigateToTicker("2330");
-    await ticker.assert.avgCostStatContains(/567/);
     await ticker.actions.clickDeleteOnRow("500");
     await ticker.assert.deleteDialogIsVisible();
     await ticker.actions.confirmDelete();
     await ticker.assert.recomputeSettles();
     await ticker.assert.rowMatchingTextsCount(["500"], 0);
     await ticker.assert.rowCountIs(1);
-    await ticker.assert.quantityStatContains("200");
-    await ticker.assert.avgCostStatContains(/600|601/);
-    await ticker.assert.avgCostStatNotContains(/567/);
+    await ticker.assert.rowMatchingTextsCount(["600"], 1);
+    await ticker.assert.summaryPositionContains("200", /120/);
   });
 
   test("delete all trades shows empty state", async ({ ticker }) => {

@@ -40,6 +40,61 @@ async function getStore(appInstance: Awaited<ReturnType<typeof buildApp>>) {
   return appInstance.persistence.loadStore("user-1");
 }
 
+type DestructivePreviewBody = {
+  preview: {
+    previewId: string;
+    previewVersion: number;
+    fingerprint: string;
+  };
+  affectedCounts: {
+    cashLedgerEntries: number;
+    lotAllocations: number;
+  };
+};
+
+async function previewTradeDelete(
+  appInstance: Awaited<ReturnType<typeof buildApp>>,
+  tradeEventId: string,
+  headers?: Record<string, string>,
+) {
+  return appInstance.inject({
+    method: "POST",
+    url: `/portfolio/transactions/${tradeEventId}/dividend-delete-preview`,
+    headers,
+    payload: { reason: "Integration test history rewrite" },
+  });
+}
+
+async function confirmTradeDelete(
+  appInstance: Awaited<ReturnType<typeof buildApp>>,
+  tradeEventId: string,
+  preview: DestructivePreviewBody,
+  headers?: Record<string, string>,
+) {
+  return appInstance.inject({
+    method: "POST",
+    url: `/portfolio/transactions/${tradeEventId}/dividend-delete-confirm`,
+    headers,
+    payload: {
+      previewId: preview.preview.previewId,
+      previewVersion: preview.preview.previewVersion,
+      fingerprint: preview.preview.fingerprint,
+    },
+  });
+}
+
+async function deleteTradeWithPreview(
+  appInstance: Awaited<ReturnType<typeof buildApp>>,
+  tradeEventId: string,
+) {
+  const previewResponse = await previewTradeDelete(appInstance, tradeEventId);
+  expect(previewResponse.statusCode).toBe(200);
+  const preview = previewResponse.json<DestructivePreviewBody>();
+  const confirmResponse = await confirmTradeDelete(appInstance, tradeEventId, preview);
+  expect(confirmResponse.statusCode).toBe(200);
+  return { preview, confirmResponse };
+}
+
 /**
  * Subscribe to EventBus for user-1 and collect events.
  * Returns the events array and a waitFor helper that resolves when an event
@@ -79,20 +134,6 @@ async function waitForRecompute(ms = 200) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForEventCount(
-  events: Array<{ type: string; data: unknown }>,
-  type: string,
-  count: number,
-  timeoutMs = 2000,
-) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (events.filter((event) => event.type === type).length >= count) return;
-    await waitForRecompute(10);
-  }
-  expect(events.filter((event) => event.type === type)).toHaveLength(count);
-}
-
 // ─── Test Suite ────────────────────────────────────────────────────────
 
 describe("transaction mutations (delete + edit)", () => {
@@ -105,10 +146,10 @@ describe("transaction mutations (delete + edit)", () => {
     if (app) await app.close();
   });
 
-  // ─── Group 1: DELETE /portfolio/transactions/:id ────────────────────
+  // ─── Group 1: destructive transaction deletion ─────────────────────
 
-  describe("DELETE /portfolio/transactions/:id", () => {
-    it("deletes a trade and returns 202 with child row counts", async () => {
+  describe("transaction delete preview and confirm", () => {
+    it("rejects deletion without a versioned preview", async () => {
       const trade = await createTrade(app);
 
       const res = await app.inject({
@@ -116,17 +157,22 @@ describe("transaction mutations (delete + edit)", () => {
         url: `/portfolio/transactions/${trade.id}`,
       });
 
-      expect(res.statusCode).toBe(202);
-      const body = res.json();
-      expect(body.accountId).toBe("acc-1");
-      expect(body.ticker).toBe("2330");
-      expect(body.deletedTradeEventId).toBe(trade.id);
-      expect(body.deletedChildRows.cashLedgerEntries).toBe(1);
-      // A standalone BUY has no lot allocations from sells
-      expect(body.deletedChildRows.lotAllocations).toBe(0);
+      expect(res.statusCode).toBe(409);
+      expect(res.json().error).toBe("dividend_destructive_preview_required");
     });
 
-    it("includes lot allocation counts when deleting a BUY with downstream sells", async () => {
+    it("deletes a trade after confirmation and reports affected row counts", async () => {
+      const trade = await createTrade(app);
+
+      const { preview, confirmResponse } = await deleteTradeWithPreview(app, trade.id);
+      const body = confirmResponse.json<DestructivePreviewBody>();
+      expect(body.preview.previewId).toBe(preview.preview.previewId);
+      expect(body.affectedCounts.cashLedgerEntries).toBe(1);
+      // A standalone BUY has no lot allocations from sells
+      expect(body.affectedCounts.lotAllocations).toBe(0);
+    });
+
+    it("rejects deleting a BUY required by downstream sells", async () => {
       const buy = await createTrade(app, { quantity: 10, unitPrice: 100 });
       await createTrade(app, {
         quantity: 5,
@@ -135,19 +181,14 @@ describe("transaction mutations (delete + edit)", () => {
         type: "SELL" as TransactionType,
       });
 
-      // The sell creates lot allocations referencing the buy's lot.
-      // When we delete the buy, DB CASCADE (or memory sim) cleans up related lot allocations.
-      const res = await app.inject({
-        method: "DELETE",
-        url: `/portfolio/transactions/${buy.id}`,
-      });
+      const response = await previewTradeDelete(app, buy.id);
+      expect(response.statusCode).toBeGreaterThanOrEqual(400);
 
-      expect(res.statusCode).toBe(202);
-      const body = res.json();
-      expect(body.deletedChildRows.cashLedgerEntries).toBe(1);
+      const store = await getStore(app);
+      expect(store.accounting.facts.tradeEvents.some((trade) => trade.id === buy.id)).toBe(true);
     });
 
-    it("triggers recompute and emits recompute_complete SSE event", async () => {
+    it("replays the surviving history atomically on confirmation", async () => {
       await createTrade(app, { quantity: 10, unitPrice: 100 });
       const secondBuy = await createTrade(app, {
         quantity: 20,
@@ -155,21 +196,7 @@ describe("transaction mutations (delete + edit)", () => {
         tradeDate: "2026-01-02",
       });
 
-      const { events, unsub } = collectBusEvents(app);
-
-      await app.inject({
-        method: "DELETE",
-        url: `/portfolio/transactions/${secondBuy.id}`,
-      });
-
-      await waitForRecompute();
-      unsub();
-
-      const completeEvent = events.find((e) => e.type === "recompute_complete");
-      expect(completeEvent).toBeDefined();
-      const data = completeEvent!.data as Record<string, unknown>;
-      expect(data.accountId).toBe("acc-1");
-      expect(data.ticker).toBe("2330");
+      await deleteTradeWithPreview(app, secondBuy.id);
 
       // After recompute, only the first BUY remains
       const store = await getStore(app);
@@ -181,10 +208,7 @@ describe("transaction mutations (delete + edit)", () => {
     });
 
     it("returns 404 for non-existent trade", async () => {
-      const res = await app.inject({
-        method: "DELETE",
-        url: "/portfolio/transactions/nonexistent-id",
-      });
+      const res = await previewTradeDelete(app, "nonexistent-id");
 
       expect(res.statusCode).toBe(404);
       expect(res.json().error).toBe("trade_event_not_found");
@@ -193,11 +217,7 @@ describe("transaction mutations (delete + edit)", () => {
     it("returns 404 for another user's trade (tenant isolation)", async () => {
       const trade = await createTrade(app);
 
-      const res = await app.inject({
-        method: "DELETE",
-        url: `/portfolio/transactions/${trade.id}`,
-        headers: { "x-user-id": "other-user" },
-      });
+      const res = await previewTradeDelete(app, trade.id, { "x-user-id": "other-user" });
 
       expect(res.statusCode).toBe(404);
     });
@@ -605,10 +625,7 @@ describe("transaction mutations (delete + edit)", () => {
       });
 
       // Delete middle BUY (200@60)
-      const { unsub } = collectBusEvents(app);
-      await app.inject({ method: "DELETE", url: `/portfolio/transactions/${buy2.id}` });
-      await waitForRecompute();
-      unsub();
+      await deleteTradeWithPreview(app, buy2.id);
 
       // After delete + recompute, remaining: BUY 100@50 + BUY 150@55
       // Total qty = 250, total cost = 5000 + 8250 = 13250
@@ -665,8 +682,7 @@ describe("transaction mutations (delete + edit)", () => {
       });
 
       // Delete the second BUY (100@60)
-      await app.inject({ method: "DELETE", url: `/portfolio/transactions/${buy2.id}` });
-      await waitForRecompute();
+      await deleteTradeWithPreview(app, buy2.id);
 
       // After replay with only BUY 100@50 + SELL 50@80:
       // BUY creates lot: 100 shares, cost = 100*50 = 5000
@@ -792,8 +808,7 @@ describe("transaction mutations (delete + edit)", () => {
       }
 
       // Delete trade C (index 2)
-      await app.inject({ method: "DELETE", url: `/portfolio/transactions/${trades[2].id}` });
-      await waitForRecompute();
+      await deleteTradeWithPreview(app, trades[2].id);
 
       const store1 = await getStore(app);
 
@@ -1040,8 +1055,7 @@ describe("transaction mutations (delete + edit)", () => {
     it("delete-all trades for a symbol → zero lots, zero cash, no holding", async () => {
       const trade = await createTrade(app, { quantity: 10, unitPrice: 100, commissionAmount: 0, taxAmount: 0 });
 
-      await app.inject({ method: "DELETE", url: `/portfolio/transactions/${trade.id}` });
-      await waitForRecompute();
+      await deleteTradeWithPreview(app, trade.id);
 
       const store = await getStore(app);
 
@@ -1066,7 +1080,7 @@ describe("transaction mutations (delete + edit)", () => {
       expect(holdings).toHaveLength(0);
     });
 
-    it("negative lots: delete BUY consumed by sells → recompute_failed", async () => {
+    it("negative lots: preview rejects deleting a BUY consumed by sells and preserves state", async () => {
       // BUY 100, then SELL 50 — if we delete the BUY, SELL has nothing to allocate from
       const buy = await createTrade(app, { quantity: 100, unitPrice: 50, commissionAmount: 0, taxAmount: 0 });
       await createTrade(app, {
@@ -1078,22 +1092,11 @@ describe("transaction mutations (delete + edit)", () => {
         type: "SELL" as TransactionType,
       });
 
-      const { events, unsub } = collectBusEvents(app);
+      const response = await previewTradeDelete(app, buy.id);
+      expect(response.statusCode).toBeGreaterThanOrEqual(400);
 
-      await app.inject({ method: "DELETE", url: `/portfolio/transactions/${buy.id}` });
-      // Wait for both initial attempt and retry (both will fail on same data)
-      await waitForRecompute(500);
-      unsub();
-
-      // Both attempts fail — we should see recompute_failed events
-      const failedEvents = events.filter((e) => e.type === "recompute_failed");
-      expect(failedEvents.length).toBeGreaterThanOrEqual(1);
-
-      // The last failure should have retriesExhausted: true
-      const lastFailed = failedEvents[failedEvents.length - 1];
-      const data = lastFailed.data as Record<string, unknown>;
-      expect(data.retriesExhausted).toBe(true);
-      expect(data.reason).toContain("Insufficient quantity");
+      const store = await getStore(app);
+      expect(store.accounting.facts.tradeEvents.some((trade) => trade.id === buy.id)).toBe(true);
     });
 
     it("BUY→SELL side flip with sufficient lots → correct state", async () => {
@@ -1211,94 +1214,28 @@ describe("transaction mutations (delete + edit)", () => {
     });
   });
 
-  // ─── Group 7: Retry Path (vi.spyOn fault injection) ─────────────────
+  // ─── Group 7: destructive confirmation rollback ────────────────────
 
-  describe("retry path (vi.spyOn fault injection)", () => {
-    it("first attempt fails then retry succeeds → recompute_failed then recompute_complete", async () => {
-      const setupEvents = collectBusEvents(app);
+  describe("destructive confirmation rollback", () => {
+    it("preserves the original trade when confirmation replay fails", async () => {
       await createTrade(app, { quantity: 10, unitPrice: 100 });
       const trade2 = await createTrade(app, {
         quantity: 20,
         unitPrice: 120,
         tradeDate: "2026-01-02",
       });
+      const previewResponse = await previewTradeDelete(app, trade2.id);
+      expect(previewResponse.statusCode).toBe(200);
+      const preview = previewResponse.json<DestructivePreviewBody>();
 
-      // KZO-37 Invariant 5: POST /portfolio/transactions now fires replay
-      // via setImmediate. Wait for those pending replays before installing the
-      // fault-injection spy so the retry events are solely from the DELETE.
-      await waitForEventCount(setupEvents.events, "recompute_complete", 2);
-      setupEvents.unsub();
-
-      // Spy on a persistence method used by replayPositionHistory to throw once
-      let callCount = 0;
-      const original = app.persistence.getTradeEventsForAccountTicker.bind(app.persistence);
-      vi.spyOn(app.persistence, "getTradeEventsForAccountTicker").mockImplementation(
-        async (...args) => {
-          callCount += 1;
-          if (callCount === 1) {
-            throw new Error("Simulated DB failure");
-          }
-          return original(...args);
-        },
+      vi.spyOn(app.persistence, "saveAccountingStoreWithAudit").mockRejectedValue(
+        new Error("Persistent atomic save failure"),
       );
+      const confirmResponse = await confirmTradeDelete(app, trade2.id, preview);
+      expect(confirmResponse.statusCode).toBeGreaterThanOrEqual(500);
 
-      const { events, unsub } = collectBusEvents(app);
-
-      // Trigger a delete to start the recompute
-      await app.inject({ method: "DELETE", url: `/portfolio/transactions/${trade2.id}` });
-      await waitForRecompute(500);
-      unsub();
-
-      // First: recompute_failed with retriesExhausted: false
-      const failedEvent = events.find((e) => e.type === "recompute_failed");
-      expect(failedEvent).toBeDefined();
-      const failedData = failedEvent!.data as Record<string, unknown>;
-      expect(failedData.retriesExhausted).toBe(false);
-      expect(failedData.reason).toContain("Simulated DB failure");
-
-      // Then: retry succeeds → recompute_complete
-      const completeEvent = events.find((e) => e.type === "recompute_complete");
-      expect(completeEvent).toBeDefined();
-    });
-
-    it("both attempts fail → recompute_failed with retriesExhausted: true", async () => {
-      const setupEvents = collectBusEvents(app);
-      await createTrade(app, { quantity: 10, unitPrice: 100 });
-      const trade2 = await createTrade(app, {
-        quantity: 20,
-        unitPrice: 120,
-        tradeDate: "2026-01-02",
-      });
-
-      // KZO-37 Invariant 5: drain pending POST-triggered replays before
-      // installing the spy so the collected events are solely from DELETE.
-      await waitForEventCount(setupEvents.events, "recompute_complete", 2);
-      setupEvents.unsub();
-
-      // Spy that always throws
-      vi.spyOn(app.persistence, "getTradeEventsForAccountTicker").mockRejectedValue(
-        new Error("Persistent DB failure"),
-      );
-
-      const { events, unsub } = collectBusEvents(app);
-
-      await app.inject({ method: "DELETE", url: `/portfolio/transactions/${trade2.id}` });
-      await waitForRecompute(500);
-      unsub();
-
-      const failedEvents = events.filter((e) => e.type === "recompute_failed");
-      expect(failedEvents).toHaveLength(2);
-
-      // First failure: retriesExhausted = false
-      const first = failedEvents[0].data as Record<string, unknown>;
-      expect(first.retriesExhausted).toBe(false);
-
-      // Second failure: retriesExhausted = true
-      const second = failedEvents[1].data as Record<string, unknown>;
-      expect(second.retriesExhausted).toBe(true);
-
-      // No recompute_complete event
-      expect(events.find((e) => e.type === "recompute_complete")).toBeUndefined();
+      const store = await getStore(app);
+      expect(store.accounting.facts.tradeEvents.some((trade) => trade.id === trade2.id)).toBe(true);
     });
   });
 });

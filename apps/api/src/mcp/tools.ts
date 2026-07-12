@@ -996,7 +996,7 @@ const toolDefinitions = {
       sourceLines: z.array(dividendSourceLineSchema).max(20).optional(),
       sourceCompositionStatus: z.enum(["provided", "unknown_pending_disclosure"]).optional(),
     }).strict(),
-    scope: "transaction:write" as const,
+    scope: "dividend:write" as const,
     accessKind: "write" as const,
   },
   post_dividend_receipt: {
@@ -1013,7 +1013,7 @@ const toolDefinitions = {
       confirmationSummary: confirmationSummarySchema,
       confirmationDigest: confirmationDigestSchema,
     }).strict(),
-    scope: "transaction:write" as const,
+    scope: "dividend:write" as const,
     accessKind: "write" as const,
   },
   preview_amend_dividend_receipt: {
@@ -1027,7 +1027,7 @@ const toolDefinitions = {
       sourceLines: z.array(dividendSourceLineSchema).max(20).optional(),
       sourceCompositionStatus: z.enum(["provided", "unknown_pending_disclosure"]).optional(),
     }).strict(),
-    scope: "transaction:write" as const,
+    scope: "dividend:write" as const,
     accessKind: "write" as const,
   },
   amend_dividend_receipt: {
@@ -1044,7 +1044,7 @@ const toolDefinitions = {
       confirmationSummary: confirmationSummarySchema,
       confirmationDigest: confirmationDigestSchema,
     }).strict(),
-    scope: "transaction:write" as const,
+    scope: "dividend:write" as const,
     accessKind: "write" as const,
   },
   preview_update_dividend_reconciliation: {
@@ -1055,7 +1055,7 @@ const toolDefinitions = {
       status: z.enum(["open", "matched", "explained", "resolved"]),
       note: z.string().trim().max(500).optional(),
     }).strict(),
-    scope: "transaction:write" as const,
+    scope: "dividend:write" as const,
     accessKind: "write" as const,
   },
   update_dividend_reconciliation: {
@@ -1068,7 +1068,7 @@ const toolDefinitions = {
       confirmationSummary: confirmationSummarySchema,
       confirmationDigest: confirmationDigestSchema,
     }).strict(),
-    scope: "transaction:write" as const,
+    scope: "dividend:write" as const,
     accessKind: "write" as const,
   },
 } as const;
@@ -1126,4 +1126,5 @@ export const ALL_MCP_SCOPES: AiConnectorScope[] = [
   "transaction_draft:archive",
   "transaction_draft:delete",
   "transaction:write",
+  "dividend:write",
 ];

@@ -44,6 +44,7 @@ describe("dividendsPageQuery", () => {
       ["sortBy", "ticker"],
       ["sortOrder", "asc"],
       ["page", "2"],
+      ["limit", "50"],
     ]));
 
     expect(query).toMatchObject({
@@ -55,8 +56,16 @@ describe("dividendsPageQuery", () => {
       sortBy: "ticker",
       sortOrder: "asc",
       page: 2,
-      limit: 25,
+      limit: 50,
     });
+  });
+
+  it("falls back to the default review page size when the limit is unsupported", () => {
+    const query = searchParamsToReviewQuery(new URLSearchParams([
+      ["limit", "13"],
+    ]));
+
+    expect(query.limit).toBe(10);
   });
 
   it("maps legacy needs-review status into the review query", () => {

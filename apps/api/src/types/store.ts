@@ -1,5 +1,13 @@
 import type { CurrencyCode, FeeProfile, InstrumentRef, InstrumentType, Lot, MarketCode } from "@vakwen/domain";
-import type { AccountDto, DividendSourceLine, SourceCompositionStatus, UserSettings } from "@vakwen/shared-types";
+import type {
+  AccountDto,
+  DividendCashReconciliationDto,
+  DividendSourceLine,
+  ExpectedStockCalcState,
+  SourceCompositionStatus,
+  StockDistributionRatioState,
+  UserSettings,
+} from "@vakwen/shared-types";
 
 // KZO-183: `marketCode` removed. Market is now derived from the binding's
 // account.defaultCurrency rather than stored on the binding. Per-symbol
@@ -105,6 +113,11 @@ export interface DividendEvent {
   cashDividendPerShare: number;
   cashDividendCurrency: CurrencyCode;
   stockDividendPerShare: number;
+  stockDistributionAmountRaw?: number | null;
+  stockDistributionRatio?: number | null;
+  stockDistributionRatioState?: StockDistributionRatioState;
+  stockParValueAmount?: number | null;
+  stockParValueCurrency?: CurrencyCode | null;
   source: string;
   sourceReference?: string;
   createdAt?: string;
@@ -123,12 +136,16 @@ export interface DividendLedgerEntry {
   eligibleQuantity: number;
   expectedCashAmount: number;
   expectedStockQuantity: number;
+  expectedStockCalcState?: ExpectedStockCalcState;
+  expectedStockDistributionRatio?: number | null;
+  expectedStockParValueAmount?: number | null;
   receivedCashAmount: number;
   receivedStockQuantity: number;
   postingStatus: DividendPostingStatus;
   reconciliationStatus: DividendReconciliationStatus;
   version: number;
   sourceCompositionStatus: SourceCompositionStatus;
+  cashReconciliation?: DividendCashReconciliationDto;
   reconciliationNote?: string;
   reversalOfDividendLedgerEntryId?: string;
   supersededAt?: string;

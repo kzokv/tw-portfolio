@@ -28,8 +28,12 @@ function scopeEnabledByPolicy(scope: AiConnectorScope, consent: McpOAuthConsentR
   return consent.policy.groupToggles.write;
 }
 
+function isAdvancedFinancialWriteScope(scope: AiConnectorScope): boolean {
+  return scope === "transaction:write" || scope === "dividend:write";
+}
+
 function scopeDefaultsGranted(scope: AiConnectorScope): boolean {
-  return scope !== "transaction:write";
+  return !isAdvancedFinancialWriteScope(scope);
 }
 
 function currentRequestId(): string | null {
@@ -289,7 +293,7 @@ export function ChatGptConnectorAuthorizeClient({ locale = "en" }: ChatGptConnec
                         <span className={disabled ? "text-slate-400" : "text-slate-800"}>
                           {getAiConnectorScopeLabel(resolvedLocale, scope)}
                           {policyDisabled ? <span className="block text-xs text-slate-500">{copy.disabledByPolicy}</span> : null}
-                          {scope === "transaction:write" ? (
+                          {isAdvancedFinancialWriteScope(scope) ? (
                             <span className="mt-1 block text-xs text-amber-700">
                               {copy.advancedScope}
                             </span>
@@ -305,7 +309,7 @@ export function ChatGptConnectorAuthorizeClient({ locale = "en" }: ChatGptConnec
                     );
                   })}
                 </div>
-                {consent.scopes.includes("transaction:write") ? (
+                {consent.scopes.some((scope) => isAdvancedFinancialWriteScope(scope)) ? (
                   <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
                     <div className="flex items-start gap-2">
                       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />

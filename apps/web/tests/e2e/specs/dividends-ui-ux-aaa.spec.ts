@@ -75,7 +75,8 @@ test("[dividends-ui-ux-A]: Overview month picker, action queue, dashboard names,
   await ticker.assert.dividendsPanelIsVisible();
   await ticker.assert.dividendsPanelContains(TEST_TICKER_NAME);
   await ticker.assert.dividendsOpenReviewHrefContains(TEST_TICKER, TEST_MARKET);
-  await ticker.assert.dividendsRowReviewLinksPreserveMarket(TEST_TICKER, TEST_MARKET);
+  await ticker.assert.dividendsUpcomingReviewLinkPreservesMarket(TEST_TICKER, TEST_MARKET);
+  await ticker.assert.dividendsPostedReviewButtonIsVisible(0);
 
   await ticker.actions.clickDividendReconciliationMarkMatched(posted.dividendLedgerEntryId);
   await ticker.assert.dividendReconciliationMarkMatchedIsHidden(posted.dividendLedgerEntryId);

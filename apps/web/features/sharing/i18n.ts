@@ -96,6 +96,7 @@ export const sharingI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "sharing">>
         "transaction_draft:archive": "Archive AI drafts",
         "transaction_draft:delete": "Delete AI drafts",
         "transaction:write": "Create, edit, and delete transactions",
+        "dividend:write": "Post, reconcile, and delete dividends",
       },
       editPermissionsDialog: {
         title: "Edit permissions",
@@ -313,6 +314,7 @@ export const sharingI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "sharing">>
         "transaction_draft:archive": "封存 AI 草稿",
         "transaction_draft:delete": "刪除 AI 草稿",
         "transaction:write": "新增、編輯與刪除交易",
+        "dividend:write": "登錄、核對與刪除股利",
       },
       editPermissionsDialog: {
         title: "編輯權限",

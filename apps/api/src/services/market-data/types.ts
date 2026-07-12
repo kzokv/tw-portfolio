@@ -71,6 +71,11 @@ export interface DividendRecord {
   paymentDate: string; // YYYY-MM-DD
   cashDividendPerShare: number;
   stockDividendPerShare: number;
+  stockDistributionAmountRaw?: number | null;
+  stockDistributionRatio?: number | null;
+  stockDistributionRatioState?: "authoritative" | "derived_non_authoritative" | "unresolved";
+  stockParValueAmount?: number | null;
+  stockParValueCurrency?: string | null;
   fiscalYearPeriod?: string;
   announcementDate?: string; // YYYY-MM-DD
   totalDistributionShares?: number;
