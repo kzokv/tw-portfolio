@@ -1,5 +1,5 @@
 import { Pool } from "pg";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PostgresPersistence } from "../../src/persistence/postgres.js";
 import {
   buildTickerDividendOpenReconciliationPage,
@@ -194,12 +194,17 @@ describePostgres("dividend read model parity", () => {
       stockParValueAmount: 10,
     });
 
+    const fullStoreRead = vi.spyOn(persistence, "loadStore").mockRejectedValue(
+      new Error("dividend review must not hydrate the full user store"),
+    );
     const review = await persistence.listDividendReviewRows("user-1", {
       page: 1,
       limit: 10,
       sortBy: "paymentDate",
       sortOrder: "desc",
     });
+    expect(fullStoreRead).not.toHaveBeenCalled();
+    fullStoreRead.mockRestore();
 
     const generatedRow = review.rows.find((row) => row.id === `expected:${accountId}:event-expected-generated`);
     expect(generatedRow).toMatchObject({

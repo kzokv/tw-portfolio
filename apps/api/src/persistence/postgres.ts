@@ -34,7 +34,7 @@ import {
   rebuildHoldingProjection,
   syncTradeEventRealizedPnl,
 } from "../services/accountingStore.js";
-import { createDefaultFeeProfile, instrumentRefToDef } from "../services/store.js";
+import { createDefaultFeeProfile, createStore, instrumentRefToDef, setStoreInstruments } from "../services/store.js";
 import { createDefaultInstruments, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
 import type {
   AccountingStore,
@@ -10304,10 +10304,16 @@ export class PostgresPersistence implements Persistence {
               source, source_reference, ingested_at AS created_at,
               fiscal_year_period, announcement_date, total_distribution_shares
        FROM market_data.dividend_events AS event
-       WHERE event.payment_date IS NOT NULL
-         AND ($2::date IS NULL OR event.payment_date >= $2::date)
-         AND ($3::date IS NULL OR event.payment_date <= $3::date)
+       WHERE (
+           ($8::boolean = TRUE AND event.payment_date IS NULL)
+           OR (
+             event.payment_date IS NOT NULL
+             AND ($2::date IS NULL OR event.payment_date >= $2::date)
+             AND ($3::date IS NULL OR event.payment_date <= $3::date)
+           )
+         )
          AND ($5::text IS NULL OR event.market_code = $5::text)
+         AND ($7::text IS NULL OR event.ticker = $7::text)
          AND EXISTS (
            SELECT 1
            FROM accounts AS candidate_account
@@ -10343,6 +10349,21 @@ export class PostgresPersistence implements Persistence {
                      WHERE reversal.reversal_of_trade_event_id = trade.id
                    )
                ), 0) > 0
+               OR EXISTS (
+                 SELECT 1
+                 FROM position_actions AS action
+                 WHERE action.account_id = candidate_account.id
+                   AND action.ticker = event.ticker
+                   AND action.market_code = event.market_code
+                   AND action.action_date < event.ex_dividend_date
+                   AND action.reversal_of_position_action_id IS NULL
+                   AND action.superseded_at IS NULL
+                   AND NOT EXISTS (
+                     SELECT 1
+                     FROM position_actions AS reversal
+                     WHERE reversal.reversal_of_position_action_id = action.id
+                   )
+               )
              )
          )
        ORDER BY event.payment_date, event.ex_dividend_date, event.id
@@ -10354,6 +10375,8 @@ export class PostgresPersistence implements Persistence {
         opts.limit,
         opts.marketCode ?? null,
         opts.accountId ?? null,
+        opts.ticker ?? null,
+        opts.includeUndated ?? false,
       ],
     );
 
@@ -10363,7 +10386,7 @@ export class PostgresPersistence implements Persistence {
       marketCode: row.market_code ?? undefined,
       eventType: row.event_type,
       exDividendDate: normalizeDate(String(row.ex_dividend_date)),
-      paymentDate: normalizeDate(String(row.payment_date)),
+      paymentDate: row.payment_date ? normalizeDate(String(row.payment_date)) : null,
       cashDividendPerShare: Number(row.cash_dividend_per_share),
       cashDividendCurrency: row.cash_dividend_currency,
       stockDividendPerShare: Number(row.stock_dividend_per_share),
@@ -10382,17 +10405,12 @@ export class PostgresPersistence implements Persistence {
     const eventIds = dividendEvents.map((event) => event.id);
 
     if (eventIds.length === 0) {
-      return { dividendEvents, ledgerEntries: [], accounts: [], instruments: [], tradeEvents: [] };
+      return { dividendEvents, ledgerEntries: [], accounts: [], instruments: [], tradeEvents: [], positionActions: [] };
     }
 
     const eventMarketCodes = dividendEvents.map((event) => event.marketCode ?? marketCodeFor(event.cashDividendCurrency));
     const eventTickers = dividendEvents.map((event) => event.ticker);
-    const maxExDividendDate = dividendEvents.reduce(
-      (max, event) => (max == null || event.exDividendDate > max ? event.exDividendDate : max),
-      null as string | null,
-    );
-
-    const [accountsResult, instrumentsResult, tradesResult, ledgerResult] = await Promise.all([
+    const [accountsResult, instrumentsResult, tradesResult, actionsResult, ledgerResult] = await Promise.all([
       this.pool.query(
         `SELECT id, user_id, name, fee_profile_id, default_currency, account_type
          FROM accounts
@@ -10416,8 +10434,7 @@ export class PostgresPersistence implements Persistence {
          ORDER BY i.market_code, i.ticker`,
         [eventMarketCodes, eventTickers],
       ),
-      maxExDividendDate
-        ? this.pool.query(
+      this.pool.query(
             `WITH requested(market_code, ticker) AS (
                SELECT DISTINCT *
                FROM unnest($2::text[], $3::text[])
@@ -10438,7 +10455,6 @@ export class PostgresPersistence implements Persistence {
                AND account.user_id = $1
                AND account.deleted_at IS NULL
                AND ($4::text IS NULL OR trade.account_id = $4)
-               AND trade.trade_date < $5::date
                AND trade.reversal_of_trade_event_id IS NULL
                AND NOT EXISTS (
                  SELECT 1
@@ -10446,9 +10462,42 @@ export class PostgresPersistence implements Persistence {
                  WHERE reversal.reversal_of_trade_event_id = trade.id
                )
              ORDER BY trade.trade_date, trade.booking_sequence, trade.id`,
-            [userId, eventMarketCodes, eventTickers, opts.accountId ?? null, maxExDividendDate],
-          )
-        : Promise.resolve({ rows: [] as Record<string, unknown>[] }),
+            [userId, eventMarketCodes, eventTickers, opts.accountId ?? null],
+          ),
+      this.pool.query(
+        `WITH requested(market_code, ticker) AS (
+           SELECT DISTINCT *
+           FROM unnest($2::text[], $3::text[])
+         )
+         SELECT action.id, action.account_id, action.ticker, action.market_code,
+                action.action_type, action.action_date, action.action_timestamp,
+                action.booked_at, action.quantity, action.ratio_numerator,
+                action.ratio_denominator, action.cash_in_lieu_quantity,
+                action.cash_in_lieu_amount, action.cash_in_lieu_currency,
+                action.par_value_per_share, action.premium_base_amount,
+                action.nhi_premium_base_amount, action.related_dividend_ledger_entry_id,
+                action.source, action.source_reference,
+                action.reversal_of_position_action_id, action.superseded_at
+         FROM position_actions AS action
+         JOIN accounts AS account
+           ON account.id = action.account_id
+         JOIN requested
+           ON requested.market_code = action.market_code
+          AND requested.ticker = action.ticker
+         WHERE account.user_id = $1
+           AND account.deleted_at IS NULL
+           AND ($4::text IS NULL OR action.account_id = $4)
+           AND action.reversal_of_position_action_id IS NULL
+           AND action.superseded_at IS NULL
+           AND NOT EXISTS (
+             SELECT 1
+             FROM position_actions AS reversal
+             WHERE reversal.reversal_of_position_action_id = action.id
+           )
+         ORDER BY action.action_date, action.action_timestamp NULLS FIRST,
+                  action.booked_at NULLS FIRST, action.id`,
+        [userId, eventMarketCodes, eventTickers, opts.accountId ?? null],
+      ),
       this.pool.query(
       `SELECT dle.id, dle.account_id, dle.dividend_event_id, dle.eligible_quantity,
               dle.expected_cash_amount, dle.expected_stock_quantity,
@@ -10590,6 +10639,7 @@ export class PostgresPersistence implements Persistence {
         reversalOfTradeEventId: row.reversal_of_trade_event_id ? String(row.reversal_of_trade_event_id) : undefined,
         feesSource: row.fees_source ? String(row.fees_source) as BookedTradeEvent["feesSource"] : undefined,
       })),
+      positionActions: actionsResult.rows.map((row) => mapPositionActionRow(row)),
     };
   }
 
@@ -10862,8 +10912,44 @@ export class PostgresPersistence implements Persistence {
     userId: string,
     opts: DividendReviewListOptions,
   ): Promise<DividendReviewListResult> {
-    await this.ensureDefaultPortfolioData(userId);
-    const store = await this.loadStore(userId);
+    const snapshot = await this.listDividendCalendarSnapshot(userId, {
+      accountId: opts.accountId,
+      fromPaymentDate: opts.fromPaymentDate,
+      toPaymentDate: opts.toPaymentDate,
+      marketCode: opts.marketCode,
+      ticker: opts.ticker,
+      includeUndated: opts.fromPaymentDate != null || opts.toPaymentDate != null,
+      limit: 2_147_483_647,
+    });
+    const store = createStore();
+    store.userId = userId;
+    store.settings.userId = userId;
+    store.accounts = snapshot.accounts;
+    store.accounting.facts.tradeEvents = snapshot.tradeEvents;
+    store.accounting.facts.positionActions = snapshot.positionActions ?? [];
+    store.accounting.facts.dividendLedgerEntries = snapshot.ledgerEntries;
+    store.accounting.facts.dividendDeductionEntries = snapshot.ledgerEntries.flatMap((entry) => entry.deductions);
+    store.accounting.facts.dividendSourceLines = snapshot.ledgerEntries.flatMap((entry) => entry.sourceLines);
+    store.marketData.dividendEvents = snapshot.dividendEvents;
+    setStoreInstruments(store, snapshot.instruments);
+
+    const scopedEventById = new Map(snapshot.dividendEvents.map((event) => [event.id, event]));
+    store.accounting.facts.cashLedgerEntries = snapshot.ledgerEntries.flatMap((entry) => {
+      if (entry.receivedCashAmount === 0) return [];
+      const event = scopedEventById.get(entry.dividendEventId);
+      return [{
+        id: `review-receipt:${entry.id}`,
+        userId,
+        accountId: entry.accountId,
+        entryDate: event?.paymentDate ?? entry.bookedAt?.slice(0, 10) ?? "1970-01-01",
+        entryType: "DIVIDEND_RECEIPT" as const,
+        amount: entry.receivedCashAmount,
+        currency: event?.cashDividendCurrency ?? "TWD",
+        relatedDividendLedgerEntryId: entry.id,
+        source: "dividend_review_scoped_read",
+        bookedAt: entry.bookedAt,
+      }];
+    });
     const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
     const accountById = new Map(store.accounts.map((account) => [account.id, account]));
     const receivedByLedgerId = new Map<string, number>();

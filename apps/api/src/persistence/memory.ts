@@ -2747,13 +2747,22 @@ export class MemoryPersistence implements Persistence {
           .filter((trade) => !trade.reversalOfTradeEventId)
           .filter((trade) => !reversedTradeIds.has(trade.id))
           .reduce((sum, trade) => sum + (trade.type === "BUY" ? trade.quantity : -trade.quantity), 0);
-        return eligibleQuantity > 0;
+        if (eligibleQuantity > 0) return true;
+        return store.accounting.facts.positionActions.some((action) =>
+          action.accountId === accountId
+          && action.ticker === event.ticker
+          && action.marketCode === eventMarketCode
+          && action.actionDate < event.exDividendDate
+          && !action.reversalOfPositionActionId
+          && !action.supersededAt,
+        );
       });
     };
     const dividendEvents = store.marketData.dividendEvents
-      .filter((event) => event.paymentDate != null)
-      .filter((event) => matchesDateRange(event.paymentDate!, opts.fromPaymentDate, opts.toPaymentDate))
+      .filter((event) => event.paymentDate != null || opts.includeUndated)
+      .filter((event) => matchesNullableDateRange(event.paymentDate, opts.fromPaymentDate, opts.toPaymentDate))
       .filter((event) => !opts.marketCode || dividendEventMarketCode(event) === opts.marketCode)
+      .filter((event) => !opts.ticker || event.ticker === opts.ticker)
       .filter((event) => accountHasCalendarEvent(event))
       .sort(compareNullablePaymentDates)
       .slice(0, opts.limit);
@@ -2793,10 +2802,6 @@ export class MemoryPersistence implements Persistence {
       }));
 
     const eventPairs = new Set(dividendEvents.map((event) => `${dividendEventMarketCode(event)}:${event.ticker}`));
-    const maxExDividendDate = dividendEvents.reduce<string | null>(
-      (max, event) => (max == null || event.exDividendDate > max ? event.exDividendDate : max),
-      null,
-    );
     const accountIds = opts.accountId ? new Set([opts.accountId]) : new Set(store.accounts.map((account) => account.id));
 
     return {
@@ -2804,14 +2809,14 @@ export class MemoryPersistence implements Persistence {
       ledgerEntries,
       accounts: store.accounts.filter((account) => accountIds.has(account.id)),
       instruments: store.instruments.filter((instrument) => eventPairs.has(`${instrument.marketCode}:${instrument.ticker}`)),
-      tradeEvents: maxExDividendDate
-        ? store.accounting.facts.tradeEvents
-          .filter((trade) => accountIds.has(trade.accountId))
-          .filter((trade) => eventPairs.has(`${trade.marketCode}:${trade.ticker}`))
-          .filter((trade) => trade.tradeDate < maxExDividendDate)
-          .filter((trade) => !trade.reversalOfTradeEventId)
-          .filter((trade) => !reversedTradeIds.has(trade.id))
-        : [],
+      tradeEvents: store.accounting.facts.tradeEvents
+        .filter((trade) => accountIds.has(trade.accountId))
+        .filter((trade) => eventPairs.has(`${trade.marketCode}:${trade.ticker}`))
+        .filter((trade) => !trade.reversalOfTradeEventId)
+        .filter((trade) => !reversedTradeIds.has(trade.id)),
+      positionActions: store.accounting.facts.positionActions
+        .filter((action) => accountIds.has(action.accountId))
+        .filter((action) => eventPairs.has(`${action.marketCode}:${action.ticker}`)),
     };
   }
 
@@ -8569,12 +8574,6 @@ function deriveInviteStatus(invite: { usedAt: string | null; revokedAt: string |
 
 function matchesNullableDateRange(value: string | null | undefined, fromDate?: string, toDate?: string): boolean {
   if (value == null) return true;
-  if (fromDate && value < fromDate) return false;
-  if (toDate && value > toDate) return false;
-  return true;
-}
-
-function matchesDateRange(value: string, fromDate?: string, toDate?: string): boolean {
   if (fromDate && value < fromDate) return false;
   if (toDate && value > toDate) return false;
   return true;

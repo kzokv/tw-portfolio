@@ -1298,6 +1298,8 @@ export interface DividendCalendarSnapshotOptions {
   fromPaymentDate?: string;
   toPaymentDate?: string;
   marketCode?: MarketCode;
+  ticker?: string;
+  includeUndated?: boolean;
   limit: number;
 }
 
@@ -1307,6 +1309,7 @@ export interface DividendCalendarSnapshotResult {
   accounts: Store["accounts"];
   instruments: Store["instruments"];
   tradeEvents: Store["accounting"]["facts"]["tradeEvents"];
+  positionActions?: Store["accounting"]["facts"]["positionActions"];
 }
 
 export type DividendReviewRowKind = "ledger" | "expected";

@@ -6725,6 +6725,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     snapshotStore.accounts = snapshot.accounts;
     snapshotStore.marketData.dividendEvents = snapshot.dividendEvents;
     snapshotStore.accounting.facts.tradeEvents = snapshot.tradeEvents;
+    snapshotStore.accounting.facts.positionActions = snapshot.positionActions ?? [];
     snapshotStore.accounting.facts.dividendLedgerEntries = snapshot.ledgerEntries;
     snapshotStore.accounting.facts.dividendDeductionEntries = snapshot.ledgerEntries.flatMap((entry) => entry.deductions);
     snapshotStore.accounting.facts.dividendSourceLines = snapshot.ledgerEntries.flatMap((entry) => entry.sourceLines);
