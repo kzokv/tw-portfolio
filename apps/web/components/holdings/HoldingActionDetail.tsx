@@ -33,7 +33,7 @@ type ActionMode = "SPLIT" | "REVERSE_SPLIT";
 type PageSize = 10 | 25 | 50;
 
 const PAGE_SIZE_OPTIONS: readonly PageSize[] = [10, 25, 50] as const;
-const DIVIDEND_FETCH_LIMIT = 500;
+const DIVIDEND_FETCH_LIMIT = 50;
 
 async function fetchAllDividendEntries(ticker: string, marketCode: MarketCode): Promise<DividendLedgerEntryDetails[]> {
   const entries: DividendLedgerEntryDetails[] = [];
