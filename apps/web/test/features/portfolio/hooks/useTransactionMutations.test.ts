@@ -23,12 +23,14 @@ vi.mock("../../../../hooks/useEventStream", () => ({
 
 vi.mock("../../../../features/portfolio/services/transactionMutationService", () => ({
   previewImpact: vi.fn(),
+  previewDividendDelete: vi.fn(),
   deleteTransaction: vi.fn(),
   patchTransaction: vi.fn(),
 }));
 
 import {
   previewImpact,
+  previewDividendDelete,
   deleteTransaction,
 } from "../../../../features/portfolio/services/transactionMutationService";
 
@@ -96,6 +98,26 @@ describe("useTransactionMutations — safety net", () => {
       affectedHoldingCount: 0,
     } as never);
 
+    vi.mocked(previewDividendDelete).mockResolvedValue({
+      preview: {
+        previewId: "preview-1",
+        previewVersion: 1,
+        fingerprint: "1234567890abcdef",
+        accountId: "acc-1",
+        targetTradeEventId: "tx-1",
+        expiresAt: "2026-07-10T12:00:00.000Z",
+      },
+      affectedCounts: {
+        dividendLedgerEntries: 0,
+        cashLedgerEntries: 0,
+        dividendDeductionEntries: 0,
+        dividendSourceLines: 0,
+        stockDividendPositionActions: 0,
+      },
+      affectedDividends: [],
+      manualReceiptReentryLedgerEntryIds: [],
+    });
+
     vi.mocked(deleteTransaction).mockResolvedValue({
       accountId: "acc-1",
       ticker: "2330",
@@ -108,6 +130,7 @@ describe("useTransactionMutations — safety net", () => {
     warnSpy.mockRestore();
     vi.useRealTimers();
     vi.mocked(previewImpact).mockReset();
+    vi.mocked(previewDividendDelete).mockReset();
     vi.mocked(deleteTransaction).mockReset();
   });
 
@@ -177,6 +200,72 @@ describe("useTransactionMutations — safety net", () => {
     expect(refresh).toHaveBeenCalledTimes(1);
     expect(result.message).toBe("Recomputed successfully");
     expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  it("settles destructive recompute when snapshot regeneration completes", async () => {
+    mount();
+    await triggerDelete();
+
+    await act(async () => {
+      capturedOnEvent!({
+        type: "snapshots_generated",
+        status: "ok",
+        totalRows: 1,
+        provisionalRows: 0,
+        dateRange: null,
+        generationRunId: "run-1",
+        trigger: "dividend_destructive_replay",
+        scopes: [{ accountId: "acc-1", ticker: "2330", marketCode: "TW" }],
+      });
+    });
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(result.message).toBe("Recomputed successfully");
+    expect(result.recomputingSymbols.size).toBe(0);
+  });
+
+  it("ignores an unrelated snapshot generation while a mutation is pending", async () => {
+    mount();
+    await triggerDelete();
+
+    act(() => {
+      capturedOnEvent!({
+        type: "snapshots_generated",
+        status: "ok",
+        totalRows: 1,
+        provisionalRows: 0,
+        dateRange: null,
+        generationRunId: "run-unrelated",
+      });
+    });
+
+    expect(refresh).not.toHaveBeenCalled();
+    expect(result.recomputingSymbols.size).toBe(1);
+
+    await act(async () => {
+      vi.advanceTimersByTime(10_000);
+    });
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(result.recomputingSymbols.size).toBe(0);
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it("keeps the negative-lot warning without requesting a destructive preview", async () => {
+    vi.mocked(previewImpact).mockResolvedValueOnce({
+      negativeLots: { wouldOccur: true, symbols: ["2330"], resultingQuantity: -100, ticker: "2330" },
+      affectedTransactionCount: 1,
+      affectedHoldingCount: 1,
+    } as never);
+    mount();
+
+    act(() => result.startDelete(mockTx));
+    await act(async () => {});
+
+    expect(result.deletePreview?.negativeLots.wouldOccur).toBe(true);
+    expect(result.isDeleteDialogOpen).toBe(true);
+    expect(result.isDeletePreviewLoading).toBe(false);
+    expect(previewDividendDelete).not.toHaveBeenCalled();
   });
 
   it("does not fire when no symbols are recomputing", async () => {

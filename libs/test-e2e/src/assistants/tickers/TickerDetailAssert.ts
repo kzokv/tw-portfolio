@@ -173,10 +173,20 @@ export class TickerDetailAssert extends BaseAssert {
   }
 
   @Step()
-  async dividendsRowReviewLinksPreserveMarket(ticker: string, marketCode: string): Promise<void> {
+  async dividendsUpcomingReviewLinkPreservesMarket(ticker: string, marketCode: string): Promise<void> {
     const hrefPattern = new RegExp(`ticker=${ticker}.*marketCode=${marketCode}|marketCode=${marketCode}.*ticker=${ticker}`);
-    await expect(this.el.dividendsPostedReviewLink(0)).toHaveAttribute("href", hrefPattern);
-    await expect(this.el.dividendsReconciliationReviewLink(0)).toHaveAttribute("href", hrefPattern);
+    await expect(this.el.dividendsUpcomingReviewLink(0)).toHaveAttribute("href", hrefPattern);
+  }
+
+  @Step()
+  async dividendsPostedReviewButtonIsVisible(index: number): Promise<void> {
+    await expect(this.el.dividendsPostedReviewButton(index)).toBeVisible();
+  }
+
+  @Step()
+  async summaryPositionContains(quantity: string, totalCost: string | RegExp): Promise<void> {
+    await expect(this.el.summaryQuantity).toContainText(quantity);
+    await expect(this.el.summaryTotalCost).toContainText(totalCost);
   }
 
   @Step()

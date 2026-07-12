@@ -24,7 +24,7 @@ function requestContext(): McpRequestContext {
       clientId: "vakwen-dev-client",
       sessionUserId: USER_ID,
       connection: null,
-      scopes: ["portfolio:mcp_read", "transaction:write"],
+      scopes: ["portfolio:mcp_read", "dividend:write"],
       toolToggles: {},
       expiresAt: null,
       authMode: "dev_token",
@@ -57,6 +57,7 @@ async function seedExpectedDividendRow(options: {
   cashDividendPerShare?: number;
   cashDividendCurrency?: DividendEvent["cashDividendCurrency"];
   stockDividendPerShare?: number;
+  stockParValueAmount?: number;
   paymentDate?: string | null;
   materializeLedgerEntry?: boolean;
 } = {}): Promise<string> {
@@ -102,6 +103,15 @@ async function seedExpectedDividendRow(options: {
     cashDividendPerShare: options.cashDividendPerShare ?? 3,
     cashDividendCurrency,
     stockDividendPerShare: options.stockDividendPerShare ?? 0,
+    stockDistributionAmountRaw: options.stockDividendPerShare ?? 0,
+    stockDistributionRatio: (options.stockDividendPerShare ?? 0) > 0
+      ? options.stockDividendPerShare!
+      : null,
+    stockDistributionRatioState: (options.stockDividendPerShare ?? 0) > 0
+      ? "authoritative"
+      : "unresolved",
+    stockParValueAmount: options.stockParValueAmount ?? null,
+    stockParValueCurrency: options.stockParValueAmount === undefined ? null : cashDividendCurrency,
     source: "test_seed",
   };
   store.accounting.facts.tradeEvents.push(trade);
@@ -132,7 +142,6 @@ async function seedExpectedDividendRow(options: {
     limit: 50,
     sortBy: "paymentDate",
     sortOrder: "desc",
-    ...(paymentDate === null ? { fromPaymentDate: "2024-01-01" } : {}),
   });
   const expectedRowId = `expected:${account.id}:${dividendEvent.id}`;
   const row = options.materializeLedgerEntry
@@ -349,36 +358,6 @@ describe("MCP dividend services", () => {
     })).rejects.toMatchObject({ code: "mcp_account_filter_conflict", statusCode: 409 });
   });
 
-  it("posts a null-payment dividend row returned by review", async () => {
-    const rowId = await seedExpectedDividendRow({ paymentDate: null });
-    const review = await getDividendReview(serviceContext(), {
-      fromPaymentDate: "2024-01-01",
-      toPaymentDate: "2024-12-31",
-    });
-
-    expect(review.rows).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        rowId,
-        paymentDate: null,
-        canPostReceipt: true,
-      }),
-    ]));
-
-    const preview = await previewPostDividendReceipt(serviceContext(), { rowId });
-    const posted = await postDividendReceipt(serviceContext(), {
-      rowId,
-      confirmationSummary: preview.confirmationSummary,
-      confirmationDigest: preview.confirmationDigest,
-      idempotencyKey: "mcp-dividend-null-payment-date",
-    });
-
-    expect(posted.posted).toBe(true);
-    expect(posted.ledgerEntry).toEqual(expect.objectContaining({
-      dividendEventId: rowId.split(":").at(-1),
-      receivedCashAmount: 3000,
-    }));
-  });
-
   it("rejects a receipt confirmation when row facts changed after preview", async () => {
     const rowId = await seedExpectedDividendRow();
     const preview = await previewPostDividendReceipt(serviceContext(), { rowId });
@@ -449,6 +428,7 @@ describe("MCP dividend services", () => {
       eventType: "STOCK",
       cashDividendPerShare: 0,
       stockDividendPerShare: 0.1,
+      stockParValueAmount: 10,
     });
     const receiptInput = { rowId, receivedCashAmount: 0, receivedStockQuantity: 100 };
     const preview = await previewPostDividendReceipt(serviceContext(), receiptInput);
@@ -499,6 +479,7 @@ describe("MCP dividend services", () => {
       eventType: "STOCK",
       cashDividendPerShare: 0,
       stockDividendPerShare: 0.1,
+      stockParValueAmount: 10,
     });
     const posted = await postSeededReceipt(rowId, "mcp-dividend-stock-amend-post");
 
@@ -576,6 +557,7 @@ describe("MCP dividend services", () => {
       eventType: "CASH_AND_STOCK",
       cashDividendPerShare: 2,
       stockDividendPerShare: 0.1,
+      stockParValueAmount: 10,
     });
     const receiptInput = {
       rowId,

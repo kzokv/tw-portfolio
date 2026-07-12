@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildApp } from "../../src/app.js";
+import { createDividendEvent } from "../../src/services/dividends.js";
 import { confirmRecompute, previewRecompute } from "../../src/services/recompute.js";
+import type { DividendLedgerEntry } from "../../src/types/store.js";
 import { transactionPayload, feeProfilePayload, type TransactionType } from "../helpers/fixtures.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
@@ -812,6 +814,120 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     });
     expect(confirm.statusCode).toBe(200);
     expect(confirm.json().status).toBe("CONFIRMED");
+  });
+
+  it("recompute confirm materializes missing expected dividends and retires stale expected rows nondestructively", async () => {
+    const buyResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "recompute-dividend-buy" },
+      payload: transactionPayload({
+        quantity: 10,
+        unitPrice: 200,
+        tradeDate: "2026-01-05",
+        commissionAmount: 0,
+        taxAmount: 0,
+      }),
+    });
+    expect(buyResponse.statusCode).toBe(200);
+
+    const sellResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "recompute-dividend-sell" },
+      payload: transactionPayload({
+        type: "SELL",
+        quantity: 10,
+        unitPrice: 220,
+        tradeDate: "2026-02-15",
+        commissionAmount: 0,
+        taxAmount: 0,
+      }),
+    });
+    expect(sellResponse.statusCode).toBe(200);
+
+    const store = await app.persistence.loadStore("user-1");
+    const earlyEvent = createDividendEvent(store, {
+      id: "recompute-expected-create",
+      ticker: "2330",
+      marketCode: "TW",
+      eventType: "STOCK",
+      exDividendDate: "2026-02-01",
+      paymentDate: "2026-02-20",
+      cashDividendPerShare: 0,
+      cashDividendCurrency: "TWD",
+      stockDividendPerShare: 0.085,
+      stockDistributionRatio: null,
+      stockDistributionRatioState: "unresolved",
+      stockParValueAmount: 5,
+      stockParValueCurrency: "TWD",
+      source: "test",
+    });
+    const lateEvent = createDividendEvent(store, {
+      id: "recompute-expected-retire",
+      ticker: "2330",
+      marketCode: "TW",
+      eventType: "CASH",
+      exDividendDate: "2026-03-01",
+      paymentDate: "2026-03-20",
+      cashDividendPerShare: 3,
+      cashDividendCurrency: "TWD",
+      stockDividendPerShare: 0,
+      source: "test",
+    });
+    const staleExpected: DividendLedgerEntry = {
+      id: "stale-recompute-expected",
+      accountId: "acc-1",
+      dividendEventId: lateEvent.id,
+      eligibleQuantity: 10,
+      expectedCashAmount: 30,
+      expectedStockQuantity: 0,
+      receivedCashAmount: 0,
+      receivedStockQuantity: 0,
+      postingStatus: "expected",
+      reconciliationStatus: "open",
+      version: 1,
+      sourceCompositionStatus: "unknown_pending_disclosure",
+      bookedAt: "2026-02-20T00:00:00.000Z",
+    };
+    store.accounting.facts.dividendLedgerEntries.push(staleExpected);
+    await app.persistence.saveStore(store);
+
+    const seededRecomputeProfile = store.feeProfiles[0]!.id;
+    const preview = await app.inject({
+      method: "POST",
+      url: "/portfolio/recompute/preview",
+      payload: { profileId: seededRecomputeProfile },
+    });
+    expect(preview.statusCode).toBe(200);
+
+    const confirm = await app.inject({
+      method: "POST",
+      url: "/portfolio/recompute/confirm",
+      payload: { jobId: preview.json().id },
+    });
+    expect(confirm.statusCode).toBe(200);
+
+    const updatedStore = await app.persistence.loadStore("user-1");
+    const createdExpected = updatedStore.accounting.facts.dividendLedgerEntries.find(
+      (entry) => entry.dividendEventId === earlyEvent.id && !entry.supersededAt,
+    );
+    const retiredExpected = updatedStore.accounting.facts.dividendLedgerEntries.find(
+      (entry) => entry.id === staleExpected.id,
+    );
+
+    expect(createdExpected).toMatchObject({
+      accountId: "acc-1",
+      postingStatus: "expected",
+      eligibleQuantity: 10,
+      expectedCashAmount: 0,
+      expectedStockQuantity: 0,
+      expectedStockCalcState: "needs_action",
+      expectedStockDistributionRatio: null,
+      expectedStockParValueAmount: 5,
+      reconciliationStatus: "open",
+    });
+    expect(retiredExpected?.supersededAt).toEqual(expect.any(String));
   });
 
   it("does not consume idempotency key for invalid payload", async () => {

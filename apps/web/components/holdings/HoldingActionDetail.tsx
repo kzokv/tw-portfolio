@@ -26,9 +26,23 @@ interface HoldingActionDetailProps {
   onActionPosted?: () => Promise<void> | void;
   row: DashboardOverviewHoldingGroupDto | DashboardOverviewHoldingChildDto;
   transactions?: TransactionHistoryItemDto[];
+  allowAuthoring?: boolean;
 }
 
 type ActionMode = "SPLIT" | "REVERSE_SPLIT";
+type PageSize = 10 | 25 | 50;
+
+const PAGE_SIZE_OPTIONS: readonly PageSize[] = [10, 25, 50] as const;
+const DIVIDEND_FETCH_LIMIT = 50;
+
+async function fetchAllDividendEntries(ticker: string, marketCode: MarketCode): Promise<DividendLedgerEntryDetails[]> {
+  const entries: DividendLedgerEntryDetails[] = [];
+  for (let page = 1; ; page += 1) {
+    const review = await fetchDividendLedgerReview({ ticker, marketCode, page, limit: DIVIDEND_FETCH_LIMIT });
+    entries.push(...review.ledgerEntries);
+    if (entries.length >= review.total || review.ledgerEntries.length === 0) return entries;
+  }
+}
 
 export function HoldingActionDetail({
   dict,
@@ -37,6 +51,7 @@ export function HoldingActionDetail({
   onActionPosted,
   row,
   transactions,
+  allowAuthoring = false,
 }: HoldingActionDetailProps) {
   const children = useMemo(() => getHoldingChildren(row), [row]);
   const [timelineTransactions, setTimelineTransactions] = useState<TransactionHistoryItemDto[]>(transactions ?? []);
@@ -53,6 +68,12 @@ export function HoldingActionDetail({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitMessage, setSubmitMessage] = useState("");
   const [submitError, setSubmitError] = useState("");
+  const [timelinePage, setTimelinePage] = useState(1);
+  const [timelineLimit, setTimelineLimit] = useState<PageSize>(10);
+  const [upcomingPage, setUpcomingPage] = useState(1);
+  const [upcomingLimit, setUpcomingLimit] = useState<PageSize>(10);
+  const [postedPage, setPostedPage] = useState(1);
+  const [postedLimit, setPostedLimit] = useState<PageSize>(10);
 
   useEffect(() => {
     if (transactions) {
@@ -74,15 +95,11 @@ export function HoldingActionDetail({
                 accountIds: "children" in row ? row.children.map((child) => child.accountId) : [row.accountId],
                 marketCode: marketCode as MarketCode,
               }),
-          fetchDividendLedgerReview({
-            ticker: row.ticker,
-            marketCode: marketCode as MarketCode,
-            limit: 200,
-          }),
+          fetchAllDividendEntries(row.ticker, marketCode as MarketCode),
         ]);
         if (!active) return;
         setTimelineTransactions(nextTransactions);
-        setDividendEntries(review.ledgerEntries.filter((entry) => entry.ticker === row.ticker && entry.marketCode === marketCode));
+        setDividendEntries(review.filter((entry) => entry.ticker === row.ticker && entry.marketCode === marketCode));
       } catch (error) {
         if (!active) return;
         setErrorMessage(error instanceof Error ? error.message : String(error));
@@ -128,6 +145,21 @@ export function HoldingActionDetail({
       (entry.receivedStockQuantity > 0 || (entry.cashInLieuAmount ?? 0) > 0 || entry.deductions.some((deduction) => deduction.deductionType === "CASH_IN_LIEU_ADJUSTMENT"))),
     transactions: timelineTransactions,
   });
+  const upcomingDividendEntries = useMemo(
+    () => dividendEntries
+      .filter((entry) => scopedAccountIds.has(entry.accountId) && entry.rowKind === "expected")
+      .sort((left, right) => (left.paymentDate ?? left.exDividendDate).localeCompare(right.paymentDate ?? right.exDividendDate)),
+    [dividendEntries, scopedAccountIds],
+  );
+  const postedDividendEntries = useMemo(
+    () => dividendEntries
+      .filter((entry) => scopedAccountIds.has(entry.accountId) && entry.rowKind !== "expected")
+      .sort((left, right) => (right.paymentDate ?? right.exDividendDate).localeCompare(left.paymentDate ?? left.exDividendDate)),
+    [dividendEntries, scopedAccountIds],
+  );
+  const pagedTimelineItems = paginateItems(timelineItems, timelinePage, timelineLimit);
+  const pagedUpcomingDividends = paginateItems(upcomingDividendEntries, upcomingPage, upcomingLimit);
+  const pagedPostedDividends = paginateItems(postedDividendEntries, postedPage, postedLimit);
 
   async function handleSubmitAction() {
     if (!selectedChild || !actionDate || preview.blocked || Number(numerator) <= 0 || Number(denominator) <= 0) return;
@@ -157,24 +189,26 @@ export function HoldingActionDetail({
 
   return (
     <div className="mt-5 grid gap-4">
-      <div className="grid gap-3 md:grid-cols-4">
-        <MetricCard label={dict.tickerHistory.quantityLabel} value={formatNumber(row.quantity, locale)} />
-        <MetricCard label={dict.tickerHistory.avgCostLabel} value={row.averageCostPerShare ? formatCurrencyAmount(row.averageCostPerShare, row.currency, locale) : dict.tickerHistory.noHoldingData} />
-        <MetricCard
-          label={dict.tickerHistory.totalCostLabel}
-          value={("children" in row ? row.reportingCostBasisAmount : row.reportingCostBasisAmount) != null
-            ? formatCurrencyAmount(("children" in row ? row.reportingCostBasisAmount : row.reportingCostBasisAmount) ?? 0, ("children" in row ? row.reportingCurrency : row.reportingCurrency), locale)
-            : dict.tickerHistory.noHoldingData}
-        />
-        <MetricCard
-          label={dict.tickerHistory.marketValueLabel}
-          value={("children" in row ? row.reportingMarketValueAmount : row.reportingMarketValueAmount) != null
-            ? formatCurrencyAmount(("children" in row ? row.reportingMarketValueAmount : row.reportingMarketValueAmount) ?? 0, ("children" in row ? row.reportingCurrency : row.reportingCurrency), locale)
-            : dict.tickerHistory.noHoldingData}
-        />
-      </div>
+      {!allowAuthoring ? (
+        <div className="grid gap-3 md:grid-cols-4">
+          <MetricCard label={dict.tickerHistory.quantityLabel} value={formatNumber(row.quantity, locale)} />
+          <MetricCard label={dict.tickerHistory.avgCostLabel} value={row.averageCostPerShare ? formatCurrencyAmount(row.averageCostPerShare, row.currency, locale) : dict.tickerHistory.noHoldingData} />
+          <MetricCard
+            label={dict.tickerHistory.totalCostLabel}
+            value={("children" in row ? row.reportingCostBasisAmount : row.reportingCostBasisAmount) != null
+              ? formatCurrencyAmount(("children" in row ? row.reportingCostBasisAmount : row.reportingCostBasisAmount) ?? 0, ("children" in row ? row.reportingCurrency : row.reportingCurrency), locale)
+              : dict.tickerHistory.noHoldingData}
+          />
+          <MetricCard
+            label={dict.tickerHistory.marketValueLabel}
+            value={("children" in row ? row.reportingMarketValueAmount : row.reportingMarketValueAmount) != null
+              ? formatCurrencyAmount(("children" in row ? row.reportingMarketValueAmount : row.reportingMarketValueAmount) ?? 0, ("children" in row ? row.reportingCurrency : row.reportingCurrency), locale)
+              : dict.tickerHistory.noHoldingData}
+          />
+        </div>
+      ) : null}
 
-      <Card className="rounded-2xl border border-border/70 bg-card p-4">
+      <Card className="rounded-lg border border-border/70 bg-card p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.actionTimelineEyebrow}</p>
@@ -189,12 +223,13 @@ export function HoldingActionDetail({
         {isLoading ? (
           <p className="mt-4 text-sm text-muted-foreground">{dict.tickerHistory.refreshingDetails}</p>
         ) : errorMessage ? (
-          <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{errorMessage}</p>
+          <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{errorMessage}</p>
         ) : timelineItems.length === 0 ? (
-          <p className="mt-4 rounded-xl border border-dashed border-border bg-muted/25 px-4 py-6 text-sm text-muted-foreground">{dict.tickerHistory.actionTimelineEmpty}</p>
+          <p className="mt-4 rounded-lg border border-dashed border-border bg-muted/25 px-4 py-6 text-sm text-muted-foreground">{dict.tickerHistory.actionTimelineEmpty}</p>
         ) : (
-          <div className="mt-4 divide-y divide-border rounded-2xl border border-border/70">
-            {timelineItems.map((item) => (
+          <>
+            <div className="mt-4 divide-y divide-border rounded-lg border border-border/70">
+              {pagedTimelineItems.items.map((item) => (
               <div key={item.id} className="grid gap-3 px-4 py-4 md:grid-cols-[148px_minmax(0,1fr)_auto] md:items-start">
                 <div className="text-sm text-muted-foreground">
                   <p>{formatDateLabel(item.date, locale)}</p>
@@ -221,12 +256,60 @@ export function HoldingActionDetail({
                   {resolveTimelineBadge(dict, item.badgeLabel)}
                 </div>
               </div>
-            ))}
-          </div>
+              ))}
+            </div>
+            <PaginationControls
+              dict={dict}
+              currentPage={timelinePage}
+              pageSize={timelineLimit}
+              total={timelineItems.length}
+              onPageChange={setTimelinePage}
+              onPageSizeChange={(next) => {
+                setTimelineLimit(next);
+                setTimelinePage(1);
+              }}
+            />
+          </>
         )}
       </Card>
 
-      <Card className="rounded-2xl border border-border/70 bg-card p-4" data-testid="holding-split-action-panel">
+      {!allowAuthoring ? (
+        <div className="grid gap-4 xl:grid-cols-2">
+          <DividendListCard
+            title={dict.dividends.ticker.upcoming.title}
+            description={dict.dividends.ticker.upcoming.description}
+            dict={dict}
+            locale={locale}
+            emptyLabel={dict.dividends.ticker.upcoming.empty}
+            entries={pagedUpcomingDividends.items}
+            total={upcomingDividendEntries.length}
+            page={upcomingPage}
+            pageSize={upcomingLimit}
+            onPageChange={setUpcomingPage}
+            onPageSizeChange={(next) => {
+              setUpcomingLimit(next);
+              setUpcomingPage(1);
+            }}
+          />
+          <DividendListCard
+            title={dict.dividends.ticker.postedHistory.title}
+            description={dict.dividends.ticker.postedHistory.description}
+            dict={dict}
+            locale={locale}
+            emptyLabel={dict.dividends.ticker.postedHistory.empty}
+            entries={pagedPostedDividends.items}
+            total={postedDividendEntries.length}
+            page={postedPage}
+            pageSize={postedLimit}
+            onPageChange={setPostedPage}
+            onPageSizeChange={(next) => {
+              setPostedLimit(next);
+              setPostedPage(1);
+            }}
+          />
+        </div>
+      ) : (
+      <Card className="rounded-lg border border-border/70 bg-card p-4" data-testid="holding-split-action-panel">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{dict.holdings.actionDetail.splitEyebrow}</p>
@@ -293,12 +376,12 @@ export function HoldingActionDetail({
             </label>
 
             {preview.blocked ? (
-              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700" data-testid="holding-split-blocked-preview">
+              <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700" data-testid="holding-split-blocked-preview">
                 <p className="font-semibold">{dict.holdings.actionDetail.postingBlockedTitle}</p>
                 <p className="mt-1">{formatToken(dict.holdings.actionDetail.postingBlockedDescription, formatNumber(preview.fractionalQuantity, locale, 6))}</p>
               </div>
             ) : (
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" data-testid="holding-split-impact-preview">
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800" data-testid="holding-split-impact-preview">
                 <p className="font-semibold">{dict.holdings.actionDetail.previewImpactTitle}</p>
                 <p className="mt-1">{dict.holdings.actionDetail.previewImpactBody}</p>
               </div>
@@ -344,7 +427,7 @@ export function HoldingActionDetail({
               />
             </div>
 
-            <div className="overflow-hidden rounded-2xl border border-border/70">
+            <div className="overflow-hidden rounded-lg border border-border/70">
               <table className="w-full text-sm">
                 <thead className="bg-muted/40 text-muted-foreground">
                   <tr>
@@ -375,13 +458,14 @@ export function HoldingActionDetail({
           </div>
         </div>
       </Card>
+      )}
     </div>
   );
 }
 
 function MetricCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-border/70 px-4 py-3">
+    <div className="rounded-lg border border-border/70 px-4 py-3">
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-2 text-lg font-semibold text-foreground">{value}</p>
     </div>
@@ -447,4 +531,130 @@ function toOffsetDateTime(date: string, time: string): string {
   const hours = String(Math.floor(absoluteOffset / 60)).padStart(2, "0");
   const minutes = String(absoluteOffset % 60).padStart(2, "0");
   return `${date}T${time}:00${sign}${hours}:${minutes}`;
+}
+
+function paginateItems<T>(items: T[], page: number, limit: PageSize): { items: T[]; totalPages: number } {
+  const totalPages = Math.max(1, Math.ceil(items.length / limit));
+  const safePage = Math.min(Math.max(page, 1), totalPages);
+  const start = (safePage - 1) * limit;
+  return {
+    items: items.slice(start, start + limit),
+    totalPages,
+  };
+}
+
+function PaginationControls({
+  dict,
+  currentPage,
+  pageSize,
+  total,
+  onPageChange,
+  onPageSizeChange,
+}: {
+  dict: AppDictionary;
+  currentPage: number;
+  pageSize: PageSize;
+  total: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: PageSize) => void;
+}) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  return (
+    <div className="mt-4 flex items-center justify-between gap-3">
+      <label className="flex items-center gap-2 text-sm text-muted-foreground">
+        <span>{dict.dividends.review.pagination.pageSize}</span>
+        <select
+          className="h-9 rounded-md border border-input bg-background px-2 text-sm text-foreground"
+          value={String(pageSize)}
+          onChange={(event) => onPageSizeChange(Number.parseInt(event.target.value, 10) as PageSize)}
+        >
+          {PAGE_SIZE_OPTIONS.map((option) => (
+            <option key={option} value={option}>{option}</option>
+          ))}
+        </select>
+      </label>
+      <div className="flex items-center gap-2">
+        <Button type="button" size="sm" variant="secondary" disabled={currentPage <= 1} onClick={() => onPageChange(currentPage - 1)}>
+          {dict.dividends.review.pagination.previous}
+        </Button>
+        <span className="text-sm text-muted-foreground">
+          {dict.dividends.review.pagination.page} {currentPage} {dict.dividends.review.pagination.of} {totalPages}{dict.dividends.review.pagination.totalSuffix}
+        </span>
+        <Button type="button" size="sm" variant="secondary" disabled={currentPage >= totalPages} onClick={() => onPageChange(currentPage + 1)}>
+          {dict.dividends.review.pagination.next}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function DividendListCard({
+  title,
+  description,
+  dict,
+  locale,
+  emptyLabel,
+  entries,
+  total,
+  page,
+  pageSize,
+  onPageChange,
+  onPageSizeChange,
+}: {
+  title: string;
+  description: string;
+  dict: AppDictionary;
+  locale: LocaleCode;
+  emptyLabel: string;
+  entries: DividendLedgerEntryDetails[];
+  total: number;
+  page: number;
+  pageSize: PageSize;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: PageSize) => void;
+}) {
+  return (
+    <Card className="rounded-lg border border-border/70 bg-card p-4">
+      <div>
+        <h3 className="text-lg font-semibold text-foreground">{title}</h3>
+        <p className="mt-1 text-sm text-muted-foreground">{description}</p>
+      </div>
+      {entries.length === 0 ? (
+        <p className="mt-4 rounded-lg border border-dashed border-border bg-muted/25 px-4 py-6 text-sm text-muted-foreground">{emptyLabel}</p>
+      ) : (
+        <div className="mt-4 divide-y divide-border rounded-lg border border-border/70">
+          {entries.map((entry) => (
+            <div key={entry.id} className="grid gap-3 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_repeat(3,minmax(0,0.8fr))]">
+              <div className="min-w-0">
+                <p className="font-semibold text-foreground">{entry.ticker}{entry.tickerName ? ` ${entry.tickerName}` : ""}</p>
+                <p className="mt-1 text-sm text-muted-foreground">{entry.accountName?.trim() || entry.accountId}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">{dict.dashboardHome.exDividendDateLabel}</p>
+                <p className="mt-1 text-sm font-medium text-foreground">{formatDateLabel(entry.exDividendDate, locale)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">{dict.dashboardHome.paymentDateLabel}</p>
+                <p className="mt-1 text-sm font-medium text-foreground">{entry.paymentDate ? formatDateLabel(entry.paymentDate, locale) : dict.dividends.paymentDateTbdSection}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">{dict.dashboardHome.netAmountLabel}</p>
+                <p className="mt-1 text-sm font-medium text-foreground">
+                  {formatCurrencyAmount(entry.rowKind === "expected" ? entry.expectedCashAmount : entry.receivedCashAmount, entry.cashCurrency, locale)}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <PaginationControls
+        dict={dict}
+        currentPage={page}
+        pageSize={pageSize}
+        total={total}
+        onPageChange={onPageChange}
+        onPageSizeChange={onPageSizeChange}
+      />
+    </Card>
+  );
 }

@@ -9,6 +9,7 @@ vi.mock("../../../lib/api", () => ({
 import { getJson } from "../../../lib/api";
 import {
   fetchDividendCalendarSnapshot,
+  fetchDividendDailyHighlights,
   fetchDividendLedgerReview,
 } from "../../../features/dividends/services/dividendService";
 
@@ -61,5 +62,21 @@ describe("dividendService calendar snapshot", () => {
     expect(getJson).toHaveBeenCalledWith(
       "/portfolio/dividends/review?ticker=BHP&marketCode=AU&page=1&limit=25",
     );
+  });
+
+  it("reads the dedicated daily highlights endpoint", async () => {
+    const signal = new AbortController().signal;
+    vi.mocked(getJson).mockResolvedValueOnce({
+      payingToday: [{ id: "daily-1" }],
+      exDividendToday: [{ id: "daily-2" }],
+    });
+
+    const payload = await fetchDividendDailyHighlights({ signal });
+
+    expect(getJson).toHaveBeenCalledWith("/portfolio/dividends/daily-highlights", { signal });
+    expect(payload).toEqual({
+      payingToday: [{ id: "daily-1" }],
+      exDividendToday: [{ id: "daily-2" }],
+    });
   });
 });

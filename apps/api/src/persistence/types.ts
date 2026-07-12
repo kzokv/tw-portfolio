@@ -16,6 +16,7 @@ import type {
   AiTransactionDraftRowState,
   AiTransactionDraftSourceChannel,
   DividendLedgerAggregates,
+  DividendReviewSortColumn,
   DividendSourceLine,
   ShareCapability,
   InstrumentOptionDto,
@@ -389,7 +390,11 @@ export type AuditLogAction =
   // ui-enhancement — account lifecycle audit actions.
   | "account_soft_deleted"
   | "account_restored"
-  | "account_hard_purged";
+  | "account_hard_purged"
+  | "dividend_destructive_preview_created"
+  | "dividend_destructive_confirmed"
+  | "dividend_destructive_failed"
+  | "dividend_legacy_stock_purge_migrated";
 
 export interface ShareGrantRecord {
   id: string;
@@ -942,6 +947,127 @@ export interface DeleteTradeEventResult {
   };
 }
 
+export type DividendDestructiveOperationKind = "trade_delete" | "account_cutoff_purge";
+export type DividendDestructivePreviewResult = "previewed" | "confirmed" | "failed";
+
+export interface DividendDestructiveAffectedCounts {
+  tradeEvents: number;
+  positionActions: number;
+  dividendLedgerEntries: number;
+  cashLedgerEntries: number;
+  dividendDeductionEntries: number;
+  dividendSourceLines: number;
+  lotAllocations: number;
+  stockDividendPositionActions: number;
+  holdingSnapshots: number;
+}
+
+export interface AccountingStoreAuditOptions {
+  accountIds?: string[];
+  expectedAccountRevision?: {
+    accountId: string;
+    revision: number;
+  };
+  deleteHoldingSnapshotScopes?: Array<{
+    accountId: string;
+    ticker: string;
+    marketCode: MarketCode;
+    fromDate: string;
+  }>;
+  clearDividendPreviewPayloadId?: string;
+}
+
+export interface DividendDestructiveReviewedArtifacts {
+  source: {
+    tradeEventIds: string[];
+    positionActionIds: string[];
+    lotAllocationIds: string[];
+    lotAllocationTradeEventIds: string[];
+  };
+  derived: {
+    dividendEventIds: string[];
+    dividendLedgerEntryIds: string[];
+    cashLedgerEntryIds: string[];
+    dividendDeductionEntryIds: string[];
+    dividendSourceLineIds: string[];
+    stockDividendPositionActionIds: string[];
+    holdingSnapshotIds: string[];
+  };
+}
+
+export interface DividendDestructiveDividendImpactRecord {
+  accountId: string;
+  dividendEventId: string;
+  dividendLedgerEntryId: string | null;
+  postingStatus: DividendLedgerEntry["postingStatus"] | null;
+  beforeEligibleQuantity: number;
+  afterEligibleQuantity: number;
+  beforeExpectedCashAmount: number;
+  afterExpectedCashAmount: number;
+  beforeExpectedStockQuantity: number;
+  afterExpectedStockQuantity: number;
+  cashLedgerEntryIds: string[];
+  dividendDeductionEntryIds: string[];
+  dividendSourceLineIds: string[];
+  stockDividendPositionActionIds: string[];
+  requiresManualReceiptReentry: boolean;
+}
+
+export interface DividendDestructivePreviewRecord {
+  previewId: string;
+  previewVersion: number;
+  fingerprint: string;
+  operationKind: DividendDestructiveOperationKind;
+  operationKey: string;
+  ownerUserId: string;
+  actorUserId: string | null;
+  accountId: string;
+  accountRevision: number;
+  targetTradeEventId?: string | null;
+  cutoffDate?: string | null;
+  reason: string;
+  expiresAt: string;
+  createdAt: string;
+  affectedCounts: DividendDestructiveAffectedCounts;
+  affectedDividends: DividendDestructiveDividendImpactRecord[];
+  manualReceiptReentryLedgerEntryIds: string[];
+  reviewedArtifacts: DividendDestructiveReviewedArtifacts;
+}
+
+export interface DividendDestructivePreviewState extends DividendDestructivePreviewRecord {
+  consumedAt: string | null;
+  consumedResult: Exclude<DividendDestructivePreviewResult, "previewed"> | null;
+}
+
+export interface SaveDividendDestructivePreviewInput {
+  record: DividendDestructivePreviewRecord;
+  ipAddress?: string | null;
+}
+
+export interface RecordDividendDestructiveOutcomeInput {
+  previewId: string;
+  ownerUserId: string;
+  actorUserId?: string | null;
+  accountId: string;
+  operationKind: DividendDestructiveOperationKind;
+  operationKey: string;
+  previewVersion: number;
+  fingerprint: string;
+  targetTradeEventId?: string | null;
+  cutoffDate?: string | null;
+  reason: string;
+  result: Exclude<DividendDestructivePreviewResult, "previewed">;
+  affectedCounts: DividendDestructiveAffectedCounts;
+  affectedDividends: DividendDestructiveDividendImpactRecord[];
+  manualReceiptReentryLedgerEntryIds: string[];
+  reviewedArtifacts: DividendDestructiveReviewedArtifacts;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  startedAt: string;
+  completedAt: string;
+  ipAddress?: string | null;
+}
+
 export interface UpdatePostedCashDividendInput {
   expectedVersion: number;
   originalDividendLedgerEntryId?: string;
@@ -1152,6 +1278,10 @@ export interface DividendLedgerListOptions {
   sortOrder: "asc" | "desc";
 }
 
+export interface DividendReviewListOptions extends Omit<DividendLedgerListOptions, "sortBy"> {
+  sortBy: DividendReviewSortColumn;
+}
+
 export type DividendLedgerEntryWithDetails = DividendLedgerEntry & {
   deductions: Store["accounting"]["facts"]["dividendDeductionEntries"];
   sourceLines: DividendSourceLine[];
@@ -1168,6 +1298,8 @@ export interface DividendCalendarSnapshotOptions {
   fromPaymentDate?: string;
   toPaymentDate?: string;
   marketCode?: MarketCode;
+  ticker?: string;
+  includeUndated?: boolean;
   limit: number;
 }
 
@@ -1177,6 +1309,7 @@ export interface DividendCalendarSnapshotResult {
   accounts: Store["accounts"];
   instruments: Store["instruments"];
   tradeEvents: Store["accounting"]["facts"]["tradeEvents"];
+  positionActions?: Store["accounting"]["facts"]["positionActions"];
 }
 
 export type DividendReviewRowKind = "ledger" | "expected";
@@ -1191,6 +1324,25 @@ export type DividendReviewRowWithDetails = DividendLedgerEntryWithDetails & {
   exDividendDate: string;
   paymentDate: string | null;
   cashCurrency: CurrencyCode;
+  stockDistributionRatio?: number | null;
+  stockDistributionRatioState?: import("@vakwen/shared-types").StockDistributionRatioState;
+  expectedStockCalcState?: import("@vakwen/shared-types").ExpectedStockCalcState;
+  nhiAmount?: number;
+  bankFeeAmount?: number;
+  otherDeductionAmount?: number;
+  expectedNetAmount?: number;
+  actualNetAmount?: number;
+  varianceAmount?: number;
+  correctionMode?: "in_place" | "amend" | "reversal_replacement" | null;
+  amendmentBlockedReason?: string | null;
+  linkedPositionActionId?: string | null;
+  linkedPositionActionStatus?: string | null;
+  cashInLieuAmount?: number | null;
+  parValueBaseAmount?: number | null;
+  premiumBaseAmount?: number | null;
+  nhiPremiumBaseAmount?: number | null;
+  portfolioCostBasisAddedAmount?: number | null;
+  snapshotRefreshStatus?: "idle" | "queued" | "running" | "complete" | "failed" | null;
 };
 
 export interface DividendReviewListResult {
@@ -2447,6 +2599,11 @@ export interface Persistence {
     metadata?: Record<string, unknown>,
   ): Promise<AuthUserRecord | null>;
   appendAuditLog(input: AuditLogInput): Promise<void>;
+  saveDividendDestructivePreview(input: SaveDividendDestructivePreviewInput): Promise<void>;
+  getDividendDestructivePreview(previewId: string): Promise<DividendDestructivePreviewState | null>;
+  countDividendDestructivePreviews(ownerUserId: string, operationKey: string): Promise<number>;
+  recordDividendDestructiveOutcome(input: RecordDividendDestructiveOutcomeInput): Promise<void>;
+  withDividendDestructiveLock<T>(ownerUserId: string, accountId: string, execute: () => Promise<T>): Promise<T>;
   bumpSessionVersion(userId: string): Promise<number>;
   createInvite(input: CreateInviteInput): Promise<InviteRecord>;
   insertBootstrapInvite(input: CreateInviteInput): Promise<InviteRecord>;
@@ -2621,7 +2778,9 @@ export interface Persistence {
     userId: string,
     accounting: AccountingStore,
     auditEntry: AuditLogInput,
+    options?: AccountingStoreAuditOptions,
   ): Promise<void>;
+  getAccountAccountingRevision(userId: string, accountId: string): Promise<number>;
   savePostedTrade(userId: string, accounting: AccountingStore, tradeEventId: string): Promise<void>;
   savePostedDividend(
     userId: string,
@@ -2692,7 +2851,7 @@ export interface Persistence {
   ): Promise<DividendLedgerListResult>;
   listDividendReviewRows(
     userId: string,
-    opts: DividendLedgerListOptions,
+    opts: DividendReviewListOptions,
   ): Promise<DividendReviewListResult>;
   listDividendLedgerYears(userId: string): Promise<{ years: number[] }>;
   getTickerFundamentals(

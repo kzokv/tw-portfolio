@@ -6,7 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { LocaleCode, ShareCapability } from "@vakwen/shared-types";
 import { ApiError } from "../../lib/api";
 import { createShareGrant, resolveInviteUrl } from "../../features/sharing/service";
-import { ASSIGNABLE_SHARE_CAPABILITIES } from "../../features/sharing/capabilities";
+import { ASSIGNABLE_SHARE_CAPABILITIES, DIVIDEND_WRITE_CAPABILITY } from "../../features/sharing/capabilities";
 import type { GrantShareResult } from "../../features/sharing/types";
 import { getDictionary } from "../../lib/i18n";
 import { Button } from "../ui/Button";
@@ -22,7 +22,7 @@ interface GrantShareDialogProps {
 
 type GrantStep = "form" | "confirm" | "success";
 
-const CAPABILITY_LABELS: Record<ShareCapability, string> = {
+const CAPABILITY_LABELS: Record<string, string> = {
   "portfolio:mcp_read": "App read",
   "account:manage": "Account manage",
   "sharing:manage": "Share manage",
@@ -31,6 +31,7 @@ const CAPABILITY_LABELS: Record<ShareCapability, string> = {
   "transaction_draft:archive": "Draft archive",
   "transaction_draft:delete": "Draft delete",
   "transaction:write": "Transaction write",
+  [DIVIDEND_WRITE_CAPABILITY]: "Dividend write",
 };
 
 const PRESETS: Array<{
@@ -40,7 +41,7 @@ const PRESETS: Array<{
   { key: "viewer", capabilities: [] },
   { key: "aiViewer", capabilities: ["portfolio:mcp_read"] },
   { key: "draftCollaborator", capabilities: ["portfolio:mcp_read", "transaction_draft:create", "transaction_draft:edit"] },
-  { key: "delegateManager", capabilities: ["portfolio:mcp_read", "account:manage", "sharing:manage", "transaction:write"] },
+  { key: "delegateManager", capabilities: ["portfolio:mcp_read", "account:manage", "sharing:manage", "transaction:write", DIVIDEND_WRITE_CAPABILITY] },
   { key: "fullDelegate", capabilities: [...ASSIGNABLE_SHARE_CAPABILITIES] },
 ];
 
@@ -206,6 +207,7 @@ export function GrantShareDialog({
                     <button
                       key={preset.key}
                       type="button"
+                      data-testid={`grant-share-preset-${preset.key}`}
                       className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
                       onClick={() => {
                         setCapabilities(preset.capabilities.filter((capability) => capabilityOptions.includes(capability)));
@@ -218,9 +220,10 @@ export function GrantShareDialog({
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   {capabilityOptions.map((capability) => (
                     <label key={capability} className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700">
-                      <span>{dict.sharing.capabilityLabels[capability] ?? CAPABILITY_LABELS[capability]}</span>
+                      <span>{dict.sharing.capabilityLabels[capability as keyof typeof dict.sharing.capabilityLabels] ?? CAPABILITY_LABELS[capability]}</span>
                       <input
                         type="checkbox"
+                        data-testid={`grant-share-capability-${capability}`}
                         checked={capabilities.includes(capability)}
                         onChange={(event) => toggleCapability(capability, event.target.checked)}
                       />
@@ -254,7 +257,7 @@ export function GrantShareDialog({
                 <p className="mt-2 text-sm text-slate-600">
                   {capabilities.length === 0
                     ? dict.sharing.editPermissionsDialog.readOnlySummary
-                    : capabilities.map((capability) => dict.sharing.capabilityLabels[capability] ?? CAPABILITY_LABELS[capability]).join(", ")}
+                    : capabilities.map((capability) => dict.sharing.capabilityLabels[capability as keyof typeof dict.sharing.capabilityLabels] ?? CAPABILITY_LABELS[capability]).join(", ")}
                 </p>
               </div>
 

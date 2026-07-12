@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { calculateBuyFees, calculateSellFees, roundToDecimal, type FeeProfile } from "@vakwen/domain";
+import type { MarketCode } from "@vakwen/shared-types";
 import { routeError } from "../lib/routeError.js";
 import { deriveRealizedPnlForTrade, listTradeEvents } from "./accountingStore.js";
 import { bookTradeSettlementRecompute } from "./cashLedgerService.js";
+import { reconcileDividendEntitlementsForScope } from "./dividends.js";
+import { deriveEligibleQuantityFromReplayStream } from "./replayPositionHistory.js";
 import type { RecomputeJob, RecomputePreviewItem, Store } from "../types/store.js";
 
 interface PreviewInput {
@@ -77,10 +80,16 @@ export function previewRecompute(store: Store, input: PreviewInput): RecomputeJo
 export function confirmRecompute(store: Store, userId: string, jobId: string): RecomputeJob {
   const job = store.recomputeJobs.find((item) => item.id === jobId && item.userId === userId);
   if (!job) throw routeError(404, "job_not_found", "Recompute job not found");
+  const affectedScopes = new Map<string, { accountId: string; ticker: string; marketCode: MarketCode }>();
 
   for (const item of job.items) {
     const tx = listTradeEvents(store).find((entry) => entry.id === item.tradeEventId);
     if (!tx) continue;
+    affectedScopes.set(`${tx.accountId}:${tx.ticker}:${tx.marketCode}`, {
+      accountId: tx.accountId,
+      ticker: tx.ticker,
+      marketCode: tx.marketCode as MarketCode,
+    });
 
     tx.commissionAmount = item.nextCommissionAmount;
     tx.taxAmount = item.nextTaxAmount;
@@ -96,6 +105,27 @@ export function confirmRecompute(store: Store, userId: string, jobId: string): R
           ? undefined
           : (tx.priceCurrency ?? tx.feeSnapshot.commissionCurrency ?? "TWD");
     }
+  }
+
+  for (const scope of affectedScopes.values()) {
+    const scopedTrades = listTradeEvents(store).filter(
+      (trade) => trade.accountId === scope.accountId && trade.ticker === scope.ticker,
+    );
+    const scopedPositionActions = store.accounting.facts.positionActions.filter(
+      (action) => action.accountId === scope.accountId && action.ticker === scope.ticker,
+    );
+    reconcileDividendEntitlementsForScope(store, scope.accountId, scope.ticker, {
+      marketCode: scope.marketCode,
+      reopenChangedReconciliation: true,
+      eligibleQuantityResolver: (dividendEvent, dividendMarketCode) => deriveEligibleQuantityFromReplayStream(
+        scopedTrades,
+        scopedPositionActions,
+        scope.accountId,
+        scope.ticker,
+        dividendMarketCode,
+        dividendEvent,
+      ),
+    });
   }
 
   job.status = "CONFIRMED";

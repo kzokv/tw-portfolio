@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_PAR_VALUE_TWD,
   NHI_RATE,
   NHI_THRESHOLD_TWD,
   NHI_SUBJECT_BUCKETS,
@@ -42,14 +41,43 @@ describe("dividend deductions", () => {
     });
 
     it("uses stock dividend premium base when stockDividendPerShare > 0 → exact", () => {
-      // 1000 shares * 0.5 stock div = 500 shares * 10 par = 5000 ... below threshold → null
-      // Need above threshold: 2000 * 1.5 = 3000 shares * 10 par = 30000
+      // 2000 eligible * authoritative 1.5 ratio = 3000 shares * explicit 10 par = 30000.
       const result = prefillNhiPremium(
-        { cashDividendCurrency: "TWD", cashDividendPerShare: 0, stockDividendPerShare: 1.5 },
+        {
+          cashDividendCurrency: "TWD",
+          cashDividendPerShare: 0,
+          stockDividendPerShare: 1.5,
+          stockDistributionRatio: 1.5,
+          stockDistributionRatioState: "authoritative",
+          stockParValueAmount: 10,
+        },
         2_000,
         "STOCK",
       );
       expect(result).toEqual({ kind: "exact", premiumBase: 30_000, premiumAmount: Math.round(30_000 * NHI_RATE) });
+    });
+
+    it("does not assume a par value for unresolved stock distributions", () => {
+      expect(prefillNhiPremium(
+        { cashDividendCurrency: "TWD", cashDividendPerShare: 0, stockDividendPerShare: 1.5 },
+        2_000,
+        "STOCK",
+      )).toEqual({ kind: "estimate", premiumBase: 0, premiumAmount: 0 });
+    });
+
+    it("keeps the known cash liability as an estimate when mixed-dividend stock units are unresolved", () => {
+      expect(prefillNhiPremium(
+        {
+          cashDividendCurrency: "TWD",
+          cashDividendPerShare: 25,
+          stockDividendPerShare: 1,
+          stockDistributionRatio: null,
+          stockDistributionRatioState: "unresolved",
+          stockParValueAmount: null,
+        },
+        1_000,
+        "STOCK",
+      )).toEqual({ kind: "estimate", premiumBase: 25_000, premiumAmount: 528 });
     });
   });
 
@@ -198,7 +226,7 @@ describe("dividend deductions", () => {
 
   describe("prefillStockPremiumBase", () => {
     it("uses default par value for stock dividend premium base", () => {
-      expect(prefillStockPremiumBase(123)).toBe(123 * DEFAULT_PAR_VALUE_TWD);
+      expect(prefillStockPremiumBase(123, 20)).toBe(2460);
     });
   });
 

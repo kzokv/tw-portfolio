@@ -29,7 +29,6 @@ import { TickerDividendsTab } from "../../../components/dividends/TickerDividend
 import { Button } from "../../../components/ui/Button";
 import { Card } from "../../../components/ui/Card";
 import { StatusToast } from "../../../components/ui/StatusToast";
-import { FloatingStatsBubble } from "../../../components/ui/FloatingStatsBubble";
 import { Badge } from "../../../components/ui/shadcn/badge";
 import { Input } from "../../../components/ui/shadcn/input";
 import {
@@ -48,7 +47,6 @@ import {
 import { HoldingActionDetail } from "../../../components/holdings/HoldingActionDetail";
 import { PriceStateChip } from "../../../components/holdings/PriceStateChip";
 import { holdingsFinanceSurfaceClass, holdingsFinanceToneClass, holdingsWarningBadgeClassName } from "../../../components/holdings/holdingsStyle";
-import { useElementVisibility } from "../../../hooks/useFixedHeader";
 import { useTransactionMutations } from "../../../features/portfolio/hooks/useTransactionMutations";
 import { useTransactionSubmission } from "../../../features/portfolio/hooks/useTransactionSubmission";
 import { fetchTransactionHistory } from "../../../features/portfolio/services/portfolioService";
@@ -100,6 +98,13 @@ interface TickerHistoryClientProps {
   quotePollIntervalSeconds?: number | null;
   tickerPriceIntradayEnabled?: boolean | null;
   tickerPriceIntradayRefreshIntervalMinutes?: number | null;
+}
+
+export function canDeleteTickerTransactions(
+  isSharedContext: boolean,
+  permissions: { canWriteTransactions: boolean; canWriteDividends: boolean },
+): boolean {
+  return !isSharedContext || (permissions.canWriteTransactions && permissions.canWriteDividends);
 }
 
 const REPAIR_EVENT_TYPES: string[] = ["repair_started", "repair_complete", "repair_failed"];
@@ -639,7 +644,8 @@ export function TickerHistoryClient({
   );
   const isSharedContext = sharedContextOwnerId !== null;
   const canWriteTransactions = !isSharedContext || sharedContextPermissions.canWriteTransactions;
-  const { targetRef: statsRef, isVisible: statsVisible } = useElementVisibility();
+  const canWriteDividends = !isSharedContext || sharedContextPermissions.canWriteDividends;
+  const canDeleteTransactions = canDeleteTickerTransactions(isSharedContext, sharedContextPermissions);
   const currency = detailsState.identity.currency;
   const identityDisplayName = detailsState.identity.name?.trim();
   const tickerTitle = identityDisplayName ? `${identityDisplayName} (${ticker})` : ticker;
@@ -953,62 +959,6 @@ export function TickerHistoryClient({
   const quoteAccent = holdingsFinanceSurfaceClass(detailsState.quote.changeAmount);
   const quoteStatusBadgeClassName = detailsState.quote.quoteStatus === "provisional" ? holdingsWarningBadgeClassName : undefined;
   const priceState = getPriceState(detailsState.quote);
-  const summaryCards = [
-    {
-      key: "quantity",
-      label: dict.tickerHistory.quantityLabel,
-      value: formatNumber(detailsState.position.quantity, locale),
-      detail: accountScopeDisplayName,
-      testId: "ticker-history-quantity",
-    },
-    {
-      key: "avgCost",
-      label: dict.tickerHistory.avgCostLabel,
-      value: detailsState.position.averageCost != null
-        ? formatCurrencyAmount(detailsState.position.averageCost, currency, locale)
-        : dict.tickerHistory.noHoldingData,
-      detail: dict.tickerHistory.accountScopeLabel,
-      testId: "ticker-history-avg-cost",
-    },
-    {
-      key: "marketValue",
-      label: dict.tickerHistory.marketValueLabel,
-      value: detailsState.position.marketValue != null
-        ? formatCurrencyAmount(detailsState.position.marketValue, currency, locale)
-        : dict.tickerHistory.noHoldingData,
-      detail: `${dict.tickerHistory.entriesLabel}: ${formatNumber(displayTransactions.length, locale)}`,
-      testId: "ticker-history-market-value",
-    },
-    {
-      key: "totalCost",
-      label: dict.tickerHistory.totalCostLabel,
-      value: detailsState.position.costBasis != null
-        ? formatCurrencyAmount(detailsState.position.costBasis, currency, locale)
-        : dict.tickerHistory.noHoldingData,
-      detail: `${dict.tickerHistory.accountScopeLabel}: ${accountScopeDisplayName}`,
-      testId: "ticker-history-total-cost",
-    },
-    {
-      key: "unrealized",
-      label: dict.tickerHistory.unrealizedPnlLabel,
-      value: detailsState.position.unrealizedPnl != null
-        ? formatCurrencyAmount(detailsState.position.unrealizedPnl, currency, locale)
-        : dict.tickerHistory.noHoldingData,
-      toneValue: detailsState.position.unrealizedPnl,
-      detail: detailsState.quote.quoteStatus,
-      testId: "ticker-history-unrealized-pnl",
-    },
-    {
-      key: "realized",
-      label: dict.tickerHistory.realizedPnlLabel,
-      value: formatCurrencyAmount(detailsState.position.realizedPnl, currency, locale),
-      toneValue: detailsState.position.realizedPnl,
-      detail: detailsState.position.lastDividendPostedDate
-        ? formatDateLabel(detailsState.position.lastDividendPostedDate, locale)
-        : dict.tickerHistory.noHoldingData,
-      testId: "ticker-history-realized-pnl",
-    },
-  ];
   const currentChartMetadata = getTickerChartMetadata(detailsState.chart);
   const chartStartDate = currentChartMetadata.resolved.startDate
     ?? detailsState.chart.points[0]?.date
@@ -1107,44 +1057,6 @@ export function TickerHistoryClient({
     ?? reportingCurrency
     ?? currency;
   const accountBreakdownChartHeight = Math.min(320, Math.max(180, accountContributionData.length * 58));
-  const floatingSummary = (
-    <div className="grid gap-3 md:grid-cols-3" data-testid="ticker-floating-summary">
-      <Card className="min-w-0 rounded-2xl p-4">
-        <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.quantityLabel}</p>
-        <p className="mt-2 text-lg font-semibold text-foreground">{formatNumber(detailsState.position.quantity, locale)}</p>
-      </Card>
-      <Card className="min-w-0 rounded-2xl p-4">
-        <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.marketValueLabel}</p>
-        <p className={metricValueClassName(
-          detailsState.position.marketValue != null
-            ? formatCurrencyAmount(detailsState.position.marketValue, currency, locale)
-            : dict.tickerHistory.noHoldingData,
-          dict.tickerHistory.noHoldingData,
-          true,
-        )}>
-          {detailsState.position.marketValue != null
-            ? formatCurrencyAmount(detailsState.position.marketValue, currency, locale)
-            : dict.tickerHistory.noHoldingData}
-        </p>
-      </Card>
-      <Card className="min-w-0 rounded-2xl p-4">
-        <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.unrealizedPnlLabel}</p>
-        <p className={metricValueClassName(
-          detailsState.position.unrealizedPnl != null
-            ? formatCurrencyAmount(detailsState.position.unrealizedPnl, currency, locale)
-            : dict.tickerHistory.noHoldingData,
-          dict.tickerHistory.noHoldingData,
-          true,
-          holdingsFinanceToneClass(detailsState.position.unrealizedPnl, "text-foreground"),
-        )}>
-          {detailsState.position.unrealizedPnl != null
-            ? formatCurrencyAmount(detailsState.position.unrealizedPnl, currency, locale)
-            : dict.tickerHistory.noHoldingData}
-        </p>
-      </Card>
-    </div>
-  );
-
   const syncTickerChartUrl = useCallback(
     (selection: TickerRangeControl, request: TickerChartRequest) => {
       const nextParams = new URLSearchParams(searchParams.toString());
@@ -1370,7 +1282,7 @@ export function TickerHistoryClient({
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.floatingSummaryTitle}</p>
-                  <p className={metricValueClassName(
+                  <p data-testid="ticker-history-market-value" className={metricValueClassName(
                     detailsState.position.marketValue != null
                       ? formatCurrencyAmount(detailsState.position.marketValue, currency, locale)
                       : dict.tickerHistory.noHoldingData,
@@ -1387,11 +1299,11 @@ export function TickerHistoryClient({
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
                 <div className="min-w-0 rounded-2xl bg-muted/40 px-4 py-3">
                   <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.quantityLabel}</p>
-                  <p className="mt-1 text-base font-semibold text-foreground">{formatNumber(detailsState.position.quantity, locale)}</p>
+                  <p className="mt-1 text-base font-semibold text-foreground" data-testid="ticker-summary-quantity">{formatNumber(detailsState.position.quantity, locale)}</p>
                 </div>
                 <div className="min-w-0 rounded-2xl bg-muted/40 px-4 py-3">
                   <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.totalCostLabel}</p>
-                  <p className={metricValueClassName(
+                  <p data-testid="ticker-summary-total-cost" className={metricValueClassName(
                     detailsState.position.costBasis != null
                       ? formatCurrencyAmount(detailsState.position.costBasis, currency, locale)
                       : dict.tickerHistory.noHoldingData,
@@ -1461,21 +1373,6 @@ export function TickerHistoryClient({
             </Card>
           </div>
         </Card>
-
-        <div ref={statsRef} className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" data-testid="ticker-stats-bar">
-          {summaryCards.map((card) => (
-            <Card key={card.key} className="min-w-0 rounded-[24px] border-border bg-background/90 p-5 shadow-[0_14px_28px_rgba(148,163,184,0.1)]" data-testid={card.testId}>
-              <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{card.label}</p>
-              <p className={metricValueClassName(
-                card.value,
-                dict.tickerHistory.noHoldingData,
-                false,
-                holdingsFinanceToneClass("toneValue" in card ? card.toneValue : undefined, "text-foreground"),
-              )}>{card.value}</p>
-              <p className="mt-2 break-words text-sm text-muted-foreground">{card.detail}</p>
-            </Card>
-          ))}
-        </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="grid gap-6">
           <div className="sm:hidden">
@@ -1871,14 +1768,17 @@ export function TickerHistoryClient({
                 </Card>
               </div>
               {actionDetailRow ? (
-                <HoldingActionDetail
-                  dict={dict}
-                  locale={locale}
-                  marketCode={detailsState.identity.marketCode}
-                  onActionPosted={refresh}
-                  row={actionDetailRow}
-                  transactions={displayTransactions}
-                />
+                <div className="min-w-0 lg:col-span-2">
+                  <HoldingActionDetail
+                    dict={dict}
+                    locale={locale}
+                    marketCode={detailsState.identity.marketCode}
+                    onActionPosted={refresh}
+                    row={actionDetailRow}
+                    transactions={displayTransactions}
+                    allowAuthoring
+                  />
+                </div>
               ) : null}
           </TabsContent>
 
@@ -1889,10 +1789,12 @@ export function TickerHistoryClient({
               marketCode={detailsState.identity.marketCode}
               ticker={detailsState.identity.ticker}
               tickerName={detailsState.identity.name}
+              accountId={transactionAccountFilter}
+              accountIds={transactionAccountIdsFilter}
               dividends={detailsState.dividends}
               onMarkMatched={handleTickerDividendMarkMatched}
               pendingLedgerEntryId={pendingDividendLedgerEntryId}
-              canWriteDividends={canWriteTransactions}
+              canWriteDividends={canWriteDividends}
             />
           </TabsContent>
 
@@ -1941,7 +1843,7 @@ export function TickerHistoryClient({
               transactions={displayTransactions}
               dict={dict}
               locale={locale}
-              onDeleteRequest={canWriteTransactions ? mutations.startDelete : undefined}
+              onDeleteRequest={canDeleteTransactions ? mutations.startDelete : undefined}
               editingId={canWriteTransactions ? mutations.editingId : null}
               onEditStart={canWriteTransactions ? mutations.startEdit : undefined}
               onEditCancel={canWriteTransactions ? mutations.cancelEdit : undefined}
@@ -1951,8 +1853,6 @@ export function TickerHistoryClient({
           </TabsContent>
         </Tabs>
       </section>
-
-      <FloatingStatsBubble visible={!statsVisible}>{floatingSummary}</FloatingStatsBubble>
 
       <RecordTransactionDialog
         open={isRecordDialogOpen}
@@ -1995,6 +1895,7 @@ export function TickerHistoryClient({
         }}
         transaction={mutations.deleteTarget}
         preview={mutations.deletePreview}
+        dividendPreview={mutations.deleteDividendPreview}
         isLoading={mutations.isDeletePreviewLoading}
         onConfirm={mutations.confirmDelete}
         dict={dict}

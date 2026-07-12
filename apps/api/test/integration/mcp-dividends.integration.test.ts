@@ -89,7 +89,7 @@ describe("mcp dividend tools", () => {
 
   it("[catalog]: advertises dividend tools with OAuth scopes through MCP discovery", async () => {
     const headers = {
-      authorization: `Bearer ${devToken({ userId: "user-1", scopes: ["portfolio:mcp_read", "transaction:write"] })}`,
+      authorization: `Bearer ${devToken({ userId: "user-1", scopes: ["portfolio:mcp_read", "dividend:write"] })}`,
       accept: "application/json, text/event-stream",
     };
     const sessionId = await initializeMcpSession(headers);
@@ -109,15 +109,15 @@ describe("mcp dividend tools", () => {
 
     expect(tools.get("get_dividend_review")?.securitySchemes).toEqual([{ type: "oauth2", scopes: ["portfolio:mcp_read"] }]);
     expect(tools.get("get_dividend_review")?.annotations?.readOnlyHint).toBe(true);
-    expect(tools.get("preview_post_dividend_receipt")?.securitySchemes).toEqual([{ type: "oauth2", scopes: ["transaction:write"] }]);
-    expect(tools.get("post_dividend_receipt")?.securitySchemes).toEqual([{ type: "oauth2", scopes: ["transaction:write"] }]);
-    expect(tools.get("preview_update_dividend_reconciliation")?.securitySchemes).toEqual([{ type: "oauth2", scopes: ["transaction:write"] }]);
-    expect(tools.get("update_dividend_reconciliation")?.securitySchemes).toEqual([{ type: "oauth2", scopes: ["transaction:write"] }]);
+    expect(tools.get("preview_post_dividend_receipt")?.securitySchemes).toEqual([{ type: "oauth2", scopes: ["dividend:write"] }]);
+    expect(tools.get("post_dividend_receipt")?.securitySchemes).toEqual([{ type: "oauth2", scopes: ["dividend:write"] }]);
+    expect(tools.get("preview_update_dividend_reconciliation")?.securitySchemes).toEqual([{ type: "oauth2", scopes: ["dividend:write"] }]);
+    expect(tools.get("update_dividend_reconciliation")?.securitySchemes).toEqual([{ type: "oauth2", scopes: ["dividend:write"] }]);
   });
 
   it("[write gate]: preview_post_dividend_receipt requires a portfolio selector before policy evaluation", async () => {
     const headers = {
-      authorization: `Bearer ${devToken({ userId: "user-1", scopes: ["portfolio:mcp_read", "transaction:write"] })}`,
+      authorization: `Bearer ${devToken({ userId: "user-1", scopes: ["portfolio:mcp_read", "dividend:write"] })}`,
       accept: "application/json, text/event-stream",
     };
     const sessionId = await initializeMcpSession(headers);
@@ -132,7 +132,7 @@ describe("mcp dividend tools", () => {
     });
   });
 
-  it("[auth]: denies dividend posting without transaction:write", async () => {
+  it("[auth]: denies dividend posting without dividend:write", async () => {
     await app.persistence.saveAiConnectorPolicySettings({ groupToggles: { write: true } });
     const headers = {
       authorization: `Bearer ${devToken({ userId: "user-1", scopes: ["portfolio:mcp_read"] })}`,
@@ -157,12 +157,12 @@ describe("mcp dividend tools", () => {
     }>(response.body);
     expect(body.result.isError).toBe(true);
     expect(body.result.content?.[0]?.text).toContain("Authorization required");
-    expect(body.result._meta?.["mcp/www_authenticate"]?.[0]).toContain("scope=\"transaction:write\"");
+    expect(body.result._meta?.["mcp/www_authenticate"]?.[0]).toContain("scope=\"dividend:write\"");
   });
 
   it("[auth]: denies dividend review without portfolio:mcp_read", async () => {
     const headers = {
-      authorization: `Bearer ${devToken({ userId: "user-1", scopes: ["transaction:write"] })}`,
+      authorization: `Bearer ${devToken({ userId: "user-1", scopes: ["dividend:write"] })}`,
       accept: "application/json, text/event-stream",
     };
     const sessionId = await initializeMcpSession(headers);

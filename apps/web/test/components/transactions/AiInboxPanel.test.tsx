@@ -93,6 +93,7 @@ describe("AiInboxPanel", () => {
           canManageAccounts: false,
           canManageSharing: false,
           canWriteTransactions: false,
+          canWriteDividends: false,
           canCreateDrafts: false,
           canEditDrafts: false,
           canArchiveDrafts: false,

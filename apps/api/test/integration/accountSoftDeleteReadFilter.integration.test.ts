@@ -342,6 +342,49 @@ describePostgres("Account-scoped read filter (Postgres)", () => {
     expect(after.accounting.projections.lots.find((l) => l.accountId === "acc-lots-hide")).toBeUndefined();
   });
 
+  it("saving an active-only store preserves soft-deleted account accounting rows", async () => {
+    const deletedAccountId = "acc-save-preserve";
+    await seedAccountWithData(deletedAccountId, "Save Preserve", "0058");
+    const snapshotBefore = await pool.query<{ fee_policy_snapshot_id: string }>(
+      `SELECT fee_policy_snapshot_id
+         FROM trade_events
+        WHERE account_id = $1`,
+      [deletedAccountId],
+    );
+    const snapshotId = snapshotBefore.rows[0]?.fee_policy_snapshot_id;
+    expect(snapshotId).toBeTruthy();
+
+    await persistence!.softDeleteAccount(deletedAccountId, ownerUserId, {
+      actorUserId: ownerUserId,
+      ipAddress: null,
+      metadata: {},
+    });
+
+    const activeOnlyStore = await persistence!.loadStore(ownerUserId);
+    expect(activeOnlyStore.accounts.some((account) => account.id === deletedAccountId)).toBe(false);
+    await persistence!.saveStore(activeOnlyStore);
+
+    const preserved = await pool.query<{
+      trade_count: string;
+      cash_count: string;
+      lot_count: string;
+      snapshot_count: string;
+    }>(
+      `SELECT
+         (SELECT COUNT(*)::text FROM trade_events WHERE account_id = $1) AS trade_count,
+         (SELECT COUNT(*)::text FROM cash_ledger_entries WHERE account_id = $1) AS cash_count,
+         (SELECT COUNT(*)::text FROM lots WHERE account_id = $1) AS lot_count,
+         (SELECT COUNT(*)::text FROM trade_fee_policy_snapshots WHERE id = $2) AS snapshot_count`,
+      [deletedAccountId, snapshotId],
+    );
+    expect(preserved.rows[0]).toEqual({
+      trade_count: "1",
+      cash_count: "1",
+      lot_count: "1",
+      snapshot_count: "1",
+    });
+  });
+
   it("listCashLedgerEntries excludes entries belonging to a soft-deleted account", async () => {
     await seedAccountWithData("acc-cle-hide", "Cash Ledger Hide", "0053");
     await persistence!.softDeleteAccount("acc-cle-hide", ownerUserId, {

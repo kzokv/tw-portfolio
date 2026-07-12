@@ -753,6 +753,31 @@ describe("AiConnectorsSettingsClient", () => {
     expect(mockUpdateAiConnector).not.toHaveBeenCalled();
   });
 
+  it("groups dividend write with posting permissions and marks it as advanced", async () => {
+    mockFetchAiConnectorSummary.mockResolvedValue({
+      connections: [
+        buildConnection({
+          id: "write-conn",
+          scopes: ["portfolio:mcp_read", "dividend:write"],
+        }),
+      ],
+      policy: buildPolicy(),
+      toolCatalog: [buildToolCatalogEntry({ scope: "dividend:write", group: "write", name: "post_dividend_receipt" })],
+    } satisfies AiConnectorSummaryResponse);
+
+    await act(async () => root.render(<AiConnectorsSettingsClient />));
+    await flushEffects();
+
+    await act(async () => {
+      (document.querySelector("[data-testid='ai-connectors-tab-permissions']") as HTMLButtonElement | null)?.click();
+    });
+    await flushEffects();
+
+    expect(document.body.textContent).toContain("Posting");
+    expect(document.body.textContent).toContain("Post dividends and other financial writes");
+    expect(document.body.textContent).toContain("Advanced financial write");
+  });
+
   it("refreshes derived tool access after narrowing connector scopes", async () => {
     const connection = buildConnection({
       id: "scope-refresh",

@@ -237,6 +237,179 @@ export type DividendSourceBucket =
   | "CAPITAL_RETURN"
   | "OTHER";
 export type SourceCompositionStatus = "provided" | "unknown_pending_disclosure";
+export type StockDistributionRatioState = "authoritative" | "derived_non_authoritative" | "unresolved";
+export type ExpectedStockCalcState = "resolved" | "needs_action";
+
+export interface TypedDividendDeductionsDto {
+  nhiAmount: number;
+  bankFeeAmount: number;
+  otherDeductionAmount: number;
+}
+
+export interface DividendCashReconciliationDto {
+  expectedGrossAmount: number;
+  expectedNetAmount: number;
+  actualNetAmount: number;
+  varianceAmount: number;
+  deductions: TypedDividendDeductionsDto;
+}
+
+export type DividendReviewSortColumn =
+  | "paymentDate"
+  | "ticker"
+  | "account"
+  | "expectedCashAmount"
+  | "expectedGrossAmount"
+  | "expectedNetAmount"
+  | "nhiAmount"
+  | "bankFeeAmount"
+  | "otherDeductionAmount"
+  | "receivedCashAmount"
+  | "actualNetAmount"
+  | "varianceAmount"
+  | "reconciliationStatus";
+
+export type DividendReviewPageLimit = 10 | 25 | 50;
+
+export interface DividendDailyHighlightItemDto {
+  id: string;
+  accountId: string;
+  accountName: string;
+  ticker: string;
+  tickerName: string | null;
+  marketCode: MarketCode;
+  instrumentType: InstrumentType;
+  eventType: "CASH" | "STOCK" | "CASH_AND_STOCK";
+  exDividendDate: string;
+  paymentDate: string | null;
+  cashDividendCurrency: string;
+  expectedCashAmount: number;
+  expectedStockQuantity: number;
+  eligibleQuantity: number;
+  hasPostedLedgerEntry: boolean;
+  dividendLedgerEntryId: string | null;
+  applicableLocalDate: string;
+}
+
+export interface DividendDailyHighlightsDto {
+  payingToday: DividendDailyHighlightItemDto[];
+  exDividendToday: DividendDailyHighlightItemDto[];
+}
+
+export interface DividendPageDto {
+  page: number;
+  limit: DividendReviewPageLimit;
+  total: number;
+}
+
+export interface DividendUpcomingListItemDto {
+  id: string;
+  accountId: string;
+  accountName: string;
+  ticker: string;
+  tickerName: string | null;
+  marketCode: MarketCode;
+  instrumentType: InstrumentType;
+  eventType: "CASH" | "STOCK" | "CASH_AND_STOCK";
+  exDividendDate: string;
+  paymentDate: string | null;
+  expectedCashAmount: number;
+  expectedNetAmount: number;
+  expectedStockQuantity: number;
+  eligibleQuantity: number;
+  stockDistributionRatio: number | null;
+  stockDistributionRatioState: StockDistributionRatioState;
+  expectedStockCalcState: ExpectedStockCalcState;
+  cashDividendCurrency: CurrencyCode;
+  hasPostedLedgerEntry: boolean;
+  dividendLedgerEntryId: string | null;
+  status: "declared" | "expected" | "paying-soon";
+}
+
+export interface DividendUpcomingPageDto extends DividendPageDto {
+  items: DividendUpcomingListItemDto[];
+}
+
+export interface DividendLedgerHistoryItemDto {
+  dividendLedgerEntryId: string;
+  accountId: string;
+  accountName: string;
+  ticker: string;
+  tickerName: string | null;
+  marketCode: MarketCode;
+  instrumentType: InstrumentType;
+  eventType: "CASH" | "STOCK" | "CASH_AND_STOCK";
+  paymentDate: string | null;
+  exDividendDate: string;
+  postedAt: string;
+  expectedCashAmount: number;
+  expectedNetAmount: number;
+  receivedCashAmount: number;
+  actualNetAmount: number;
+  varianceAmount: number;
+  expectedStockQuantity: number;
+  receivedStockQuantity: number;
+  stockDistributionRatio: number | null;
+  stockDistributionRatioState: StockDistributionRatioState;
+  expectedStockCalcState: ExpectedStockCalcState;
+  cashDividendCurrency: CurrencyCode;
+  nhiAmount: number;
+  bankFeeAmount: number;
+  otherDeductionAmount: number;
+  deductions: TypedDividendDeductionsDto;
+  postingStatus: "posted" | "adjusted";
+  reconciliationStatus: "open" | "matched" | "explained" | "resolved";
+}
+
+export interface DividendLedgerHistoryPageDto extends DividendPageDto {
+  items: DividendLedgerHistoryItemDto[];
+}
+
+export interface HoldingActivityPositionActionDto {
+  id: string;
+  accountId: string;
+  accountName: string;
+  ticker: string;
+  marketCode: MarketCode;
+  actionType: "STOCK_DIVIDEND" | "SPLIT" | "REVERSE_SPLIT";
+  actionDate: string;
+  actionTimestamp: string | null;
+  bookedAt: string | null;
+  quantity: number;
+  ratioNumerator: number | null;
+  ratioDenominator: number | null;
+  cashInLieuQuantity: number | null;
+  cashInLieuAmount: number | null;
+  cashInLieuCurrency: CurrencyCode | null;
+  parValuePerShare: number | null;
+  premiumBaseAmount: number | null;
+  nhiPremiumBaseAmount: number | null;
+  relatedDividendLedgerEntryId: string | null;
+  source: string;
+  sourceReference: string | null;
+}
+
+export interface HoldingActivityPositionActionPageDto extends DividendPageDto {
+  items: HoldingActivityPositionActionDto[];
+}
+
+export interface HoldingActivityDividendsDto {
+  positionActions: HoldingActivityPositionActionPageDto;
+  upcomingDividends: DividendUpcomingPageDto;
+  postedDividends: DividendLedgerHistoryPageDto;
+}
+
+export interface TickerDividendUpcomingListDto {
+  upcomingDividends: DividendUpcomingPageDto;
+}
+
+export interface TickerDividendOpenListDto {
+  openReconciliation: DividendLedgerHistoryPageDto;
+}
+
+export interface TickerDividendPostedHistoryDto {
+  postedHistory: DividendLedgerHistoryPageDto;
+}
 
 export interface DividendSourceLine {
   id: string;
@@ -716,6 +889,10 @@ export interface DashboardOverviewUpcomingDividendDto {
   exDividendDate: string | null;
   paymentDate: string | null;
   expectedAmount: number | null;
+  expectedNetAmount?: number | null;
+  stockDistributionRatio?: number | null;
+  stockDistributionRatioState?: StockDistributionRatioState;
+  expectedStockCalcState?: ExpectedStockCalcState;
   currency: CurrencyCode;
   status: "declared" | "expected" | "paying-soon";
 }
@@ -732,6 +909,7 @@ export interface DashboardOverviewRecentDividendDto {
   netAmount: number;
   grossAmount: number | null;
   deductionAmount: number | null;
+  reconciliation?: DividendCashReconciliationDto;
   currency: CurrencyCode;
   sourceSummary: string | null;
   reconciliationStatus?: "open" | "matched" | "explained" | "resolved";
@@ -2560,7 +2738,8 @@ export type AiConnectorScope =
   | "transaction_draft:edit"
   | "transaction_draft:archive"
   | "transaction_draft:delete"
-  | "transaction:write";
+  | "transaction:write"
+  | "dividend:write";
 export type ShareCapability = AiConnectorScope | "sharing:manage";
 export type AiConnectorAccessKind =
   | "read"

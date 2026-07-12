@@ -21,8 +21,10 @@ export interface TTickerDetailElements {
   fundamentalsTab: Locator;
   dividendsPanel: Locator;
   dividendsOpenReview: Locator;
-  dividendsPostedReviewLink: (index: number) => Locator;
-  dividendsReconciliationReviewLink: (index: number) => Locator;
+  dividendsUpcomingReviewLink: (index: number) => Locator;
+  dividendsPostedReviewButton: (index: number) => Locator;
+  summaryQuantity: Locator;
+  summaryTotalCost: Locator;
   dividendsReconciliationMarkMatched: (ledgerEntryId: string) => Locator;
   chartPanel: Locator;
   chartMetricControls: Locator;
@@ -68,10 +70,12 @@ export class TickerDetailPage extends BasePage<TTickerDetailElements> {
       fundamentalsTab: this.locate("ticker-tab-fundamentals", "Ticker Fundamentals Tab"),
       dividendsPanel: this.locate("ticker-detail-dividends-tab", "Ticker Dividends Panel"),
       dividendsOpenReview: this.locate("ticker-dividends-open-review", "Ticker Dividends Open Review Link"),
-      dividendsPostedReviewLink: (index: number) =>
-        this.locate(`ticker-posted-dividend-review-${index}`, `Ticker Posted Dividend Review Link ${index}`),
-      dividendsReconciliationReviewLink: (index: number) =>
-        this.locate(`ticker-open-reconciliation-review-${index}`, `Ticker Reconciliation Review Link ${index}`),
+      dividendsUpcomingReviewLink: (index: number) =>
+        this.locate(`ticker-upcoming-dividend-review-${index}`, `Ticker Upcoming Dividend Review Link ${index}`),
+      dividendsPostedReviewButton: (index: number) =>
+        this.locate(`ticker-posted-dividend-review-${index}`, `Ticker Posted Dividend Review Button ${index}`),
+      summaryQuantity: this.locate("ticker-summary-quantity", "Ticker Summary Quantity"),
+      summaryTotalCost: this.locate("ticker-summary-total-cost", "Ticker Summary Total Cost"),
       dividendsReconciliationMarkMatched: (ledgerEntryId: string) =>
         this.locate(`ticker-reconciliation-mark-matched-${ledgerEntryId}`, `Ticker Dividends Mark Matched ${ledgerEntryId}`),
       chartPanel: this.locate("ticker-detail-chart", "Ticker Chart Panel"),

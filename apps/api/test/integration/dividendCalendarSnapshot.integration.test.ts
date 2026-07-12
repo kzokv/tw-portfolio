@@ -206,6 +206,41 @@ describePostgres("PostgresPersistence.listDividendCalendarSnapshot", () => {
     expect(snapshot.ledgerEntries.every((entry) => entry.dividendEventId === fixture.aprilEventId)).toBe(true);
   });
 
+  it("hydrates authoritative stock ratio and par value for unposted calendar events", async () => {
+    const eventId = await insertDividendEvent("2026-06-20", "2026-06-10");
+    await pool.query(
+      `UPDATE market_data.dividend_events
+          SET event_type = 'STOCK',
+              cash_dividend_per_share = 0,
+              stock_dividend_per_share = 0.1,
+              stock_distribution_amount_raw = 0.1,
+              stock_distribution_ratio = 0.1,
+              stock_distribution_ratio_state = 'authoritative',
+              stock_par_value_amount = 10,
+              stock_par_value_currency = 'TWD'
+        WHERE id = $1`,
+      [eventId],
+    );
+    await insertTrade({ tradeDate: "2026-06-01", quantity: 1_000 });
+
+    const snapshot = await persistence.listDividendCalendarSnapshot(userId, {
+      fromPaymentDate: "2026-06-01",
+      toPaymentDate: "2026-06-30",
+      limit: 20,
+    });
+
+    expect(snapshot.dividendEvents).toEqual([
+      expect.objectContaining({
+        id: eventId,
+        stockDistributionAmountRaw: 0.1,
+        stockDistributionRatio: 0.1,
+        stockDistributionRatioState: "authoritative",
+        stockParValueAmount: 10,
+        stockParValueCurrency: "TWD",
+      }),
+    ]);
+  });
+
   it("excludes reversed trade pairs from the snapshot trade context", async () => {
     await insertDividendEvent("2026-01-20", "2026-01-10");
     const originalTradeId = await insertTrade({ tradeDate: "2026-01-05" });

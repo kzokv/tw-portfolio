@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
+  calculateDividendCashReconciliation,
+  resolveDividendStockEntitlement,
   roundToDecimal,
   validateSourceLineReconciliation,
   type InstrumentType,
@@ -8,6 +10,7 @@ import type {
   AccountDto,
   DividendSourceBucket,
   DividendSourceLine,
+  StockDistributionRatioState,
   SourceCompositionStatus,
 } from "@vakwen/shared-types";
 import { MARKET_CODES, marketCodeFor, type MarketCode } from "@vakwen/shared-types";
@@ -51,6 +54,11 @@ export interface CreateDividendEventInput {
   cashDividendPerShare: number;
   cashDividendCurrency: string;
   stockDividendPerShare: number;
+  stockDistributionAmountRaw?: number | null;
+  stockDistributionRatio?: number | null;
+  stockDistributionRatioState?: StockDistributionRatioState;
+  stockParValueAmount?: number | null;
+  stockParValueCurrency?: string | null;
   source: string;
   sourceReference?: string;
 }
@@ -129,6 +137,7 @@ export interface PreparedDividendUpdate {
  * reconciliation_status was reset (true variance changes only).
  */
 export interface DividendLedgerRecomputeChange {
+  changeKind?: "created" | "updated" | "retired";
   ledgerEntryId: string;
   accountId: string;
   dividendEventId: string;
@@ -144,6 +153,7 @@ export interface DividendLedgerRecomputeChange {
   nextReconciliationStatus: DividendLedgerEntry["reconciliationStatus"];
   previousReconciliationStatus: DividendLedgerEntry["reconciliationStatus"];
   reconciliationNote?: string;
+  nextEntry: DividendLedgerEntry;
 }
 
 type DividendLedgerEligibleQuantityResolver = (
@@ -165,7 +175,10 @@ export interface DividendEventListItem {
   cashDividendCurrency: string;
   expectedCashAmount: number;
   expectedStockQuantity: number;
+  stockDistributionRatio: number | null;
+  stockDistributionRatioState: StockDistributionRatioState;
   eligibleQuantity: number;
+  parValuePerShare: number | null;
   hasPostedLedgerEntry: boolean;
   dividendLedgerEntryId: string | null;
 }
@@ -199,6 +212,20 @@ export function createDividendEvent(store: Store, input: CreateDividendEventInpu
 
   const dividendEvent: DividendEvent = {
     ...input,
+    stockDistributionAmountRaw:
+      input.stockDistributionAmountRaw === undefined
+        ? input.stockDividendPerShare
+        : input.stockDistributionAmountRaw,
+    stockDistributionRatio:
+      input.stockDistributionRatio === undefined
+        ? (input.stockDividendPerShare > 0 ? input.stockDividendPerShare : null)
+        : input.stockDistributionRatio,
+    stockDistributionRatioState:
+      input.stockDistributionRatioState === undefined
+        ? (input.stockDividendPerShare > 0 ? "authoritative" : "unresolved")
+        : input.stockDistributionRatioState,
+    stockParValueAmount: input.stockParValueAmount ?? null,
+    stockParValueCurrency: input.stockParValueCurrency ?? null,
     sourceReference: input.sourceReference,
     createdAt: new Date().toISOString(),
   };
@@ -697,8 +724,13 @@ export function buildDividendEventListItems(
         expectedCashAmount: activeEntry?.expectedCashAmount
           ?? calculateExpectedCashAmount(eligibleQuantity, dividendEvent.cashDividendPerShare),
         expectedStockQuantity: activeEntry?.expectedStockQuantity
-          ?? calculateExpectedStockQuantity(eligibleQuantity, dividendEvent.stockDividendPerShare),
+          ?? resolveExpectedStockEntitlement(eligibleQuantity, dividendEvent).expectedStockQuantity,
+        stockDistributionRatio: dividendEvent.stockDistributionRatio ?? null,
+        stockDistributionRatioState: dividendEvent.stockDistributionRatioState ?? "unresolved",
         eligibleQuantity,
+        parValuePerShare: activeEntry?.expectedStockParValueAmount
+          ?? dividendEvent.stockParValueAmount
+          ?? null,
         hasPostedLedgerEntry: activeEntry ? activeEntry.postingStatus !== "expected" : false,
         dividendLedgerEntryId: activeEntry?.id ?? null,
       });
@@ -812,22 +844,23 @@ function materializeExpectedDividendEntry(
   id: string,
   accountId: string,
   dividendEvent: DividendEvent,
+  eligibleQuantityOverride?: number,
 ): DividendLedgerEntry {
   const dividendMarketCode = resolveDividendEventMarketCode(dividendEvent);
-  const eligibleQuantity = deriveEligibleQuantity(
+  const eligibleQuantity = eligibleQuantityOverride ?? deriveEligibleQuantity(
     store,
     accountId,
     dividendEvent.ticker,
     dividendEvent.exDividendDate,
     dividendMarketCode,
   );
+  const expectedEntitlement = buildExpectedDividendEntitlement(eligibleQuantity, dividendEvent);
   const expectedEntry: DividendLedgerEntry = {
     id,
     accountId,
     dividendEventId: dividendEvent.id,
     eligibleQuantity,
-    expectedCashAmount: calculateExpectedCashAmount(eligibleQuantity, dividendEvent.cashDividendPerShare),
-    expectedStockQuantity: calculateExpectedStockQuantity(eligibleQuantity, dividendEvent.stockDividendPerShare),
+    ...expectedEntitlement,
     receivedCashAmount: 0,
     receivedStockQuantity: 0,
     postingStatus: "expected",
@@ -1026,6 +1059,7 @@ function buildPostingResult(
   dividendSourceLines: DividendSourceLine[],
   linkedCashLedgerEntries: CashLedgerEntry[],
 ): PostDividendResult {
+  dividendLedgerEntry.cashReconciliation = calculateCashReconciliationFromLedger(dividendLedgerEntry, dividendDeductionEntries);
   const comparison = calculateDividendPostingComparison(dividendLedgerEntry, dividendDeductionEntries);
   return {
     dividendEvent,
@@ -1068,9 +1102,11 @@ function buildStockDividendPositionAction(
   dividendLedgerEntry: DividendLedgerEntry,
   dividendDeductionEntries: DividendDeductionEntry[],
 ): PositionAction {
-  const parValuePerShare = 10;
+  const parValuePerShare = dividendEvent.stockParValueAmount ?? undefined;
   const receivedStockQuantity = dividendLedgerEntry.receivedStockQuantity;
-  const parBaseAmount = roundToDecimal(receivedStockQuantity * parValuePerShare, 2);
+  const parBaseAmount = parValuePerShare == null
+    ? 0
+    : roundToDecimal(receivedStockQuantity * parValuePerShare, 2);
   const premiumBaseAmount = roundToDecimal(Math.max(0, dividendLedgerEntry.expectedCashAmount), 2);
   const nhiPremiumBaseAmount = roundToDecimal(parBaseAmount + premiumBaseAmount, 2);
   const cashInLieuDeductions = dividendDeductionEntries.filter(
@@ -1247,6 +1283,151 @@ export async function runDividendLedgerBackfill(persistence: {
   return totalApplied;
 }
 
+export function reconcileDividendEntitlementsForScope(
+  store: Store,
+  accountId: string,
+  ticker: string,
+  options: {
+    marketCode?: MarketCode;
+    reopenChangedReconciliation: boolean;
+    eligibleQuantityResolver?: DividendLedgerEligibleQuantityResolver;
+    now?: string;
+  },
+): DividendLedgerRecomputeChange[] {
+  const now = options.now ?? new Date().toISOString();
+  const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
+  const ledgerEntries = listDividendLedgerEntries(store);
+  const reversedLedgerEntryIds = new Set(
+    ledgerEntries
+      .map((entry) => entry.reversalOfDividendLedgerEntryId)
+      .filter((value): value is string => Boolean(value)),
+  );
+  const activeEntries = ledgerEntries.filter((entry) => {
+    if (entry.accountId !== accountId) return false;
+    if (entry.reversalOfDividendLedgerEntryId || entry.supersededAt || reversedLedgerEntryIds.has(entry.id)) return false;
+    const dividendEvent = eventById.get(entry.dividendEventId);
+    if (!dividendEvent) return false;
+    if (dividendEvent.ticker !== ticker) return false;
+    const dividendMarketCode = resolveDividendEventMarketCode(dividendEvent);
+    return options.marketCode === undefined || dividendMarketCode === options.marketCode;
+  });
+  const activeEntryByEventId = new Map(activeEntries.map((entry) => [entry.dividendEventId, entry]));
+  const seenEventIds = new Set<string>();
+  const changes: DividendLedgerRecomputeChange[] = [];
+
+  for (const dividendEvent of store.marketData.dividendEvents) {
+    if (dividendEvent.ticker !== ticker) continue;
+    const dividendMarketCode = resolveDividendEventMarketCode(dividendEvent);
+    if (options.marketCode !== undefined && dividendMarketCode !== options.marketCode) continue;
+
+    seenEventIds.add(dividendEvent.id);
+    const eligibleQuantity = options.eligibleQuantityResolver
+      ? options.eligibleQuantityResolver(dividendEvent, dividendMarketCode)
+      : deriveEligibleQuantity(store, accountId, ticker, dividendEvent.exDividendDate, dividendMarketCode);
+    const nextExpected = buildExpectedDividendEntitlement(eligibleQuantity, dividendEvent);
+    const activeEntry = activeEntryByEventId.get(dividendEvent.id);
+
+    if (!activeEntry) {
+      if (eligibleQuantity <= 0) continue;
+      const createdEntry = materializeExpectedDividendEntry(store, randomUUID(), accountId, dividendEvent, eligibleQuantity);
+      changes.push({
+        changeKind: "created",
+        ledgerEntryId: createdEntry.id,
+        accountId,
+        dividendEventId: dividendEvent.id,
+        previousVersion: 0,
+        nextVersion: createdEntry.version,
+        previousEligibleQuantity: 0,
+        nextEligibleQuantity: createdEntry.eligibleQuantity,
+        previousExpectedCashAmount: 0,
+        nextExpectedCashAmount: createdEntry.expectedCashAmount,
+        previousExpectedStockQuantity: 0,
+        nextExpectedStockQuantity: createdEntry.expectedStockQuantity,
+        reconciliationReset: false,
+        previousReconciliationStatus: "open",
+        nextReconciliationStatus: createdEntry.reconciliationStatus,
+        reconciliationNote: createdEntry.reconciliationNote,
+        nextEntry: createdEntry,
+      });
+      continue;
+    }
+
+    const expectedChanged =
+      activeEntry.eligibleQuantity !== eligibleQuantity
+      || activeEntry.expectedCashAmount !== nextExpected.expectedCashAmount
+      || activeEntry.expectedStockQuantity !== nextExpected.expectedStockQuantity
+      || activeEntry.expectedStockCalcState !== nextExpected.expectedStockCalcState
+      || (activeEntry.expectedStockDistributionRatio ?? null) !== (nextExpected.expectedStockDistributionRatio ?? null)
+      || (activeEntry.expectedStockParValueAmount ?? null) !== (nextExpected.expectedStockParValueAmount ?? null);
+
+    if (activeEntry.postingStatus === "expected" && eligibleQuantity <= 0) {
+      const retiredEntry: DividendLedgerEntry = {
+        ...activeEntry,
+        ...nextExpected,
+        eligibleQuantity,
+        version: activeEntry.version + 1,
+        supersededAt: now,
+      };
+      upsertDividendLedgerEntry(store, retiredEntry);
+      changes.push({
+        changeKind: "retired",
+        ledgerEntryId: retiredEntry.id,
+        accountId,
+        dividendEventId: dividendEvent.id,
+        previousVersion: activeEntry.version,
+        nextVersion: retiredEntry.version,
+        previousEligibleQuantity: activeEntry.eligibleQuantity,
+        nextEligibleQuantity: eligibleQuantity,
+        previousExpectedCashAmount: activeEntry.expectedCashAmount,
+        nextExpectedCashAmount: retiredEntry.expectedCashAmount,
+        previousExpectedStockQuantity: activeEntry.expectedStockQuantity,
+        nextExpectedStockQuantity: retiredEntry.expectedStockQuantity,
+        reconciliationReset: false,
+        previousReconciliationStatus: activeEntry.reconciliationStatus,
+        nextReconciliationStatus: retiredEntry.reconciliationStatus,
+        reconciliationNote: retiredEntry.reconciliationNote,
+        nextEntry: retiredEntry,
+      });
+      continue;
+    }
+
+    if (!expectedChanged) continue;
+
+    const shouldReopen = options.reopenChangedReconciliation
+      && activeEntry.postingStatus !== "expected"
+      && activeEntry.reconciliationStatus !== "open";
+    const updatedEntry: DividendLedgerEntry = {
+      ...activeEntry,
+      ...nextExpected,
+      eligibleQuantity,
+      reconciliationStatus: shouldReopen ? "open" : activeEntry.reconciliationStatus,
+      version: activeEntry.version + 1,
+    };
+    upsertDividendLedgerEntry(store, updatedEntry);
+    changes.push({
+      changeKind: "updated",
+      ledgerEntryId: updatedEntry.id,
+      accountId,
+      dividendEventId: dividendEvent.id,
+      previousVersion: activeEntry.version,
+      nextVersion: updatedEntry.version,
+      previousEligibleQuantity: activeEntry.eligibleQuantity,
+      nextEligibleQuantity: updatedEntry.eligibleQuantity,
+      previousExpectedCashAmount: activeEntry.expectedCashAmount,
+      nextExpectedCashAmount: updatedEntry.expectedCashAmount,
+      previousExpectedStockQuantity: activeEntry.expectedStockQuantity,
+      nextExpectedStockQuantity: updatedEntry.expectedStockQuantity,
+      reconciliationReset: shouldReopen,
+      previousReconciliationStatus: activeEntry.reconciliationStatus,
+      nextReconciliationStatus: updatedEntry.reconciliationStatus,
+      reconciliationNote: updatedEntry.reconciliationNote,
+      nextEntry: updatedEntry,
+    });
+  }
+
+  return changes;
+}
+
 export function planDividendLedgerRecompute(
   store: Store,
   accountId: string,
@@ -1282,20 +1463,18 @@ export function planDividendLedgerRecompute(
     const nextEligibleQuantity = options.eligibleQuantityResolver
       ? options.eligibleQuantityResolver(dividendEvent, dividendMarketCode)
       : deriveEligibleQuantity(store, accountId, ticker, dividendEvent.exDividendDate, dividendMarketCode);
-    const nextExpectedCashAmount = calculateExpectedCashAmount(
-      nextEligibleQuantity,
-      dividendEvent.cashDividendPerShare,
-    );
-    const nextExpectedStockQuantity = calculateExpectedStockQuantity(
-      nextEligibleQuantity,
-      dividendEvent.stockDividendPerShare,
-    );
+    const nextExpected = buildExpectedDividendEntitlement(nextEligibleQuantity, dividendEvent);
+    const nextExpectedCashAmount = nextExpected.expectedCashAmount;
+    const nextExpectedStockQuantity = nextExpected.expectedStockQuantity;
 
     // 1b: full no-op when every expected field matches the stored snapshot.
     if (
       entry.eligibleQuantity === nextEligibleQuantity
       && entry.expectedCashAmount === nextExpectedCashAmount
       && entry.expectedStockQuantity === nextExpectedStockQuantity
+      && entry.expectedStockCalcState === nextExpected.expectedStockCalcState
+      && (entry.expectedStockDistributionRatio ?? null) === (nextExpected.expectedStockDistributionRatio ?? null)
+      && (entry.expectedStockParValueAmount ?? null) === (nextExpected.expectedStockParValueAmount ?? null)
     ) {
       continue;
     }
@@ -1306,6 +1485,13 @@ export function planDividendLedgerRecompute(
       && (previousStatus === "matched" || previousStatus === "explained");
     const nextStatus = shouldResetReconciliation ? ("open" as const) : previousStatus;
 
+    const nextEntry: DividendLedgerEntry = {
+      ...entry,
+      ...nextExpected,
+      eligibleQuantity: nextEligibleQuantity,
+      reconciliationStatus: nextStatus,
+      version: entry.version + 1,
+    };
     changes.push({
       ledgerEntryId: entry.id,
       accountId: entry.accountId,
@@ -1324,6 +1510,7 @@ export function planDividendLedgerRecompute(
       // 1a: preserve the note even on explained → open transitions so the
       // user can reuse it when re-reconciling.
       reconciliationNote: entry.reconciliationNote,
+      nextEntry,
     });
   }
 
@@ -1356,8 +1543,31 @@ function calculateExpectedCashAmount(eligibleQuantity: number, cashDividendPerSh
   return roundCurrencyAmount(eligibleQuantity * cashDividendPerShare);
 }
 
-function calculateExpectedStockQuantity(eligibleQuantity: number, stockDividendPerShare: number): number {
-  return Math.floor(eligibleQuantity * stockDividendPerShare);
+function buildExpectedDividendEntitlement(
+  eligibleQuantity: number,
+  dividendEvent: Pick<
+    DividendEvent,
+    "eventType" | "cashDividendPerShare" | "stockDistributionRatio" | "stockDistributionRatioState" | "stockParValueAmount"
+  >,
+): Pick<
+  DividendLedgerEntry,
+  | "expectedCashAmount"
+  | "expectedStockQuantity"
+  | "expectedStockCalcState"
+  | "expectedStockDistributionRatio"
+  | "expectedStockParValueAmount"
+  | "cashReconciliation"
+> {
+  const expectedCashAmount = calculateExpectedCashAmount(eligibleQuantity, dividendEvent.cashDividendPerShare);
+  return {
+    expectedCashAmount,
+    ...resolveExpectedStockEntitlement(eligibleQuantity, dividendEvent),
+    expectedStockParValueAmount: dividendEvent.stockParValueAmount ?? null,
+    cashReconciliation: calculateDividendCashReconciliation({
+      expectedGrossAmount: expectedCashAmount,
+      actualNetAmount: 0,
+    }),
+  };
 }
 
 function roundCurrencyAmount(value: number): number {
@@ -1381,6 +1591,14 @@ function assertDividendEventShape(input: CreateDividendEventInput): void {
     throw routeError(400, "invalid_dividend_values", "Dividend per-share values must be non-negative");
   }
 
+  if (input.stockDistributionRatio != null && input.stockDistributionRatio < 0) {
+    throw routeError(400, "invalid_dividend_values", "Dividend stock ratio must be non-negative");
+  }
+
+  if (input.stockParValueAmount != null && input.stockParValueAmount < 0) {
+    throw routeError(400, "invalid_dividend_values", "Dividend stock par value must be non-negative");
+  }
+
   const hasCash = input.cashDividendPerShare > 0;
   const hasStock = input.stockDividendPerShare > 0;
 
@@ -1395,4 +1613,48 @@ function assertDividendEventShape(input: CreateDividendEventInput): void {
   if (input.eventType === "CASH_AND_STOCK" && (!hasCash || !hasStock)) {
     throw routeError(400, "invalid_dividend_shape", "Cash-and-stock dividend events must include both per-share values");
   }
+}
+
+function resolveExpectedStockEntitlement(
+  eligibleQuantity: number,
+  dividendEvent: Pick<DividendEvent, "eventType" | "stockDistributionRatio" | "stockDistributionRatioState">,
+): Pick<DividendLedgerEntry, "expectedStockQuantity" | "expectedStockCalcState" | "expectedStockDistributionRatio"> {
+  const resolved = resolveDividendStockEntitlement({
+    eligibleQuantity,
+    stockEntitlementRequired: dividendEvent.eventType !== "CASH",
+    stockDistributionRatio: dividendEvent.stockDistributionRatio ?? null,
+    stockDistributionRatioState: dividendEvent.stockDistributionRatioState ?? "unresolved",
+  });
+  return {
+    expectedStockQuantity: resolved.expectedStockQuantity,
+    expectedStockCalcState: resolved.expectedStockCalcState,
+    expectedStockDistributionRatio: resolved.stockDistributionRatio,
+  };
+}
+
+function calculateCashReconciliationFromLedger(
+  dividendLedgerEntry: Pick<DividendLedgerEntry, "expectedCashAmount" | "receivedCashAmount">,
+  deductions: readonly DividendDeductionEntry[],
+) {
+  return calculateDividendCashReconciliation({
+    expectedGrossAmount: dividendLedgerEntry.expectedCashAmount,
+    actualNetAmount: dividendLedgerEntry.receivedCashAmount,
+    deductions: {
+      nhiAmount: sumDeductionAmounts(deductions, new Set(["NHI_SUPPLEMENTAL_PREMIUM"])),
+      bankFeeAmount: sumDeductionAmounts(deductions, new Set(["BANK_FEE"])),
+      otherDeductionAmount: sumDeductionAmounts(
+        deductions,
+        new Set(["BROKER_FEE", "TRANSFER_FEE", "WITHHOLDING_TAX", "CASH_IN_LIEU_ADJUSTMENT", "ROUNDING_ADJUSTMENT", "OTHER"]),
+      ),
+    },
+  });
+}
+
+function sumDeductionAmounts(
+  deductions: readonly DividendDeductionEntry[],
+  kinds: ReadonlySet<DividendDeductionType>,
+): number {
+  return deductions
+    .filter((entry) => kinds.has(entry.deductionType))
+    .reduce((sum, entry) => sum + entry.amount, 0);
 }
