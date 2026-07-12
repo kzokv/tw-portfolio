@@ -288,7 +288,6 @@ function buildFingerprint(store: Store, state: OperationState): string {
 
 async function simulateReplayChanges(store: Store, state: OperationState): Promise<{
   workingStore: Store;
-  changedDividendIds: Set<string>;
   affectedDividends: DividendDestructiveDividendImpactRecord[];
 }> {
   const memory = new MemoryPersistence({ seedCatalog: false, seedDevBypassUser: false });
@@ -411,11 +410,6 @@ async function simulateReplayChanges(store: Store, state: OperationState): Promi
 
   return {
     workingStore: await memory.loadStore(state.ownerUserId),
-    changedDividendIds: new Set(
-      [...allChanges.values()]
-        .map((entry) => entry.dividendLedgerEntryId)
-        .filter((value): value is string => Boolean(value)),
-    ),
     affectedDividends: [...allChanges.values()].sort((left, right) =>
       left.accountId.localeCompare(right.accountId) || left.dividendEventId.localeCompare(right.dividendEventId)),
   };
@@ -425,6 +419,7 @@ function buildReviewedArtifacts(
   store: Store,
   state: OperationState,
   affectedDividends: DividendDestructiveDividendImpactRecord[],
+  affectedLedgerEntryIds: ReadonlySet<string>,
 ): DividendDestructiveReviewedArtifacts {
   const deletedTradeIds = new Set(state.deletedTradeEventIds);
   return {
@@ -444,18 +439,38 @@ function buildReviewedArtifacts(
     },
     derived: {
       dividendEventIds: sortIds(affectedDividends.map((entry) => entry.dividendEventId)),
-      dividendLedgerEntryIds: sortIds(
-        affectedDividends
-          .map((entry) => entry.dividendLedgerEntryId)
-          .filter((value): value is string => Boolean(value)),
-      ),
-      cashLedgerEntryIds: sortIds(affectedDividends.flatMap((entry) => entry.cashLedgerEntryIds)),
-      dividendDeductionEntryIds: sortIds(affectedDividends.flatMap((entry) => entry.dividendDeductionEntryIds)),
-      dividendSourceLineIds: sortIds(affectedDividends.flatMap((entry) => entry.dividendSourceLineIds)),
-      stockDividendPositionActionIds: sortIds(affectedDividends.flatMap((entry) => entry.stockDividendPositionActionIds)),
+      dividendLedgerEntryIds: sortIds(affectedLedgerEntryIds),
+      cashLedgerEntryIds: sortIds(store.accounting.facts.cashLedgerEntries
+        .filter((entry) => affectedLedgerEntryIds.has(entry.relatedDividendLedgerEntryId ?? ""))
+        .map((entry) => entry.id)),
+      dividendDeductionEntryIds: sortIds(store.accounting.facts.dividendDeductionEntries
+        .filter((entry) => affectedLedgerEntryIds.has(entry.dividendLedgerEntryId))
+        .map((entry) => entry.id)),
+      dividendSourceLineIds: sortIds(store.accounting.facts.dividendSourceLines
+        .filter((entry) => affectedLedgerEntryIds.has(entry.dividendLedgerEntryId))
+        .map((entry) => entry.id)),
+      stockDividendPositionActionIds: sortIds(store.accounting.facts.positionActions
+        .filter((entry) => affectedLedgerEntryIds.has(entry.relatedDividendLedgerEntryId ?? ""))
+        .map((entry) => entry.id)),
       holdingSnapshotIds: [],
     },
   };
+}
+
+function expandAffectedDividendLedgerEntryIds(
+  store: Store,
+  affectedDividends: readonly DividendDestructiveDividendImpactRecord[],
+): Set<string> {
+  const affectedAccountEventKeys = new Set(
+    affectedDividends
+      .filter((entry) => entry.dividendLedgerEntryId !== null)
+      .map((entry) => `${entry.accountId}:${entry.dividendEventId}`),
+  );
+  return new Set(
+    store.accounting.facts.dividendLedgerEntries
+      .filter((entry) => affectedAccountEventKeys.has(`${entry.accountId}:${entry.dividendEventId}`))
+      .map((entry) => entry.id),
+  );
 }
 
 function stableStringify(value: unknown): string {
@@ -530,7 +545,7 @@ async function buildSimulation(persistence: Persistence, ownerUserId: string, op
   const state = buildOperationState(store, ownerUserId, operation);
   const fingerprint = buildFingerprint(store, state);
   const replaySimulation = await simulateReplayChanges(store, state);
-  const affectedLedgerEntryIds = replaySimulation.changedDividendIds;
+  const affectedLedgerEntryIds = expandAffectedDividendLedgerEntryIds(store, replaySimulation.affectedDividends);
   const manualReceiptReentryLedgerEntryIds = replaySimulation.affectedDividends
     .filter((entry) => entry.requiresManualReceiptReentry && entry.dividendLedgerEntryId)
     .map((entry) => entry.dividendLedgerEntryId!) ;
@@ -558,7 +573,12 @@ async function buildSimulation(persistence: Persistence, ownerUserId: string, op
     )).filter((snapshot) => snapshot.marketCode === scope.marketCode)
   ))).flat();
   affectedCounts.holdingSnapshots = affectedHoldingSnapshots.length;
-  const reviewedArtifacts = buildReviewedArtifacts(store, state, replaySimulation.affectedDividends);
+  const reviewedArtifacts = buildReviewedArtifacts(
+    store,
+    state,
+    replaySimulation.affectedDividends,
+    affectedLedgerEntryIds,
+  );
   reviewedArtifacts.derived.holdingSnapshotIds = sortIds(affectedHoldingSnapshots.map((snapshot) => snapshot.id));
   return {
     operation: state,

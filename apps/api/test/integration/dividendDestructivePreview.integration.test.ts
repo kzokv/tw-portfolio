@@ -556,21 +556,55 @@ describe("dividend destructive preview", () => {
       stockParValueCurrency: null,
       source: "test",
     });
-    store.accounting.facts.dividendLedgerEntries.push({
-      id: "standalone-ledger",
-      accountId: "acc-1",
-      dividendEventId: "standalone-dividend",
-      eligibleQuantity: 100,
-      expectedCashAmount: 100,
-      expectedStockQuantity: 0,
-      receivedCashAmount: 95,
-      receivedStockQuantity: 0,
-      postingStatus: "posted",
-      reconciliationStatus: "open",
-      version: 1,
-      sourceCompositionStatus: "provided",
-      bookedAt: "2026-04-20T02:00:00.000Z",
-    });
+    store.accounting.facts.dividendLedgerEntries.push(
+      {
+        id: "standalone-original",
+        accountId: "acc-1",
+        dividendEventId: "standalone-dividend",
+        eligibleQuantity: 100,
+        expectedCashAmount: 100,
+        expectedStockQuantity: 0,
+        receivedCashAmount: 90,
+        receivedStockQuantity: 0,
+        postingStatus: "posted",
+        reconciliationStatus: "open",
+        version: 1,
+        sourceCompositionStatus: "provided",
+        bookedAt: "2026-04-20T00:00:00.000Z",
+        supersededAt: "2026-04-20T01:00:00.000Z",
+      },
+      {
+        id: "standalone-reversal",
+        accountId: "acc-1",
+        dividendEventId: "standalone-dividend",
+        eligibleQuantity: 100,
+        expectedCashAmount: -100,
+        expectedStockQuantity: 0,
+        receivedCashAmount: -90,
+        receivedStockQuantity: 0,
+        postingStatus: "adjusted",
+        reconciliationStatus: "open",
+        version: 1,
+        sourceCompositionStatus: "provided",
+        bookedAt: "2026-04-20T01:00:00.000Z",
+        reversalOfDividendLedgerEntryId: "standalone-original",
+      },
+      {
+        id: "standalone-ledger",
+        accountId: "acc-1",
+        dividendEventId: "standalone-dividend",
+        eligibleQuantity: 100,
+        expectedCashAmount: 100,
+        expectedStockQuantity: 0,
+        receivedCashAmount: 95,
+        receivedStockQuantity: 0,
+        postingStatus: "adjusted",
+        reconciliationStatus: "open",
+        version: 1,
+        sourceCompositionStatus: "provided",
+        bookedAt: "2026-04-20T02:00:00.000Z",
+      },
+    );
     store.accounting.facts.cashLedgerEntries.push({
       id: "standalone-cash",
       userId: "user-1",
@@ -581,6 +615,27 @@ describe("dividend destructive preview", () => {
       currency: "TWD",
       relatedDividendLedgerEntryId: "standalone-ledger",
       source: "test",
+    }, {
+      id: "standalone-original-cash",
+      userId: "user-1",
+      accountId: "acc-1",
+      entryDate: "2026-04-20",
+      entryType: "DIVIDEND_RECEIPT",
+      amount: 90,
+      currency: "TWD",
+      relatedDividendLedgerEntryId: "standalone-original",
+      source: "test",
+    }, {
+      id: "standalone-reversal-cash",
+      userId: "user-1",
+      accountId: "acc-1",
+      entryDate: "2026-04-20",
+      entryType: "REVERSAL",
+      amount: -90,
+      currency: "TWD",
+      relatedDividendLedgerEntryId: "standalone-reversal",
+      source: "test",
+      reversalOfCashLedgerEntryId: "standalone-original-cash",
     });
     store.accounting.facts.dividendDeductionEntries.push({
       id: "standalone-deduction",
@@ -590,10 +645,40 @@ describe("dividend destructive preview", () => {
       currencyCode: "TWD",
       withheldAtSource: true,
       source: "test",
+    }, {
+      id: "standalone-original-deduction",
+      dividendLedgerEntryId: "standalone-original",
+      deductionType: "BANK_FEE",
+      amount: 10,
+      currencyCode: "TWD",
+      withheldAtSource: true,
+      source: "test",
+    }, {
+      id: "standalone-reversal-deduction",
+      dividendLedgerEntryId: "standalone-reversal",
+      deductionType: "BANK_FEE",
+      amount: 10,
+      currencyCode: "TWD",
+      withheldAtSource: true,
+      source: "test",
     });
     store.accounting.facts.dividendSourceLines.push({
       id: "standalone-source",
       dividendLedgerEntryId: "standalone-ledger",
+      sourceBucket: "DIVIDEND_INCOME",
+      amount: 100,
+      currencyCode: "TWD",
+      source: "test",
+    }, {
+      id: "standalone-original-source",
+      dividendLedgerEntryId: "standalone-original",
+      sourceBucket: "DIVIDEND_INCOME",
+      amount: 100,
+      currencyCode: "TWD",
+      source: "test",
+    }, {
+      id: "standalone-reversal-source",
+      dividendLedgerEntryId: "standalone-reversal",
       sourceBucket: "DIVIDEND_INCOME",
       amount: 100,
       currencyCode: "TWD",
@@ -616,18 +701,35 @@ describe("dividend destructive preview", () => {
       fromDate: "2026-04-01",
     });
     expect(preview.affectedGroups.derived).toMatchObject({
-      dividendLedgerEntryIds: ["standalone-ledger"],
-      cashLedgerEntryIds: ["standalone-cash"],
-      dividendDeductionEntryIds: ["standalone-deduction"],
-      dividendSourceLineIds: ["standalone-source"],
+      dividendLedgerEntryIds: ["standalone-ledger", "standalone-original", "standalone-reversal"],
+      cashLedgerEntryIds: ["standalone-cash", "standalone-original-cash", "standalone-reversal-cash"],
+      dividendDeductionEntryIds: [
+        "standalone-deduction",
+        "standalone-original-deduction",
+        "standalone-reversal-deduction",
+      ],
+      dividendSourceLineIds: [
+        "standalone-original-source",
+        "standalone-reversal-source",
+        "standalone-source",
+      ],
     });
+    expect(preview.affectedCounts.dividendLedgerEntries).toBe(3);
 
     await confirmCutoff(preview);
     const updatedStore = await app.persistence.loadStore("user-1");
-    expect(updatedStore.accounting.facts.dividendLedgerEntries.some((entry) => entry.id === "standalone-ledger")).toBe(false);
-    expect(updatedStore.accounting.facts.cashLedgerEntries.some((entry) => entry.id === "standalone-cash")).toBe(false);
-    expect(updatedStore.accounting.facts.dividendDeductionEntries.some((entry) => entry.id === "standalone-deduction")).toBe(false);
-    expect(updatedStore.accounting.facts.dividendSourceLines.some((entry) => entry.id === "standalone-source")).toBe(false);
+    expect(updatedStore.accounting.facts.dividendLedgerEntries.some(
+      (entry) => entry.dividendEventId === "standalone-dividend",
+    )).toBe(false);
+    expect(updatedStore.accounting.facts.cashLedgerEntries.some(
+      (entry) => entry.relatedDividendLedgerEntryId?.startsWith("standalone-"),
+    )).toBe(false);
+    expect(updatedStore.accounting.facts.dividendDeductionEntries.some(
+      (entry) => entry.dividendLedgerEntryId.startsWith("standalone-"),
+    )).toBe(false);
+    expect(updatedStore.accounting.facts.dividendSourceLines.some(
+      (entry) => entry.dividendLedgerEntryId.startsWith("standalone-"),
+    )).toBe(false);
   });
 
   it("rejects stale and consumed previews", async () => {
