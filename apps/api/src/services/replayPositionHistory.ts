@@ -291,11 +291,30 @@ export function deriveEligibleQuantityFromReplayStream(
   dividendEvent: Pick<DividendEvent, "exDividendDate">,
 ): number {
   let lots: Lot[] = [];
+  const reversedTradeIds = new Set(
+    trades
+      .map((trade) => trade.reversalOfTradeEventId)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const reversedPositionActionIds = new Set(
+    positionActions
+      .map((action) => action.reversalOfPositionActionId)
+      .filter((id): id is string => Boolean(id)),
+  );
   const stream = [
     ...trades.map((trade) => ({ kind: "trade" as const, trade })),
     ...positionActions.map((action) => ({ kind: "action" as const, action })),
   ]
     .filter((entry) => {
+      if (entry.kind === "trade") {
+        if (entry.trade.reversalOfTradeEventId || reversedTradeIds.has(entry.trade.id)) return false;
+      } else if (
+        entry.action.reversalOfPositionActionId
+        || entry.action.supersededAt
+        || reversedPositionActionIds.has(entry.action.id)
+      ) {
+        return false;
+      }
       const entryDate = entry.kind === "trade" ? entry.trade.tradeDate : entry.action.actionDate;
       const entryMarketCode = entry.kind === "trade" ? entry.trade.marketCode : entry.action.marketCode;
       return entryDate < dividendEvent.exDividendDate && entryMarketCode === marketCode;

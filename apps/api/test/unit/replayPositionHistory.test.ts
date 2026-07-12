@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { replayPositionHistory } from "../../src/services/replayPositionHistory.js";
+import { deriveEligibleQuantityFromReplayStream, replayPositionHistory } from "../../src/services/replayPositionHistory.js";
 import { MemoryPersistence } from "../../src/persistence/memory.js";
 import type { Persistence } from "../../src/persistence/types.js";
 import type { BookedTradeEvent, DividendEvent, DividendLedgerEntry, LotAllocationProjection, PositionAction } from "../../src/types/store.js";
@@ -197,6 +197,36 @@ describe("replayPositionHistory", () => {
       eligibleQuantity: 20,
       expectedCashAmount: 30,
     });
+  });
+
+  it("excludes reversed position-action originals from dividend eligibility replay", () => {
+    const trade = makeTradeEvent("trade-before-reversed-split", "user-1", "acc-1", "TW", "TWD", 10);
+    const originalSplit: PositionAction = {
+      id: "reversed-split",
+      accountId: "acc-1",
+      ticker: "BHP",
+      marketCode: "TW",
+      actionType: "SPLIT",
+      actionDate: "2026-01-10",
+      quantity: 0,
+      ratioNumerator: 2,
+      ratioDenominator: 1,
+      source: "test",
+    };
+    const reversal: PositionAction = {
+      ...originalSplit,
+      id: "reversed-split-reversal",
+      reversalOfPositionActionId: originalSplit.id,
+    };
+
+    expect(deriveEligibleQuantityFromReplayStream(
+      [trade],
+      [originalSplit, reversal],
+      "acc-1",
+      "BHP",
+      "TW",
+      { exDividendDate: "2026-02-01" },
+    )).toBe(10);
   });
 
   it("creates missing expected rows and retires stale system-generated expected rows during replay", async () => {
