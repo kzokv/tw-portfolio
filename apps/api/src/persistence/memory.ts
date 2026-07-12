@@ -57,6 +57,7 @@ import {
   buildShareRevokedNotification,
 } from "./shareHelpers.js";
 import { rebuildHoldingProjection } from "../services/accountingStore.js";
+import { enrichDividendReviewRows } from "../services/dividendReviewDetails.js";
 import type {
   AdminAuditLogListOptions,
   AdminInviteListOptions,
@@ -3181,7 +3182,11 @@ export class MemoryPersistence implements Persistence {
 
     const total = sorted.length;
     const startIndex = (opts.page - 1) * opts.limit;
-    return { rows: sorted.slice(startIndex, startIndex + opts.limit), total, aggregates };
+    return {
+      rows: enrichDividendReviewRows(store, sorted.slice(startIndex, startIndex + opts.limit)),
+      total,
+      aggregates,
+    };
   }
 
   private summarizeDividendDeductions(

@@ -86,6 +86,7 @@ import { currencyFor, marketCodeFor, normalizeInstrumentSector } from "@vakwen/s
 import { routeError } from "../lib/routeError.js";
 import { defaultClientCapabilities, getMcpClientByLegacyProvider } from "../mcp/clientRegistry.js";
 import { replayPositionHistory } from "../services/replayPositionHistory.js";
+import { enrichDividendReviewRows } from "../services/dividendReviewDetails.js";
 import { MemoryPersistence } from "./memory.js";
 import type {
   AdminAuditLogListOptions,
@@ -11089,7 +11090,7 @@ export class PostgresPersistence implements Persistence {
     const total = sorted.length;
     const startIndex = (opts.page - 1) * opts.limit;
     return {
-      rows: sorted.slice(startIndex, startIndex + opts.limit),
+      rows: enrichDividendReviewRows(store, sorted.slice(startIndex, startIndex + opts.limit)),
       total,
       aggregates,
     };

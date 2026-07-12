@@ -6779,7 +6779,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/portfolio/dividends/review", async (req) => {
     const query = dividendReviewQuerySchema.parse(req.query);
-    const { userId, store } = await loadUserStore(app, req);
+    const { contextUserId: userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
     const result = await app.persistence.listDividendReviewRows(userId, {
       accountId: query.accountId,
       fromPaymentDate: query.fromPaymentDate,
@@ -6794,24 +6794,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       sortBy: query.sortBy,
       sortOrder: query.sortOrder,
     });
-    const ledgerRowIds = new Set(
-      result.rows
-        .filter((row) => row.rowKind === "ledger")
-        .map((row) => row.id),
-    );
-    const ledgerRowsWithDetails = new Map(
-      buildDividendLedgerEntryDetails(
-        store,
-        result.rows.filter((row) => ledgerRowIds.has(row.id)),
-        { preserveOrder: true },
-      ).map((row) => [row.id, row]),
-    );
-
     return {
-      reviewRows: result.rows.map((row) => {
-        const details = ledgerRowsWithDetails.get(row.id);
-        return details ? { ...row, ...details, rowKind: row.rowKind } : row;
-      }),
+      reviewRows: result.rows,
       total: result.total,
       aggregates: result.aggregates,
     };

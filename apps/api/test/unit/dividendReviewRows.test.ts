@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp, type AppInstance } from "../../src/app.js";
 import { planDividendLedgerRecompute } from "../../src/services/dividends.js";
 import type { BookedTradeEvent, DividendEvent, DividendLedgerEntry, PositionAction } from "../../src/types/store.js";
@@ -799,6 +799,7 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
     };
     store.accounting.facts.dividendLedgerEntries.push(ledgerEntry);
     store.accounting.facts.positionActions.push(positionAction);
+    const loadStoreSpy = vi.spyOn(app.persistence, "loadStore");
 
     const reviewResponse = await app.inject({
       method: "GET",
@@ -806,6 +807,7 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
     });
 
     expect(reviewResponse.statusCode).toBe(200);
+    expect(loadStoreSpy).toHaveBeenCalledTimes(1);
     expect(reviewResponse.json()).toMatchObject({
       total: 1,
       reviewRows: [
