@@ -41,8 +41,9 @@ interface UseSharedContextOptions {
  *
  * Extracted per Phase 3c spec target (AppShell ≤300 LOC).
  *
- * Preserves §8 items 1, 2, 5: window listener for `CONTEXT_FALLBACK_REVOKED_EVENT`,
- * `?as=ownerId` deep-link, and `router.refresh()` after context changes.
+ * Preserves §8 items 1, 2, and 5: the revoke listener, `?as=ownerId`
+ * deep link, and route-refresh fallback for clients that do not consume the
+ * context refresh signal.
  */
 export function useSharedContext({
   refreshDashboard,
@@ -60,8 +61,7 @@ export function useSharedContext({
   const [contextRefreshSignal, setContextRefreshSignal] = useState(0);
 
   // Preserves §8 item 2 — deep-link guard for ?as=ownerId; ensures we only
-  // apply the deep link once even if the effect's deps thrash during
-  // router.refresh-driven re-renders.
+  // apply the deep link once even if the effect's dependencies re-render.
   const deepLinkAppliedRef = useRef(false);
 
   const refreshSwitcherData = useCallback(async () => {
@@ -75,17 +75,23 @@ export function useSharedContext({
     }
   }, []);
 
-  // Preserves §8 item 5 — router.refresh() after context changes.
+  // Dividend clients consume the signal directly. Avoid a same-route refresh
+  // there because it remounts the page before owner-scoped data can commit.
+  // Other routes retain the server-component refresh fallback until their
+  // clients explicitly handle contextRefreshSignal.
   const refreshContextDependentData = useCallback(async () => {
     clearPortfolioContextRouteCaches();
-    router.refresh();
+    const isDividendsRoute = pathname === "/dividends" || pathname.startsWith("/dividends/");
+    if (!isDividendsRoute) {
+      router.refresh();
+    }
     setContextRefreshSignal((n) => n + 1);
     await Promise.allSettled([
       refreshDashboard(),
       refreshProfile(),
       refreshSwitcherData(),
     ]);
-  }, [refreshDashboard, refreshProfile, refreshSwitcherData, router]);
+  }, [pathname, refreshDashboard, refreshProfile, refreshSwitcherData, router]);
 
   useEffect(() => {
     void refreshSwitcherData();

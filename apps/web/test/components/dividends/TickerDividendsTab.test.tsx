@@ -18,7 +18,7 @@ const tickerService = vi.hoisted(() => ({
   posted: vi.fn(),
 }));
 
-const reviewService = vi.hoisted(() => ({ fetchEntry: vi.fn() }));
+const reviewService = vi.hoisted(() => ({ fetchEntry: vi.fn(), primeEntry: vi.fn() }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => navigation.pathname,
@@ -37,6 +37,7 @@ vi.mock("../../../features/dividends/services/dividendService", () => ({
 }));
 
 vi.mock("../../../components/dividends/DividendReviewDrawer", () => ({
+  primeDividendReviewDrawerDetailCache: reviewService.primeEntry,
   DividendReviewDrawer: ({ entry, allowMutations, onClose }: { entry: { id: string } | null; allowMutations: boolean; onClose: () => void }) => (
     <div data-testid="shared-dividend-review-drawer" data-entry-id={entry?.id ?? ""} data-allow-mutations={String(allowMutations)}>
       <button type="button" data-testid="shared-dividend-review-close" onClick={onClose}>Close</button>
@@ -214,6 +215,8 @@ describe("TickerDividendsTab", () => {
     await flush();
 
     expect(reviewService.fetchEntry).toHaveBeenCalledWith("ledger-open");
+    expect(reviewService.fetchEntry).toHaveBeenCalledTimes(1);
+    expect(reviewService.primeEntry).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ id: "ledger-open", version: 1 }));
     const drawer = container.querySelector('[data-testid="shared-dividend-review-drawer"]');
     expect(drawer?.getAttribute("data-entry-id")).toBe("ledger-open");
     expect(drawer?.getAttribute("data-allow-mutations")).toBe("false");

@@ -1545,6 +1545,15 @@ export interface AppDictionary {
       pageTitle: string;
       pageDescription: string;
       breadcrumb: string;
+      loading: {
+        loading: string;
+        refreshing: string;
+        retry: string;
+        primaryError: string;
+        enrichmentError: string;
+        enrichmentStale: string;
+        drawerError: string;
+      };
       preset: {
         yesterday: string;
         thisWeek: string;

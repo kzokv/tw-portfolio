@@ -1,13 +1,35 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import type { LocaleCode } from "@vakwen/shared-types";
+import { useEffect, useMemo, useState } from "react";
+import type {
+  DividendReviewRowDetailDto,
+  DividendReviewRowSummaryDto,
+  LocaleCode,
+} from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatNumber } from "../../lib/utils";
 import type { DividendCalendarRow, DividendLedgerEntryDetails } from "../../features/dividends/types";
 import { Card } from "../ui/Card";
 import { Drawer } from "../ui/Drawer";
 import { DividendPostingForm } from "./DividendPostingForm";
+import { fetchDividendLedgerEntry } from "../../features/dividends/services/dividendService";
+
+const drawerDetailCache = new Map<string, DividendReviewRowDetailDto>();
+
+function drawerDetailCacheKey(cacheScope: string, entry: Pick<DividendReviewRowSummaryDto, "id" | "version">): string {
+  return `${cacheScope}:${entry.id}:${entry.version}`;
+}
+
+export function clearDividendReviewDrawerDetailCache(): void {
+  drawerDetailCache.clear();
+}
+
+export function primeDividendReviewDrawerDetailCache(
+  cacheScope: string,
+  detail: DividendReviewRowDetailDto,
+): void {
+  drawerDetailCache.set(drawerDetailCacheKey(cacheScope, detail), detail);
+}
 
 function sumDeductions(
   entry: DividendLedgerEntryDetails,
@@ -124,7 +146,8 @@ export function buildDividendCalendarRowFromEntry(entry: DividendLedgerEntryDeta
 interface DividendReviewDrawerProps {
   dict: AppDictionary;
   locale: LocaleCode;
-  entry: DividendLedgerEntryDetails | null;
+  entry: DividendReviewRowSummaryDto | null;
+  cacheScope: string;
   onClose: () => void;
   onSaved: () => Promise<void> | void;
   resolveAccountName?: (accountId: string) => string;
@@ -136,6 +159,7 @@ export function DividendReviewDrawer({
   dict,
   locale,
   entry,
+  cacheScope,
   onClose,
   onSaved,
   resolveAccountName,
@@ -143,7 +167,56 @@ export function DividendReviewDrawer({
   readOnlyMessage,
 }: DividendReviewDrawerProps) {
   const [isDirty, setIsDirty] = useState(false);
-  const drawerRow = useMemo(() => (entry ? buildDividendCalendarRowFromEntry(entry) : null), [entry]);
+  const [fetchedDetail, setDetail] = useState<DividendLedgerEntryDetails | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [retryVersion, setRetryVersion] = useState(0);
+  const detail = useMemo<DividendLedgerEntryDetails | null>(() => {
+    if (entry?.rowKind === "expected") return { ...entry, deductions: [], sourceLines: [] };
+    return fetchedDetail;
+  }, [entry, fetchedDetail]);
+  const drawerRow = useMemo(() => (detail ? buildDividendCalendarRowFromEntry(detail) : null), [detail]);
+
+  useEffect(() => {
+    setIsDirty(false);
+    setError("");
+    if (!entry) {
+      setDetail(null);
+      setIsLoading(false);
+      return;
+    }
+    if (entry.rowKind === "expected") {
+      setDetail({ ...entry, deductions: [], sourceLines: [] });
+      setIsLoading(false);
+      return;
+    }
+
+    const cacheKey = drawerDetailCacheKey(cacheScope, entry);
+    const cached = drawerDetailCache.get(cacheKey);
+    if (cached) {
+      setDetail(cached);
+      setIsLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setDetail(null);
+    setIsLoading(true);
+    void fetchDividendLedgerEntry(entry.id, { signal: controller.signal })
+      .then((next) => {
+        if (controller.signal.aborted) return;
+        drawerDetailCache.set(cacheKey, next);
+        setDetail(next);
+      })
+      .catch((caught) => {
+        if (controller.signal.aborted || caught instanceof Error && caught.name === "AbortError") return;
+        setError(caught instanceof Error ? caught.message : String(caught));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoading(false);
+      });
+    return () => controller.abort();
+  }, [cacheScope, entry, retryVersion]);
 
   function closeWithConfirm() {
     if (isDirty && typeof window !== "undefined") {
@@ -168,42 +241,53 @@ export function DividendReviewDrawer({
       dirty={isDirty}
       dirtyConfirmMessage={dict.dividends.form.unsavedChangesConfirm}
     >
-      {entry && drawerRow ? (
+      {entry && isLoading ? (
+        <div className="grid gap-3" aria-busy="true" data-testid="review-drawer-loading">
+          {Array.from({ length: 4 }, (_, index) => <div key={index} className="h-20 animate-pulse rounded-lg bg-muted/50" />)}
+        </div>
+      ) : entry && error ? (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-4" role="alert" data-testid="review-drawer-error">
+          <p className="text-sm text-rose-700">{dict.dividends.review.loading.drawerError}: {error}</p>
+          <button type="button" className="mt-3 rounded-md border border-rose-300 px-3 py-1.5 text-sm text-rose-700" onClick={() => setRetryVersion((value) => value + 1)} data-testid="review-drawer-retry">
+            {dict.dividends.review.loading.retry}
+          </button>
+        </div>
+      ) : detail && drawerRow ? (
         <div className="grid gap-4">
           <Card className="rounded-lg border border-slate-200 bg-white p-4 shadow-none">
             <div className="grid gap-3 md:grid-cols-3">
-              <DrawerMetric label={dict.dividends.review.table.expected} value={formatCurrencyAmount(expectedGrossAmount(entry), entry.cashCurrency, locale)} />
-              <DrawerMetric label={dict.dividends.review.table.expectedNet} value={formatCurrencyAmount(expectedNetAmount(entry), entry.cashCurrency, locale)} />
-              <DrawerMetric label={dict.dividends.review.table.actualNet} value={formatCurrencyAmount(actualNetAmount(entry), entry.cashCurrency, locale)} />
-              <DrawerMetric label={dict.dividends.review.table.nhi} value={nhiAmount(entry) > 0 ? formatCurrencyAmount(nhiAmount(entry), entry.cashCurrency, locale) : "—"} />
-              <DrawerMetric label={dict.dividends.review.table.bankFee} value={bankFeeAmount(entry) > 0 ? formatCurrencyAmount(bankFeeAmount(entry), entry.cashCurrency, locale) : "—"} />
-              <DrawerMetric label={dict.dividends.review.table.otherDeduction} value={otherDeductionAmount(entry) > 0 ? formatCurrencyAmount(otherDeductionAmount(entry), entry.cashCurrency, locale) : "—"} />
+              <DrawerMetric label={dict.dividends.review.table.expected} value={formatCurrencyAmount(expectedGrossAmount(detail), detail.cashCurrency, locale)} />
+              <DrawerMetric label={dict.dividends.review.table.expectedNet} value={formatCurrencyAmount(expectedNetAmount(detail), detail.cashCurrency, locale)} />
+              <DrawerMetric label={dict.dividends.review.table.actualNet} value={formatCurrencyAmount(actualNetAmount(detail), detail.cashCurrency, locale)} />
+              <DrawerMetric label={dict.dividends.review.table.nhi} value={nhiAmount(detail) > 0 ? formatCurrencyAmount(nhiAmount(detail), detail.cashCurrency, locale) : "—"} />
+              <DrawerMetric label={dict.dividends.review.table.bankFee} value={bankFeeAmount(detail) > 0 ? formatCurrencyAmount(bankFeeAmount(detail), detail.cashCurrency, locale) : "—"} />
+              <DrawerMetric label={dict.dividends.review.table.otherDeduction} value={otherDeductionAmount(detail) > 0 ? formatCurrencyAmount(otherDeductionAmount(detail), detail.cashCurrency, locale) : "—"} />
             </div>
           </Card>
-          {(entry.receivedStockQuantity > 0 || cashInLieuAmount(entry) > 0) ? (
+          {(detail.receivedStockQuantity > 0 || cashInLieuAmount(detail) > 0) ? (
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.95fr)]">
               <div className="grid gap-3 sm:grid-cols-2">
-                <DrawerMetric label={dict.dividends.review.drawer.eligibleShares} value={formatNumber(entry.eligibleQuantity, locale)} />
-                <DrawerMetric label={dict.dividends.review.drawer.receivedShares} value={formatNumber(entry.receivedStockQuantity, locale)} />
-                <DrawerMetric label={dict.dividends.review.drawer.portfolioCostAdded} value={formatCurrencyAmount(entry.portfolioCostBasisAddedAmount ?? 0, entry.cashCurrency, locale)} />
-                <DrawerMetric label={dict.dividends.review.drawer.parValueBase} value={entry.parValueBaseAmount != null ? formatCurrencyAmount(entry.parValueBaseAmount, entry.cashCurrency, locale) : "—"} />
-                <DrawerMetric label={dict.dividends.review.drawer.expectedStock} value={formatNumber(entry.expectedStockQuantity, locale)} />
-                <DrawerMetric label={dict.dividends.review.drawer.receivedStock} value={formatNumber(entry.receivedStockQuantity, locale)} />
-                <DrawerMetric label={dict.dividends.review.drawer.cashInLieu} value={cashInLieuAmount(entry) > 0 ? formatCurrencyAmount(cashInLieuAmount(entry), entry.cashCurrency, locale) : "—"} />
-                <DrawerMetric label={dict.dividends.review.drawer.nhiPremiumBase} value={premiumBaseAmount(entry) != null ? formatCurrencyAmount(premiumBaseAmount(entry) ?? 0, entry.cashCurrency, locale) : "—"} />
+                <DrawerMetric label={dict.dividends.review.drawer.eligibleShares} value={formatNumber(detail.eligibleQuantity, locale)} />
+                <DrawerMetric label={dict.dividends.review.drawer.receivedShares} value={formatNumber(detail.receivedStockQuantity, locale)} />
+                <DrawerMetric label={dict.dividends.review.drawer.portfolioCostAdded} value={formatCurrencyAmount(detail.portfolioCostBasisAddedAmount ?? 0, detail.cashCurrency, locale)} />
+                <DrawerMetric label={dict.dividends.review.drawer.parValueBase} value={detail.parValueBaseAmount != null ? formatCurrencyAmount(detail.parValueBaseAmount, detail.cashCurrency, locale) : "—"} />
+                <DrawerMetric label={dict.dividends.review.drawer.expectedStock} value={formatNumber(detail.expectedStockQuantity, locale)} />
+                <DrawerMetric label={dict.dividends.review.drawer.receivedStock} value={formatNumber(detail.receivedStockQuantity, locale)} />
+                <DrawerMetric label={dict.dividends.review.drawer.cashInLieu} value={cashInLieuAmount(detail) > 0 ? formatCurrencyAmount(cashInLieuAmount(detail), detail.cashCurrency, locale) : "—"} />
+                <DrawerMetric label={dict.dividends.review.drawer.nhiPremiumBase} value={premiumBaseAmount(detail) != null ? formatCurrencyAmount(premiumBaseAmount(detail) ?? 0, detail.cashCurrency, locale) : "—"} />
               </div>
               <div className="grid gap-3">
                 <div
                   className={cn(
                     "rounded-lg border px-4 py-3 text-sm",
-                    entry.amendmentBlockedReason || entry.correctionMode === "reversal_replacement"
+                    detail.amendmentBlockedReason || detail.correctionMode === "reversal_replacement"
                       ? "border-amber-200 bg-amber-50 text-amber-900"
                       : "border-emerald-200 bg-emerald-50 text-emerald-900",
                   )}
                 >
                   <p className="font-semibold">{dict.dividends.review.drawer.correctionPathTitle}</p>
                   <p className="mt-1">
-                    {entry.amendmentBlockedReason || entry.correctionMode === "reversal_replacement"
+                    {detail.amendmentBlockedReason || detail.correctionMode === "reversal_replacement"
                       ? dict.dividends.review.drawer.correctionPathBlocked
                       : dict.dividends.review.drawer.correctionPathAmend}
                   </p>
@@ -218,12 +302,12 @@ export function DividendReviewDrawer({
                     </thead>
                     <tbody>
                       <tr className="border-t border-border/70">
-                        <td className="px-4 py-3">{entry.linkedPositionActionId ? `${dict.dividends.review.drawer.positionActionRecord} #${entry.linkedPositionActionId}` : dict.dividends.review.drawer.positionActionPending}</td>
-                        <td className="px-4 py-3">{linkedPositionActionStatusLabel(dict, entry.linkedPositionActionStatus)}</td>
+                        <td className="px-4 py-3">{detail.linkedPositionActionId ? `${dict.dividends.review.drawer.positionActionRecord} #${detail.linkedPositionActionId}` : dict.dividends.review.drawer.positionActionPending}</td>
+                        <td className="px-4 py-3">{linkedPositionActionStatusLabel(dict, detail.linkedPositionActionStatus)}</td>
                       </tr>
                       <tr className="border-t border-border/70">
                         <td className="px-4 py-3">{dict.dividends.review.drawer.snapshotRefreshRecord}</td>
-                        <td className="px-4 py-3">{snapshotRefreshLabel(dict, entry.snapshotRefreshStatus)}</td>
+                        <td className="px-4 py-3">{snapshotRefreshLabel(dict, detail.snapshotRefreshStatus)}</td>
                       </tr>
                     </tbody>
                   </table>

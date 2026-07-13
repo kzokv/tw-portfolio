@@ -7,6 +7,7 @@ import type {
   DividendLedgerHistoryItemDto,
   DividendLedgerHistoryPageDto,
   DividendReviewPageLimit,
+  DividendReviewRowSummaryDto,
   DividendUpcomingListItemDto,
   DividendUpcomingPageDto,
   LocaleCode,
@@ -19,10 +20,10 @@ import {
   fetchTickerPostedDividendHistory,
   fetchTickerUpcomingDividends,
 } from "../../features/dividends/services/tickerDividendService";
-import type { DividendLedgerEntryDetails } from "../../features/dividends/types";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
-import { DividendReviewDrawer } from "./DividendReviewDrawer";
+import { DividendReviewDrawer, primeDividendReviewDrawerDetailCache } from "./DividendReviewDrawer";
+import { getRouteDtoContextScope } from "../../lib/routeDtoCache";
 
 interface TickerDividendsTabProps {
   dict: AppDictionary;
@@ -169,10 +170,11 @@ export function TickerDividendsTab({
   const [openReconciliation, setOpenReconciliation] = useState<SectionState<DividendLedgerHistoryPageDto>>({ data: null, isLoading: true, error: "" });
   const [posted, setPosted] = useState<SectionState<DividendLedgerHistoryPageDto>>({ data: null, isLoading: true, error: "" });
   const [latestPosted, setLatestPosted] = useState<DividendLedgerHistoryItemDto | null>(null);
-  const [drawerEntry, setDrawerEntry] = useState<DividendLedgerEntryDetails | null>(null);
+  const [drawerEntry, setDrawerEntry] = useState<DividendReviewRowSummaryDto | null>(null);
   const [drawerLoadingId, setDrawerLoadingId] = useState<string | null>(null);
   const [drawerError, setDrawerError] = useState("");
   const drawerRequestRef = useRef(0);
+  const drawerCacheScope = getRouteDtoContextScope();
   const scopeKey = accountIds?.join(",") ?? "";
   const queryScope = useMemo(() => ({
     accountId,
@@ -256,7 +258,10 @@ export function TickerDividendsTab({
     setDrawerError("");
     try {
       const entry = await fetchDividendLedgerEntry(item.dividendLedgerEntryId);
-      if (drawerRequestRef.current === requestId) setDrawerEntry(entry);
+      if (drawerRequestRef.current === requestId) {
+        primeDividendReviewDrawerDetailCache(drawerCacheScope, entry);
+        setDrawerEntry({ ...entry, rowKind: entry.rowKind ?? "ledger" } as DividendReviewRowSummaryDto);
+      }
     } catch (error: unknown) {
       if (drawerRequestRef.current === requestId) setDrawerError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -385,7 +390,7 @@ export function TickerDividendsTab({
         </Card>
       </div>
 
-      <DividendReviewDrawer dict={dict} locale={locale} entry={drawerEntry} onClose={closeDrawer} onSaved={refreshSections} allowMutations={canWriteDividends} readOnlyMessage={dict.tickerHistory.noWritePermission} />
+      <DividendReviewDrawer dict={dict} locale={locale} entry={drawerEntry} cacheScope={drawerCacheScope} onClose={closeDrawer} onSaved={refreshSections} allowMutations={canWriteDividends} readOnlyMessage={dict.tickerHistory.noWritePermission} />
     </div>
   );
 }

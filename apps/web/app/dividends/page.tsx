@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import type { AccountDto, LocaleCode, ShellPortfolioConfigDto, UserSettings } from "@vakwen/shared-types";
+import type { LocaleCode, UserSettings } from "@vakwen/shared-types";
 import { DividendsTabsClient } from "../../components/dividends/DividendsTabsClient";
 import {
   DIVIDENDS_LEDGER_ONLY_PARAMS,
@@ -8,6 +8,7 @@ import {
 import {
   calendarMonthFromSearchParams,
   calendarQueryFromSearchParams,
+  searchParamsToReviewQuery,
 } from "../../components/dividends/dividendsPageQuery";
 import { DashboardLoading } from "../../components/dashboard/DashboardLoading";
 import { AppShell } from "../../components/layout/AppShell";
@@ -16,7 +17,10 @@ import { requireSession } from "../../lib/auth";
 import { getJson } from "../../lib/api";
 import { readSidebarStateCookie } from "../../lib/sidebar-cookie";
 import { getDictionary } from "../../lib/i18n";
-import { fetchDividendCalendarSnapshot } from "../../features/dividends/services/dividendService";
+import {
+  fetchDividendCalendarSnapshot,
+  fetchDividendReviewPrimary,
+} from "../../features/dividends/services/dividendService";
 import type { ProfileWithImpersonationDto } from "../../features/profile/hooks/useProfile";
 
 interface DividendsPageProps {
@@ -55,14 +59,13 @@ export default async function DividendsPage({ searchParams }: DividendsPageProps
   const loadingCopy = getRouteLoadingLabels(locale).dividends;
   const initialTab = hasExplicitDividendsView(sp) ? resolvedInitialTab : "calendar";
   const initialCalendarMonth = calendarMonthFromSearchParams(sp);
-  const [accounts, initialCalendarSnapshot] = await Promise.all([
-    initialTab === "ledger"
-      ? getJson<ShellPortfolioConfigDto>("/settings/fee-config")
-        .then((config) => config.accounts)
-        .catch(() => [] as AccountDto[])
-      : Promise.resolve([] as AccountDto[]),
+  const initialReviewQuery = searchParamsToReviewQuery(sp);
+  const [initialCalendarSnapshot, initialReviewData] = await Promise.all([
     initialTab === "calendar"
       ? fetchDividendCalendarSnapshot(calendarQueryFromSearchParams(sp)).catch(() => null)
+      : Promise.resolve(null),
+    initialTab === "ledger"
+      ? fetchDividendReviewPrimary(initialReviewQuery).catch(() => null)
       : Promise.resolve(null),
   ]);
 
@@ -82,11 +85,12 @@ export default async function DividendsPage({ searchParams }: DividendsPageProps
           ledgerLabel={dict.dividends.tabs.review}
           dict={dict}
           locale={locale}
-          accounts={accounts}
+          accounts={initialReviewData?.accounts ?? []}
           initialCalendarMonth={initialCalendarMonth}
           initialCalendarSnapshot={initialCalendarSnapshot}
-          initialReviewData={null}
-          initialYears={[]}
+          initialReviewData={initialReviewData}
+          initialReviewQuery={initialReviewQuery}
+          initialYears={initialReviewData?.years ?? []}
         />
       </AppShell>
     </Suspense>
