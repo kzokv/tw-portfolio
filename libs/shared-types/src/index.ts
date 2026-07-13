@@ -271,6 +271,149 @@ export type DividendReviewSortColumn =
 
 export type DividendReviewPageLimit = 10 | 25 | 50;
 
+export type DividendReviewSourceCompositionFilter = "pending";
+export type DividendReviewPostingStatus = "expected" | "posted" | "adjusted";
+export type DividendReviewReconciliationStatus = "open" | "matched" | "explained" | "resolved";
+export type DividendReviewSortOrder = "asc" | "desc";
+
+export interface DividendReviewFilterDto {
+  fromPaymentDate?: string;
+  toPaymentDate?: string;
+  accountId?: string;
+  reconciliationStatus?: DividendReviewReconciliationStatus;
+  postingStatus?: DividendReviewPostingStatus;
+  excludeExpected?: boolean;
+  ticker?: string;
+  marketCode?: MarketCode;
+  sourceComposition?: DividendReviewSourceCompositionFilter;
+}
+
+export interface DividendReviewPrimaryQueryDto extends DividendReviewFilterDto {
+  page: number;
+  limit: DividendReviewPageLimit;
+  sortBy: DividendReviewSortColumn;
+  sortOrder: DividendReviewSortOrder;
+}
+
+export interface DividendReviewRowSummaryDto {
+  rowKind: "ledger" | "expected";
+  id: string;
+  version: number;
+  accountId: string;
+  accountName?: string | null;
+  dividendEventId: string;
+  ticker: string;
+  tickerName: string | null;
+  marketCode: MarketCode;
+  instrumentType: InstrumentType;
+  eventType: "CASH" | "STOCK" | "CASH_AND_STOCK";
+  exDividendDate: string;
+  paymentDate: string | null;
+  cashCurrency: CurrencyCode;
+  eligibleQuantity: number;
+  expectedCashAmount: number;
+  receivedCashAmount: number;
+  expectedStockQuantity: number;
+  receivedStockQuantity: number;
+  postingStatus: DividendReviewPostingStatus;
+  reconciliationStatus: DividendReviewReconciliationStatus;
+  sourceCompositionStatus: SourceCompositionStatus;
+  expectedGrossAmount?: number | null;
+  expectedNetAmount?: number | null;
+  actualNetAmount?: number | null;
+  varianceAmount?: number | null;
+  nhiAmount?: number | null;
+  bankFeeAmount?: number | null;
+  otherDeductionAmount?: number | null;
+  stockDistributionRatio?: number | null;
+  stockDistributionRatioState?: StockDistributionRatioState | null;
+  expectedStockCalcState?: ExpectedStockCalcState | null;
+  expectedStockParValueAmount?: number | null;
+  cashInLieuAmount?: number | null;
+}
+
+export interface DividendReviewDeductionDto {
+  id: string;
+  dividendLedgerEntryId: string;
+  deductionType:
+    | "NHI_SUPPLEMENTAL_PREMIUM"
+    | "WITHHOLDING_TAX"
+    | "BROKER_FEE"
+    | "BANK_FEE"
+    | "TRANSFER_FEE"
+    | "CASH_IN_LIEU_ADJUSTMENT"
+    | "ROUNDING_ADJUSTMENT"
+    | "OTHER";
+  amount: number;
+  currencyCode: CurrencyCode;
+  withheldAtSource: boolean;
+  source: string;
+  sourceReference?: string;
+  note?: string;
+  bookedAt?: string;
+}
+
+export interface DividendReviewRowDetailDto extends DividendReviewRowSummaryDto {
+  reconciliationNote?: string | null;
+  bookedAt?: string;
+  correctionMode?: "in_place" | "amend" | "reversal_replacement" | null;
+  amendmentBlockedReason?: string | null;
+  linkedPositionActionId?: string | null;
+  linkedPositionActionStatus?: string | null;
+  parValueBaseAmount?: number | null;
+  premiumBaseAmount?: number | null;
+  nhiPremiumBaseAmount?: number | null;
+  portfolioCostBasisAddedAmount?: number | null;
+  parValueAmount?: number | null;
+  needsActionReasons?: string[] | null;
+  snapshotRefreshStatus?: "idle" | "queued" | "running" | "complete" | "failed" | null;
+  deductions: DividendReviewDeductionDto[];
+  sourceLines: DividendSourceLine[];
+}
+
+export interface DividendReviewAccountOptionDto {
+  id: string;
+  name: string;
+}
+
+export interface DividendReviewPrimaryDto {
+  reviewRows: DividendReviewRowSummaryDto[];
+  total: number;
+  years: number[];
+  accounts: DividendReviewAccountOptionDto[];
+}
+
+export interface DividendReviewNhiBucketAggregateDto {
+  sourceBucket: DividendSourceBucket;
+  totalAmount: number;
+  isNhiSubject: boolean;
+}
+
+export interface DividendReviewNhiRollupDto {
+  bucketAggregates: DividendReviewNhiBucketAggregateDto[];
+  nhiSubjectTotal: number;
+  projectedPremium: number;
+  pendingCount: number;
+  hasEtfEntries: boolean;
+}
+
+export interface DividendReviewSourceCompositionSummaryDto {
+  providedCount: number;
+  pendingCount: number;
+}
+
+export interface DividendReviewEnrichmentDto {
+  aggregates: DividendLedgerAggregates;
+  nhiRollup: DividendReviewNhiRollupDto;
+  sourceComposition: DividendReviewSourceCompositionSummaryDto;
+}
+
+export interface DividendReviewCompatibilityDto {
+  reviewRows: DividendReviewRowDetailDto[];
+  total: number;
+  aggregates: DividendLedgerAggregates;
+}
+
 export interface DividendDailyHighlightItemDto {
   id: string;
   accountId: string;
