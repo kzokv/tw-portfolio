@@ -61,6 +61,7 @@ This section is the implementation baseline for authenticated route performance 
 | `/portfolio` | grouped holdings page data and allocation-basis-aware table render | deeper quote freshness, optional breakdowns, non-blocking preference refresh |
 | `/transactions` | recent transactions, lightweight account options, route-local status needed to submit/edit safely | richer verification details, non-critical badges, post-render refreshes |
 | `/cash-ledger` | first-page ledger rows, human account labels, balances/filters required to understand the page | later pages, optional aggregates, non-critical enrichment |
+| `/dividends?view=ledger` | server-seeded Review row summaries, filtered total, eligible years, and account options | aggregates, chart, NHI/source-composition rollups, and persisted row details |
 | `/tickers/[ticker]` | ticker identity, scoped position summary, recent transactions, and account breakdown needed to render the page without waiting for chart/fundamental work | chart, fundamentals, refresh metadata, richer overlays |
 | `/settings/tickers` | monitored ticker list and current selection state | full instrument catalog, browse/search rows, repair metadata beyond monitored rows |
 | `/settings/ai-connectors` | connector summary and policy | recent access logs and expanded history |
@@ -71,6 +72,7 @@ This section is the implementation baseline for authenticated route performance 
 - `/reports` server-renders from one of `GET /reports/daily-review`, `GET /reports/portfolio`, or `GET /reports/market`, selected from validated URL state. Client refreshes reuse the same report endpoint and may restore a short-lived cached DTO before revalidation.
 - `/portfolio` server-renders from `GET /portfolio/primary`; client enrichment refreshes from `GET /portfolio/enrichment`.
 - `/transactions` server-renders from `GET /transactions/primary`; the payload seeds recent rows, transaction account options, and AppShell's portfolio config, while AI inbox details remain tab-owned.
+- `/dividends?view=ledger` server-renders from `GET /portfolio/dividends/review/primary`. The client starts `GET /portfolio/dividends/review/enrichment` without making it a prerequisite for the table. Persisted drawer rows load from `GET /portfolio/dividends/postings/:dividendLedgerEntryId` only when opened.
 - `/tickers/[ticker]` currently server-seeds from route-owned composition over dashboard primary data, filtered transaction history, and instrument metadata. Backend `GET /tickers/:ticker/primary` and `GET /tickers/:ticker/enrichment` now exist, but the web route has not fully switched to them yet.
 - `/settings/tickers` first loads `GET /monitored-tickers`; `GET /instruments` is triggered only when the catalog surface opens.
 - `/settings/ai-connectors` first loads `GET /ai/connectors/summary`; recent access uses `GET /ai/connectors/logs`.
@@ -87,6 +89,26 @@ This section is the implementation baseline for authenticated route performance 
 - Route DTO caches are allowed for short-lived stale-while-revalidate restore. Cache keys must include route identity plus the state dimensions that change DTO semantics, and invalidation must prefer correctness over reuse.
 - Page components and route-owned hooks should name primary versus secondary fetches clearly so reviewers can tell which data is allowed to block first render.
 
+### Dividends Review query and cache state
+
+The Review client keeps requested and committed query identities separate. A query identity contains the portfolio context plus payment-date, account, ticker, market, status, expected-row, and source-composition filters; sort field/direction; page; and page size. Sort, filter, and page-size changes reset to page 1. Previous/Next requests preserve the selected page size (10, 25, or 50).
+
+`useDividendReviewData` applies this state machine:
+
+1. Read only the exact primary cache key for the requested query. Fresh data commits immediately; stale-but-usable data commits with a visible refreshing state and revalidates.
+2. If no exact cache entry exists, clear table rows, render fixed-height table-local skeletons, and set `aria-busy`. Rows from a different query identity never stand in for the requested query.
+3. Abort a superseded primary request. Only the latest request may commit its response. Pagination controls remain disabled while primary data is pending; sort and filter actions may supersede that request.
+4. On primary failure, restore the last committed query, URL, filter controls, and rows, then expose a local retry. Retrying replays the failed identity.
+5. Load enrichment by its filter-only identity. Sort and pagination do not restart enrichment. A fresh match renders immediately; stale enrichment remains visible during revalidation and after a revalidation failure, with a retryable warning. Enrichment failure does not blank or disable the primary table.
+
+Primary cache keys include `getRouteDtoContextScope()` (`session user + selected portfolio owner`), every semantic filter, sort, direction, page, and limit. Enrichment keys use the same context and filters but deliberately omit sort and pagination. Both cache slots use the configured route-cache policy: primary maps to the portfolio TTL and enrichment maps to the reports TTL, with the shared stale-usable TTL. Their route tags are `route:dividend-review-primary` and `route:dividend-review-enrichment`.
+
+Dividend posting and reconciliation mutations clear both tags. Review listens for `dividend_reconciliation_changed`, `dividend_posted`, and `dividend_updated` SSE events and then clears/reloads primary and enrichment. Portfolio-context changes clear all context-owned route tags, close and clear the drawer cache, reset Review to page 1, discard the previous owner's committed data, and fetch under the new context identity.
+
+### Dividends Review lazy row detail
+
+Primary rows are table summaries. Synthetic expected rows already contain the fields needed to open the posting workflow and require no detail request. Opening a persisted ledger row triggers a drawer-local detail request; its cache key is `portfolio context + row ID + row version`. The drawer owns its skeleton, `aria-busy` state, error, retry, and abort controller, so a slow or failed detail lookup does not affect the table. Successful mutations, relevant SSE events, and context changes clear the drawer detail cache.
+
 ### Performance budgets
 
 These budgets come from the 2026-06-01 smooth-pages baseline note and are the default bar for future work unless a later note replaces them.
@@ -98,6 +120,9 @@ These budgets come from the 2026-06-01 smooth-pages baseline note and are the de
 | Portfolio usable primary UI | P95 < 2.0 s |
 | Transactions usable primary UI | P95 < 2.0 s |
 | Cash ledger first page usable UI | P95 < 2.5 s |
+| Dividends Review usable primary table | P95 < 2.5 s |
+| Dividends Review sort/page/page-size/filter update | P95 < 1.5 s |
+| Dividends Review deferred enrichment | P95 < 5.0 s |
 | Blank shell without meaningful page content | Never > 1 s without a route skeleton |
 
 ### Instrumentation handoff
@@ -112,6 +137,7 @@ These budgets come from the 2026-06-01 smooth-pages baseline note and are the de
 - Add shared-context tests proving owner label and read-only messaging remain visible while route primary data is pending.
 - When implementation is in flight, docs and notes should say whether timing evidence is design-time baseline only or backed by fresh post-change measurements.
 - Do not claim the baseline is satisfied until a follow-up note or PR evidence includes before/after measurements plus the repo-required test suites.
+- Dividends Review timing entries and deterministic loading-state tests establish observability and state correctness. The required 20-sample-per-scenario warmed PostgreSQL/browser run is recorded in `docs/notes/dividend-review-performance/evidence/results.md`; raw response timing, row identities, and frame probes are retained beside it.
 
 ---
 

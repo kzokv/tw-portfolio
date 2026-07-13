@@ -35,7 +35,12 @@ export interface TDividendReviewElements extends TElementLocatorHelpers {
   // Table (desktop)
   table: Locator;
   rows: Locator;
+  rowSkeletons: Locator;
   tableHeader: (field: string) => Locator;
+  tableHeaderCell: (field: string) => Locator;
+  mobileSortControls: Locator;
+  mobileSortField: Locator;
+  mobileSortDirection: Locator;
   chartGranularityButton: (level: string) => Locator;
   chartsAreaPaths: Locator;
   chartsBars: Locator;
@@ -48,6 +53,19 @@ export interface TDividendReviewElements extends TElementLocatorHelpers {
   pagination: Locator;
   paginationPrev: Locator;
   paginationNext: Locator;
+  pageSize: Locator;
+
+  primaryError: Locator;
+  primaryRetry: Locator;
+  primaryRefreshing: Locator;
+  enrichmentLoading: Locator;
+  enrichmentError: Locator;
+  enrichmentRetry: Locator;
+  enrichmentRefreshing: Locator;
+
+  drawerLoading: Locator;
+  drawerError: Locator;
+  drawerRetry: Locator;
 
   // Drawer (reused from KZO-32)
   drawer: TDividendPostingDrawerElements;
@@ -95,14 +113,30 @@ export class DividendReviewPage extends BasePage<TDividendReviewElements> {
       // Table (desktop)
       table: this.locate("review-table", "Dividend Review Table"),
       rows: this.withDescription(
-        this.scope.locator('[data-testid^="review-row-"]'),
+        this.scope.locator('[data-testid^="review-row-"]:not([data-testid="review-row-skeleton"])'),
         "Dividend Review Rows",
       ),
+      rowSkeletons: this.locate("review-row-skeleton", "Dividend Review Row Skeletons"),
       tableHeader: (field: string) =>
-        this.withDescription(
-          this.locate("review-table").locator("thead th").filter({ hasText: new RegExp(field, "i") }),
+        this.locate(
+          field === "varianceAmount"
+            ? "review-sort-variance"
+            : `review-sort-${field.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase()}`,
           `Dividend Review ${field} Header`,
         ),
+      tableHeaderCell: (field: string) =>
+        this.withDescription(
+          this.locate(
+            field === "varianceAmount"
+              ? "review-sort-variance"
+              : `review-sort-${field.replace(/([a-z0-9])([A-Z])/g, "$1-$2").toLowerCase()}`,
+            `Dividend Review ${field} Header Button`,
+          ).locator(".."),
+          `Dividend Review ${field} Header Cell`,
+        ),
+      mobileSortControls: this.locate("review-mobile-sort-controls", "Mobile Sort Controls"),
+      mobileSortField: this.locate("review-mobile-sort-field", "Mobile Sort Field"),
+      mobileSortDirection: this.locate("review-mobile-sort-direction", "Mobile Sort Direction"),
       chartGranularityButton: (level: string) =>
         this.withDescription(
           this.locate("chart-granularity-toggle").locator("button").filter({ hasText: new RegExp(level, "i") }),
@@ -135,6 +169,19 @@ export class DividendReviewPage extends BasePage<TDividendReviewElements> {
       pagination: this.locate("pagination", "Pagination"),
       paginationPrev: this.locate("pagination-prev", "Previous Page"),
       paginationNext: this.locate("pagination-next", "Next Page"),
+      pageSize: this.locate("review-page-size", "Review Page Size"),
+
+      primaryError: this.locate("review-error", "Review Primary Error"),
+      primaryRetry: this.locate("review-primary-retry", "Review Primary Retry"),
+      primaryRefreshing: this.locate("review-refreshing", "Review Primary Refreshing"),
+      enrichmentLoading: this.locate("review-enrichment-loading", "Review Enrichment Loading"),
+      enrichmentError: this.locate("review-enrichment-error", "Review Enrichment Error"),
+      enrichmentRetry: this.locate("review-enrichment-retry", "Review Enrichment Retry"),
+      enrichmentRefreshing: this.locate("review-enrichment-refreshing", "Review Enrichment Refreshing"),
+
+      drawerLoading: this.locate("review-drawer-loading", "Review Drawer Loading"),
+      drawerError: this.locate("review-drawer-error", "Review Drawer Error"),
+      drawerRetry: this.locate("review-drawer-retry", "Review Drawer Retry"),
 
       // Drawer (reused from KZO-32)
       drawer: new DividendPostingDrawerComponent(this.page).elements,

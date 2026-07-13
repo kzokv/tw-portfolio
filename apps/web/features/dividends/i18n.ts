@@ -206,6 +206,15 @@ export const dividendsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "dividend
         pageTitle: "Dividend Review",
         pageDescription: "Review and reconcile all dividend ledger entries across accounts.",
         breadcrumb: "Dividend Review",
+        loading: {
+          loading: "Loading review rows",
+          refreshing: "Refreshing review data…",
+          retry: "Retry",
+          primaryError: "Review rows could not be refreshed",
+          enrichmentError: "Review summaries could not be refreshed",
+          enrichmentStale: "Showing the last available summaries.",
+          drawerError: "Dividend details could not be loaded",
+        },
         preset: {
           yesterday: "Yesterday",
           thisWeek: "This Week",
@@ -521,6 +530,15 @@ export const dividendsI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "dividend
         pageTitle: "股利總覽",
         pageDescription: "檢閱並對帳所有帳戶的股利分錄。",
         breadcrumb: "股利總覽",
+        loading: {
+          loading: "正在載入股利覆核資料",
+          refreshing: "正在更新股利覆核資料…",
+          retry: "重試",
+          primaryError: "無法更新股利覆核資料",
+          enrichmentError: "無法更新股利彙總資料",
+          enrichmentStale: "目前顯示上次成功載入的彙總資料。",
+          drawerError: "無法載入股利明細",
+        },
         preset: {
           yesterday: "昨天",
           thisWeek: "本週",

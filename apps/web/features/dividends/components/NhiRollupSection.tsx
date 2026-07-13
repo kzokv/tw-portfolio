@@ -6,6 +6,7 @@ import { formatCurrencyAmount } from "../../../lib/utils";
 import type {
   DividendSourceBucket,
   DividendSourceLine,
+  DividendReviewNhiRollupDto,
   LocaleCode,
 } from "@vakwen/shared-types";
 import type { DividendLedgerEntryDetails } from "../types";
@@ -135,7 +136,8 @@ export function aggregateEtfSourceLines(
 }
 
 interface NhiRollupSectionProps {
-  ledgerEntries: DividendLedgerEntryDetails[];
+  ledgerEntries?: DividendLedgerEntryDetails[];
+  rollup?: DividendReviewNhiRollupDto;
   dict: AppDictionary;
   locale: LocaleCode;
   onFilterPending: () => void;
@@ -147,16 +149,20 @@ function formatTemplate(template: string, values: Record<string, string | number
 
 export function NhiRollupSection({
   ledgerEntries,
+  rollup,
   dict,
   locale,
   onFilterPending,
 }: NhiRollupSectionProps) {
   const d = dict.dividends.review.nhiRollup;
 
-  const { bucketAggregates, nhiSubjectTotal, projectedPremium, pendingCount } =
-    useMemo(() => aggregateEtfSourceLines(ledgerEntries), [ledgerEntries]);
+  const calculated = useMemo(() => aggregateEtfSourceLines(ledgerEntries ?? []), [ledgerEntries]);
+  const { nhiSubjectTotal, projectedPremium, pendingCount } = rollup ?? calculated;
+  const bucketAggregates = rollup
+    ? rollup.bucketAggregates.map((aggregate) => ({ ...aggregate, bucket: aggregate.sourceBucket }))
+    : calculated.bucketAggregates;
 
-  const hasEtfEntries = ledgerEntries.some(
+  const hasEtfEntries = rollup?.hasEtfEntries ?? (ledgerEntries ?? []).some(
     (e) => e.instrumentType === "ETF" || e.instrumentType === "BOND_ETF",
   );
 

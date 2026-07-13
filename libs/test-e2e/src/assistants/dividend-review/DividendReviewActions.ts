@@ -137,6 +137,16 @@ export class DividendReviewActions extends AppBaseActions {
   }
 
   @Step()
+  async selectMobileSortField(field: string): Promise<void> {
+    await this.uiActions.select.perform(this.el.mobileSortField, field);
+  }
+
+  @Step()
+  async selectMobileSortDirection(direction: "asc" | "desc"): Promise<void> {
+    await this.uiActions.select.perform(this.el.mobileSortDirection, direction);
+  }
+
+  @Step()
   async clickRow(ledgerEntryId: string): Promise<void> {
     await this.uiActions.click.perform(this.el.row(ledgerEntryId));
   }
@@ -164,6 +174,31 @@ export class DividendReviewActions extends AppBaseActions {
   @Step()
   async clickPreviousPage(): Promise<void> {
     await this.uiActions.click.perform(this.el.paginationPrev);
+  }
+
+  @Step()
+  async selectPageSize(limit: 10 | 25 | 50): Promise<void> {
+    await this.uiActions.select.perform(this.el.pageSize, String(limit));
+  }
+
+  @Step()
+  async retryPrimary(): Promise<void> {
+    await this.uiActions.click.perform(this.el.primaryRetry);
+  }
+
+  @Step()
+  async retryEnrichment(): Promise<void> {
+    await this.uiActions.click.perform(this.el.enrichmentRetry);
+  }
+
+  @Step()
+  async closeDrawer(): Promise<void> {
+    await this.uiActions.click.perform(this.el.drawer.closeButton);
+  }
+
+  @Step()
+  async retryDrawer(): Promise<void> {
+    await this.uiActions.click.perform(this.el.drawerRetry);
   }
 
   // ─── Calendar page navigation ───��────────────────────────────────────────

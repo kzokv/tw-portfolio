@@ -12,6 +12,8 @@ export const PORTFOLIO_CONTEXT_ROUTE_CACHE_TAGS = [
   buildRouteDtoCacheTag("route", "reports"),
   buildRouteDtoCacheTag("route", "analysis-unrealized-pnl"),
   buildRouteDtoCacheTag("route", "transactions-primary"),
+  buildRouteDtoCacheTag("route", "dividend-review-primary"),
+  buildRouteDtoCacheTag("route", "dividend-review-enrichment"),
 ] as const;
 
 export type RouteDtoCacheStatus = "fresh" | "stale";
@@ -47,7 +49,9 @@ export type RouteDtoCachePolicySlot =
   | "portfolio-primary"
   | "analysis-unrealized-pnl"
   | "reports"
-  | "transactions-primary";
+  | "transactions-primary"
+  | "dividend-review-primary"
+  | "dividend-review-enrichment";
 
 export interface RouteDtoCacheDurations {
   staleTtlMs: number;
@@ -267,10 +271,12 @@ function defaultTtlForSlot(slot: RouteDtoCachePolicySlot): number {
     case "dashboard-enrichment":
     case "portfolio-primary":
     case "transactions-primary":
+    case "dividend-review-primary":
       return 120_000;
     case "dashboard-performance":
     case "analysis-unrealized-pnl":
     case "reports":
+    case "dividend-review-enrichment":
       return 300_000;
   }
 }
@@ -285,9 +291,11 @@ function ttlForPolicySlot(policy: RouteCachePolicyDto, slot: RouteDtoCachePolicy
       return policy.dashboardPerformanceTtlMs;
     case "portfolio-primary":
     case "transactions-primary":
+    case "dividend-review-primary":
       return policy.portfolioTtlMs;
     case "reports":
     case "analysis-unrealized-pnl":
+    case "dividend-review-enrichment":
       return policy.reportsTtlMs;
   }
 }

@@ -1,7 +1,9 @@
 import { Buffer } from "node:buffer";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
-type TimingKind = "db" | "app";
+// A phase may overlap db/app segments and is therefore diagnostic-only in the
+// corresponding summary totals.
+type TimingKind = "db" | "app" | "phase";
 
 interface TimingSegment {
   name: string;
@@ -25,6 +27,10 @@ export class ReadPathTiming {
         durationMs: performance.now() - startedAt,
       });
     }
+  }
+
+  record(name: string, kind: TimingKind, durationMs: number): void {
+    this.segments.push({ name, kind, durationMs: Math.max(0, durationMs) });
   }
 
   attach(req: FastifyRequest, reply: FastifyReply, route: string, payload: unknown): void {

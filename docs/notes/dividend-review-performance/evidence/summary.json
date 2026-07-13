@@ -1,0 +1,370 @@
+{
+  "apiPrimaryScenarios": {
+    "paymentDate:asc": {
+      "count": 20,
+      "medianMs": 22.01924999999983,
+      "p95Ms": 58.68045899999993,
+      "maxMs": 92.82604100000003
+    },
+    "paymentDate:desc": {
+      "count": 20,
+      "medianMs": 24.16300000000001,
+      "p95Ms": 32.4836250000003,
+      "maxMs": 47.22737499999994
+    },
+    "ticker:asc": {
+      "count": 20,
+      "medianMs": 14.972416000000067,
+      "p95Ms": 26.03862500000014,
+      "maxMs": 41.24620899999991
+    },
+    "ticker:desc": {
+      "count": 20,
+      "medianMs": 17.476708000000144,
+      "p95Ms": 28.98075000000017,
+      "maxMs": 42.590666000000056
+    },
+    "account:asc": {
+      "count": 20,
+      "medianMs": 21.00479099999984,
+      "p95Ms": 49.36733400000003,
+      "maxMs": 56.11833300000035
+    },
+    "account:desc": {
+      "count": 20,
+      "medianMs": 17.96900000000005,
+      "p95Ms": 31.05987499999992,
+      "maxMs": 32.52754199999981
+    },
+    "expectedGrossAmount:asc": {
+      "count": 20,
+      "medianMs": 18.994958000000224,
+      "p95Ms": 34.761375000000044,
+      "maxMs": 37.48516700000073
+    },
+    "expectedGrossAmount:desc": {
+      "count": 20,
+      "medianMs": 22.259000000000015,
+      "p95Ms": 29.600625000000036,
+      "maxMs": 30.20812500000011
+    },
+    "receivedCashAmount:asc": {
+      "count": 20,
+      "medianMs": 23.51604099999986,
+      "p95Ms": 42.50758399999995,
+      "maxMs": 53.79454200000055
+    },
+    "receivedCashAmount:desc": {
+      "count": 20,
+      "medianMs": 15.801667000000634,
+      "p95Ms": 41.00516599999992,
+      "maxMs": 56.504249999999956
+    },
+    "nhiAmount:asc": {
+      "count": 20,
+      "medianMs": 17.4565419999999,
+      "p95Ms": 39.97120800000084,
+      "maxMs": 48.67958300000009
+    },
+    "nhiAmount:desc": {
+      "count": 20,
+      "medianMs": 21.94775000000027,
+      "p95Ms": 55.66449999999986,
+      "maxMs": 58.27370900000005
+    },
+    "bankFeeAmount:asc": {
+      "count": 20,
+      "medianMs": 19.62462499999947,
+      "p95Ms": 34.95762500000001,
+      "maxMs": 43.554958000000624
+    },
+    "bankFeeAmount:desc": {
+      "count": 20,
+      "medianMs": 17.40979200000038,
+      "p95Ms": 26.143541999999798,
+      "maxMs": 29.573083000000224
+    },
+    "otherDeductionAmount:asc": {
+      "count": 20,
+      "medianMs": 19.054041000000325,
+      "p95Ms": 42.85216600000058,
+      "maxMs": 43.837125000000015
+    },
+    "otherDeductionAmount:desc": {
+      "count": 20,
+      "medianMs": 20.8924590000006,
+      "p95Ms": 24.63195900000028,
+      "maxMs": 27.69420799999898
+    },
+    "expectedNetAmount:asc": {
+      "count": 20,
+      "medianMs": 18.37304199999926,
+      "p95Ms": 26.729583999998795,
+      "maxMs": 29.763958999999886
+    },
+    "expectedNetAmount:desc": {
+      "count": 20,
+      "medianMs": 15.80408400000124,
+      "p95Ms": 25.643417000001136,
+      "maxMs": 26.56225000000086
+    },
+    "actualNetAmount:asc": {
+      "count": 20,
+      "medianMs": 22.12487499999952,
+      "p95Ms": 42.890292000000045,
+      "maxMs": 43.76433300000099
+    },
+    "actualNetAmount:desc": {
+      "count": 20,
+      "medianMs": 25.01012499999888,
+      "p95Ms": 39.463707999999315,
+      "maxMs": 39.853124999999636
+    },
+    "varianceAmount:asc": {
+      "count": 20,
+      "medianMs": 22.204750000000786,
+      "p95Ms": 29.361000000000786,
+      "maxMs": 35.73566699999901
+    },
+    "varianceAmount:desc": {
+      "count": 20,
+      "medianMs": 19.772084000000177,
+      "p95Ms": 31.073833000000377,
+      "maxMs": 31.379166999999143
+    },
+    "reconciliationStatus:asc": {
+      "count": 20,
+      "medianMs": 18.428000000001703,
+      "p95Ms": 37.39550000000054,
+      "maxMs": 72.02929199999926
+    },
+    "reconciliationStatus:desc": {
+      "count": 20,
+      "medianMs": 16.47508299999936,
+      "p95Ms": 29.34333399999923,
+      "maxMs": 43.309125000001586
+    }
+  },
+  "apiPrimary": {
+    "count": 480,
+    "medianMs": 21.009499999998297,
+    "p95Ms": 39.97120800000084,
+    "maxMs": 92.82604100000003
+  },
+  "apiEnrichment": {
+    "count": 20,
+    "medianMs": 15.828707999999097,
+    "p95Ms": 47.665915999999925,
+    "maxMs": 71.18866699999853
+  },
+  "coldTableUsable": {
+    "count": 20,
+    "medianMs": 682.7453750000059,
+    "p95Ms": 958.2615839999999,
+    "maxMs": 1022.1969580000004
+  },
+  "enrichmentComplete": {
+    "count": 20,
+    "medianMs": 890.6489590000019,
+    "p95Ms": 1348.023208000006,
+    "maxMs": 1414.6760420000028
+  },
+  "sortScenarios": {
+    "paymentDate:asc": {
+      "count": 20,
+      "medianMs": 318.5,
+      "p95Ms": 479.90000009536743,
+      "maxMs": 497.90000009536743
+    },
+    "paymentDate:desc": {
+      "count": 20,
+      "medianMs": 150.29999995231628,
+      "p95Ms": 263.2000000476837,
+      "maxMs": 268.5
+    },
+    "ticker:asc": {
+      "count": 20,
+      "medianMs": 262.7999999523163,
+      "p95Ms": 648.4000000953674,
+      "maxMs": 712.2999999523163
+    },
+    "ticker:desc": {
+      "count": 20,
+      "medianMs": 184.70000004768372,
+      "p95Ms": 258.5,
+      "maxMs": 311.90000009536743
+    },
+    "account:asc": {
+      "count": 20,
+      "medianMs": 289,
+      "p95Ms": 457.90000009536743,
+      "maxMs": 467
+    },
+    "account:desc": {
+      "count": 20,
+      "medianMs": 237.29999995231628,
+      "p95Ms": 335.30000019073486,
+      "maxMs": 358.59999990463257
+    },
+    "expectedGrossAmount:asc": {
+      "count": 20,
+      "medianMs": 274.19999980926514,
+      "p95Ms": 530.2000000476837,
+      "maxMs": 571.3000001907349
+    },
+    "expectedGrossAmount:desc": {
+      "count": 20,
+      "medianMs": 205.29999995231628,
+      "p95Ms": 300.2999999523163,
+      "maxMs": 336.10000014305115
+    },
+    "receivedCashAmount:asc": {
+      "count": 20,
+      "medianMs": 225.80000019073486,
+      "p95Ms": 438.09999990463257,
+      "maxMs": 446.09999990463257
+    },
+    "receivedCashAmount:desc": {
+      "count": 20,
+      "medianMs": 195.29999995231628,
+      "p95Ms": 262.90000009536743,
+      "maxMs": 292.09999990463257
+    },
+    "nhiAmount:asc": {
+      "count": 20,
+      "medianMs": 223.90000009536743,
+      "p95Ms": 501.39999985694885,
+      "maxMs": 740.0999999046326
+    },
+    "nhiAmount:desc": {
+      "count": 20,
+      "medianMs": 195,
+      "p95Ms": 440.7000000476837,
+      "maxMs": 510.7999999523163
+    },
+    "bankFeeAmount:asc": {
+      "count": 20,
+      "medianMs": 125.40000009536743,
+      "p95Ms": 170.09999990463257,
+      "maxMs": 249.29999995231628
+    },
+    "bankFeeAmount:desc": {
+      "count": 20,
+      "medianMs": 117.20000004768372,
+      "p95Ms": 202.20000004768372,
+      "maxMs": 217.79999995231628
+    },
+    "otherDeductionAmount:asc": {
+      "count": 20,
+      "medianMs": 141.40000009536743,
+      "p95Ms": 184.79999995231628,
+      "maxMs": 322.09999990463257
+    },
+    "otherDeductionAmount:desc": {
+      "count": 20,
+      "medianMs": 129.20000004768372,
+      "p95Ms": 311.59999990463257,
+      "maxMs": 467.30000019073486
+    },
+    "expectedNetAmount:asc": {
+      "count": 20,
+      "medianMs": 184,
+      "p95Ms": 460.09999990463257,
+      "maxMs": 504.10000014305115
+    },
+    "expectedNetAmount:desc": {
+      "count": 20,
+      "medianMs": 130.09999990463257,
+      "p95Ms": 230.09999990463257,
+      "maxMs": 289.7999999523163
+    },
+    "actualNetAmount:asc": {
+      "count": 20,
+      "medianMs": 144.20000004768372,
+      "p95Ms": 198.40000009536743,
+      "maxMs": 205.5
+    },
+    "actualNetAmount:desc": {
+      "count": 20,
+      "medianMs": 132.10000014305115,
+      "p95Ms": 221.19999980926514,
+      "maxMs": 262.7999999523163
+    },
+    "varianceAmount:asc": {
+      "count": 20,
+      "medianMs": 112.40000009536743,
+      "p95Ms": 141.19999980926514,
+      "maxMs": 188.30000019073486
+    },
+    "varianceAmount:desc": {
+      "count": 20,
+      "medianMs": 97.29999995231628,
+      "p95Ms": 169.20000004768372,
+      "maxMs": 174.89999985694885
+    },
+    "reconciliationStatus:asc": {
+      "count": 20,
+      "medianMs": 130.70000004768372,
+      "p95Ms": 172.5,
+      "maxMs": 275.5
+    },
+    "reconciliationStatus:desc": {
+      "count": 20,
+      "medianMs": 85,
+      "p95Ms": 143.29999995231628,
+      "maxMs": 162
+    }
+  },
+  "sorts": {
+    "count": 480,
+    "medianMs": 163,
+    "p95Ms": 438.09999990463257,
+    "maxMs": 740.0999999046326
+  },
+  "pagination": {
+    "count": 40,
+    "medianMs": 69.5,
+    "p95Ms": 155.80000019073486,
+    "maxMs": 277.40000009536743
+  },
+  "pageSizeScenarios": {
+    "10": {
+      "count": 20,
+      "medianMs": 18,
+      "p95Ms": 65.5,
+      "maxMs": 76.40000009536743
+    },
+    "25": {
+      "count": 20,
+      "medianMs": 54.59999990463257,
+      "p95Ms": 89.70000004768372,
+      "maxMs": 97.40000009536743
+    },
+    "50": {
+      "count": 20,
+      "medianMs": 67.29999995231628,
+      "p95Ms": 98.09999990463257,
+      "maxMs": 101.40000009536743
+    }
+  },
+  "pageSizeChanges": {
+    "count": 60,
+    "medianMs": 51.89999985694885,
+    "p95Ms": 89.70000004768372,
+    "maxMs": 101.40000009536743
+  },
+  "filterPrimary": {
+    "count": 20,
+    "medianMs": 54.59999990463257,
+    "p95Ms": 132.39999985694885,
+    "maxMs": 137.60000014305115
+  },
+  "loadingFeedback": {
+    "count": 560,
+    "medianMs": 9.700000047683716,
+    "p95Ms": 51.90000009536743,
+    "maxMs": 92.39999985694885
+  },
+  "wrongQueryFrames": 0,
+  "paginationIdentityFailures": 0
+}

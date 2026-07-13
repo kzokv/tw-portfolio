@@ -129,3 +129,7 @@
 
 ## Promoted to .claude/rules/ (unrealized-pnl-ux, 2026-07-01)
 - `additive-dto-mappers.md` — Client/service mappers for additive DTO fields must tolerate omitted fields unless the API contract makes them required, so one new optional payload field cannot throw a whole route into a stale fallback path.
+
+## Promoted to .claude/rules/ (Dividends Review performance, 2026-07-13)
+- `smooth-page-performance-boundaries.md` — Context-switch no-remount exceptions must be route-scoped to clients that consume the context refresh signal; unrelated server-seeded routes retain the global refresh fallback.
+- `playwright-web-bundle-rebuild.md` — Concurrent agents in one worktree must serialize `.next` writers and production-bundle consumers; separate ports do not isolate shared build artifacts.

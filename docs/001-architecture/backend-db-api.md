@@ -35,6 +35,7 @@ This section defines the backend contract for the authenticated page-performance
 | Reports | `GET /reports/daily-review`, `GET /reports/portfolio`, `GET /reports/market` | follow-up reads hit the same route-specific report endpoint with updated query state |
 | Portfolio holdings | `GET /portfolio/primary` | `GET /portfolio/enrichment` |
 | Transactions | `GET /transactions/primary` | `GET /portfolio/transactions`, AI inbox routes |
+| Dividends Review | `GET /portfolio/dividends/review/primary` | `GET /portfolio/dividends/review/enrichment`; persisted row detail from `GET /portfolio/dividends/postings/:dividendLedgerEntryId` |
 | Ticker detail | route-level primary composition today; backend split is `GET /tickers/:ticker/primary` | `GET /tickers/:ticker/enrichment` |
 | Settings tickers | `GET /monitored-tickers` | `GET /instruments` when catalog browse/search opens |
 | AI connector settings | `GET /ai/connectors/summary` | `GET /ai/connectors/logs` |
@@ -48,6 +49,23 @@ Temporary exceptions:
 - The ticker web route has not fully switched to `GET /tickers/:ticker/primary`; current page boot still composes from dashboard primary data plus filtered transaction history, while `GET /tickers/:ticker/enrichment` defines the intended richer follow-up contract.
 
 The next backend optimization step is replacing these transitional read paths with narrower Postgres projections once the UI contract is stable.
+
+### Dividends Review read model
+
+Dividends Review follows the same primary/enrichment boundary as Dashboard and Portfolio, but its Postgres implementation is already a targeted read model rather than a `loadStore()` transition:
+
+| Read | Query identity | Response | Execution boundary |
+|---|---|---|---|
+| Primary | portfolio context; payment-date, account, ticker, market, posting, reconciliation, expected-row, and source-composition filters; sort field/direction; page; page size | lightweight row summaries, filtered total, eligible years, account options | builds filtered ledger and synthetic expected rows in SQL, applies an allowlisted SQL sort with stable tie-breakers, counts the complete filtered set, and returns only the requested 10/25/50-row page |
+| Enrichment | portfolio context and the same semantic filters; no sort or pagination | currency/month/ticker aggregates, open count, NHI rollup, and source-composition counts | aggregates the complete filtered normalized row set independently of the current page |
+| Persisted row detail | portfolio context and ledger-entry ID | primary summary fields plus deductions, source lines, reconciliation/amendment metadata, and linked position-action state | tenant-scoped direct-ID lookup followed by bulk detail hydration for that one row |
+| Compatibility | primary query identity | detailed current page, total, and legacy aggregates | composes the optimized primary and enrichment reads in parallel, then hydrates details for the selected page only |
+
+`dividendReviewNormalizedSql()` is the shared filter boundary for the Postgres primary and enrichment reads. It creates tenant-scoped `eligible_ledger`, ledger-ID-scoped receipt/deduction/action aggregates, and synthetic expected rows. Expected eligibility is replayed in recursive SQL with per-lot state for trades, stock dividends, splits, and cash-in-lieu validity. Reversed and superseded ledger, trade, and position-action history is excluded. The pending source-composition filter is applied inside this normalized set, before count, sort, page selection, and enrichment aggregation.
+
+The primary query maps each validated sort field to a static SQL expression. It orders the requested field and direction first, then uses payment date, ticker, account name, and row ID as deterministic tie-breakers. Page hydration happens after `LIMIT`/`OFFSET`; the primary DTO does not include deductions or source lines. The memory persistence implementation exposes the same primary, enrichment, metadata, compatibility, and detail contracts for deterministic test/dev parity.
+
+No Dividends Review projection, materialized view, or new index was added with this read model. Add an index only after `EXPLAIN ANALYZE` and repeated post-change measurements identify a justified bottleneck.
 
 ### Target budgets
 
@@ -79,6 +97,8 @@ If a route cannot meet these targets because of unavoidable data shape complexit
   - `GET /transactions/primary`
   - `GET /portfolio/transactions`
   - `GET /portfolio/cash-ledger`
+  - `GET /portfolio/dividends/review/primary`
+  - `GET /portfolio/dividends/review/enrichment`
   - `GET /monitored-tickers`
   - `GET /instruments`
   - `GET /ai/connectors/summary`
@@ -1655,6 +1675,10 @@ Resolution order and guards:
 | `GET` | `/dividend-events` | none | `DividendEvent[]` | `listDividendEvents` | not used by shipped UI |
 | `POST` | `/dividend-events` | `{ symbol, eventType, exDividendDate, paymentDate, cashDividendPerShare, cashDividendCurrency, stockDividendPerShare, sourceType?, sourceReference? }` | created `DividendEvent` | `createDividendEvent`, `saveAccountingStore` | not used by shipped UI |
 | `GET` | `/portfolio/dividends/ledger` | none | `DividendLedgerEntry[]` | `listDividendLedgerEntries` | not used by shipped UI |
+| `GET` | `/portfolio/dividends/review/primary` | semantic filters plus `sortBy`, `sortOrder`, `page`, and `limit` (10/25/50) | `{ reviewRows, total, years, accounts }` with lightweight row summaries | `listDividendReviewPrimary`, `listDividendReviewMetadata`, `Server-Timing` | Dividends Review first useful table |
+| `GET` | `/portfolio/dividends/review/enrichment` | semantic filters only | `{ aggregates, nhiRollup, sourceComposition }` | `getDividendReviewEnrichment`, `Server-Timing` | deferred Review cards/chart/NHI data |
+| `GET` | `/portfolio/dividends/review` | same primary query | compatibility `{ reviewRows, total, aggregates }` with detailed rows for the selected page | optimized primary + enrichment in parallel, page-only detail hydration | compatibility callers only |
+| `GET` | `/portfolio/dividends/postings/:dividendLedgerEntryId` | tenant-scoped ledger-entry ID | detailed persisted Review row | targeted `getDividendReviewRowDetail` lookup | Review drawer on demand |
 | `POST` | `/portfolio/dividends/postings` | `{ accountId, dividendEventId, receivedCashAmount, receivedStockQuantity, deductions[] }` + `idempotency-key` header | `{ dividendEvent, dividendLedgerEntry, dividendDeductionEntries, linkedCashLedgerEntries, comparison }` | `postDividend`, Redis idempotency, `savePostedDividend` | not used by shipped UI |
 | `GET` | `/corporate-actions` | none | `CorporateAction[]` | `listCorporateActions` | not used by shipped UI |
 | `POST` | `/corporate-actions` | `{ accountId, symbol, actionType, numerator, denominator, actionDate }` | created `CorporateAction` | `applyCorporateAction`, `saveAccountingStore` | not used by shipped UI |
@@ -1684,6 +1708,12 @@ Dividend posting behavior:
 - writes deduction rows separately from the dividend ledger row
 - writes linked cash ledger entries for receipt and deductions
 - optionally creates a stock-dividend lot on payment date
+
+Dividends Review timing behavior:
+
+- Primary emits total/app/DB timing through the shared read-path wrapper plus `review_primary_metadata`, `review_primary_db`, and `review_primary_hydration` `Server-Timing` entries and structured phases.
+- Enrichment emits total/app/DB timing plus `review_enrichment_db` and `review_enrichment_aggregate` entries.
+- The dimensions distinguish query work from summary mapping/page hydration and aggregate work. They are instrumentation, not proof that the performance budgets have been met; post-change P95 evidence still requires the repeated Postgres and browser measurements defined in the locked scope note.
 
 Corporate action behavior:
 - `DIVIDEND` only appends the action record
