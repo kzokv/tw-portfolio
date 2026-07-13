@@ -1,4 +1,4 @@
-import { expect } from "@playwright/test";
+import { expect, type Locator } from "@playwright/test";
 import { Step } from "@vakwen/test-framework/decorators";
 import { BaseAssert } from "@vakwen/test-framework/mixins";
 import type { DividendReviewPage } from "../../pages/dividends/DividendReviewPage.js";
@@ -8,6 +8,71 @@ export class DividendReviewAssert extends BaseAssert {
 
   private get el() {
     return this._instance.elements;
+  }
+
+  @Step()
+  async locatorIsVisible(locator: Locator): Promise<void> {
+    await expect(locator).toBeVisible();
+  }
+
+  @Step()
+  async locatorIsHidden(locator: Locator): Promise<void> {
+    await expect(locator).toHaveCount(0);
+  }
+
+  @Step()
+  async locatorHasCount(locator: Locator, count: number): Promise<void> {
+    await expect(locator).toHaveCount(count);
+  }
+
+  @Step()
+  async locatorContains(locator: Locator, text: string | RegExp): Promise<void> {
+    await expect(locator).toContainText(text);
+  }
+
+  @Step()
+  async locatorIsFocused(locator: Locator): Promise<void> {
+    await expect(locator).toBeFocused();
+  }
+
+  @Step()
+  async locatorHasAttribute(locator: Locator, name: string, value: string): Promise<void> {
+    await expect(locator).toHaveAttribute(name, value);
+  }
+
+  @Step()
+  valueEquals(actual: unknown, expected: unknown): void {
+    expect(JSON.stringify(actual)).toBe(JSON.stringify(expected));
+  }
+
+  @Step()
+  valueDoesNotEqual(actual: unknown, expected: unknown): void {
+    expect(JSON.stringify(actual)).not.toBe(JSON.stringify(expected));
+  }
+
+  @Step()
+  valueContains(actual: string | undefined, expected: string): void {
+    expect(actual).toContain(expected);
+  }
+
+  @Step()
+  valueIsTrue(actual: boolean): void {
+    expect(actual).toBe(true);
+  }
+
+  @Step()
+  valueIsGreaterThan(actual: number, expected: number): void {
+    expect(actual).toBeGreaterThan(expected);
+  }
+
+  @Step()
+  async navigationCountIs(expected: number): Promise<void> {
+    expect(await this.page.evaluate(() => performance.getEntriesByType("navigation").length)).toBe(expected);
+  }
+
+  @Step()
+  async viewportHasNoHorizontalOverflow(): Promise<void> {
+    expect(await this.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   }
 
   // ─── Page state ──────────────────────────────────────────────────────────
@@ -96,6 +161,35 @@ export class DividendReviewAssert extends BaseAssert {
   }
 
   @Step()
+  async orderedRowIdsAre(expectedIds: string[]): Promise<void> {
+    await expect.poll(async () => this.el.rows.evaluateAll((rows) => rows.map((row) => (
+      row.getAttribute("data-testid")?.replace(/^review-row-/, "") ?? ""
+    )))).toEqual(expectedIds);
+  }
+
+  @Step()
+  async orderedRowIds(): Promise<string[]> {
+    return this.el.rows.evaluateAll((rows) => rows.map((row) => (
+      row.getAttribute("data-testid")?.replace(/^review-row-/, "") ?? ""
+    )));
+  }
+
+  @Step()
+  async tableBusy(expected: boolean): Promise<void> {
+    await expect(this.el.table).toHaveAttribute("aria-busy", String(expected));
+  }
+
+  @Step()
+  async skeletonsAreVisible(): Promise<void> {
+    await expect(this.el.rowSkeletons.first()).toBeVisible();
+  }
+
+  @Step()
+  async skeletonsAreHidden(): Promise<void> {
+    await expect(this.el.rowSkeletons).toHaveCount(0);
+  }
+
+  @Step()
   async rowContainsText(ledgerEntryId: string, text: string | RegExp): Promise<void> {
     await expect(this.el.row(ledgerEntryId)).toContainText(text);
   }
@@ -144,11 +238,36 @@ export class DividendReviewAssert extends BaseAssert {
     await expect(this.el.tableHeader(field).first()).toContainText(/[↑↓]/);
   }
 
+  @Step()
+  async sortDirectionIs(field: string, direction: "ascending" | "descending" | "none"): Promise<void> {
+    await expect(this.el.tableHeaderCell(field)).toHaveAttribute("aria-sort", direction);
+  }
+
   // ─── Pagination assertions ───────────────────────────────────────────────
 
   @Step()
   async pageInfoContains(text: string | RegExp): Promise<void> {
     await expect(this.el.pagination).toContainText(text);
+  }
+
+  @Step()
+  async paginationIsDisabled(): Promise<void> {
+    await expect(this.el.paginationNext).toBeDisabled();
+  }
+
+  @Step()
+  async primaryErrorIsVisible(): Promise<void> {
+    await expect(this.el.primaryError).toBeVisible();
+  }
+
+  @Step()
+  async enrichmentErrorIsVisible(): Promise<void> {
+    await expect(this.el.enrichmentError).toBeVisible();
+  }
+
+  @Step()
+  async enrichmentLoadingIsVisible(): Promise<void> {
+    await expect(this.el.enrichmentLoading).toBeVisible();
   }
 
   // ─── Stats tile assertions ───────────────────────────────────────────────
@@ -241,6 +360,17 @@ export class DividendReviewAssert extends BaseAssert {
   @Step()
   async drawerContains(text: string | RegExp): Promise<void> {
     await expect(this.el.drawer.dialog).toContainText(text);
+  }
+
+  @Step()
+  async drawerLoadingIsVisible(): Promise<void> {
+    await expect(this.el.drawerLoading).toBeVisible();
+    await expect(this.el.drawerLoading).toHaveAttribute("aria-busy", "true");
+  }
+
+  @Step()
+  async drawerErrorIsVisible(): Promise<void> {
+    await expect(this.el.drawerError).toBeVisible();
   }
 
   // ─── NHI Rollup (KZO-134) ──────────────────────────────────────────────
