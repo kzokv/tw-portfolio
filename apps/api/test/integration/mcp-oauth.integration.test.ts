@@ -1141,7 +1141,7 @@ describe("MCP OAuth for ChatGPT", () => {
     expect(mismatch.json()).toMatchObject({ error: "invalid_request" });
   });
 
-  it("accepts ChatGPT URL client metadata with private_key_jwt token authentication and root JWKS URI", async () => {
+  it("accepts ChatGPT URL client metadata with token auth method choices and root JWKS URI", async () => {
     const verifier = "verifier-1234567890123456789012345678901234567890123";
     const clientId = "https://chatgpt.com/oauth/qJslh6tN1MVz/client.json";
     const redirectUri = "https://chatgpt.com/connector/oauth/qJslh6tN1MVz";
@@ -1169,7 +1169,7 @@ describe("MCP OAuth for ChatGPT", () => {
             grant_types: ["authorization_code", "refresh_token"],
             response_types: ["code"],
             client_name: "ChatGPT",
-            token_endpoint_auth_method: "private_key_jwt",
+            token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
             token_endpoint_auth_signing_alg: "RS256",
             jwks_uri: jwksUri,
           })
@@ -1228,6 +1228,25 @@ describe("MCP OAuth for ChatGPT", () => {
     const code = approveRedirect.searchParams.get("code");
     expect(approveRedirect.origin + approveRedirect.pathname).toBe(redirectUri);
     expect(code).toBeTruthy();
+
+    const missingAssertion = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      headers: { "content-type": "application/x-www-form-urlencoded", host: "localhost:4000" },
+      payload: form({
+        grant_type: "authorization_code",
+        code: String(code),
+        redirect_uri: redirectUri,
+        client_id: clientId,
+        code_verifier: verifier,
+        resource,
+      }),
+    });
+    expect(missingAssertion.statusCode).toBe(400);
+    expect(missingAssertion.json()).toMatchObject({
+      error: "invalid_client",
+      error_description: "Client private_key_jwt assertion is required",
+    });
 
     const token = await app.inject({
       method: "POST",

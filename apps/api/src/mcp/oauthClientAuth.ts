@@ -100,6 +100,7 @@ const clientMetadataDocumentSchema = z.object({
   grant_types: z.array(z.string()).optional(),
   response_types: z.array(z.string()).optional(),
   token_endpoint_auth_method: z.string().optional(),
+  token_endpoint_auth_methods_supported: z.array(z.string()).min(1).optional(),
   token_endpoint_auth_signing_alg: z.string().optional(),
   jwks_uri: z.string().url().optional(),
 }).passthrough();
@@ -134,8 +135,10 @@ const clientAssertionPayloadSchema = z.object({
 
 type ClientMetadataDocument = z.infer<typeof clientMetadataDocumentSchema>;
 type JwkDocumentKey = z.infer<typeof jwkSchema>;
+type TokenEndpointAuthMethod = "none" | "private_key_jwt";
 
 const CLAUDE_AI_METADATA_URL = "https://claude.ai/oauth/mcp-oauth-client-metadata";
+const SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS = new Set<TokenEndpointAuthMethod>(["none", "private_key_jwt"]);
 
 export interface McpOAuthClientIdentity {
   clientKind: AiConnectorClientKind;
@@ -177,6 +180,25 @@ function detectOAuthClientIdentity(clientId: string, metadata: ClientMetadataDoc
         clientKind: "chatgpt_app",
         label: "ChatGPT / OpenAI Apps",
       };
+}
+
+function isSupportedTokenEndpointAuthMethod(value: string): value is TokenEndpointAuthMethod {
+  return SUPPORTED_TOKEN_ENDPOINT_AUTH_METHODS.has(value as TokenEndpointAuthMethod);
+}
+
+function getSupportedTokenEndpointAuthMethods(metadata: ClientMetadataDocument): Set<TokenEndpointAuthMethod> {
+  if (metadata.token_endpoint_auth_methods_supported) {
+    const supported = metadata.token_endpoint_auth_methods_supported.filter(isSupportedTokenEndpointAuthMethod);
+    if (supported.length === 0) {
+      throw routeError(400, "invalid_client", "Client metadata document uses an unsupported token auth method");
+    }
+    return new Set(supported);
+  }
+  const tokenAuthMethod = metadata.token_endpoint_auth_method ?? "none";
+  if (!isSupportedTokenEndpointAuthMethod(tokenAuthMethod)) {
+    throw routeError(400, "invalid_client", "Client metadata document uses an unsupported token auth method");
+  }
+  return new Set([tokenAuthMethod]);
 }
 
 function privateIpv4(address: string): boolean {
@@ -351,11 +373,8 @@ function validateClientMetadataBasics(metadata: ClientMetadataDocument, clientId
   if (metadata.response_types && !metadata.response_types.includes("code")) {
     throw routeError(400, "invalid_client", "Client metadata document does not support code response type");
   }
-  const tokenAuthMethod = metadata.token_endpoint_auth_method ?? "none";
-  if (tokenAuthMethod !== "none" && tokenAuthMethod !== "private_key_jwt") {
-    throw routeError(400, "invalid_client", "Client metadata document uses an unsupported token auth method");
-  }
-  if (tokenAuthMethod === "private_key_jwt") {
+  const tokenAuthMethods = getSupportedTokenEndpointAuthMethods(metadata);
+  if (tokenAuthMethods.has("private_key_jwt")) {
     if (!metadata.jwks_uri) {
       throw routeError(400, "invalid_client", "Client metadata document must include jwks_uri for private_key_jwt");
     }
@@ -529,23 +548,27 @@ export async function validateOAuthTokenClient(
     return;
   }
   validateClientMetadataBasics(metadata, body.client_id);
-  const tokenAuthMethod = metadata.token_endpoint_auth_method ?? "none";
-  if (tokenAuthMethod === "none") {
-    if (body.client_assertion || body.client_assertion_type) {
+  const tokenAuthMethods = getSupportedTokenEndpointAuthMethods(metadata);
+  const hasClientAssertion = Boolean(body.client_assertion || body.client_assertion_type);
+  if (hasClientAssertion) {
+    if (!tokenAuthMethods.has("private_key_jwt")) {
       throw routeError(400, "invalid_client", "Public OAuth client must not send a client assertion");
     }
+    if (body.client_assertion_type !== CLIENT_ASSERTION_TYPE_JWT_BEARER || !body.client_assertion) {
+      throw routeError(400, "invalid_client", "Client private_key_jwt assertion is required");
+    }
+    await validatePrivateKeyJwtClientAuth({
+      metadata,
+      clientId: body.client_id,
+      assertion: body.client_assertion,
+      tokenEndpoint,
+    });
     return;
   }
-  if (tokenAuthMethod !== "private_key_jwt") {
-    throw routeError(400, "invalid_client", "Client metadata document uses an unsupported token auth method");
-  }
-  if (body.client_assertion_type !== CLIENT_ASSERTION_TYPE_JWT_BEARER || !body.client_assertion) {
+  if (tokenAuthMethods.has("private_key_jwt")) {
     throw routeError(400, "invalid_client", "Client private_key_jwt assertion is required");
   }
-  await validatePrivateKeyJwtClientAuth({
-    metadata,
-    clientId: body.client_id,
-    assertion: body.client_assertion,
-    tokenEndpoint,
-  });
+  if (!tokenAuthMethods.has("none")) {
+    throw routeError(400, "invalid_client", "Client private_key_jwt assertion is required");
+  }
 }
