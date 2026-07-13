@@ -565,6 +565,9 @@ export async function validateOAuthTokenClient(
     });
     return;
   }
+  if (tokenAuthMethods.has("private_key_jwt")) {
+    throw routeError(400, "invalid_client", "Client private_key_jwt assertion is required");
+  }
   if (!tokenAuthMethods.has("none")) {
     throw routeError(400, "invalid_client", "Client private_key_jwt assertion is required");
   }

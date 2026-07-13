@@ -1229,6 +1229,25 @@ describe("MCP OAuth for ChatGPT", () => {
     expect(approveRedirect.origin + approveRedirect.pathname).toBe(redirectUri);
     expect(code).toBeTruthy();
 
+    const missingAssertion = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      headers: { "content-type": "application/x-www-form-urlencoded", host: "localhost:4000" },
+      payload: form({
+        grant_type: "authorization_code",
+        code: String(code),
+        redirect_uri: redirectUri,
+        client_id: clientId,
+        code_verifier: verifier,
+        resource,
+      }),
+    });
+    expect(missingAssertion.statusCode).toBe(400);
+    expect(missingAssertion.json()).toMatchObject({
+      error: "invalid_client",
+      error_description: "Client private_key_jwt assertion is required",
+    });
+
     const token = await app.inject({
       method: "POST",
       url: "/oauth/token",
