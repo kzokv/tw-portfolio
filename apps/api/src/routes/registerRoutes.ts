@@ -555,6 +555,7 @@ const dividendReviewQuerySchema = z.object({
   excludeExpected: z.enum(["true", "false"]).transform((value) => value === "true").optional(),
   ticker: tickerSchema.optional(),
   marketCode: marketCodeSchema.optional(),
+  sourceComposition: z.literal("pending").optional(),
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().refine((value) => value === 10 || value === 25 || value === 50, {
     message: "limit must be one of 10, 25, or 50",
@@ -575,6 +576,13 @@ const dividendReviewQuerySchema = z.object({
     "reconciliationStatus",
   ]).default("paymentDate"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
+});
+
+const dividendReviewFilterQuerySchema = dividendReviewQuerySchema.omit({
+  page: true,
+  limit: true,
+  sortBy: true,
+  sortOrder: true,
 });
 
 const pagedDividendLimitSchema = z.coerce.number().int().refine((value) => value === 10 || value === 25 || value === 50, {
@@ -6778,6 +6786,41 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     return { payingToday, exDividendToday };
   });
 
+  app.get("/portfolio/dividends/review/primary", async (req, reply) => {
+    const query = dividendReviewQuerySchema.parse(req.query);
+    return withReadPathTiming(req, reply, "/portfolio/dividends/review/primary", async (timing) => {
+      const { contextUserId: userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+      const [primary, metadata] = await Promise.all([
+        app.persistence.listDividendReviewPrimary(userId, query),
+        timing.measure("review_primary_metadata", "db", () =>
+          app.persistence.listDividendReviewMetadata(userId)),
+      ]);
+      timing.record("review_primary_db", "db", primary.phaseTimings?.dbMs ?? 0);
+      timing.record("review_primary_hydration", "app", primary.phaseTimings?.hydrationMs ?? 0);
+      return {
+        reviewRows: primary.rows,
+        total: primary.total,
+        years: metadata.years,
+        accounts: metadata.accounts,
+      };
+    });
+  });
+
+  app.get("/portfolio/dividends/review/enrichment", async (req, reply) => {
+    const filters = dividendReviewFilterQuerySchema.parse(req.query);
+    return withReadPathTiming(req, reply, "/portfolio/dividends/review/enrichment", async (timing) => {
+      const { contextUserId: userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+      const enrichment = await app.persistence.getDividendReviewEnrichment(userId, filters);
+      timing.record("review_enrichment_db", "db", enrichment.phaseTimings?.dbMs ?? 0);
+      timing.record("review_enrichment_aggregate", "phase", enrichment.phaseTimings?.aggregateMs ?? 0);
+      return {
+        aggregates: enrichment.aggregates,
+        nhiRollup: enrichment.nhiRollup,
+        sourceComposition: enrichment.sourceComposition,
+      };
+    });
+  });
+
   app.get("/portfolio/dividends/review", async (req) => {
     const query = dividendReviewQuerySchema.parse(req.query);
     const { contextUserId: userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
@@ -6790,6 +6833,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       excludeExpected: query.excludeExpected,
       ticker: query.ticker,
       marketCode: query.marketCode,
+      sourceComposition: query.sourceComposition,
       page: query.page,
       limit: query.limit,
       sortBy: query.sortBy,
@@ -7079,16 +7123,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/portfolio/dividends/postings/:dividendLedgerEntryId", async (req) => {
     const params = z.object({ dividendLedgerEntryId: userScopedIdSchema }).parse(req.params);
-    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
-    const detailedEntry = await app.persistence.getDividendLedgerEntryWithDetails(
+    const { contextUserId: userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const ledgerEntry = await app.persistence.getDividendReviewRowDetail(
       userId,
       params.dividendLedgerEntryId,
     );
-    if (!detailedEntry) {
-      throw routeError(404, "dividend_ledger_entry_not_found", "Dividend ledger entry not found");
-    }
-    const store = await app.persistence.loadStore(userId);
-    const ledgerEntry = buildDividendLedgerEntryDetails(store, [detailedEntry])[0];
     if (!ledgerEntry) {
       throw routeError(404, "dividend_ledger_entry_not_found", "Dividend ledger entry not found");
     }

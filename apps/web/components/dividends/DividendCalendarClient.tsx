@@ -26,6 +26,7 @@ import { Drawer } from "../ui/Drawer";
 import { DividendPostingForm } from "./DividendPostingForm";
 import { DIVIDENDS_LEDGER_ONLY_PARAMS } from "./dividendsTabsUtils";
 import { useOptionalAppShellData } from "../layout/AppShellDataContext";
+import { clearDividendReviewCaches } from "../../features/dividends/dividendReviewCache";
 
 interface DividendCalendarClientProps {
   initialSnapshot: DividendCalendarSnapshot;
@@ -333,6 +334,7 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
     enabled: true,
     eventTypes: ["dividend_posted", "dividend_updated", "dividend_reconciliation_changed"],
     onEvent: () => {
+      clearDividendReviewCaches();
       void refreshSnapshot(query, activeMonthKey);
       void refreshDailyHighlights();
     },

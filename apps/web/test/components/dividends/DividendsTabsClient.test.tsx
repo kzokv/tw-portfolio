@@ -33,6 +33,9 @@ const fetchDividendCalendarSnapshotMock = vi.mocked(fetchDividendCalendarSnapsho
 const fetchDividendLedgerReviewMock = vi.mocked(fetchDividendLedgerReview);
 const fetchDividendLedgerYearsMock = vi.mocked(fetchDividendLedgerYears);
 const emptyReviewData = {
+  reviewRows: [],
+  years: [2026],
+  accounts: [],
   ledgerEntries: [],
   total: 0,
   aggregates: {
@@ -104,7 +107,7 @@ describe("DividendsTabsClient", () => {
     expect(fetchDividendLedgerYearsMock).not.toHaveBeenCalled();
   });
 
-  it("does not refetch ledger years after a successful empty years response", async () => {
+  it("keeps Review metadata inside the primary DTO without a separate years waterfall", async () => {
     fetchDividendLedgerYearsMock.mockResolvedValue([]);
 
     act(() => {
@@ -128,7 +131,7 @@ describe("DividendsTabsClient", () => {
     await act(async () => {});
 
     expect(fetchDividendLedgerReviewMock).not.toHaveBeenCalled();
-    expect(fetchDividendLedgerYearsMock).toHaveBeenCalledTimes(1);
+    expect(fetchDividendLedgerYearsMock).not.toHaveBeenCalled();
   });
 
   it("fetches calendar data only once after the inactive tab is first activated", async () => {
@@ -180,7 +183,7 @@ describe("DividendsTabsClient", () => {
     });
   });
 
-  it("refetches review data after opening Review with a different ledger filter", async () => {
+  it("passes a newly selected Review query to the Review client without a tabs-level fetch", async () => {
     const calendarSnapshot = { events: [], ledgerEntries: [] };
     const renderTabs = (initialTab: "calendar" | "ledger") => {
       root.render(
@@ -216,13 +219,7 @@ describe("DividendsTabsClient", () => {
     });
     await act(async () => {});
 
-    expect(fetchDividendLedgerReviewMock).toHaveBeenCalledTimes(1);
-    expect(fetchDividendLedgerReviewMock).toHaveBeenCalledWith(expect.objectContaining({
-      fromPaymentDate: "2026-05-01",
-      marketCode: "TW",
-      ticker: "2330",
-      toPaymentDate: "2026-05-31",
-    }));
+    expect(fetchDividendLedgerReviewMock).not.toHaveBeenCalled();
   });
 
   it("renders an error state when lazy calendar loading fails", async () => {
@@ -266,7 +263,7 @@ describe("DividendsTabsClient", () => {
     expect(container.textContent).toContain("calendar unavailable");
   });
 
-  it("renders an error state when lazy ledger loading fails", async () => {
+  it("mounts the Review shell when SSR primary data is unavailable", async () => {
     fetchDividendLedgerReviewMock.mockRejectedValue(new Error("ledger unavailable"));
 
     act(() => {
@@ -288,6 +285,6 @@ describe("DividendsTabsClient", () => {
 
     await act(async () => {});
 
-    expect(container.textContent).toContain("ledger unavailable");
+    expect(container.querySelector("[data-testid='mock-dividend-review-client']")).not.toBeNull();
   });
 });

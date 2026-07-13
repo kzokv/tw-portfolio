@@ -1,4 +1,13 @@
-import type { DividendDailyHighlightsDto, DividendLedgerAggregates, MarketCode } from "@vakwen/shared-types";
+import type {
+  DividendDailyHighlightsDto,
+  DividendLedgerAggregates,
+  DividendReviewEnrichmentDto,
+  DividendReviewFilterDto,
+  DividendReviewPrimaryDto,
+  DividendReviewPrimaryQueryDto,
+  DividendReviewRowDetailDto,
+  MarketCode,
+} from "@vakwen/shared-types";
 import { getJson, patchJson, postJson } from "../../../lib/api";
 import type {
   DividendCalendarSnapshot,
@@ -8,6 +17,7 @@ import type {
   DividendPostingResult,
   DividendReconciliationStatus,
 } from "../types";
+import { clearDividendReviewCaches } from "../dividendReviewCache";
 
 export interface DividendQuery {
   fromPaymentDate?: string;
@@ -31,6 +41,7 @@ export interface DividendReviewQuery {
   sortOrder?: "asc" | "desc";
   page?: number;
   limit?: number;
+  sourceComposition?: "pending";
 }
 
 interface DividendRequestOptions {
@@ -68,7 +79,7 @@ function buildQuery(params: DividendQuery): string {
   return query.toString();
 }
 
-function buildReviewQuery(params: DividendReviewQuery): string {
+function buildReviewQuery(params: DividendReviewQuery | DividendReviewFilterDto | DividendReviewPrimaryQueryDto): string {
   const query = new URLSearchParams();
 
   if (params.fromPaymentDate) query.set("fromPaymentDate", params.fromPaymentDate);
@@ -79,10 +90,11 @@ function buildReviewQuery(params: DividendReviewQuery): string {
   if (params.postingStatus) query.set("postingStatus", params.postingStatus);
   if (params.reconciliationStatus) query.set("reconciliationStatus", params.reconciliationStatus);
   if (params.excludeExpected) query.set("excludeExpected", "true");
-  if (params.sortBy) query.set("sortBy", params.sortBy);
-  if (params.sortOrder) query.set("sortOrder", params.sortOrder);
-  if (params.page) query.set("page", String(params.page));
-  if (params.limit) query.set("limit", String(params.limit));
+  if (params.sourceComposition) query.set("sourceComposition", params.sourceComposition);
+  if ("sortBy" in params && params.sortBy) query.set("sortBy", params.sortBy);
+  if ("sortOrder" in params && params.sortOrder) query.set("sortOrder", params.sortOrder);
+  if ("page" in params && params.page) query.set("page", String(params.page));
+  if ("limit" in params && params.limit) query.set("limit", String(params.limit));
 
   return query.toString();
 }
@@ -143,11 +155,13 @@ export async function fetchDividendDailyHighlights(
 }
 
 export async function submitDividendPosting(payload: DividendPostingPayload): Promise<DividendPostingResult> {
-  return postJson<DividendPostingResult>(
+  const result = await postJson<DividendPostingResult>(
     "/portfolio/dividends/postings",
     payload,
     { "idempotency-key": `dividend-${payload.dividendLedgerEntryId ?? payload.dividendEventId}-${Date.now()}` },
   );
+  clearDividendReviewCaches();
+  return result;
 }
 
 export async function fetchDividendLedgerReview(params: DividendReviewQuery): Promise<DividendLedgerReviewResponse> {
@@ -166,9 +180,44 @@ export async function fetchDividendLedgerReview(params: DividendReviewQuery): Pr
   };
 }
 
-export async function fetchDividendLedgerEntry(dividendLedgerEntryId: string): Promise<DividendLedgerEntryDetails> {
-  return getJson<DividendLedgerEntryDetails>(
+export async function fetchDividendReviewPrimary(
+  params: DividendReviewPrimaryQueryDto,
+  options: DividendRequestOptions = {},
+): Promise<DividendReviewPrimaryDto> {
+  return getJson<DividendReviewPrimaryDto>(
+    `/portfolio/dividends/review/primary?${buildReviewQuery(params)}`,
+    { signal: options.signal },
+  );
+}
+
+export async function fetchDividendReviewEnrichment(
+  filters: DividendReviewFilterDto,
+  options: DividendRequestOptions = {},
+): Promise<DividendReviewEnrichmentDto> {
+  const semanticFilters: DividendReviewFilterDto = {
+    fromPaymentDate: filters.fromPaymentDate,
+    toPaymentDate: filters.toPaymentDate,
+    accountId: filters.accountId,
+    ticker: filters.ticker,
+    marketCode: filters.marketCode,
+    postingStatus: filters.postingStatus,
+    reconciliationStatus: filters.reconciliationStatus,
+    excludeExpected: filters.excludeExpected,
+    sourceComposition: filters.sourceComposition,
+  };
+  return getJson<DividendReviewEnrichmentDto>(
+    `/portfolio/dividends/review/enrichment?${buildReviewQuery(semanticFilters)}`,
+    { signal: options.signal },
+  );
+}
+
+export async function fetchDividendLedgerEntry(
+  dividendLedgerEntryId: string,
+  options: DividendRequestOptions = {},
+): Promise<DividendReviewRowDetailDto> {
+  return getJson<DividendReviewRowDetailDto>(
     `/portfolio/dividends/postings/${encodeURIComponent(dividendLedgerEntryId)}`,
+    { signal: options.signal },
   );
 }
 
@@ -188,8 +237,10 @@ export async function updateDividendReconciliation(
   );
 
   if (response && typeof response === "object" && "ledgerEntry" in response) {
+    clearDividendReviewCaches();
     return response.ledgerEntry;
   }
 
+  clearDividendReviewCaches();
   return response;
 }

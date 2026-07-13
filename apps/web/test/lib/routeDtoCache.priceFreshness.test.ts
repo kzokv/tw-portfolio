@@ -76,6 +76,16 @@ describe("routeDtoCache price-freshness-adjacent behavior", () => {
       ttlMs: 55_000,
       staleTtlMs: 66_000,
     });
+    expect(resolveRouteDtoCacheDurations(CACHE_POLICY, "dividend-review-primary")).toEqual({
+      ttlMs: 44_000,
+      staleTtlMs: 66_000,
+    });
+    expect(resolveRouteDtoCacheDurations(CACHE_POLICY, "dividend-review-enrichment")).toEqual({
+      ttlMs: 55_000,
+      staleTtlMs: 66_000,
+    });
+    expect(PORTFOLIO_CONTEXT_ROUTE_CACHE_TAGS).toContain("route:dividend-review-primary");
+    expect(PORTFOLIO_CONTEXT_ROUTE_CACHE_TAGS).toContain("route:dividend-review-enrichment");
   });
 
   it("clears only tagged route entries during targeted invalidation", () => {

@@ -15,6 +15,7 @@ vi.mock("../../../lib/sidebar-cookie", () => ({
 
 vi.mock("../../../features/dividends/services/dividendService", () => ({
   fetchDividendCalendarSnapshot: vi.fn(),
+  fetchDividendReviewPrimary: vi.fn(),
   fetchDividendLedgerReview: vi.fn(),
   fetchDividendLedgerYears: vi.fn(),
 }));
@@ -32,12 +33,14 @@ vi.mock("../../../components/dividends/DividendsTabsClient", () => ({
     initialTab,
     initialCalendarSnapshot,
     initialReviewData,
+    initialReviewQuery,
     initialYears,
     accounts,
   }: {
     initialTab: string;
     initialCalendarSnapshot: unknown;
     initialReviewData: unknown;
+    initialReviewQuery: unknown;
     initialYears: unknown[];
     accounts: unknown[];
   }) => (
@@ -48,6 +51,7 @@ vi.mock("../../../components/dividends/DividendsTabsClient", () => ({
       data-has-review-data={String(initialReviewData !== null)}
       data-years-count={String(initialYears.length)}
       data-accounts-count={String(accounts.length)}
+      data-has-review-query={String(initialReviewQuery !== null)}
     />
   ),
 }));
@@ -65,6 +69,7 @@ import { getJson } from "../../../lib/api";
 import { readSidebarStateCookie } from "../../../lib/sidebar-cookie";
 import {
   fetchDividendCalendarSnapshot,
+  fetchDividendReviewPrimary,
   fetchDividendLedgerReview,
   fetchDividendLedgerYears,
 } from "../../../features/dividends/services/dividendService";
@@ -74,6 +79,7 @@ const requireSessionMock = vi.mocked(requireSession);
 const getJsonMock = vi.mocked(getJson);
 const readSidebarStateCookieMock = vi.mocked(readSidebarStateCookie);
 const fetchDividendCalendarSnapshotMock = vi.mocked(fetchDividendCalendarSnapshot);
+const fetchDividendReviewPrimaryMock = vi.mocked(fetchDividendReviewPrimary);
 const fetchDividendLedgerReviewMock = vi.mocked(fetchDividendLedgerReview);
 const fetchDividendLedgerYearsMock = vi.mocked(fetchDividendLedgerYears);
 
@@ -89,6 +95,7 @@ describe("DividendsPage", () => {
     }) as never);
     readSidebarStateCookieMock.mockResolvedValue(false as never);
     fetchDividendCalendarSnapshotMock.mockResolvedValue({ events: [], ledgerEntries: [] } as never);
+    fetchDividendReviewPrimaryMock.mockResolvedValue({ reviewRows: [], total: 0, years: [2026], accounts: [{ id: "acc-1", name: "Main" }] } as never);
     fetchDividendLedgerReviewMock.mockResolvedValue({
       ledgerEntries: [],
       total: 0,
@@ -137,17 +144,19 @@ describe("DividendsPage", () => {
     expect(html).toContain('data-has-calendar-snapshot="true"');
   });
 
-  it("ledger route preserves the requested tab without server-side dividend reads", async () => {
+  it("ledger route server-fetches primary rows and metadata without waiting for enrichment", async () => {
     const result = await DividendsPage({
       searchParams: Promise.resolve({ view: "ledger" }),
     });
     const html = renderToStaticMarkup(result);
 
+    expect(fetchDividendReviewPrimaryMock).toHaveBeenCalledWith(expect.objectContaining({ page: 1, limit: 10 }));
     expect(fetchDividendLedgerReviewMock).not.toHaveBeenCalled();
     expect(fetchDividendLedgerYearsMock).not.toHaveBeenCalled();
     expect(fetchDividendCalendarSnapshotMock).not.toHaveBeenCalled();
-    expect(getJsonMock).toHaveBeenCalledWith("/settings/fee-config");
+    expect(getJsonMock).not.toHaveBeenCalledWith("/settings/fee-config");
     expect(html).toContain('data-accounts-count="1"');
+    expect(html).toContain('data-has-review-data="true"');
     expect(result).toBeTruthy();
   });
 

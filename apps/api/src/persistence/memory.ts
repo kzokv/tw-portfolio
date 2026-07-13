@@ -12,6 +12,9 @@ import type {
   AiConnectorAccessResult,
   AiConnectorProvider,
   DividendLedgerAggregates,
+  DividendReviewFilterDto,
+  DividendReviewPrimaryQueryDto,
+  DividendReviewRowSummaryDto,
   DividendSourceLine,
   InstrumentOptionDto,
   ShareCapability,
@@ -90,6 +93,9 @@ import type {
   DividendCalendarSnapshotOptions,
   DividendReviewListOptions,
   DividendReviewListResult,
+  DividendReviewMetadataResult,
+  DividendReviewEnrichmentResult,
+  DividendReviewPrimaryResult,
   DividendReviewRowWithDetails,
   InviteRecord,
   InviteStatus,
@@ -2538,6 +2544,24 @@ export class MemoryPersistence implements Persistence {
     };
   }
 
+  async getDividendReviewRowDetail(userId: string, dividendLedgerEntryId: string) {
+    const detailedEntry = await this.getDividendLedgerEntryWithDetails(userId, dividendLedgerEntryId);
+    if (!detailedEntry) return null;
+    const store = await this.loadStore(userId);
+    return enrichDividendReviewRows(store, [{
+      ...detailedEntry,
+      rowKind: "ledger" as const,
+      ticker: "",
+      tickerName: null,
+      marketCode: "TW" as const,
+      instrumentType: "STOCK" as const,
+      eventType: "CASH" as const,
+      exDividendDate: "",
+      paymentDate: null,
+      cashCurrency: "TWD" as const,
+    }])[0] ?? null;
+  }
+
   async updateDividendReconciliationStatus(
     userId: string,
     dividendLedgerEntryId: string,
@@ -2957,10 +2981,10 @@ export class MemoryPersistence implements Persistence {
     return { ledgerEntries, total, aggregates };
   }
 
-  async listDividendReviewRows(
+  private async buildDividendReviewRows(
     userId: string,
-    opts: DividendReviewListOptions,
-  ): Promise<DividendReviewListResult> {
+    opts: Omit<DividendReviewListOptions, "page" | "limit" | "sortBy" | "sortOrder">,
+  ) {
     const store = await this.loadStore(userId);
     const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
     const accountById = new Map(store.accounts.map((account) => [account.id, account]));
@@ -3023,6 +3047,11 @@ export class MemoryPersistence implements Persistence {
       const event = eventById.get(entry.dividendEventId);
       if (!event) return [];
       const eventMarketCode = dividendEventMarketCode(event);
+      const instrumentType = instrumentTypeFor(event.ticker, event.cashDividendCurrency);
+      if (opts.sourceComposition === "pending" && !(
+        (instrumentType === "ETF" || instrumentType === "BOND_ETF")
+        && entry.sourceCompositionStatus === "unknown_pending_disclosure"
+      )) return [];
       if (opts.marketCode && eventMarketCode !== opts.marketCode) return [];
       if (!matchesDateFilter(event.paymentDate)) return [];
       if (opts.ticker && event.ticker !== opts.ticker) return [];
@@ -3046,7 +3075,7 @@ export class MemoryPersistence implements Persistence {
         ticker: event.ticker,
         tickerName: instrumentNameFor(event.ticker, eventMarketCode),
         marketCode: eventMarketCode,
-        instrumentType: instrumentTypeFor(event.ticker, event.cashDividendCurrency),
+        instrumentType,
         eventType: event.eventType,
         exDividendDate: event.exDividendDate,
         paymentDate: event.paymentDate,
@@ -3062,6 +3091,7 @@ export class MemoryPersistence implements Persistence {
         nhiAmount: cashReconciliation.deductions.nhiAmount,
         bankFeeAmount: cashReconciliation.deductions.bankFeeAmount,
         otherDeductionAmount: cashReconciliation.deductions.otherDeductionAmount,
+        expectedGrossAmount: cashReconciliation.expectedGrossAmount,
         expectedNetAmount: cashReconciliation.expectedNetAmount,
         actualNetAmount: cashReconciliation.actualNetAmount,
         varianceAmount: cashReconciliation.varianceAmount,
@@ -3088,6 +3118,8 @@ export class MemoryPersistence implements Persistence {
           if (opts.reconciliationStatus && opts.reconciliationStatus !== "open") continue;
           if (opts.postingStatus && opts.postingStatus !== "expected") continue;
           if (activeLedgerKey.has(`${account.id}:${event.id}`)) continue;
+          const instrumentType = instrumentTypeFor(event.ticker, event.cashDividendCurrency);
+          if (opts.sourceComposition === "pending" && instrumentType !== "ETF" && instrumentType !== "BOND_ETF") continue;
 
           const eligibleQuantity = deriveGeneratedDividendReviewEligibleQuantity(
             store,
@@ -3118,7 +3150,7 @@ export class MemoryPersistence implements Persistence {
             ticker: event.ticker,
             tickerName: instrumentNameFor(event.ticker, eventMarketCode),
             marketCode: eventMarketCode,
-            instrumentType: instrumentTypeFor(event.ticker, event.cashDividendCurrency),
+            instrumentType,
             eventType: event.eventType,
             exDividendDate: event.exDividendDate,
             paymentDate: event.paymentDate,
@@ -3140,6 +3172,7 @@ export class MemoryPersistence implements Persistence {
             nhiAmount: cashReconciliation.deductions.nhiAmount,
             bankFeeAmount: cashReconciliation.deductions.bankFeeAmount,
             otherDeductionAmount: cashReconciliation.deductions.otherDeductionAmount,
+            expectedGrossAmount: cashReconciliation.expectedGrossAmount,
             expectedNetAmount: cashReconciliation.expectedNetAmount,
             actualNetAmount: cashReconciliation.actualNetAmount,
             varianceAmount: cashReconciliation.varianceAmount,
@@ -3179,18 +3212,161 @@ export class MemoryPersistence implements Persistence {
       tickerCurrencyBucket.received += row.receivedCashAmount;
     }
 
+    return { rows, aggregates, store, accountById };
+  }
+
+  async listDividendReviewRows(
+    userId: string,
+    opts: DividendReviewListOptions,
+  ): Promise<DividendReviewListResult> {
+    const { rows, aggregates, store, accountById } = await this.buildDividendReviewRows(userId, opts);
     const sorted = rows.slice().sort((left, right) => {
       const cmp = compareDividendReviewRows(left, right, accountById, opts);
       if (cmp !== 0) return cmp;
       return left.id.localeCompare(right.id);
     });
-
     const total = sorted.length;
     const startIndex = (opts.page - 1) * opts.limit;
     return {
       rows: enrichDividendReviewRows(store, sorted.slice(startIndex, startIndex + opts.limit)),
       total,
       aggregates,
+    };
+  }
+
+  async listDividendReviewPrimary(
+    userId: string,
+    query: DividendReviewPrimaryQueryDto,
+  ): Promise<DividendReviewPrimaryResult> {
+    const dbStartedAt = performance.now();
+    const { rows: allRows, accountById } = await this.buildDividendReviewRows(userId, query);
+    const dbMs = performance.now() - dbStartedAt;
+    const hydrationStartedAt = performance.now();
+    const sorted = allRows.slice().sort((left, right) => {
+      const cmp = compareDividendReviewRows(left, right, accountById, query);
+      return cmp !== 0 ? cmp : left.id.localeCompare(right.id);
+    });
+    const startIndex = (query.page - 1) * query.limit;
+    const rows = sorted.slice(startIndex, startIndex + query.limit).map((row): DividendReviewRowSummaryDto => ({
+      rowKind: row.rowKind,
+      id: row.id,
+      version: row.version,
+      accountId: row.accountId,
+      accountName: accountById.get(row.accountId)?.name ?? null,
+      dividendEventId: row.dividendEventId,
+      ticker: row.ticker,
+      tickerName: row.tickerName,
+      marketCode: row.marketCode as DividendReviewRowSummaryDto["marketCode"],
+      instrumentType: row.instrumentType,
+      eventType: row.eventType,
+      exDividendDate: row.exDividendDate,
+      paymentDate: row.paymentDate,
+      cashCurrency: row.cashCurrency,
+      eligibleQuantity: row.eligibleQuantity,
+      expectedCashAmount: row.expectedCashAmount,
+      receivedCashAmount: row.receivedCashAmount,
+      expectedStockQuantity: row.expectedStockQuantity,
+      receivedStockQuantity: row.receivedStockQuantity,
+      postingStatus: row.postingStatus,
+      reconciliationStatus: row.reconciliationStatus,
+      sourceCompositionStatus: row.sourceCompositionStatus,
+      expectedGrossAmount: row.expectedGrossAmount,
+      expectedNetAmount: row.expectedNetAmount,
+      actualNetAmount: row.actualNetAmount,
+      varianceAmount: row.varianceAmount,
+      nhiAmount: row.nhiAmount,
+      bankFeeAmount: row.bankFeeAmount,
+      otherDeductionAmount: row.otherDeductionAmount,
+      stockDistributionRatio: row.stockDistributionRatio,
+      stockDistributionRatioState: row.stockDistributionRatioState,
+      expectedStockCalcState: row.expectedStockCalcState,
+      expectedStockParValueAmount: row.expectedStockParValueAmount,
+      cashInLieuAmount: row.cashInLieuAmount,
+    }));
+    return {
+      rows,
+      total: sorted.length,
+      phaseTimings: { dbMs, hydrationMs: performance.now() - hydrationStartedAt },
+    };
+  }
+
+  async getDividendReviewEnrichment(
+    userId: string,
+    filters: DividendReviewFilterDto,
+  ): Promise<DividendReviewEnrichmentResult> {
+    const dbStartedAt = performance.now();
+    const { rows, aggregates } = await this.buildDividendReviewRows(userId, filters);
+    const dbMs = performance.now() - dbStartedAt;
+    const aggregateStartedAt = performance.now();
+
+    const etfRows = rows.filter((row) => row.instrumentType === "ETF" || row.instrumentType === "BOND_ETF");
+    const pendingCount = etfRows.filter(
+      (row) => row.sourceCompositionStatus === "unknown_pending_disclosure",
+    ).length;
+    const nhiSubjectBuckets = new Set(["DIVIDEND_INCOME", "INTEREST_INCOME"]);
+    const sourceBucketOrder = [
+      "DIVIDEND_INCOME",
+      "INTEREST_INCOME",
+      "SECURITIES_GAIN_INCOME",
+      "REVENUE_EQUALIZATION",
+      "CAPITAL_EQUALIZATION",
+      "CAPITAL_RETURN",
+      "OTHER",
+    ] as const;
+    const amountByBucket = new Map<string, number>();
+    let projectedPremium = 0;
+    for (const row of etfRows) {
+      for (const line of row.sourceLines) {
+        amountByBucket.set(line.sourceBucket, (amountByBucket.get(line.sourceBucket) ?? 0) + line.amount);
+      }
+      if (row.sourceCompositionStatus !== "provided") continue;
+      const perEntryNhiSubject = row.sourceLines
+        .filter((line) => nhiSubjectBuckets.has(line.sourceBucket))
+        .reduce((sum, line) => sum + line.amount, 0);
+      if (perEntryNhiSubject >= 20_000) {
+        projectedPremium += Math.round(perEntryNhiSubject * 0.0211 + Number.EPSILON);
+      }
+    }
+    const bucketAggregates = sourceBucketOrder
+      .filter((sourceBucket) => (amountByBucket.get(sourceBucket) ?? 0) > 0)
+      .map((sourceBucket) => ({
+        sourceBucket,
+        totalAmount: amountByBucket.get(sourceBucket) ?? 0,
+        isNhiSubject: nhiSubjectBuckets.has(sourceBucket),
+      }));
+    const enrichment: DividendReviewEnrichmentResult = {
+      aggregates,
+      nhiRollup: {
+        bucketAggregates,
+        nhiSubjectTotal: bucketAggregates
+          .filter((bucket) => bucket.isNhiSubject)
+          .reduce((sum, bucket) => sum + bucket.totalAmount, 0),
+        projectedPremium,
+        pendingCount,
+        hasEtfEntries: etfRows.length > 0,
+      },
+      sourceComposition: {
+        providedCount: rows.filter((row) => row.sourceCompositionStatus === "provided").length,
+        pendingCount: rows.filter((row) => row.sourceCompositionStatus === "unknown_pending_disclosure").length,
+      },
+    };
+    enrichment.phaseTimings = {
+      dbMs,
+      aggregateMs: performance.now() - aggregateStartedAt,
+    };
+    return enrichment;
+  }
+
+  async listDividendReviewMetadata(userId: string): Promise<DividendReviewMetadataResult> {
+    const [store, { years }] = await Promise.all([
+      this.loadStore(userId),
+      this.listDividendLedgerYears(userId),
+    ]);
+    return {
+      years,
+      accounts: store.accounts
+        .filter((account) => account.userId === userId)
+        .map(({ id, name }) => ({ id, name })),
     };
   }
 
@@ -8698,28 +8874,19 @@ function compareDividendReviewReplayEntries(left: DividendReviewReplayEntry, rig
 
   const leftTimestamp = left.kind === "trade" ? left.trade.tradeTimestamp ?? null : left.action.actionTimestamp ?? null;
   const rightTimestamp = right.kind === "trade" ? right.trade.tradeTimestamp ?? null : right.action.actionTimestamp ?? null;
-  if (leftTimestamp && rightTimestamp && leftTimestamp !== rightTimestamp) {
-    return leftTimestamp.localeCompare(rightTimestamp);
-  }
-  if (left.kind !== right.kind && (!leftTimestamp || !rightTimestamp)) {
-    return left.kind === "action" ? -1 : 1;
-  }
+  if (Boolean(leftTimestamp) !== Boolean(rightTimestamp)) return leftTimestamp ? 1 : -1;
+  if (leftTimestamp !== rightTimestamp) return (leftTimestamp ?? "").localeCompare(rightTimestamp ?? "");
+  if (left.kind !== right.kind) return left.kind === "action" ? -1 : 1;
 
-  if (left.kind === "trade" && right.kind === "trade") {
-    return (
-      (left.trade.tradeTimestamp ?? "").localeCompare(right.trade.tradeTimestamp ?? "")
-      || (left.trade.bookingSequence ?? 0) - (right.trade.bookingSequence ?? 0)
-      || (left.trade.bookedAt ?? "").localeCompare(right.trade.bookedAt ?? "")
-      || left.trade.id.localeCompare(right.trade.id)
-    );
-  }
-  if (left.kind === "action" && right.kind === "action") {
-    return (
-      (left.action.bookedAt ?? "").localeCompare(right.action.bookedAt ?? "")
-      || left.action.id.localeCompare(right.action.id)
-    );
-  }
-  return left.kind === "action" ? -1 : 1;
+  const leftBookingSequence = left.kind === "trade" ? left.trade.bookingSequence ?? 0 : 0;
+  const rightBookingSequence = right.kind === "trade" ? right.trade.bookingSequence ?? 0 : 0;
+  if (leftBookingSequence !== rightBookingSequence) return leftBookingSequence - rightBookingSequence;
+  const leftBookedAt = left.kind === "trade" ? left.trade.bookedAt ?? "" : left.action.bookedAt ?? "";
+  const rightBookedAt = right.kind === "trade" ? right.trade.bookedAt ?? "" : right.action.bookedAt ?? "";
+  if (leftBookedAt !== rightBookedAt) return leftBookedAt.localeCompare(rightBookedAt);
+  const leftId = left.kind === "trade" ? left.trade.id : left.action.id;
+  const rightId = right.kind === "trade" ? right.trade.id : right.action.id;
+  return leftId.localeCompare(rightId);
 }
 
 function applyDividendReviewPositionActionToLots(currentLots: Lot[], action: PositionAction): Lot[] {

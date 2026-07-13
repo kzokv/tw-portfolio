@@ -6,13 +6,9 @@ import { Pool, types, type PoolClient } from "pg";
 import { createClient, type RedisClientType } from "redis";
 import { Env } from "@vakwen/config";
 import {
-  allocateSellLots,
-  applyBuyToLots,
-  calculateDividendCashReconciliation,
   calculateAppliedTaxComponents,
   materializeFeeProfileTaxRules,
   projectLegacyFeeProfileTaxFields,
-  resolveDividendStockEntitlement,
   roundToDecimal,
   type FeeProfile,
   type FeeProfileTaxRule,
@@ -34,7 +30,7 @@ import {
   rebuildHoldingProjection,
   syncTradeEventRealizedPnl,
 } from "../services/accountingStore.js";
-import { createDefaultFeeProfile, createStore, instrumentRefToDef, setStoreInstruments } from "../services/store.js";
+import { createDefaultFeeProfile, instrumentRefToDef } from "../services/store.js";
 import { createDefaultInstruments, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
 import type {
   AccountingStore,
@@ -68,6 +64,10 @@ import type {
   AiTransactionDraftRowState,
   AiTransactionDraftSourceChannel,
   DividendLedgerAggregates,
+  DividendReviewEnrichmentDto,
+  DividendReviewFilterDto,
+  DividendReviewPrimaryQueryDto,
+  DividendReviewRowSummaryDto,
   DividendSourceLine,
   AdminAuditLogResponse,
   AdminInviteListResponse,
@@ -82,11 +82,10 @@ import type {
   ShareCapability,
   TickerFundamentalsDto,
 } from "@vakwen/shared-types";
-import { currencyFor, marketCodeFor, normalizeInstrumentSector } from "@vakwen/shared-types";
+import { marketCodeFor, normalizeInstrumentSector } from "@vakwen/shared-types";
 import { routeError } from "../lib/routeError.js";
 import { defaultClientCapabilities, getMcpClientByLegacyProvider } from "../mcp/clientRegistry.js";
 import { replayPositionHistory } from "../services/replayPositionHistory.js";
-import { enrichDividendReviewRows } from "../services/dividendReviewDetails.js";
 import { MemoryPersistence } from "./memory.js";
 import type {
   AdminAuditLogListOptions,
@@ -121,6 +120,9 @@ import type {
   DividendCalendarSnapshotOptions,
   DividendReviewListOptions,
   DividendReviewListResult,
+  DividendReviewMetadataResult,
+  DividendReviewEnrichmentResult,
+  DividendReviewPrimaryResult,
   DividendReviewRowWithDetails,
   InstrumentRow,
   InviteRecord,
@@ -10291,7 +10293,7 @@ export class PostgresPersistence implements Persistence {
     }));
   }
 
-  async listDividendCalendarSnapshot(
+  private async loadDividendCalendarSnapshotInternal(
     userId: string,
     opts: DividendCalendarSnapshotOptions,
   ) {
@@ -10530,7 +10532,11 @@ export class PostgresPersistence implements Persistence {
            WHERE reversal.reversal_of_dividend_ledger_entry_id = dle.id
          )
        ORDER BY array_position($2::text[], dle.dividend_event_id), dle.id ASC`,
-      [userId, eventIds, opts.accountId ?? null],
+      [
+        userId,
+        eventIds,
+        opts.accountId ?? null,
+      ],
       ),
     ]);
 
@@ -10538,13 +10544,13 @@ export class PostgresPersistence implements Persistence {
     const [deductionsResult, sourceLinesResult] = ledgerIds.length
       ? await Promise.all([
           this.pool.query(
-            `SELECT id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
-                    withheld_at_source, source, source_reference, note, booked_at
-             FROM dividend_deduction_entries
-             WHERE dividend_ledger_entry_id = ANY($1)
-             ORDER BY dividend_ledger_entry_id, booked_at, id`,
-            [ledgerIds],
-          ),
+              `SELECT id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
+                      withheld_at_source, source, source_reference, note, booked_at
+               FROM dividend_deduction_entries
+               WHERE dividend_ledger_entry_id = ANY($1)
+               ORDER BY dividend_ledger_entry_id, booked_at, id`,
+              [ledgerIds],
+            ),
           this.pool.query(
             `SELECT id, dividend_ledger_entry_id, source_bucket, amount, currency_code,
                     source, source_reference, note, booked_at
@@ -10641,6 +10647,13 @@ export class PostgresPersistence implements Persistence {
       })),
       positionActions: actionsResult.rows.map((row) => mapPositionActionRow(row)),
     };
+  }
+
+  async listDividendCalendarSnapshot(
+    userId: string,
+    opts: DividendCalendarSnapshotOptions,
+  ) {
+    return this.loadDividendCalendarSnapshotInternal(userId, opts);
   }
 
   async listDividendLedgerEntries(
@@ -10908,277 +10921,952 @@ export class PostgresPersistence implements Persistence {
     return { ledgerEntries, total, aggregates };
   }
 
+  private dividendReviewNormalizedSql(): string {
+    return `
+      RECURSIVE eligible_ledger AS (
+        SELECT ledger.*, account.name AS account_name,
+               event.ticker, event.market_code, event.event_type,
+               event.ex_dividend_date, event.payment_date,
+               event.cash_dividend_currency AS cash_currency,
+               event.stock_distribution_ratio, event.stock_distribution_ratio_state,
+               instrument.name AS ticker_name,
+               COALESCE(instrument.instrument_type, 'STOCK') AS instrument_type
+        FROM dividend_ledger_entries AS ledger
+        JOIN accounts AS account ON account.id = ledger.account_id
+        JOIN market_data.dividend_events AS event ON event.id = ledger.dividend_event_id
+        LEFT JOIN market_data.instruments AS instrument
+          ON instrument.market_code = event.market_code AND instrument.ticker = event.ticker
+        WHERE account.user_id = $1
+          AND account.deleted_at IS NULL
+          AND ($2::text IS NULL OR account.id = $2)
+          AND (
+            CASE WHEN $3::date IS NULL AND $4::date IS NULL THEN event.payment_date IS NOT NULL
+            ELSE event.payment_date IS NULL OR (
+              ($3::date IS NULL OR event.payment_date >= $3::date)
+              AND ($4::date IS NULL OR event.payment_date <= $4::date)
+            ) END
+          )
+          AND ($5::text IS NULL OR ledger.reconciliation_status = $5)
+          AND ($6::text IS NULL OR ledger.posting_status = $6)
+          AND (NOT $7::boolean OR ledger.posting_status <> 'expected')
+          AND ($8::text IS NULL OR event.ticker = $8)
+          AND ($9::text IS NULL OR event.market_code = $9)
+          AND (NOT $10::boolean OR (
+            COALESCE(instrument.instrument_type, 'STOCK') IN ('ETF', 'BOND_ETF')
+            AND ledger.source_composition_status = 'unknown_pending_disclosure'
+          ))
+          AND ledger.superseded_at IS NULL
+          AND ledger.reversal_of_dividend_ledger_entry_id IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM dividend_ledger_entries AS reversal
+            WHERE reversal.reversal_of_dividend_ledger_entry_id = ledger.id
+          )
+      ),
+      receipt_totals AS (
+        SELECT receipt.related_dividend_ledger_entry_id AS ledger_id,
+               SUM(receipt.amount) AS received_cash_amount
+        FROM cash_ledger_entries AS receipt
+        JOIN eligible_ledger AS ledger ON ledger.id = receipt.related_dividend_ledger_entry_id
+        WHERE receipt.user_id = $1 AND receipt.entry_type = 'DIVIDEND_RECEIPT'
+        GROUP BY receipt.related_dividend_ledger_entry_id
+      ),
+      deduction_totals AS (
+        SELECT deduction.dividend_ledger_entry_id AS ledger_id,
+               SUM(deduction.amount) FILTER (WHERE deduction.deduction_type = 'NHI_SUPPLEMENTAL_PREMIUM') AS nhi_amount,
+               SUM(deduction.amount) FILTER (WHERE deduction.deduction_type = 'BANK_FEE') AS bank_fee_amount,
+               SUM(deduction.amount) FILTER (
+                 WHERE deduction.deduction_type NOT IN ('NHI_SUPPLEMENTAL_PREMIUM', 'BANK_FEE')
+               ) AS other_deduction_amount,
+               SUM(deduction.amount) AS deduction_total
+        FROM dividend_deduction_entries AS deduction
+        JOIN eligible_ledger AS ledger ON ledger.id = deduction.dividend_ledger_entry_id
+        GROUP BY deduction.dividend_ledger_entry_id
+      ),
+      cash_in_lieu AS (
+        SELECT action.related_dividend_ledger_entry_id AS ledger_id,
+               SUM(action.cash_in_lieu_amount) AS amount
+        FROM position_actions AS action
+        JOIN eligible_ledger AS ledger ON ledger.id = action.related_dividend_ledger_entry_id
+        WHERE action.reversal_of_position_action_id IS NULL
+          AND action.superseded_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM position_actions AS reversal
+            WHERE reversal.reversal_of_position_action_id = action.id
+          )
+        GROUP BY action.related_dividend_ledger_entry_id
+      ),
+      ledger_rows AS (
+        SELECT ledger.id, 'ledger'::text AS row_kind, ledger.version,
+               ledger.account_id, ledger.account_name,
+               ledger.dividend_event_id, ledger.ticker,
+               ledger.ticker_name, ledger.market_code, ledger.instrument_type,
+               ledger.event_type, ledger.ex_dividend_date, ledger.payment_date,
+               ledger.cash_currency,
+               ledger.eligible_quantity, ledger.expected_cash_amount,
+               COALESCE(receipt.received_cash_amount, 0) AS received_cash_amount,
+               ledger.expected_stock_quantity, ledger.received_stock_quantity,
+               ledger.posting_status, ledger.reconciliation_status,
+               ledger.source_composition_status,
+               ledger.expected_cash_amount AS expected_gross_amount,
+               ledger.expected_cash_amount - COALESCE(deduction.deduction_total, 0) AS expected_net_amount,
+               COALESCE(receipt.received_cash_amount, 0) AS actual_net_amount,
+               COALESCE(receipt.received_cash_amount, 0)
+                 - (ledger.expected_cash_amount - COALESCE(deduction.deduction_total, 0)) AS variance_amount,
+               COALESCE(deduction.nhi_amount, 0) AS nhi_amount,
+               COALESCE(deduction.bank_fee_amount, 0) AS bank_fee_amount,
+               COALESCE(deduction.other_deduction_amount, 0) AS other_deduction_amount,
+               CASE WHEN ledger.event_type = 'CASH' THEN NULL
+                    WHEN ledger.stock_distribution_ratio >= 0 THEN ledger.stock_distribution_ratio
+                    ELSE NULL END AS stock_distribution_ratio,
+               COALESCE(ledger.stock_distribution_ratio_state, 'unresolved') AS stock_distribution_ratio_state,
+               CASE
+                 WHEN ledger.event_type = 'CASH' THEN 'resolved'
+                 WHEN TRUNC(GREATEST(ledger.eligible_quantity, 0)) = 0 THEN 'resolved'
+                 WHEN ledger.stock_distribution_ratio >= 0
+                  AND ledger.stock_distribution_ratio_state = 'authoritative' THEN 'resolved'
+                 ELSE 'needs_action'
+               END AS expected_stock_calc_state,
+               ledger.expected_stock_par_value_amount,
+               cash_in_lieu.amount AS cash_in_lieu_amount
+        FROM eligible_ledger AS ledger
+        LEFT JOIN receipt_totals AS receipt ON receipt.ledger_id = ledger.id
+        LEFT JOIN deduction_totals AS deduction ON deduction.ledger_id = ledger.id
+        LEFT JOIN cash_in_lieu ON cash_in_lieu.ledger_id = ledger.id
+      ),
+      expected_candidates AS (
+        SELECT account.id AS account_id, account.name AS account_name,
+               event.id AS dividend_event_id, event.ticker, event.market_code, event.event_type,
+               event.ex_dividend_date, event.payment_date, event.cash_dividend_per_share,
+               event.cash_dividend_currency AS cash_currency,
+               event.stock_distribution_ratio, event.stock_distribution_ratio_state,
+               event.stock_par_value_amount AS expected_stock_par_value_amount,
+               instrument.name AS ticker_name,
+               COALESCE(instrument.instrument_type, 'STOCK') AS instrument_type,
+               account.id || ':' || event.id AS candidate_key
+        FROM accounts AS account
+        JOIN market_data.dividend_events AS event
+          ON event.cash_dividend_currency = account.default_currency
+        LEFT JOIN market_data.instruments AS instrument
+          ON instrument.market_code = event.market_code AND instrument.ticker = event.ticker
+        WHERE account.user_id = $1
+          AND account.deleted_at IS NULL
+          AND NOT $7::boolean
+          AND ($5::text IS NULL OR $5 = 'open')
+          AND ($6::text IS NULL OR $6 = 'expected')
+          AND ($2::text IS NULL OR account.id = $2)
+          AND (
+            CASE WHEN $3::date IS NULL AND $4::date IS NULL THEN event.payment_date IS NOT NULL
+            ELSE event.payment_date IS NULL OR (
+              ($3::date IS NULL OR event.payment_date >= $3::date)
+              AND ($4::date IS NULL OR event.payment_date <= $4::date)
+            ) END
+          )
+          AND ($8::text IS NULL OR event.ticker = $8)
+          AND ($9::text IS NULL OR event.market_code = $9)
+          AND (NOT $10::boolean OR COALESCE(instrument.instrument_type, 'STOCK') IN ('ETF', 'BOND_ETF'))
+          AND (
+            EXISTS (
+              SELECT 1 FROM trade_events AS trade
+              WHERE trade.user_id = $1
+                AND trade.account_id = account.id
+                AND trade.ticker = event.ticker
+                AND trade.market_code = event.market_code
+                AND trade.trade_date < event.ex_dividend_date
+                AND trade.reversal_of_trade_event_id IS NULL
+                AND NOT EXISTS (
+                  SELECT 1 FROM trade_events AS reversal
+                  WHERE reversal.reversal_of_trade_event_id = trade.id
+                )
+            )
+            OR EXISTS (
+              SELECT 1 FROM position_actions AS action
+              WHERE action.account_id = account.id
+                AND action.ticker = event.ticker
+                AND action.market_code = event.market_code
+                AND action.action_date < event.ex_dividend_date
+                AND action.reversal_of_position_action_id IS NULL
+                AND action.superseded_at IS NULL
+                AND NOT EXISTS (
+                  SELECT 1 FROM position_actions AS reversal
+                  WHERE reversal.reversal_of_position_action_id = action.id
+                )
+            )
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM dividend_ledger_entries AS ledger
+            WHERE ledger.account_id = account.id
+              AND ledger.dividend_event_id = event.id
+              AND ledger.superseded_at IS NULL
+              AND ledger.reversal_of_dividend_ledger_entry_id IS NULL
+              AND NOT EXISTS (
+                SELECT 1 FROM dividend_ledger_entries AS reversal
+                WHERE reversal.reversal_of_dividend_ledger_entry_id = ledger.id
+              )
+          )
+      ),
+      expected_replay_stream AS (
+        SELECT candidate_key, ROW_NUMBER() OVER (
+                 PARTITION BY candidate_key
+                 ORDER BY entry_date, entry_timestamp NULLS FIRST, kind_order,
+                          booking_sequence, booked_at NULLS FIRST, entry_id
+               )::int AS sequence,
+               entry_date, entry_id, booking_sequence, lot_sequence,
+               entry_kind, trade_type, action_type, quantity,
+               ratio_numerator, ratio_denominator, cash_in_lieu_amount
+        FROM (
+          SELECT candidate.candidate_key, trade.trade_date AS entry_date,
+                 trade.trade_timestamp AS entry_timestamp, 1 AS kind_order,
+                 COALESCE(trade.booking_sequence, 0) AS booking_sequence,
+                 trade.booking_sequence AS lot_sequence,
+                 trade.booked_at, trade.id AS entry_id,
+                 'trade'::text AS entry_kind, trade.trade_type, NULL::text AS action_type,
+                 trade.quantity, NULL::numeric AS ratio_numerator,
+                 NULL::numeric AS ratio_denominator, NULL::numeric AS cash_in_lieu_amount
+          FROM expected_candidates AS candidate
+          JOIN trade_events AS trade
+            ON trade.user_id = $1
+           AND trade.account_id = candidate.account_id
+           AND trade.ticker = candidate.ticker
+           AND trade.market_code = candidate.market_code
+           AND trade.trade_date < candidate.ex_dividend_date
+          WHERE trade.reversal_of_trade_event_id IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM trade_events AS reversal
+              WHERE reversal.reversal_of_trade_event_id = trade.id
+            )
+          UNION ALL
+          SELECT candidate.candidate_key, action.action_date AS entry_date,
+                 action.action_timestamp AS entry_timestamp, 0 AS kind_order,
+                 0 AS booking_sequence, NULL::int AS lot_sequence,
+                 action.booked_at, action.id AS entry_id,
+                 'action'::text AS entry_kind, NULL::text AS trade_type, action.action_type,
+                 action.quantity, action.ratio_numerator, action.ratio_denominator,
+                 action.cash_in_lieu_amount
+          FROM expected_candidates AS candidate
+          JOIN position_actions AS action
+            ON action.account_id = candidate.account_id
+           AND action.ticker = candidate.ticker
+           AND action.market_code = candidate.market_code
+           AND action.action_date < candidate.ex_dividend_date
+          WHERE action.reversal_of_position_action_id IS NULL
+            AND action.superseded_at IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM position_actions AS reversal
+              WHERE reversal.reversal_of_position_action_id = action.id
+            )
+        ) AS entries
+      ),
+      expected_replay AS (
+        SELECT candidate.candidate_key, 0::int AS sequence, 'advance'::text AS mode,
+               0::int AS cursor, 0::numeric AS pending_quantity,
+               NULL::int AS best_index, NULL::text AS best_key,
+               ARRAY[]::numeric[] AS lot_quantities,
+               ARRAY[]::date[] AS lot_dates,
+               ARRAY[]::numeric[] AS lot_sequences,
+               ARRAY[]::text[] AS lot_ids,
+               false AS invalid
+        FROM expected_candidates AS candidate
+        UNION ALL
+        SELECT replay.candidate_key,
+               CASE
+                 WHEN replay.invalid THEN entry.sequence
+                 WHEN replay.mode = 'advance' AND (
+                   (entry.entry_kind = 'trade' AND entry.trade_type = 'BUY')
+                   OR (entry.entry_kind = 'action'
+                     AND entry.action_type IN ('SPLIT', 'REVERSE_SPLIT')
+                     AND NOT (entry.ratio_numerator > 0 AND entry.ratio_denominator > 0))
+                 )
+                   THEN entry.sequence
+                 WHEN replay.mode = 'stock_scan'
+                  AND replay.cursor > COALESCE(array_length(replay.lot_quantities, 1), 0)
+                   THEN entry.sequence
+                 WHEN replay.mode = 'sell_scan'
+                  AND replay.cursor > COALESCE(array_length(replay.lot_quantities, 1), 0)
+                  AND replay.best_index IS NULL THEN entry.sequence
+                 WHEN replay.mode = 'sell_apply'
+                  AND replay.pending_quantity <= replay.lot_quantities[replay.best_index]
+                   THEN entry.sequence
+                 WHEN replay.mode = 'split_scan'
+                  AND replay.cursor > COALESCE(array_length(replay.lot_quantities, 1), 0)
+                   THEN entry.sequence
+                 ELSE replay.sequence
+               END AS sequence,
+               CASE
+                 WHEN replay.invalid THEN 'advance'
+                 WHEN replay.mode = 'advance' AND entry.entry_kind = 'trade' AND entry.trade_type = 'SELL' THEN 'sell_scan'
+                 WHEN replay.mode = 'advance' AND entry.action_type = 'STOCK_DIVIDEND' THEN 'stock_scan'
+                 WHEN replay.mode = 'advance' AND entry.action_type IN ('SPLIT', 'REVERSE_SPLIT')
+                  AND entry.ratio_numerator > 0 AND entry.ratio_denominator > 0 THEN 'split_scan'
+                 WHEN replay.mode = 'stock_scan'
+                  AND replay.cursor > COALESCE(array_length(replay.lot_quantities, 1), 0) THEN 'advance'
+                 WHEN replay.mode = 'sell_scan'
+                  AND replay.cursor > COALESCE(array_length(replay.lot_quantities, 1), 0)
+                  AND replay.best_index IS NOT NULL THEN 'sell_apply'
+                 WHEN replay.mode = 'sell_scan'
+                  AND replay.cursor > COALESCE(array_length(replay.lot_quantities, 1), 0) THEN 'advance'
+                 WHEN replay.mode = 'sell_apply'
+                  AND replay.pending_quantity > replay.lot_quantities[replay.best_index] THEN 'sell_scan'
+                 WHEN replay.mode = 'sell_apply' THEN 'advance'
+                 WHEN replay.mode = 'split_scan'
+                  AND replay.cursor > COALESCE(array_length(replay.lot_quantities, 1), 0) THEN 'advance'
+                 ELSE replay.mode
+               END AS mode,
+               CASE
+                 WHEN replay.mode = 'advance' AND entry.entry_kind = 'trade' AND entry.trade_type = 'SELL' THEN 1
+                 WHEN replay.mode = 'advance' AND entry.action_type IN ('STOCK_DIVIDEND', 'SPLIT', 'REVERSE_SPLIT') THEN 1
+                 WHEN replay.mode IN ('stock_scan', 'sell_scan', 'split_scan')
+                  AND replay.cursor <= COALESCE(array_length(replay.lot_quantities, 1), 0) THEN replay.cursor + 1
+                 WHEN replay.mode = 'sell_apply'
+                  AND replay.pending_quantity > replay.lot_quantities[replay.best_index] THEN 1
+                 ELSE 0
+               END AS cursor,
+               CASE
+                 WHEN replay.mode = 'advance' AND entry.entry_kind = 'trade' AND entry.trade_type = 'SELL'
+                   THEN entry.quantity
+                 WHEN replay.mode = 'advance' AND entry.action_type = 'STOCK_DIVIDEND'
+                   THEN entry.quantity
+                 WHEN replay.mode = 'sell_apply'
+                  AND replay.pending_quantity > replay.lot_quantities[replay.best_index]
+                   THEN replay.pending_quantity - replay.lot_quantities[replay.best_index]
+                 ELSE replay.pending_quantity
+               END AS pending_quantity,
+               CASE
+                 WHEN replay.mode = 'stock_scan'
+                  AND replay.cursor <= COALESCE(array_length(replay.lot_quantities, 1), 0)
+                  AND replay.lot_dates[replay.cursor] = entry.entry_date
+                   THEN GREATEST(COALESCE(replay.best_index, 0), replay.lot_sequences[replay.cursor]::int)
+                 WHEN replay.mode = 'sell_scan'
+                  AND replay.cursor <= COALESCE(array_length(replay.lot_quantities, 1), 0)
+                  AND replay.lot_quantities[replay.cursor] > 0
+                  AND (replay.best_key IS NULL OR (
+                    replay.lot_dates[replay.cursor]::text || ':'
+                      || LPAD(replay.lot_sequences[replay.cursor]::text, 20, '0') || ':'
+                      || replay.lot_ids[replay.cursor]
+                  ) < replay.best_key) THEN replay.cursor
+                 WHEN replay.mode = 'sell_apply' THEN NULL
+                 WHEN replay.mode = 'advance' THEN NULL
+                 ELSE replay.best_index
+               END AS best_index,
+               CASE
+                 WHEN replay.mode = 'sell_scan'
+                  AND replay.cursor <= COALESCE(array_length(replay.lot_quantities, 1), 0)
+                  AND replay.lot_quantities[replay.cursor] > 0
+                  AND (replay.best_key IS NULL OR (
+                    replay.lot_dates[replay.cursor]::text || ':'
+                      || LPAD(replay.lot_sequences[replay.cursor]::text, 20, '0') || ':'
+                      || replay.lot_ids[replay.cursor]
+                  ) < replay.best_key)
+                   THEN replay.lot_dates[replay.cursor]::text || ':'
+                     || LPAD(replay.lot_sequences[replay.cursor]::text, 20, '0') || ':'
+                     || replay.lot_ids[replay.cursor]
+                 WHEN replay.mode IN ('sell_apply', 'advance') THEN NULL
+                 ELSE replay.best_key
+               END AS best_key,
+               CASE
+                 WHEN replay.invalid THEN replay.lot_quantities
+                 WHEN replay.mode = 'advance' AND entry.entry_kind = 'trade' AND entry.trade_type = 'BUY'
+                   THEN replay.lot_quantities || ARRAY[entry.quantity]
+                 WHEN replay.mode = 'stock_scan'
+                  AND replay.cursor > COALESCE(array_length(replay.lot_quantities, 1), 0)
+                   THEN replay.lot_quantities || ARRAY[replay.pending_quantity]
+                 WHEN replay.mode = 'sell_apply' THEN
+                   COALESCE(replay.lot_quantities[1:replay.best_index - 1], ARRAY[]::numeric[])
+                   || ARRAY[GREATEST(0, replay.lot_quantities[replay.best_index] - replay.pending_quantity)]
+                   || COALESCE(replay.lot_quantities[replay.best_index + 1:array_length(replay.lot_quantities, 1)], ARRAY[]::numeric[])
+                 WHEN replay.mode = 'split_scan'
+                  AND replay.cursor <= COALESCE(array_length(replay.lot_quantities, 1), 0)
+                  AND replay.lot_quantities[replay.cursor] > 0 THEN
+                   COALESCE(replay.lot_quantities[1:replay.cursor - 1], ARRAY[]::numeric[])
+                   || ARRAY[CASE
+                     WHEN replay.lot_quantities[replay.cursor] * entry.ratio_numerator / entry.ratio_denominator
+                            <> TRUNC(replay.lot_quantities[replay.cursor] * entry.ratio_numerator / entry.ratio_denominator)
+                       THEN TRUNC(replay.lot_quantities[replay.cursor] * entry.ratio_numerator / entry.ratio_denominator)
+                     ELSE replay.lot_quantities[replay.cursor] * entry.ratio_numerator / entry.ratio_denominator
+                   END]
+                   || COALESCE(replay.lot_quantities[replay.cursor + 1:array_length(replay.lot_quantities, 1)], ARRAY[]::numeric[])
+                 ELSE replay.lot_quantities
+               END AS lot_quantities,
+               CASE
+                 WHEN replay.mode = 'advance' AND entry.entry_kind = 'trade' AND entry.trade_type = 'BUY'
+                   THEN replay.lot_dates || ARRAY[entry.entry_date]
+                 WHEN replay.mode = 'stock_scan'
+                  AND replay.cursor > COALESCE(array_length(replay.lot_quantities, 1), 0)
+                   THEN replay.lot_dates || ARRAY[entry.entry_date]
+                 ELSE replay.lot_dates
+               END AS lot_dates,
+               CASE
+                 WHEN replay.mode = 'advance' AND entry.entry_kind = 'trade' AND entry.trade_type = 'BUY'
+                   THEN replay.lot_sequences || ARRAY[COALESCE(entry.lot_sequence, 1)::numeric]
+                 WHEN replay.mode = 'stock_scan'
+                  AND replay.cursor > COALESCE(array_length(replay.lot_quantities, 1), 0)
+                   THEN replay.lot_sequences || ARRAY[(COALESCE(replay.best_index, 0) + 1)::numeric]
+                 ELSE replay.lot_sequences
+               END AS lot_sequences,
+               CASE
+                 WHEN replay.mode = 'advance' AND entry.entry_kind = 'trade' AND entry.trade_type = 'BUY'
+                   THEN replay.lot_ids || ARRAY['review-lot-' || entry.entry_id]
+                 WHEN replay.mode = 'stock_scan'
+                  AND replay.cursor > COALESCE(array_length(replay.lot_quantities, 1), 0)
+                   THEN replay.lot_ids || ARRAY['review-pa-' || entry.entry_id]
+                 ELSE replay.lot_ids
+               END AS lot_ids,
+               replay.invalid OR (
+                 replay.mode = 'sell_scan'
+                 AND replay.cursor > COALESCE(array_length(replay.lot_quantities, 1), 0)
+                 AND replay.best_index IS NULL
+                 AND replay.pending_quantity > 0
+               ) OR (
+                 replay.mode = 'split_scan'
+                 AND replay.cursor <= COALESCE(array_length(replay.lot_quantities, 1), 0)
+                 AND replay.lot_quantities[replay.cursor] > 0
+                 AND replay.lot_quantities[replay.cursor] * entry.ratio_numerator / entry.ratio_denominator
+                       <> TRUNC(replay.lot_quantities[replay.cursor] * entry.ratio_numerator / entry.ratio_denominator)
+                 AND COALESCE(entry.cash_in_lieu_amount, 0) <= 0
+               ) AS invalid
+        FROM expected_replay AS replay
+        JOIN expected_replay_stream AS entry
+          ON entry.candidate_key = replay.candidate_key
+         AND entry.sequence = replay.sequence + 1
+      ),
+      expected_balances AS (
+        SELECT DISTINCT ON (replay.candidate_key) replay.candidate_key,
+               COALESCE(quantity.total, 0) AS eligible_quantity, replay.invalid
+        FROM expected_replay AS replay
+        LEFT JOIN LATERAL (
+          SELECT SUM(value) AS total FROM unnest(replay.lot_quantities) AS value
+        ) AS quantity ON true
+        ORDER BY candidate_key, sequence DESC
+      ),
+      expected_calculated AS (
+        SELECT candidate.*, TRUNC(balance.eligible_quantity) AS eligible_quantity,
+               ROUND(TRUNC(balance.eligible_quantity) * candidate.cash_dividend_per_share) AS expected_gross_amount
+        FROM expected_candidates AS candidate
+        JOIN expected_balances AS balance USING (candidate_key)
+        WHERE NOT balance.invalid AND balance.eligible_quantity > 0
+      ),
+      expected_rows AS (
+        SELECT 'expected:' || account_id || ':' || dividend_event_id AS id,
+               'expected'::text AS row_kind, 0::int AS version,
+               account_id, account_name, dividend_event_id, ticker, ticker_name,
+               market_code, instrument_type, event_type, ex_dividend_date, payment_date,
+               cash_currency, eligible_quantity,
+               expected_gross_amount AS expected_cash_amount, 0::numeric AS received_cash_amount,
+               CASE WHEN event_type <> 'CASH'
+                         AND stock_distribution_ratio >= 0
+                         AND stock_distribution_ratio_state = 'authoritative'
+                    THEN FLOOR(eligible_quantity * stock_distribution_ratio)
+                    ELSE 0 END AS expected_stock_quantity,
+               0::numeric AS received_stock_quantity,
+               'expected'::text AS posting_status, 'open'::text AS reconciliation_status,
+               'unknown_pending_disclosure'::text AS source_composition_status,
+               expected_gross_amount, expected_gross_amount AS expected_net_amount,
+               0::numeric AS actual_net_amount, -expected_gross_amount AS variance_amount,
+               0::numeric AS nhi_amount, 0::numeric AS bank_fee_amount,
+               0::numeric AS other_deduction_amount,
+               CASE WHEN event_type = 'CASH' THEN NULL
+                    WHEN stock_distribution_ratio >= 0 THEN stock_distribution_ratio
+                    ELSE NULL END AS stock_distribution_ratio,
+               COALESCE(stock_distribution_ratio_state, 'unresolved') AS stock_distribution_ratio_state,
+               CASE WHEN event_type = 'CASH' OR eligible_quantity = 0 THEN 'resolved'
+                    WHEN stock_distribution_ratio >= 0
+                     AND stock_distribution_ratio_state = 'authoritative' THEN 'resolved'
+                    ELSE 'needs_action' END AS expected_stock_calc_state,
+               expected_stock_par_value_amount, NULL::numeric AS cash_in_lieu_amount
+        FROM expected_calculated
+      ),
+      normalized AS (
+        SELECT * FROM ledger_rows
+        UNION ALL
+        SELECT * FROM expected_rows
+      )`;
+  }
+
+  private dividendReviewSqlParams(
+    userId: string,
+    filters: DividendReviewFilterDto | DividendReviewListOptions,
+  ): unknown[] {
+    return [
+      userId,
+      filters.accountId ?? null,
+      filters.fromPaymentDate ?? null,
+      filters.toPaymentDate ?? null,
+      filters.reconciliationStatus ?? null,
+      filters.postingStatus ?? null,
+      filters.excludeExpected ?? false,
+      filters.ticker ?? null,
+      filters.marketCode ?? null,
+      filters.sourceComposition === "pending",
+    ];
+  }
+
+  private mapDividendReviewSummaryRow(row: Record<string, unknown>): DividendReviewRowSummaryDto {
+    return {
+      id: String(row.id), rowKind: String(row.row_kind) as DividendReviewRowSummaryDto["rowKind"],
+      version: Number(row.version), accountId: String(row.account_id),
+      accountName: row.account_name == null ? null : String(row.account_name),
+      dividendEventId: String(row.dividend_event_id), ticker: String(row.ticker),
+      tickerName: row.ticker_name == null ? null : String(row.ticker_name),
+      marketCode: String(row.market_code) as DividendReviewRowSummaryDto["marketCode"],
+      instrumentType: String(row.instrument_type) as DividendReviewRowSummaryDto["instrumentType"],
+      eventType: String(row.event_type) as DividendReviewRowSummaryDto["eventType"],
+      exDividendDate: normalizeDate(String(row.ex_dividend_date)),
+      paymentDate: row.payment_date == null ? null : normalizeDate(String(row.payment_date)),
+      cashCurrency: String(row.cash_currency), eligibleQuantity: Number(row.eligible_quantity),
+      expectedCashAmount: Number(row.expected_cash_amount), receivedCashAmount: Number(row.received_cash_amount),
+      expectedStockQuantity: Number(row.expected_stock_quantity), receivedStockQuantity: Number(row.received_stock_quantity),
+      postingStatus: String(row.posting_status) as DividendReviewRowSummaryDto["postingStatus"],
+      reconciliationStatus: String(row.reconciliation_status) as DividendReviewRowSummaryDto["reconciliationStatus"],
+      sourceCompositionStatus: String(row.source_composition_status) as DividendReviewRowSummaryDto["sourceCompositionStatus"],
+      expectedGrossAmount: Number(row.expected_gross_amount), expectedNetAmount: Number(row.expected_net_amount),
+      actualNetAmount: Number(row.actual_net_amount), varianceAmount: Number(row.variance_amount),
+      nhiAmount: Number(row.nhi_amount), bankFeeAmount: Number(row.bank_fee_amount),
+      otherDeductionAmount: Number(row.other_deduction_amount),
+      stockDistributionRatio: row.stock_distribution_ratio == null ? null : Number(row.stock_distribution_ratio),
+      stockDistributionRatioState: String(row.stock_distribution_ratio_state) as DividendReviewRowSummaryDto["stockDistributionRatioState"],
+      expectedStockCalcState: String(row.expected_stock_calc_state) as DividendReviewRowSummaryDto["expectedStockCalcState"],
+      expectedStockParValueAmount: row.expected_stock_par_value_amount == null ? null : Number(row.expected_stock_par_value_amount),
+      cashInLieuAmount: row.cash_in_lieu_amount == null ? null : Number(row.cash_in_lieu_amount),
+    };
+  }
+
+  private async listDividendReviewPrimarySql(
+    userId: string,
+    query: DividendReviewPrimaryQueryDto | DividendReviewListOptions,
+  ): Promise<DividendReviewPrimaryResult> {
+    const dbStartedAt = performance.now();
+    const sortColumns: Record<DividendReviewPrimaryQueryDto["sortBy"], string> = {
+      paymentDate: "payment_date",
+      ticker: "ticker",
+      account: "account_name",
+      expectedCashAmount: "expected_cash_amount",
+      expectedGrossAmount: "expected_gross_amount",
+      expectedNetAmount: "expected_net_amount",
+      nhiAmount: "nhi_amount",
+      bankFeeAmount: "bank_fee_amount",
+      otherDeductionAmount: "other_deduction_amount",
+      receivedCashAmount: "received_cash_amount",
+      actualNetAmount: "actual_net_amount",
+      varianceAmount: "variance_amount",
+      reconciliationStatus: "reconciliation_status",
+    };
+    const sortColumn = sortColumns[query.sortBy];
+    const direction = query.sortOrder === "asc" ? "ASC" : "DESC";
+    const result = await this.pool.query(
+      `WITH ${this.dividendReviewNormalizedSql()}
+       SELECT (SELECT COUNT(*)::int FROM normalized) AS total,
+              COALESCE((
+                SELECT jsonb_agg(to_jsonb(page_rows))
+                FROM (
+                  SELECT * FROM normalized
+                  ORDER BY ${sortColumn} ${direction} NULLS LAST,
+                           payment_date ASC NULLS LAST, ticker ASC, account_name ASC, id ASC
+                  LIMIT $11 OFFSET $12
+                ) AS page_rows
+              ), '[]'::jsonb) AS rows`,
+      [
+        ...this.dividendReviewSqlParams(userId, query),
+        query.limit,
+        (query.page - 1) * query.limit,
+      ],
+    );
+    const dbMs = performance.now() - dbStartedAt;
+    const hydrationStartedAt = performance.now();
+    const rows = (result.rows[0]?.rows ?? []) as Array<Record<string, unknown>>;
+    const mapped = rows.map((row) => this.mapDividendReviewSummaryRow(row));
+    const hydrationMs = performance.now() - hydrationStartedAt;
+    return {
+      total: Number(result.rows[0]?.total ?? 0),
+      rows: mapped,
+      phaseTimings: { dbMs, hydrationMs },
+    };
+  }
+
+  private async getDividendReviewEnrichmentSql(
+    userId: string,
+    filters: DividendReviewFilterDto | DividendReviewListOptions,
+  ): Promise<DividendReviewEnrichmentResult> {
+    const aggregateStartedAt = performance.now();
+    const dbStartedAt = performance.now();
+    const result = await this.pool.query(
+      `WITH ${this.dividendReviewNormalizedSql()},
+       currency_totals AS (
+         SELECT cash_currency,
+                SUM(expected_cash_amount) AS expected,
+                SUM(received_cash_amount) AS received
+         FROM normalized GROUP BY cash_currency
+       ),
+       month_currency_totals AS (
+         SELECT TO_CHAR(payment_date, 'YYYY-MM') AS month_key, cash_currency,
+                SUM(expected_cash_amount) AS expected,
+                SUM(received_cash_amount) AS received
+         FROM normalized WHERE payment_date IS NOT NULL
+         GROUP BY TO_CHAR(payment_date, 'YYYY-MM'), cash_currency
+       ),
+       month_totals AS (
+         SELECT month_key,
+                jsonb_object_agg(cash_currency, jsonb_build_object(
+                  'expected', expected, 'received', received
+                ) ORDER BY cash_currency) AS currencies
+         FROM month_currency_totals GROUP BY month_key
+       ),
+       ticker_currency_totals AS (
+         SELECT ticker, cash_currency,
+                SUM(expected_cash_amount) AS expected,
+                SUM(received_cash_amount) AS received
+         FROM normalized GROUP BY ticker, cash_currency
+       ),
+       ticker_totals AS (
+         SELECT ticker,
+                jsonb_object_agg(cash_currency, jsonb_build_object(
+                  'expected', expected, 'received', received
+                ) ORDER BY cash_currency) AS currencies
+         FROM ticker_currency_totals GROUP BY ticker
+       ),
+       etf_source_lines AS (
+         SELECT normalized.id AS ledger_id, normalized.source_composition_status,
+                source.source_bucket, SUM(source.amount) AS amount
+         FROM normalized
+         JOIN dividend_source_lines AS source
+           ON normalized.row_kind = 'ledger'
+          AND source.dividend_ledger_entry_id = normalized.id
+         WHERE normalized.instrument_type IN ('ETF', 'BOND_ETF')
+         GROUP BY normalized.id, normalized.source_composition_status, source.source_bucket
+       ),
+       source_totals AS (
+         SELECT source_bucket, SUM(amount) AS amount
+         FROM etf_source_lines GROUP BY source_bucket
+       ),
+       entry_nhi_subject AS (
+         SELECT ledger_id, SUM(amount) AS amount
+         FROM etf_source_lines
+         WHERE source_composition_status = 'provided'
+           AND source_bucket IN ('DIVIDEND_INCOME', 'INTEREST_INCOME')
+         GROUP BY ledger_id
+       )
+       SELECT
+         COALESCE((SELECT jsonb_object_agg(cash_currency, expected ORDER BY cash_currency)
+                   FROM currency_totals), '{}'::jsonb) AS total_expected,
+         COALESCE((SELECT jsonb_object_agg(cash_currency, received ORDER BY cash_currency)
+                   FROM currency_totals), '{}'::jsonb) AS total_received,
+         (SELECT COUNT(*)::int FROM normalized WHERE reconciliation_status = 'open') AS open_count,
+         COALESCE((SELECT jsonb_object_agg(month_key, currencies ORDER BY month_key)
+                   FROM month_totals), '{}'::jsonb) AS by_month,
+         COALESCE((SELECT jsonb_object_agg(ticker, currencies ORDER BY ticker)
+                   FROM ticker_totals), '{}'::jsonb) AS by_ticker,
+         COALESCE((SELECT jsonb_agg(jsonb_build_object(
+                    'sourceBucket', source_bucket,
+                    'totalAmount', amount,
+                    'isNhiSubject', source_bucket IN ('DIVIDEND_INCOME', 'INTEREST_INCOME')
+                  ) ORDER BY CASE source_bucket
+                    WHEN 'DIVIDEND_INCOME' THEN 1 WHEN 'INTEREST_INCOME' THEN 2
+                    WHEN 'SECURITIES_GAIN_INCOME' THEN 3 WHEN 'REVENUE_EQUALIZATION' THEN 4
+                    WHEN 'CAPITAL_EQUALIZATION' THEN 5 WHEN 'CAPITAL_RETURN' THEN 6 ELSE 7 END)
+                   FROM source_totals WHERE amount > 0), '[]'::jsonb) AS bucket_aggregates,
+         COALESCE((SELECT SUM(amount) FROM source_totals
+                   WHERE source_bucket IN ('DIVIDEND_INCOME', 'INTEREST_INCOME')), 0) AS nhi_subject_total,
+         COALESCE((SELECT SUM(ROUND(amount * 0.0211)) FROM entry_nhi_subject WHERE amount >= 20000), 0) AS projected_premium,
+         (SELECT COUNT(*)::int FROM normalized
+          WHERE instrument_type IN ('ETF', 'BOND_ETF')
+            AND source_composition_status = 'unknown_pending_disclosure') AS etf_pending_count,
+         EXISTS(SELECT 1 FROM normalized WHERE instrument_type IN ('ETF', 'BOND_ETF')) AS has_etf_entries,
+         (SELECT COUNT(*)::int FROM normalized WHERE source_composition_status = 'provided') AS provided_count,
+         (SELECT COUNT(*)::int FROM normalized
+          WHERE source_composition_status = 'unknown_pending_disclosure') AS pending_count`,
+      this.dividendReviewSqlParams(userId, filters),
+    );
+    const dbMs = performance.now() - dbStartedAt;
+    const row = result.rows[0] ?? {};
+    const enrichment: DividendReviewEnrichmentResult = {
+      aggregates: {
+        totalExpectedCashAmount: row.total_expected ?? {},
+        totalReceivedCashAmount: row.total_received ?? {},
+        openCount: Number(row.open_count ?? 0),
+        byMonth: row.by_month ?? {},
+        byTicker: row.by_ticker ?? {},
+      },
+      nhiRollup: {
+        bucketAggregates: (row.bucket_aggregates ?? []).map((bucket: Record<string, unknown>) => ({
+          sourceBucket: String(bucket.sourceBucket) as DividendReviewEnrichmentDto["nhiRollup"]["bucketAggregates"][number]["sourceBucket"],
+          totalAmount: Number(bucket.totalAmount),
+          isNhiSubject: Boolean(bucket.isNhiSubject),
+        })),
+        nhiSubjectTotal: Number(row.nhi_subject_total ?? 0),
+        projectedPremium: Number(row.projected_premium ?? 0),
+        pendingCount: Number(row.etf_pending_count ?? 0),
+        hasEtfEntries: Boolean(row.has_etf_entries),
+      },
+      sourceComposition: {
+        providedCount: Number(row.provided_count ?? 0),
+        pendingCount: Number(row.pending_count ?? 0),
+      },
+    };
+    enrichment.phaseTimings = {
+      dbMs,
+      aggregateMs: performance.now() - aggregateStartedAt,
+    };
+    return enrichment;
+  }
+
+  private async hydrateDividendReviewPage(
+    userId: string,
+    summaries: DividendReviewRowSummaryDto[],
+  ): Promise<DividendReviewRowWithDetails[]> {
+    const ledgerIds = summaries.filter((row) => row.rowKind === "ledger").map((row) => row.id);
+    if (ledgerIds.length === 0) {
+      return summaries.map((row) => ({
+        ...row,
+        deductions: [],
+        sourceLines: [],
+        correctionMode: row.eventType === "CASH" ? "in_place" : "amend",
+      } as DividendReviewRowWithDetails));
+    }
+    const [deductionsResult, sourceLinesResult, metadataResult] = await Promise.all([
+      this.pool.query(
+        `SELECT deduction.*
+         FROM dividend_deduction_entries AS deduction
+         JOIN dividend_ledger_entries AS ledger ON ledger.id = deduction.dividend_ledger_entry_id
+         JOIN accounts AS account ON account.id = ledger.account_id
+         WHERE account.user_id = $1 AND deduction.dividend_ledger_entry_id = ANY($2::text[])
+         ORDER BY deduction.dividend_ledger_entry_id, deduction.booked_at, deduction.id`,
+        [userId, ledgerIds],
+      ),
+      this.pool.query(
+        `SELECT source.*
+         FROM dividend_source_lines AS source
+         JOIN dividend_ledger_entries AS ledger ON ledger.id = source.dividend_ledger_entry_id
+         JOIN accounts AS account ON account.id = ledger.account_id
+         WHERE account.user_id = $1 AND source.dividend_ledger_entry_id = ANY($2::text[])
+         ORDER BY source.dividend_ledger_entry_id, source.booked_at, source.id`,
+        [userId, ledgerIds],
+      ),
+      this.pool.query(
+        `SELECT ledger.id AS ledger_id, ledger.reconciliation_note, ledger.booked_at,
+                action.id AS action_id, action.action_type, action.quantity AS action_quantity,
+                action.cash_in_lieu_amount, action.par_value_per_share,
+                action.premium_base_amount, action.nhi_premium_base_amount,
+                blocking_sell.id AS blocking_sell_id
+         FROM dividend_ledger_entries AS ledger
+         JOIN accounts AS account ON account.id = ledger.account_id
+         JOIN market_data.dividend_events AS event ON event.id = ledger.dividend_event_id
+         LEFT JOIN LATERAL (
+           SELECT candidate.* FROM position_actions AS candidate
+           WHERE candidate.related_dividend_ledger_entry_id = ledger.id
+             AND candidate.reversal_of_position_action_id IS NULL
+             AND candidate.superseded_at IS NULL
+             AND NOT EXISTS (
+               SELECT 1 FROM position_actions AS reversal
+               WHERE reversal.reversal_of_position_action_id = candidate.id
+             )
+           ORDER BY candidate.booked_at DESC NULLS LAST, candidate.id DESC LIMIT 1
+         ) AS action ON TRUE
+         LEFT JOIN LATERAL (
+           SELECT trade.id FROM trade_events AS trade
+           WHERE event.event_type <> 'CASH'
+             AND trade.user_id = $1
+             AND trade.account_id = ledger.account_id
+             AND trade.ticker = event.ticker
+             AND trade.market_code = event.market_code
+             AND trade.trade_type = 'SELL'
+             AND trade.reversal_of_trade_event_id IS NULL
+             AND NOT EXISTS (
+               SELECT 1 FROM trade_events AS reversal
+               WHERE reversal.reversal_of_trade_event_id = trade.id
+             )
+             AND (trade.trade_date > COALESCE(action.action_date, event.payment_date, ledger.booked_at::date)
+               OR (trade.trade_date = COALESCE(action.action_date, event.payment_date, ledger.booked_at::date)
+                 AND (action.action_timestamp IS NULL OR trade.trade_timestamp IS NULL
+                   OR trade.trade_timestamp >= action.action_timestamp)))
+           ORDER BY trade.trade_date, trade.trade_timestamp NULLS FIRST, trade.id LIMIT 1
+         ) AS blocking_sell ON TRUE
+         WHERE account.user_id = $1 AND ledger.id = ANY($2::text[])`,
+        [userId, ledgerIds],
+      ),
+    ]);
+    const deductionsByLedgerId = groupRowsByKey(deductionsResult.rows, "dividend_ledger_entry_id");
+    const sourceLinesByLedgerId = groupRowsByKey(sourceLinesResult.rows, "dividend_ledger_entry_id");
+    const metadataByLedgerId = new Map(metadataResult.rows.map((row) => [String(row.ledger_id), row]));
+    return summaries.map((summary) => {
+      const metadata = metadataByLedgerId.get(summary.id);
+      const deductions = (deductionsByLedgerId.get(summary.id) ?? []).map((deduction) => ({
+        id: String(deduction.id), dividendLedgerEntryId: String(deduction.dividend_ledger_entry_id),
+        deductionType: String(deduction.deduction_type) as DividendDeductionEntry["deductionType"],
+        amount: Number(deduction.amount), currencyCode: String(deduction.currency_code),
+        withheldAtSource: Boolean(deduction.withheld_at_source), source: String(deduction.source),
+        sourceReference: deduction.source_reference ? String(deduction.source_reference) : undefined,
+        note: deduction.note ? String(deduction.note) : undefined,
+        bookedAt: deduction.booked_at ? normalizeDateTime(String(deduction.booked_at)) : undefined,
+      }));
+      const sourceLines = (sourceLinesByLedgerId.get(summary.id) ?? []).map((sourceLine) => ({
+        id: String(sourceLine.id), dividendLedgerEntryId: String(sourceLine.dividend_ledger_entry_id),
+        sourceBucket: String(sourceLine.source_bucket) as DividendSourceLine["sourceBucket"],
+        amount: Number(sourceLine.amount), currencyCode: String(sourceLine.currency_code),
+        source: String(sourceLine.source),
+        sourceReference: sourceLine.source_reference ? String(sourceLine.source_reference) : undefined,
+        note: sourceLine.note ? String(sourceLine.note) : undefined,
+        bookedAt: sourceLine.booked_at ? normalizeDateTime(String(sourceLine.booked_at)) : undefined,
+      }));
+      const blockingSellId = metadata?.blocking_sell_id ? String(metadata.blocking_sell_id) : null;
+      const linkedPositionActionId = metadata?.action_id ? String(metadata.action_id) : null;
+      const receivedStockQuantity = metadata?.action_quantity == null
+        ? summary.receivedStockQuantity : Number(metadata.action_quantity);
+      const parValuePerShare = metadata?.par_value_per_share == null ? 0 : Number(metadata.par_value_per_share);
+      return {
+        ...summary,
+        deductions,
+        sourceLines,
+        reconciliationNote: metadata?.reconciliation_note == null ? undefined : String(metadata.reconciliation_note),
+        bookedAt: metadata?.booked_at ? normalizeDateTime(String(metadata.booked_at)) : undefined,
+        correctionMode: summary.eventType === "CASH" ? "in_place" : blockingSellId ? "reversal_replacement" : "amend",
+        amendmentBlockedReason: blockingSellId ? `sell:${blockingSellId}` : null,
+        linkedPositionActionId,
+        linkedPositionActionStatus: linkedPositionActionId ? "posted" : null,
+        cashInLieuAmount: metadata?.cash_in_lieu_amount == null ? summary.cashInLieuAmount : Number(metadata.cash_in_lieu_amount),
+        parValueBaseAmount: parValuePerShare > 0 ? Math.round(receivedStockQuantity * parValuePerShare * 100) / 100 : null,
+        premiumBaseAmount: metadata?.premium_base_amount == null ? null : Number(metadata.premium_base_amount),
+        nhiPremiumBaseAmount: metadata?.nhi_premium_base_amount == null ? null : Number(metadata.nhi_premium_base_amount),
+        portfolioCostBasisAddedAmount: metadata?.action_type === "STOCK_DIVIDEND" ? 0 : null,
+        snapshotRefreshStatus: linkedPositionActionId ? "queued" : null,
+      } as DividendReviewRowWithDetails;
+    });
+  }
+
+  async getDividendReviewRowDetail(
+    userId: string,
+    dividendLedgerEntryId: string,
+  ): Promise<DividendReviewRowWithDetails | null> {
+    await this.ensureDefaultPortfolioData(userId);
+    const result = await this.pool.query(
+      `SELECT ledger.id, 'ledger'::text AS row_kind, ledger.version,
+              account.id AS account_id, account.name AS account_name,
+              event.id AS dividend_event_id, event.ticker,
+              instrument.name AS ticker_name, event.market_code,
+              COALESCE(instrument.instrument_type, 'STOCK') AS instrument_type,
+              event.event_type, event.ex_dividend_date, event.payment_date,
+              event.cash_dividend_currency AS cash_currency,
+              ledger.eligible_quantity, ledger.expected_cash_amount,
+              COALESCE(receipt.received_cash_amount, 0) AS received_cash_amount,
+              ledger.expected_stock_quantity, ledger.received_stock_quantity,
+              ledger.posting_status, ledger.reconciliation_status,
+              ledger.source_composition_status,
+              ledger.expected_cash_amount AS expected_gross_amount,
+              ledger.expected_cash_amount - COALESCE(deduction.deduction_total, 0) AS expected_net_amount,
+              COALESCE(receipt.received_cash_amount, 0) AS actual_net_amount,
+              COALESCE(receipt.received_cash_amount, 0)
+                - (ledger.expected_cash_amount - COALESCE(deduction.deduction_total, 0)) AS variance_amount,
+              COALESCE(deduction.nhi_amount, 0) AS nhi_amount,
+              COALESCE(deduction.bank_fee_amount, 0) AS bank_fee_amount,
+              COALESCE(deduction.other_deduction_amount, 0) AS other_deduction_amount,
+              CASE WHEN event.event_type = 'CASH' THEN NULL
+                   WHEN event.stock_distribution_ratio >= 0 THEN event.stock_distribution_ratio
+                   ELSE NULL END AS stock_distribution_ratio,
+              COALESCE(event.stock_distribution_ratio_state, 'unresolved') AS stock_distribution_ratio_state,
+              CASE
+                WHEN event.event_type = 'CASH' THEN 'resolved'
+                WHEN TRUNC(GREATEST(ledger.eligible_quantity, 0)) = 0 THEN 'resolved'
+                WHEN event.stock_distribution_ratio >= 0
+                 AND event.stock_distribution_ratio_state = 'authoritative' THEN 'resolved'
+                ELSE 'needs_action'
+              END AS expected_stock_calc_state,
+              ledger.expected_stock_par_value_amount,
+              cash_in_lieu.amount AS cash_in_lieu_amount
+       FROM dividend_ledger_entries AS ledger
+       JOIN accounts AS account ON account.id = ledger.account_id
+       JOIN market_data.dividend_events AS event ON event.id = ledger.dividend_event_id
+       LEFT JOIN market_data.instruments AS instrument
+         ON instrument.market_code = event.market_code AND instrument.ticker = event.ticker
+       LEFT JOIN LATERAL (
+         SELECT SUM(entry.amount) AS received_cash_amount
+         FROM cash_ledger_entries AS entry
+         WHERE entry.user_id = $1
+           AND entry.entry_type = 'DIVIDEND_RECEIPT'
+           AND entry.related_dividend_ledger_entry_id = ledger.id
+       ) AS receipt ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT SUM(entry.amount) FILTER (WHERE entry.deduction_type = 'NHI_SUPPLEMENTAL_PREMIUM') AS nhi_amount,
+                SUM(entry.amount) FILTER (WHERE entry.deduction_type = 'BANK_FEE') AS bank_fee_amount,
+                SUM(entry.amount) FILTER (WHERE entry.deduction_type NOT IN ('NHI_SUPPLEMENTAL_PREMIUM', 'BANK_FEE')) AS other_deduction_amount,
+                SUM(entry.amount) AS deduction_total
+         FROM dividend_deduction_entries AS entry
+         WHERE entry.dividend_ledger_entry_id = ledger.id
+       ) AS deduction ON TRUE
+       LEFT JOIN LATERAL (
+         SELECT SUM(action.cash_in_lieu_amount) AS amount
+         FROM position_actions AS action
+         WHERE action.related_dividend_ledger_entry_id = ledger.id
+           AND action.reversal_of_position_action_id IS NULL
+           AND action.superseded_at IS NULL
+           AND NOT EXISTS (
+             SELECT 1 FROM position_actions AS reversal
+             WHERE reversal.reversal_of_position_action_id = action.id
+           )
+       ) AS cash_in_lieu ON TRUE
+       WHERE ledger.id = $2
+         AND account.user_id = $1
+         AND account.deleted_at IS NULL
+         AND ledger.superseded_at IS NULL
+         AND ledger.reversal_of_dividend_ledger_entry_id IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM dividend_ledger_entries AS reversal
+           WHERE reversal.reversal_of_dividend_ledger_entry_id = ledger.id
+         )
+       LIMIT 1`,
+      [userId, dividendLedgerEntryId],
+    );
+    if (!result.rowCount) return null;
+    return (await this.hydrateDividendReviewPage(
+      userId,
+      [this.mapDividendReviewSummaryRow(result.rows[0])],
+    ))[0] ?? null;
+  }
+
   async listDividendReviewRows(
     userId: string,
     opts: DividendReviewListOptions,
   ): Promise<DividendReviewListResult> {
-    const snapshot = await this.listDividendCalendarSnapshot(userId, {
-      accountId: opts.accountId,
-      fromPaymentDate: opts.fromPaymentDate,
-      toPaymentDate: opts.toPaymentDate,
-      marketCode: opts.marketCode,
-      ticker: opts.ticker,
-      includeUndated: opts.fromPaymentDate != null || opts.toPaymentDate != null,
-      limit: 2_147_483_647,
-    });
-    const store = createStore();
-    store.userId = userId;
-    store.settings.userId = userId;
-    store.accounts = snapshot.accounts;
-    store.accounting.facts.tradeEvents = snapshot.tradeEvents;
-    store.accounting.facts.positionActions = snapshot.positionActions ?? [];
-    store.accounting.facts.dividendLedgerEntries = snapshot.ledgerEntries;
-    store.accounting.facts.dividendDeductionEntries = snapshot.ledgerEntries.flatMap((entry) => entry.deductions);
-    store.accounting.facts.dividendSourceLines = snapshot.ledgerEntries.flatMap((entry) => entry.sourceLines);
-    store.marketData.dividendEvents = snapshot.dividendEvents;
-    setStoreInstruments(store, snapshot.instruments);
-
-    const scopedEventById = new Map(snapshot.dividendEvents.map((event) => [event.id, event]));
-    store.accounting.facts.cashLedgerEntries = snapshot.ledgerEntries.flatMap((entry) => {
-      if (entry.receivedCashAmount === 0) return [];
-      const event = scopedEventById.get(entry.dividendEventId);
-      return [{
-        id: `review-receipt:${entry.id}`,
-        userId,
-        accountId: entry.accountId,
-        entryDate: event?.paymentDate ?? entry.bookedAt?.slice(0, 10) ?? "1970-01-01",
-        entryType: "DIVIDEND_RECEIPT" as const,
-        amount: entry.receivedCashAmount,
-        currency: event?.cashDividendCurrency ?? "TWD",
-        relatedDividendLedgerEntryId: entry.id,
-        source: "dividend_review_scoped_read",
-        bookedAt: entry.bookedAt,
-      }];
-    });
-    const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
-    const accountById = new Map(store.accounts.map((account) => [account.id, account]));
-    const receivedByLedgerId = new Map<string, number>();
-
-    for (const cashEntry of store.accounting.facts.cashLedgerEntries) {
-      if (cashEntry.entryType !== "DIVIDEND_RECEIPT") continue;
-      const ledgerId = cashEntry.relatedDividendLedgerEntryId;
-      if (!ledgerId) continue;
-      receivedByLedgerId.set(ledgerId, (receivedByLedgerId.get(ledgerId) ?? 0) + cashEntry.amount);
-    }
-
-    const reversedIds = new Set(
-      store.accounting.facts.dividendLedgerEntries
-        .map((entry) => entry.reversalOfDividendLedgerEntryId)
-        .filter((id): id is string => Boolean(id)),
-    );
-
-    const activeLedgerEntries = store.accounting.facts.dividendLedgerEntries.filter((entry) => {
-      if (entry.reversalOfDividendLedgerEntryId) return false;
-      if (entry.supersededAt) return false;
-      if (reversedIds.has(entry.id)) return false;
-      return true;
-    });
-    const activeLedgerKey = new Set(activeLedgerEntries.map((entry) => `${entry.accountId}:${entry.dividendEventId}`));
-    const reversedTradeIds = new Set(
-      store.accounting.facts.tradeEvents
-        .map((trade) => trade.reversalOfTradeEventId)
-        .filter((id): id is string => Boolean(id)),
-    );
-
-    const instrumentTypeFor = (ticker: string, cashCurrency: string): InstrumentType => {
-      try {
-        const marketCode = marketCodeFor(cashCurrency);
-        return store.instruments.find(
-          (instrument) => instrument.ticker === ticker && instrument.marketCode === marketCode,
-        )?.type ?? "STOCK";
-      } catch {
-        return "STOCK";
-      }
-    };
-    const instrumentNameFor = (ticker: string, marketCode: MarketCode): string | null =>
-      store.instruments.find((instrument) => instrument.ticker === ticker && instrument.marketCode === marketCode)?.name
-      ?? store.marketData.instruments.find((instrument) => instrument.ticker === ticker && instrument.marketCode === marketCode)?.name
-      ?? null;
-
-    const dateFilterActive = opts.fromPaymentDate != null || opts.toPaymentDate != null;
-    const matchesDateFilter = (paymentDate: string | null | undefined): boolean => {
-      if (dateFilterActive) {
-        return matchesNullableDateRange(paymentDate, opts.fromPaymentDate, opts.toPaymentDate);
-      }
-      return paymentDate != null;
-    };
-
-    const ledgerRows: DividendReviewRowWithDetails[] = activeLedgerEntries.flatMap((entry) => {
-      if (opts.accountId && entry.accountId !== opts.accountId) return [];
-      if (opts.excludeExpected && entry.postingStatus === "expected") return [];
-      if (opts.reconciliationStatus && entry.reconciliationStatus !== opts.reconciliationStatus) return [];
-      if (opts.postingStatus && entry.postingStatus !== opts.postingStatus) return [];
-      const event = eventById.get(entry.dividendEventId);
-      if (!event) return [];
-      const eventMarketCode = dividendEventMarketCode(event);
-      if (opts.marketCode && eventMarketCode !== opts.marketCode) return [];
-      if (!matchesDateFilter(event.paymentDate)) return [];
-      if (opts.ticker && event.ticker !== opts.ticker) return [];
-      const deductions = store.accounting.facts.dividendDeductionEntries.filter(
-        (deduction) => deduction.dividendLedgerEntryId === entry.id,
-      );
-      const cashReconciliation = calculateDividendCashReconciliation({
-        expectedGrossAmount: entry.expectedCashAmount,
-        actualNetAmount: receivedByLedgerId.get(entry.id) ?? 0,
-        deductions: summarizeDividendDeductions(deductions),
-      });
-      const stockEntitlement = resolveDividendStockEntitlement({
-        eligibleQuantity: entry.eligibleQuantity,
-        stockEntitlementRequired: event.eventType !== "CASH",
-        stockDistributionRatio: event.stockDistributionRatio ?? null,
-        stockDistributionRatioState: event.stockDistributionRatioState ?? "unresolved",
-      });
-      return [{
-        ...entry,
-        rowKind: "ledger",
-        ticker: event.ticker,
-        tickerName: instrumentNameFor(event.ticker, eventMarketCode),
-        marketCode: eventMarketCode,
-        instrumentType: instrumentTypeFor(event.ticker, event.cashDividendCurrency),
-        eventType: event.eventType,
-        exDividendDate: event.exDividendDate,
-        paymentDate: event.paymentDate,
-        cashCurrency: event.cashDividendCurrency,
-        receivedCashAmount: receivedByLedgerId.get(entry.id) ?? 0,
-        deductions,
-        sourceLines: store.accounting.facts.dividendSourceLines.filter(
-          (line) => line.dividendLedgerEntryId === entry.id,
-        ),
-        stockDistributionRatio: stockEntitlement.stockDistributionRatio,
-        stockDistributionRatioState: stockEntitlement.stockDistributionRatioState,
-        expectedStockCalcState: stockEntitlement.expectedStockCalcState,
-        nhiAmount: cashReconciliation.deductions.nhiAmount,
-        bankFeeAmount: cashReconciliation.deductions.bankFeeAmount,
-        otherDeductionAmount: cashReconciliation.deductions.otherDeductionAmount,
-        expectedNetAmount: cashReconciliation.expectedNetAmount,
-        actualNetAmount: cashReconciliation.actualNetAmount,
-        varianceAmount: cashReconciliation.varianceAmount,
-      }];
-    });
-
-    const expectedRows: DividendReviewRowWithDetails[] = [];
-    if (!opts.excludeExpected) {
-      for (const account of store.accounts) {
-        if (account.userId !== userId) continue;
-        if (opts.accountId && account.id !== opts.accountId) continue;
-
-        for (const event of store.marketData.dividendEvents) {
-          let eventMarketCode: MarketCode;
-          try {
-            eventMarketCode = dividendEventMarketCode(event);
-          } catch {
-            continue;
-          }
-          if (account.defaultCurrency !== event.cashDividendCurrency) continue;
-          if (opts.marketCode && eventMarketCode !== opts.marketCode) continue;
-          if (!matchesDateFilter(event.paymentDate)) continue;
-          if (opts.ticker && event.ticker !== opts.ticker) continue;
-          if (opts.reconciliationStatus && opts.reconciliationStatus !== "open") continue;
-          if (opts.postingStatus && opts.postingStatus !== "expected") continue;
-          if (activeLedgerKey.has(`${account.id}:${event.id}`)) continue;
-
-          const eligibleQuantity = deriveGeneratedDividendReviewEligibleQuantity(
-            store,
-            userId,
-            account.id,
-            event.ticker,
-            eventMarketCode,
-            event.exDividendDate,
-            reversedTradeIds,
-          );
-          if (eligibleQuantity <= 0) continue;
-
-          const cashReconciliation = calculateDividendCashReconciliation({
-            expectedGrossAmount: Math.max(0, Math.round(eligibleQuantity * event.cashDividendPerShare + Number.EPSILON)),
-            actualNetAmount: 0,
-          });
-          const stockEntitlement = resolveDividendStockEntitlement({
-            eligibleQuantity,
-            stockEntitlementRequired: event.eventType !== "CASH",
-            stockDistributionRatio: event.stockDistributionRatio ?? null,
-            stockDistributionRatioState: event.stockDistributionRatioState ?? "unresolved",
-          });
-          expectedRows.push({
-            id: `expected:${account.id}:${event.id}`,
-            rowKind: "expected",
-            accountId: account.id,
-            dividendEventId: event.id,
-            ticker: event.ticker,
-            tickerName: instrumentNameFor(event.ticker, eventMarketCode),
-            marketCode: eventMarketCode,
-            instrumentType: instrumentTypeFor(event.ticker, event.cashDividendCurrency),
-            eventType: event.eventType,
-            exDividendDate: event.exDividendDate,
-            paymentDate: event.paymentDate,
-            cashCurrency: event.cashDividendCurrency,
-            eligibleQuantity,
-            expectedCashAmount: cashReconciliation.expectedGrossAmount,
-            expectedStockQuantity: stockEntitlement.expectedStockQuantity,
-            receivedCashAmount: 0,
-            receivedStockQuantity: 0,
-            postingStatus: "expected",
-            reconciliationStatus: "open",
-            version: 0,
-            sourceCompositionStatus: "unknown_pending_disclosure",
-            deductions: [],
-            sourceLines: [],
-            stockDistributionRatio: stockEntitlement.stockDistributionRatio,
-            stockDistributionRatioState: stockEntitlement.stockDistributionRatioState,
-            expectedStockCalcState: stockEntitlement.expectedStockCalcState,
-            nhiAmount: cashReconciliation.deductions.nhiAmount,
-            bankFeeAmount: cashReconciliation.deductions.bankFeeAmount,
-            otherDeductionAmount: cashReconciliation.deductions.otherDeductionAmount,
-            expectedNetAmount: cashReconciliation.expectedNetAmount,
-            actualNetAmount: cashReconciliation.actualNetAmount,
-            varianceAmount: cashReconciliation.varianceAmount,
-          });
-        }
-      }
-    }
-
-    const rows = [...ledgerRows, ...expectedRows];
-    const aggregates: DividendLedgerAggregates = {
-      totalExpectedCashAmount: {},
-      totalReceivedCashAmount: {},
-      openCount: 0,
-      byMonth: {},
-      byTicker: {},
-    };
-
-    for (const row of rows) {
-      const currency = row.cashCurrency;
-      aggregates.totalExpectedCashAmount[currency] =
-        (aggregates.totalExpectedCashAmount[currency] ?? 0) + row.expectedCashAmount;
-      aggregates.totalReceivedCashAmount[currency] =
-        (aggregates.totalReceivedCashAmount[currency] ?? 0) + row.receivedCashAmount;
-      if (row.reconciliationStatus === "open") aggregates.openCount += 1;
-
-      if (row.paymentDate) {
-        const monthKey = row.paymentDate.substring(0, 7);
-        const monthBucket = (aggregates.byMonth[monthKey] ??= {});
-        const monthCurrencyBucket = (monthBucket[currency] ??= { expected: 0, received: 0 });
-        monthCurrencyBucket.expected += row.expectedCashAmount;
-        monthCurrencyBucket.received += row.receivedCashAmount;
-      }
-
-      const tickerBucket = (aggregates.byTicker[row.ticker] ??= {});
-      const tickerCurrencyBucket = (tickerBucket[currency] ??= { expected: 0, received: 0 });
-      tickerCurrencyBucket.expected += row.expectedCashAmount;
-      tickerCurrencyBucket.received += row.receivedCashAmount;
-    }
-
-    const sorted = rows.slice().sort((left, right) => {
-      const cmp = compareDividendReviewRows(left, right, accountById, opts);
-      if (cmp !== 0) return cmp;
-      return left.id.localeCompare(right.id);
-    });
-
-    const total = sorted.length;
-    const startIndex = (opts.page - 1) * opts.limit;
+    await this.ensureDefaultPortfolioData(userId);
+    const [primary, enrichment] = await Promise.all([
+      this.listDividendReviewPrimarySql(userId, opts),
+      this.getDividendReviewEnrichmentSql(userId, opts),
+    ]);
     return {
-      rows: enrichDividendReviewRows(store, sorted.slice(startIndex, startIndex + opts.limit)),
-      total,
-      aggregates,
+      rows: await this.hydrateDividendReviewPage(userId, primary.rows),
+      total: primary.total,
+      aggregates: enrichment.aggregates,
+    };
+  }
+
+  async listDividendReviewPrimary(
+    userId: string,
+    query: DividendReviewPrimaryQueryDto,
+  ): Promise<DividendReviewPrimaryResult> {
+    await this.ensureDefaultPortfolioData(userId);
+    return this.listDividendReviewPrimarySql(userId, query);
+  }
+
+  async getDividendReviewEnrichment(
+    userId: string,
+    filters: DividendReviewFilterDto,
+  ): Promise<DividendReviewEnrichmentResult> {
+    await this.ensureDefaultPortfolioData(userId);
+    return this.getDividendReviewEnrichmentSql(userId, filters);
+  }
+
+  async listDividendReviewMetadata(userId: string): Promise<DividendReviewMetadataResult> {
+    await this.ensureDefaultPortfolioData(userId);
+    const [{ years }, accountsResult] = await Promise.all([
+      this.listDividendLedgerYears(userId),
+      this.pool.query(
+        `SELECT id, name
+         FROM accounts
+         WHERE user_id = $1
+           AND deleted_at IS NULL
+         ORDER BY name, id`,
+        [userId],
+      ),
+    ]);
+    return {
+      years,
+      accounts: accountsResult.rows.map((row) => ({ id: String(row.id), name: String(row.name) })),
     };
   }
 
@@ -19793,287 +20481,6 @@ function mapDividendLedgerEntryRow(row: Record<string, unknown>): DividendLedger
     supersededAt: row.superseded_at ? normalizeDateTime(String(row.superseded_at)) : undefined,
     bookedAt: row.booked_at ? normalizeDateTime(String(row.booked_at)) : undefined,
   };
-}
-
-type DividendReviewReplayEntry =
-  | { kind: "trade"; trade: BookedTradeEvent }
-  | { kind: "action"; action: PositionAction };
-
-function matchesNullableDateRange(value: string | null | undefined, fromDate?: string, toDate?: string): boolean {
-  if (value == null) return true;
-  if (fromDate && value < fromDate) return false;
-  if (toDate && value > toDate) return false;
-  return true;
-}
-
-function dividendEventMarketCode(
-  event: Pick<Store["marketData"]["dividendEvents"][number], "marketCode" | "cashDividendCurrency">,
-): MarketCode {
-  return event.marketCode ?? marketCodeFor(event.cashDividendCurrency);
-}
-
-function compareNullableIsoDateNullLast(
-  left: string | null | undefined,
-  right: string | null | undefined,
-  sortOrder: "asc" | "desc",
-): number {
-  const leftValue = left ?? null;
-  const rightValue = right ?? null;
-  if (leftValue === null && rightValue === null) return 0;
-  if (leftValue === null) return 1;
-  if (rightValue === null) return -1;
-  const cmp = leftValue.localeCompare(rightValue);
-  return sortOrder === "asc" ? cmp : -cmp;
-}
-
-function compareAscNullableIsoDateNullLast(
-  left: string | null | undefined,
-  right: string | null | undefined,
-): number {
-  return compareNullableIsoDateNullLast(left, right, "asc");
-}
-
-function compareNumberByOrder(left: number, right: number, sortOrder: "asc" | "desc"): number {
-  return sortOrder === "asc" ? left - right : right - left;
-}
-
-function compareStringByOrder(left: string, right: string, sortOrder: "asc" | "desc"): number {
-  const cmp = left.localeCompare(right);
-  return sortOrder === "asc" ? cmp : -cmp;
-}
-
-function compareDividendReviewRows(
-  left: DividendReviewRowWithDetails,
-  right: DividendReviewRowWithDetails,
-  accountById: ReadonlyMap<string, { name: string }>,
-  opts: Pick<DividendReviewListOptions, "sortBy" | "sortOrder">,
-): number {
-  const leftAccountName = accountById.get(left.accountId)?.name ?? "";
-  const rightAccountName = accountById.get(right.accountId)?.name ?? "";
-  let cmp = 0;
-
-  switch (opts.sortBy) {
-    case "paymentDate":
-      cmp = compareNullableIsoDateNullLast(left.paymentDate, right.paymentDate, opts.sortOrder);
-      break;
-    case "ticker":
-      cmp = compareStringByOrder(left.ticker, right.ticker, opts.sortOrder);
-      break;
-    case "account":
-      cmp = compareStringByOrder(leftAccountName, rightAccountName, opts.sortOrder);
-      break;
-    case "expectedCashAmount":
-    case "expectedGrossAmount":
-      cmp = compareNumberByOrder(left.expectedCashAmount, right.expectedCashAmount, opts.sortOrder);
-      break;
-    case "expectedNetAmount":
-      cmp = compareNumberByOrder(left.expectedNetAmount ?? 0, right.expectedNetAmount ?? 0, opts.sortOrder);
-      break;
-    case "nhiAmount":
-      cmp = compareNumberByOrder(left.nhiAmount ?? 0, right.nhiAmount ?? 0, opts.sortOrder);
-      break;
-    case "bankFeeAmount":
-      cmp = compareNumberByOrder(left.bankFeeAmount ?? 0, right.bankFeeAmount ?? 0, opts.sortOrder);
-      break;
-    case "otherDeductionAmount":
-      cmp = compareNumberByOrder(left.otherDeductionAmount ?? 0, right.otherDeductionAmount ?? 0, opts.sortOrder);
-      break;
-    case "receivedCashAmount":
-      cmp = compareNumberByOrder(left.receivedCashAmount, right.receivedCashAmount, opts.sortOrder);
-      break;
-    case "actualNetAmount":
-      cmp = compareNumberByOrder(left.actualNetAmount ?? 0, right.actualNetAmount ?? 0, opts.sortOrder);
-      break;
-    case "varianceAmount":
-      cmp = compareNumberByOrder(left.varianceAmount ?? 0, right.varianceAmount ?? 0, opts.sortOrder);
-      break;
-    case "reconciliationStatus":
-      cmp = compareStringByOrder(left.reconciliationStatus, right.reconciliationStatus, opts.sortOrder);
-      break;
-  }
-  if (cmp !== 0) return cmp;
-
-  cmp = compareAscNullableIsoDateNullLast(left.paymentDate, right.paymentDate);
-  if (cmp !== 0) return cmp;
-
-  cmp = left.ticker.localeCompare(right.ticker);
-  if (cmp !== 0) return cmp;
-
-  cmp = leftAccountName.localeCompare(rightAccountName);
-  if (cmp !== 0) return cmp;
-
-  return 0;
-}
-
-function compareDividendReviewReplayEntries(left: DividendReviewReplayEntry, right: DividendReviewReplayEntry): number {
-  const leftDate = left.kind === "trade" ? left.trade.tradeDate : left.action.actionDate;
-  const rightDate = right.kind === "trade" ? right.trade.tradeDate : right.action.actionDate;
-  if (leftDate !== rightDate) return leftDate.localeCompare(rightDate);
-
-  const leftTimestamp = left.kind === "trade" ? left.trade.tradeTimestamp ?? null : left.action.actionTimestamp ?? null;
-  const rightTimestamp = right.kind === "trade" ? right.trade.tradeTimestamp ?? null : right.action.actionTimestamp ?? null;
-  if (leftTimestamp && rightTimestamp && leftTimestamp !== rightTimestamp) {
-    return leftTimestamp.localeCompare(rightTimestamp);
-  }
-  if (left.kind !== right.kind && (!leftTimestamp || !rightTimestamp)) {
-    return left.kind === "action" ? -1 : 1;
-  }
-
-  if (left.kind === "trade" && right.kind === "trade") {
-    return (
-      (left.trade.tradeTimestamp ?? "").localeCompare(right.trade.tradeTimestamp ?? "")
-      || (left.trade.bookingSequence ?? 0) - (right.trade.bookingSequence ?? 0)
-      || (left.trade.bookedAt ?? "").localeCompare(right.trade.bookedAt ?? "")
-      || left.trade.id.localeCompare(right.trade.id)
-    );
-  }
-  if (left.kind === "action" && right.kind === "action") {
-    return (
-      (left.action.bookedAt ?? "").localeCompare(right.action.bookedAt ?? "")
-      || left.action.id.localeCompare(right.action.id)
-    );
-  }
-  return left.kind === "action" ? -1 : 1;
-}
-
-function applyDividendReviewPositionActionToLots(currentLots: Lot[], action: PositionAction): Lot[] {
-  if (action.reversalOfPositionActionId || action.supersededAt) {
-    return currentLots;
-  }
-
-  if (action.actionType === "STOCK_DIVIDEND") {
-    const nextSequence =
-      currentLots
-        .filter((lot) => lot.accountId === action.accountId && lot.ticker === action.ticker && lot.openedAt === action.actionDate)
-        .reduce((max, lot) => Math.max(max, lot.openedSequence ?? 0), 0) + 1;
-    return [
-      ...currentLots,
-      {
-        id: `review-pa-${action.id}`,
-        accountId: action.accountId,
-        ticker: action.ticker,
-        openQuantity: action.quantity,
-        totalCostAmount: 0,
-        costCurrency: currencyFor(action.marketCode),
-        openedAt: action.actionDate,
-        openedSequence: nextSequence,
-      },
-    ];
-  }
-
-  const numerator = action.ratioNumerator ?? 1;
-  const denominator = action.ratioDenominator ?? 1;
-  if (numerator <= 0 || denominator <= 0) {
-    return currentLots;
-  }
-
-  const splitRatio = numerator / denominator;
-  return currentLots.map((lot) => {
-    if (lot.accountId !== action.accountId || lot.ticker !== action.ticker || lot.openQuantity <= 0) {
-      return lot;
-    }
-    const adjustedQuantity = lot.openQuantity * splitRatio;
-    const retainedQuantity = Math.floor(adjustedQuantity);
-    const hasFractionalQuantity = adjustedQuantity !== retainedQuantity;
-    if (hasFractionalQuantity && (action.cashInLieuAmount ?? 0) <= 0) {
-      throw new Error(`Position action ${action.id} creates fractional shares without cash-in-lieu`);
-    }
-    return {
-      ...lot,
-      openQuantity: hasFractionalQuantity ? retainedQuantity : adjustedQuantity,
-    };
-  });
-}
-
-function deriveGeneratedDividendReviewEligibleQuantity(
-  store: Store,
-  userId: string,
-  accountId: string,
-  ticker: string,
-  marketCode: MarketCode,
-  exDividendDate: string,
-  reversedTradeIds: ReadonlySet<string>,
-): number {
-  let lots: Lot[] = [];
-  const stream: DividendReviewReplayEntry[] = [
-    ...store.accounting.facts.tradeEvents
-      .filter((trade) =>
-        trade.userId === userId
-        && trade.accountId === accountId
-        && trade.ticker === ticker
-        && trade.marketCode === marketCode
-        && trade.tradeDate < exDividendDate
-        && !trade.reversalOfTradeEventId
-        && !reversedTradeIds.has(trade.id))
-      .map((trade) => ({ kind: "trade" as const, trade })),
-    ...store.accounting.facts.positionActions
-      .filter((action) =>
-        action.accountId === accountId
-        && action.ticker === ticker
-        && action.marketCode === marketCode
-        && action.actionDate < exDividendDate)
-      .map((action) => ({ kind: "action" as const, action })),
-  ].sort(compareDividendReviewReplayEntries);
-
-  try {
-    for (const entry of stream) {
-      if (entry.kind === "action") {
-        lots = applyDividendReviewPositionActionToLots(lots, entry.action);
-        continue;
-      }
-
-      if (entry.trade.type === "BUY") {
-        lots = applyBuyToLots(lots, {
-          id: `review-lot-${entry.trade.id}`,
-          accountId: entry.trade.accountId,
-          ticker: entry.trade.ticker,
-          openQuantity: entry.trade.quantity,
-          totalCostAmount: roundToDecimal(entry.trade.unitPrice * entry.trade.quantity, 2)
-            + entry.trade.commissionAmount
-            + entry.trade.taxAmount,
-          costCurrency: entry.trade.priceCurrency,
-          openedAt: entry.trade.tradeDate,
-          openedSequence: entry.trade.bookingSequence ?? 1,
-        }).updatedLots;
-        continue;
-      }
-
-      const openLots = lots.filter((lot) => lot.openQuantity > 0);
-      const result = allocateSellLots(openLots, entry.trade.quantity);
-      lots = lots.map((lot) => result.updatedLots.find((updated) => updated.id === lot.id) ?? lot);
-    }
-  } catch {
-    return 0;
-  }
-
-  return Math.max(
-    0,
-    lots
-      .filter((lot) => lot.accountId === accountId && lot.ticker === ticker && lot.openQuantity > 0)
-      .reduce((sum, lot) => sum + lot.openQuantity, 0),
-  );
-}
-
-function summarizeDividendDeductions(
-  deductions: readonly { deductionType: string; amount: number }[],
-): { nhiAmount: number; bankFeeAmount: number; otherDeductionAmount: number } {
-  let nhiAmount = 0;
-  let bankFeeAmount = 0;
-  let otherDeductionAmount = 0;
-
-  for (const deduction of deductions) {
-    if (deduction.deductionType === "NHI_SUPPLEMENTAL_PREMIUM") {
-      nhiAmount += deduction.amount;
-      continue;
-    }
-    if (deduction.deductionType === "BANK_FEE") {
-      bankFeeAmount += deduction.amount;
-      continue;
-    }
-    otherDeductionAmount += deduction.amount;
-  }
-
-  return { nhiAmount, bankFeeAmount, otherDeductionAmount };
 }
 
 function mapPositionActionRow(row: Record<string, unknown>): PositionAction {

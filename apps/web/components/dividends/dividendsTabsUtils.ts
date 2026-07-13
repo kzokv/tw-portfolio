@@ -16,6 +16,7 @@ const LEDGER_ONLY_PARAMS = [
   "sortBy",
   "sortOrder",
   "page",
+  "limit",
   "sourceComposition",
 ] as const;
 

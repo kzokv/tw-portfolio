@@ -104,7 +104,7 @@ describe("DividendsTabsClient", () => {
     expect(fetchDividendLedgerReview).not.toHaveBeenCalled();
   });
 
-  it("hydrates ledger data when ledger is the active entry route", async () => {
+  it("mounts the ledger client with a null seed so it owns the primary fetch", async () => {
     const dict = getDictionary("en");
 
     window.history.replaceState(null, "", "/dividends?view=ledger");
@@ -129,10 +129,10 @@ describe("DividendsTabsClient", () => {
     await act(async () => {});
     await act(async () => {});
 
-    expect(fetchDividendLedgerReview).toHaveBeenCalledTimes(1);
-    expect(fetchDividendLedgerYears).toHaveBeenCalledTimes(1);
-    expect(fetchShellPortfolioConfig).toHaveBeenCalledTimes(1);
-    expect(container.querySelector('[data-testid="mock-review-client"]')?.getAttribute("data-accounts-count")).toBe("1");
+    expect(fetchDividendLedgerReview).not.toHaveBeenCalled();
+    expect(fetchDividendLedgerYears).not.toHaveBeenCalled();
+    expect(fetchShellPortfolioConfig).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-testid="mock-review-client"]')?.getAttribute("data-accounts-count")).toBe("0");
     expect(fetchDividendCalendarSnapshot).not.toHaveBeenCalled();
   });
 

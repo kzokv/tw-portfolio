@@ -16,6 +16,11 @@ import type {
   AiTransactionDraftRowState,
   AiTransactionDraftSourceChannel,
   DividendLedgerAggregates,
+  DividendReviewAccountOptionDto,
+  DividendReviewEnrichmentDto,
+  DividendReviewFilterDto,
+  DividendReviewPrimaryQueryDto,
+  DividendReviewRowSummaryDto,
   DividendReviewSortColumn,
   DividendSourceLine,
   ShareCapability,
@@ -1280,7 +1285,24 @@ export interface DividendLedgerListOptions {
 
 export interface DividendReviewListOptions extends Omit<DividendLedgerListOptions, "sortBy"> {
   sortBy: DividendReviewSortColumn;
+  sourceComposition?: DividendReviewPrimaryQueryDto["sourceComposition"];
 }
+
+export type DividendReviewPrimaryResult = {
+  rows: DividendReviewRowSummaryDto[];
+  total: number;
+  phaseTimings?: { dbMs: number; hydrationMs: number };
+};
+
+export type DividendReviewEnrichmentResult = DividendReviewEnrichmentDto & {
+  // aggregateMs covers the complete aggregation phase and may overlap dbMs.
+  phaseTimings?: { dbMs: number; aggregateMs: number };
+};
+
+export type DividendReviewMetadataResult = {
+  years: number[];
+  accounts: DividendReviewAccountOptionDto[];
+};
 
 export type DividendLedgerEntryWithDetails = DividendLedgerEntry & {
   deductions: Store["accounting"]["facts"]["dividendDeductionEntries"];
@@ -1330,6 +1352,7 @@ export type DividendReviewRowWithDetails = DividendLedgerEntryWithDetails & {
   nhiAmount?: number;
   bankFeeAmount?: number;
   otherDeductionAmount?: number;
+  expectedGrossAmount?: number;
   expectedNetAmount?: number;
   actualNetAmount?: number;
   varianceAmount?: number;
@@ -2808,6 +2831,10 @@ export interface Persistence {
       })
     | null
   >;
+  getDividendReviewRowDetail(
+    userId: string,
+    dividendLedgerEntryId: string,
+  ): Promise<DividendReviewRowWithDetails | null>;
   updateDividendReconciliationStatus(
     userId: string,
     dividendLedgerEntryId: string,
@@ -2853,6 +2880,15 @@ export interface Persistence {
     userId: string,
     opts: DividendReviewListOptions,
   ): Promise<DividendReviewListResult>;
+  listDividendReviewPrimary(
+    userId: string,
+    query: DividendReviewPrimaryQueryDto,
+  ): Promise<DividendReviewPrimaryResult>;
+  getDividendReviewEnrichment(
+    userId: string,
+    filters: DividendReviewFilterDto,
+  ): Promise<DividendReviewEnrichmentResult>;
+  listDividendReviewMetadata(userId: string): Promise<DividendReviewMetadataResult>;
   listDividendLedgerYears(userId: string): Promise<{ years: number[] }>;
   getTickerFundamentals(
     ticker: string,
