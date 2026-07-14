@@ -131,6 +131,8 @@ export async function replayPositionHistory(
         const netProceeds = roundToDecimal(trade.quantity * trade.unitPrice, 2) - trade.commissionAmount - trade.taxAmount;
         const pnl = roundToDecimal(netProceeds - allocatedCost, 2);
         totalRealizedPnl += pnl;
+        trade.realizedPnlAmount = pnl;
+        trade.realizedPnlCurrency = trade.priceCurrency;
       } catch (error) {
         // "Insufficient quantity to sell" — wrap with trade context
         const message = error instanceof Error ? error.message : String(error);

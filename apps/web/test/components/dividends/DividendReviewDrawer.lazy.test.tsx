@@ -69,6 +69,33 @@ describe("DividendReviewDrawer lazy detail", () => {
     expect(fetchDividendLedgerEntry).not.toHaveBeenCalled();
     expect(document.querySelector("[data-testid='posting-form']")).not.toBeNull();
     expect(document.querySelector("[data-testid='review-drawer-loading']")).toBeNull();
+    const guidance = document.querySelector("[data-testid='dividend-removal-guidance']");
+    expect(guidance?.textContent).toContain("underlying transaction");
+    expect(guidance?.querySelector("a")?.getAttribute("href")).toBe(
+      "/tickers/2330?marketCode=TW&accountId=acc-1&tab=transactions",
+    );
+    expect(guidance?.querySelector("button")).toBeNull();
+  });
+
+  it("guides posted rows through amendment or reversal without offering direct deletion", async () => {
+    vi.mocked(fetchDividendLedgerEntry).mockResolvedValue({ ...row, deductions: [], sourceLines: [] } as never);
+    act(() => render(row));
+    await act(async () => {});
+
+    const guidance = document.querySelector("[data-testid='dividend-removal-guidance']");
+    expect(guidance?.textContent).toContain("amendment or a reversal and replacement");
+    expect(guidance?.textContent).not.toContain("Delete dividend");
+  });
+
+  it("guides generated ledger rows through the underlying transaction workflow", async () => {
+    const generatedLedger = { ...row, postingStatus: "expected" as const };
+    vi.mocked(fetchDividendLedgerEntry).mockResolvedValue({ ...generatedLedger, deductions: [], sourceLines: [] } as never);
+    act(() => render(generatedLedger));
+    await act(async () => {});
+
+    const guidance = document.querySelector("[data-testid='dividend-removal-guidance']");
+    expect(guidance?.textContent).toContain("underlying transaction");
+    expect(guidance?.textContent).not.toContain("amendment or a reversal and replacement");
   });
 
   it("loads ledger detail locally and reuses the ID/version cache on reopen", async () => {

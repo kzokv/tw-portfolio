@@ -12,6 +12,7 @@ import type {
 import { routeError } from "../lib/routeError.js";
 import { replayPositionHistory } from "./replayPositionHistory.js";
 import { resolveDividendEventMarketCode, resolveDividendPostingDate } from "./dividends.js";
+import { canonicalJsonStringify } from "./canonicalJson.js";
 import type {
   AccountingStore,
   BookedTradeEvent,
@@ -473,15 +474,11 @@ function expandAffectedDividendLedgerEntryIds(
   );
 }
 
-function stableStringify(value: unknown): string {
-  return JSON.stringify(value);
-}
-
 function sameReviewedSet(simulation: SimulationResult, preview: DividendDestructivePreviewState): boolean {
-  return stableStringify(simulation.affectedCounts) === stableStringify(preview.affectedCounts)
-    && stableStringify(simulation.affectedDividends) === stableStringify(preview.affectedDividends)
-    && stableStringify(simulation.manualReceiptReentryLedgerEntryIds) === stableStringify(preview.manualReceiptReentryLedgerEntryIds)
-    && stableStringify(simulation.reviewedArtifacts) === stableStringify(preview.reviewedArtifacts);
+  return canonicalJsonStringify(simulation.affectedCounts) === canonicalJsonStringify(preview.affectedCounts)
+    && canonicalJsonStringify(simulation.affectedDividends) === canonicalJsonStringify(preview.affectedDividends)
+    && canonicalJsonStringify(simulation.manualReceiptReentryLedgerEntryIds) === canonicalJsonStringify(preview.manualReceiptReentryLedgerEntryIds)
+    && canonicalJsonStringify(simulation.reviewedArtifacts) === canonicalJsonStringify(preview.reviewedArtifacts);
 }
 
 function purgeAffectedDividendArtifacts(store: Store, affectedLedgerEntryIds: Set<string>): void {

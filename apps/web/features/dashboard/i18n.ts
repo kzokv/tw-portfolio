@@ -601,6 +601,8 @@ export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" 
     mutations: {
       deleteTitle: "Delete Transaction",
       deleteConfirmButton: "Delete Transaction",
+      deleteSubmitting: "Deleting…",
+      deletePreviewRefreshed: "The impact changed and has been refreshed. Review it before deleting again.",
       deleteSummaryLabel: "Transaction Summary",
       deleteImpactLabel: "Downstream Impact",
       deleteImpactDetail: "{cashEntries} cash entries and {lotAllocations} lot allocations will be recalculated",
@@ -1238,6 +1240,8 @@ export const dashboardI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "topBar" 
     mutations: {
       deleteTitle: "刪除交易",
       deleteConfirmButton: "刪除交易",
+      deleteSubmitting: "刪除中…",
+      deletePreviewRefreshed: "影響範圍已變更並重新整理。請檢視後再次確認刪除。",
       deleteSummaryLabel: "交易摘要",
       deleteImpactLabel: "下游影響",
       deleteImpactDetail: "將重新計算 {cashEntries} 筆現金分錄和 {lotAllocations} 筆持倉分配",

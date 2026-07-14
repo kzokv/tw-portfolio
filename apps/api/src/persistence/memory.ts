@@ -24,6 +24,10 @@ import { defaultClientCapabilities, getMcpClientByLegacyProvider } from "../mcp/
 import { createStore, setStoreInstruments, syncInstruments } from "../services/store.js";
 import { createDefaultInstruments, upsertInstrumentDefinitions } from "../services/instrumentRegistry.js";
 import { createEmptyTickerFundamentals, normalizeTickerFundamentals } from "../services/fundamentals/types.js";
+import {
+  recomputeFeeConfigFingerprint,
+  recomputeReferencedProfileIds,
+} from "../services/recomputeFeeConfigFingerprint.js";
 import type {
   AccountingStore,
   BookedTradeEvent,
@@ -2368,7 +2372,7 @@ export class MemoryPersistence implements Persistence {
     return store.settings;
   }
 
-  async saveStore(store: Store): Promise<void> {
+  async saveStore(store: Store, options?: import("./types.js").SaveStoreOptions): Promise<void> {
     // KZO-183: enforce the composite-FK ownership invariant in application
     // code. Postgres enforces it via the (id, account_id) composite FKs from
     // accounts and account_fee_profile_overrides; the memory backend cannot
@@ -2376,12 +2380,122 @@ export class MemoryPersistence implements Persistence {
     // memory-backed unit tests catch the same class of cross-account
     // ownership violation that integration tests catch via Postgres.
     validateMemoryStoreOwnership(store);
+    for (const [accountId, expectedRevision] of Object.entries(options?.expectedAccountRevisions ?? {})) {
+      const currentRevision = await this.getAccountAccountingRevision(store.userId, accountId);
+      if (currentRevision !== expectedRevision) {
+        throw routeError(409, "recompute_preview_drift", "Underlying records changed after preview");
+      }
+    }
     syncInstruments(store);
     this.stores.set(store.userId, store);
     for (const account of store.accounts) {
       const key = `${store.userId}:${account.id}`;
       this.accountAccountingRevisions.set(key, (this.accountAccountingRevisions.get(key) ?? 0) + 1);
     }
+  }
+
+  async saveRecomputeJob(job: import("../types/store.js").RecomputeJob): Promise<void> {
+    const store = await this.loadStore(job.userId);
+    const index = store.recomputeJobs.findIndex((candidate) => candidate.id === job.id);
+    const cloned = structuredClone(job);
+    if (index === -1) store.recomputeJobs.push(cloned);
+    else if (store.recomputeJobs[index]!.status === "PREVIEWED" && cloned.status === "PREVIEWED") {
+      store.recomputeJobs[index] = cloned;
+    }
+  }
+
+  async startRecomputeJob(userId: string, jobId: string, startedAt: string): Promise<boolean> {
+    const store = await this.loadStore(userId);
+    const job = store.recomputeJobs.find((candidate) => candidate.id === jobId && candidate.userId === userId);
+    if (!job || job.status !== "PREVIEWED") return false;
+    job.status = "RUNNING";
+    job.startedAt = startedAt;
+    delete job.errorCode;
+    delete job.errorMessage;
+    return true;
+  }
+
+  async failRecomputeJob(
+    userId: string,
+    jobId: string,
+    failure: { completedAt: string; errorCode: string; errorMessage: string },
+  ): Promise<boolean> {
+    const store = await this.loadStore(userId);
+    const job = store.recomputeJobs.find((candidate) => candidate.id === jobId && candidate.userId === userId);
+    if (!job || job.status !== "RUNNING") return false;
+    job.status = "FAILED";
+    job.completedAt = failure.completedAt;
+    job.errorCode = failure.errorCode;
+    job.errorMessage = failure.errorMessage;
+    return true;
+  }
+
+  async commitRecomputeStore(
+    userId: string,
+    accounting: AccountingStore,
+    job: import("../types/store.js").RecomputeJob,
+  ): Promise<boolean> {
+    const store = await this.loadStore(userId);
+    const durableJob = store.recomputeJobs.find((candidate) => candidate.id === job.id && candidate.userId === userId);
+    if (!durableJob || durableJob.status !== "RUNNING") return false;
+
+    const accountIds = new Set(Object.keys(job.accountRevisions));
+    const currentFeeConfigFingerprint = recomputeFeeConfigFingerprint({
+      accounts: store.accounts,
+      feeProfiles: store.feeProfiles,
+      bindings: store.feeProfileBindings,
+    }, [...accountIds], recomputeReferencedProfileIds(job));
+    if (currentFeeConfigFingerprint !== job.feeConfigFingerprint) {
+      throw routeError(409, "recompute_preview_drift", "Fee configuration changed after preview");
+    }
+    for (const [accountId, expectedRevision] of Object.entries(job.accountRevisions)) {
+      const currentRevision = this.accountAccountingRevisions.get(`${userId}:${accountId}`) ?? 0;
+      if (currentRevision !== expectedRevision) {
+        throw routeError(409, "recompute_preview_drift", "Underlying records changed after preview");
+      }
+    }
+
+    const current = store.accounting;
+    const selectedCurrentLedgerIds = new Set(current.facts.dividendLedgerEntries
+      .filter((entry) => accountIds.has(entry.accountId)).map((entry) => entry.id));
+    const selectedNextLedgerIds = new Set(accounting.facts.dividendLedgerEntries
+      .filter((entry) => accountIds.has(entry.accountId)).map((entry) => entry.id));
+    const selectedLedgerIds = new Set([...selectedCurrentLedgerIds, ...selectedNextLedgerIds]);
+    const replaceAccountRows = <T extends { accountId: string }>(existing: T[], next: T[]): T[] => [
+      ...existing.filter((row) => !accountIds.has(row.accountId)),
+      ...next.filter((row) => accountIds.has(row.accountId)),
+    ];
+
+    store.accounting = {
+      facts: {
+        tradeEvents: replaceAccountRows(current.facts.tradeEvents, accounting.facts.tradeEvents),
+        cashLedgerEntries: replaceAccountRows(current.facts.cashLedgerEntries, accounting.facts.cashLedgerEntries),
+        dividendLedgerEntries: replaceAccountRows(current.facts.dividendLedgerEntries, accounting.facts.dividendLedgerEntries),
+        dividendDeductionEntries: [
+          ...current.facts.dividendDeductionEntries.filter((row) => !selectedLedgerIds.has(row.dividendLedgerEntryId)),
+          ...accounting.facts.dividendDeductionEntries.filter((row) => selectedNextLedgerIds.has(row.dividendLedgerEntryId)),
+        ],
+        dividendSourceLines: [
+          ...current.facts.dividendSourceLines.filter((row) => !selectedLedgerIds.has(row.dividendLedgerEntryId)),
+          ...accounting.facts.dividendSourceLines.filter((row) => selectedNextLedgerIds.has(row.dividendLedgerEntryId)),
+        ],
+        positionActions: replaceAccountRows(current.facts.positionActions, accounting.facts.positionActions),
+        corporateActions: replaceAccountRows(current.facts.corporateActions, accounting.facts.corporateActions),
+      },
+      projections: {
+        lots: replaceAccountRows(current.projections.lots, accounting.projections.lots),
+        lotAllocations: replaceAccountRows(current.projections.lotAllocations, accounting.projections.lotAllocations),
+        holdings: replaceAccountRows(current.projections.holdings, accounting.projections.holdings),
+        dailyPortfolioSnapshots: current.projections.dailyPortfolioSnapshots,
+      },
+      policy: current.policy,
+    };
+    Object.assign(durableJob, structuredClone(job), { status: "CONFIRMED" });
+    for (const accountId of accountIds) {
+      const key = `${userId}:${accountId}`;
+      this.accountAccountingRevisions.set(key, (this.accountAccountingRevisions.get(key) ?? 0) + 1);
+    }
+    return true;
   }
 
   async upsertInstruments(userId: string, instruments: Store["instruments"]): Promise<void> {

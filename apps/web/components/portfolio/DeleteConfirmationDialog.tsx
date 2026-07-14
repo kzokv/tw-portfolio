@@ -1,7 +1,8 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import { AlertTriangle } from "lucide-react";
+import { useCallback, useEffect, useRef } from "react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import type { LocaleCode, PreviewImpactResponse, TransactionHistoryItemDto } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import type { DividendDeletePreviewResponse } from "../../features/portfolio/services/transactionMutationService";
@@ -15,6 +16,9 @@ interface DeleteConfirmationDialogProps {
   preview: PreviewImpactResponse | null;
   dividendPreview: DividendDeletePreviewResponse | null;
   isLoading: boolean;
+  isSubmitting: boolean;
+  errorMessage: string;
+  statusMessage: string;
   onConfirm: () => void;
   dict: AppDictionary;
   locale: LocaleCode;
@@ -27,23 +31,76 @@ export function DeleteConfirmationDialog({
   preview,
   dividendPreview,
   isLoading,
+  isSubmitting,
+  errorMessage,
+  statusMessage,
   onConfirm,
   dict,
   locale,
 }: DeleteConfirmationDialogProps) {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const restorePendingFocus = useCallback(() => {
+    if (!isSubmitting) return;
+    const focusContent = () => contentRef.current?.focus({ preventScroll: true });
+    focusContent();
+    if (typeof window !== "undefined") {
+      window.requestAnimationFrame(focusContent);
+    }
+  }, [isSubmitting]);
+
+  useEffect(() => {
+    restorePendingFocus();
+  }, [restorePendingFocus]);
+
   if (!transaction) return null;
 
   return (
-    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+    <Dialog.Root
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!isSubmitting) onOpenChange(nextOpen);
+      }}
+    >
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[70] bg-foreground/80" />
         <Dialog.Content
-          className="!fixed left-1/2 top-1/2 z-[71] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-card p-5 text-card-foreground shadow-xl focus:outline-none sm:p-6"
+          ref={contentRef}
+          className="!fixed left-1/2 top-1/2 z-[71] max-h-[calc(100vh-2rem)] w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border border-border bg-card p-5 text-card-foreground shadow-xl focus:outline-none sm:p-6"
           data-testid="delete-confirmation-dialog"
+          aria-busy={isSubmitting}
+          onEscapeKeyDown={(event) => {
+            if (isSubmitting) {
+              event.preventDefault();
+              restorePendingFocus();
+            }
+          }}
+          onInteractOutside={(event) => {
+            if (isSubmitting) {
+              event.preventDefault();
+              restorePendingFocus();
+            }
+          }}
+          onPointerDownOutside={(event) => {
+            if (isSubmitting) {
+              event.preventDefault();
+              restorePendingFocus();
+            }
+          }}
+          onFocusOutside={(event) => {
+            if (isSubmitting) {
+              event.preventDefault();
+              restorePendingFocus();
+            }
+          }}
         >
           <Dialog.Title className="text-base font-semibold text-foreground">
             {dict.mutations.deleteTitle}
           </Dialog.Title>
+          <Dialog.Description className="sr-only">
+            {dict.mutations.deleteDividendImpactDetail
+              .replace("{dividendEntries}", String(dividendPreview?.affectedCounts.dividendLedgerEntries ?? 0))
+              .replace("{cashEntries}", String(dividendPreview?.affectedCounts.cashLedgerEntries ?? 0))}
+          </Dialog.Description>
 
           <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50/90 p-3" data-testid="delete-trade-summary">
             <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
@@ -131,25 +188,49 @@ export function DeleteConfirmationDialog({
           ) : null}
 
           {isLoading && (
-            <div className="mt-3 flex items-center gap-2 text-sm text-slate-500">
+            <div className="mt-3 flex items-center gap-2 text-sm text-slate-500" role="status" aria-live="polite">
               <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-600" />
               <span>{dict.mutations.loadingPreview}</span>
             </div>
           )}
 
+          <div aria-live="polite" aria-atomic="true">
+            {statusMessage ? (
+              <p className="mt-3 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-800" role="status" data-testid="delete-status-message">
+                {statusMessage}
+              </p>
+            ) : null}
+            {errorMessage ? (
+              <p className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700" role="alert" data-testid="delete-error-message">
+                {errorMessage}
+              </p>
+            ) : null}
+          </div>
+
           <div className="mt-4 flex justify-end gap-2">
-            <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => onOpenChange(false)}
+              disabled={isSubmitting}
+              data-testid="delete-cancel-button"
+            >
               {dict.actions.cancel}
             </Button>
             {!preview?.negativeLots.wouldOccur && (
               <Button
                 type="button"
                 className="border-rose-300 bg-rose-600 text-white shadow-[0_18px_36px_rgba(225,29,72,0.24)] hover:border-rose-400 hover:bg-rose-700"
-                disabled={isLoading || !preview || !dividendPreview}
+                disabled={isLoading || isSubmitting || !preview || !dividendPreview}
                 onClick={onConfirm}
                 data-testid="delete-confirm-button"
               >
-                {dict.mutations.deleteConfirmButton}
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+                    {dict.mutations.deleteSubmitting}
+                  </>
+                ) : dict.mutations.deleteConfirmButton}
               </Button>
             )}
           </div>

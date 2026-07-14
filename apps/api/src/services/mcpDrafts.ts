@@ -1309,9 +1309,8 @@ export async function postTransactionDraftRows(
         bookingSequence: row.bookingSequence ?? undefined,
         commissionAmount: row.commissionAmount ?? undefined,
         taxAmount: row.taxAmount ?? undefined,
-        feesSource: row.feesSource === "MANUAL" || row.feesSource === "SOURCE_PROVIDED" || row.commissionAmount !== null || row.taxAmount !== null
-          ? "MANUAL"
-          : "CALCULATED",
+        feesSource: row.feesSource
+          ?? (row.commissionAmount !== null || row.taxAmount !== null ? "SOURCE_PROVIDED" : "CALCULATED"),
         type: row.tradeType!,
         isDayTrade: row.isDayTrade ?? false,
       });

@@ -86,6 +86,10 @@ import { marketCodeFor, normalizeInstrumentSector } from "@vakwen/shared-types";
 import { routeError } from "../lib/routeError.js";
 import { defaultClientCapabilities, getMcpClientByLegacyProvider } from "../mcp/clientRegistry.js";
 import { replayPositionHistory } from "../services/replayPositionHistory.js";
+import {
+  recomputeFeeConfigFingerprint,
+  recomputeReferencedProfileIds,
+} from "../services/recomputeFeeConfigFingerprint.js";
 import { MemoryPersistence } from "./memory.js";
 import type {
   AdminAuditLogListOptions,
@@ -236,6 +240,167 @@ import type {
   ResolvedFxRate,
   UserRole,
 } from "./types.js";
+
+function buildRecomputeCounts(
+  items: readonly RecomputePreviewItem[],
+  mode: RecomputeJob["mode"],
+): RecomputeJob["counts"] {
+  return {
+    total: items.length,
+    calculated: items.filter((item) => item.feesSource === "CALCULATED").length,
+    preserved: items.filter((item) => mode === "KEEP_RECORDED" || item.feesSource !== "CALCULATED").length,
+    changed: items.filter((item) => (
+      roundToDecimal(item.previousCommissionAmount, 4) !== roundToDecimal(item.nextCommissionAmount, 4)
+      || roundToDecimal(item.previousTaxAmount, 4) !== roundToDecimal(item.nextTaxAmount, 4)
+    )).length,
+  };
+}
+
+function buildRecomputeImpacts(items: readonly RecomputePreviewItem[]): RecomputeJob["impactsByCurrency"] {
+  return [...new Set(items.map((item) => item.currency))].sort().map((currency) => ({
+    currency,
+    commissionDelta: roundToDecimal(items.filter((item) => item.currency === currency)
+      .reduce((sum, item) => sum + item.nextCommissionAmount - item.previousCommissionAmount, 0), 4),
+    taxDelta: roundToDecimal(items.filter((item) => item.currency === currency)
+      .reduce((sum, item) => sum + item.nextTaxAmount - item.previousTaxAmount, 0), 4),
+  }));
+}
+
+async function saveRecomputeJobTx(client: PoolClient, job: RecomputeJob): Promise<void> {
+  const persistedJob = await client.query(
+    `INSERT INTO recompute_jobs (
+       id, user_id, account_id, profile_id, status, fee_mode, use_fallback_bindings,
+       account_revisions, fee_config_fingerprint, preview_fingerprint, expires_at, started_at, completed_at,
+       error_code, error_message, created_at
+     ) VALUES (
+       $1, $2, $3, $4, $5, $6, $7,
+       $8, $9, $10, $11, $12, $13,
+       $14, $15, $16
+     )
+     ON CONFLICT (id) DO UPDATE SET
+       status = EXCLUDED.status,
+       fee_mode = EXCLUDED.fee_mode,
+       use_fallback_bindings = EXCLUDED.use_fallback_bindings,
+       account_revisions = EXCLUDED.account_revisions,
+       fee_config_fingerprint = EXCLUDED.fee_config_fingerprint,
+       preview_fingerprint = EXCLUDED.preview_fingerprint,
+       expires_at = EXCLUDED.expires_at,
+       started_at = EXCLUDED.started_at,
+       completed_at = EXCLUDED.completed_at,
+       error_code = EXCLUDED.error_code,
+       error_message = EXCLUDED.error_message
+     WHERE recompute_jobs.user_id = EXCLUDED.user_id
+       AND recompute_jobs.status = 'PREVIEWED'
+       AND EXCLUDED.status = 'PREVIEWED'
+     RETURNING id`,
+    [
+      job.id,
+      job.userId,
+      job.accountId ?? null,
+      job.profileId,
+      job.status,
+      job.mode,
+      job.useFallbackBindings,
+      job.accountRevisions,
+      job.feeConfigFingerprint,
+      job.fingerprint,
+      job.expiresAt,
+      job.startedAt ?? null,
+      job.completedAt ?? null,
+      job.errorCode ?? null,
+      job.errorMessage ?? null,
+      job.createdAt,
+    ],
+  );
+  if (persistedJob.rowCount !== 1) {
+    throw routeError(409, "recompute_job_owner_conflict", "Recompute job id is already owned by another user");
+  }
+  await client.query(`DELETE FROM recompute_job_items WHERE job_id = $1`, [job.id]);
+  for (const item of job.items) {
+    await client.query(
+      `INSERT INTO recompute_job_items (
+         id, job_id, trade_event_id, currency, fees_source,
+         previous_commission_amount, previous_tax_amount,
+         next_commission_amount, next_tax_amount,
+         applied_profile_id, applied_fee_profile_json
+       ) VALUES (
+         $1, $2, $3, $4, $5,
+         $6, $7, $8, $9,
+         $10, $11
+       )`,
+      [
+        `${job.id}:${item.tradeEventId}`,
+        job.id,
+        item.tradeEventId,
+        item.currency,
+        item.feesSource,
+        item.previousCommissionAmount,
+        item.previousTaxAmount,
+        item.nextCommissionAmount,
+        item.nextTaxAmount,
+        item.appliedProfileId,
+        item.appliedFeeProfile,
+      ],
+    );
+  }
+}
+
+async function loadRecomputeFeeConfigFingerprintTx(
+  client: PoolClient,
+  accountIds: readonly string[],
+  referencedProfileIds: readonly string[],
+): Promise<string> {
+  const accountsResult = await client.query(
+    `SELECT id, fee_profile_id FROM accounts WHERE id = ANY($1::text[]) ORDER BY id`,
+    [accountIds],
+  );
+  const profilesResult = await client.query(
+    `SELECT fp.id, fp.account_id, fp.name, fp.commission_rate_bps, fp.board_commission_rate,
+            fp.commission_discount_percent, fp.commission_discount_bps, fp.minimum_commission_amount,
+            fp.commission_currency, fp.commission_rounding_mode, fp.tax_rounding_mode,
+            fp.stock_sell_tax_rate_bps, fp.stock_day_trade_tax_rate_bps, fp.commission_charge_mode,
+            fp.etf_sell_tax_rate_bps, fp.bond_etf_sell_tax_rate_bps
+       FROM fee_profiles fp
+      WHERE fp.account_id = ANY($1::text[])
+         OR fp.id = ANY($2::text[])
+      ORDER BY fp.id
+      FOR SHARE`,
+    [accountIds, referencedProfileIds],
+  );
+  const bindingsResult = await client.query(
+    `SELECT account_id, ticker, fee_profile_id
+       FROM account_fee_profile_overrides
+      WHERE account_id = ANY($1::text[])
+      ORDER BY account_id, ticker
+      FOR SHARE`,
+    [accountIds],
+  );
+  const profileIds = profilesResult.rows.map((row) => String(row.id));
+  const rulesResult = profileIds.length > 0
+    ? await client.query(
+        `SELECT id, fee_profile_id, market_code, trade_side, instrument_type, day_trade_scope,
+                tax_component_code, calculation_method, rate_bps, effective_from, effective_to, sort_order
+           FROM fee_profile_tax_rules
+          WHERE fee_profile_id = ANY($1::text[])
+          ORDER BY fee_profile_id, sort_order, id
+          FOR SHARE`,
+        [profileIds],
+      )
+    : { rows: [] };
+  const rulesByProfileId = groupRowsByKey(rulesResult.rows, "fee_profile_id");
+  return recomputeFeeConfigFingerprint({
+    accounts: accountsResult.rows.map((row) => ({ id: row.id, feeProfileId: row.fee_profile_id })),
+    feeProfiles: profilesResult.rows.map((row) => hydrateEditableFeeProfile(
+      row,
+      rulesByProfileId.get(String(row.id)) ?? [],
+    )),
+    bindings: bindingsResult.rows.map((row) => ({
+      accountId: row.account_id,
+      ticker: row.ticker,
+      feeProfileId: row.fee_profile_id,
+    })),
+  }, accountIds, referencedProfileIds);
+}
 // KZO-199: anonymous-share token cap and retention are now resolver-backed
 // (DB override → env-fallback). Read at method invocation time so admin
 // PATCHes take effect on the next call without restart.
@@ -5405,6 +5570,7 @@ export class PostgresPersistence implements Persistence {
                 trade_event.trade_timestamp, trade_event.booking_sequence, trade_event.commission_amount,
                 trade_event.tax_amount, trade_event.is_day_trade, trade_event.fee_policy_snapshot_id, trade_event.source,
                 trade_event.source_reference, trade_event.booked_at, trade_event.reversal_of_trade_event_id,
+                trade_event.fees_source,
                 snapshot.profile_id_at_booking, snapshot.profile_name_at_booking, snapshot.board_commission_rate,
                 snapshot.commission_discount_percent, snapshot.minimum_commission_amount,
                 snapshot.commission_currency, snapshot.commission_rounding_mode, snapshot.tax_rounding_mode,
@@ -5640,6 +5806,7 @@ export class PostgresPersistence implements Persistence {
       bookedAt: normalizeDateTime(row.booked_at),
       realizedPnlCurrency: row.price_currency,
       reversalOfTradeEventId: row.reversal_of_trade_event_id ?? undefined,
+      feesSource: row.fees_source ?? "CALCULATED",
     }));
     const cashLedgerEntries: CashLedgerEntry[] = cashLedgerResult.rows.map((row) => ({
       id: row.id,
@@ -5898,6 +6065,7 @@ export class PostgresPersistence implements Persistence {
                 trade_event.trade_timestamp, trade_event.booking_sequence, trade_event.commission_amount,
                 trade_event.tax_amount, trade_event.is_day_trade, trade_event.fee_policy_snapshot_id, trade_event.source,
                 trade_event.source_reference, trade_event.booked_at, trade_event.reversal_of_trade_event_id,
+                trade_event.fees_source,
                 snapshot.profile_id_at_booking, snapshot.profile_name_at_booking, snapshot.board_commission_rate,
                 snapshot.commission_discount_percent, snapshot.minimum_commission_amount,
                 snapshot.commission_currency, snapshot.commission_rounding_mode, snapshot.tax_rounding_mode,
@@ -5932,7 +6100,9 @@ export class PostgresPersistence implements Persistence {
          ORDER BY ex_dividend_date, id`,
       ),
       this.pool.query(
-        `SELECT id, user_id, account_id, profile_id, status, created_at
+        `SELECT id, user_id, account_id, profile_id, status, fee_mode, use_fallback_bindings,
+                account_revisions, fee_config_fingerprint, preview_fingerprint, expires_at, started_at, completed_at,
+                error_code, error_message, created_at
          FROM recompute_jobs
          WHERE user_id = $1
            AND (
@@ -6046,8 +6216,9 @@ export class PostgresPersistence implements Persistence {
         : Promise.resolve({ rows: [] }),
       jobIds.length
         ? this.pool.query(
-            `SELECT id, job_id, trade_event_id, previous_commission_amount, previous_tax_amount,
-                    next_commission_amount, next_tax_amount
+            `SELECT id, job_id, trade_event_id, currency, fees_source,
+                    previous_commission_amount, previous_tax_amount,
+                    next_commission_amount, next_tax_amount, applied_profile_id, applied_fee_profile_json
              FROM recompute_job_items
              WHERE job_id = ANY($1)
              ORDER BY id`,
@@ -6127,6 +6298,7 @@ export class PostgresPersistence implements Persistence {
       bookedAt: normalizeDateTime(row.booked_at),
       realizedPnlCurrency: row.price_currency,
       reversalOfTradeEventId: row.reversal_of_trade_event_id ?? undefined,
+      feesSource: row.fees_source ?? "CALCULATED",
     }));
 
     const cashLedgerEntries: CashLedgerEntry[] = cashLedgerResult.rows.map((row) => ({
@@ -6237,10 +6409,14 @@ export class PostgresPersistence implements Persistence {
       const list = recomputeItems.get(item.job_id) ?? [];
       list.push({
         tradeEventId: item.trade_event_id,
+        currency: item.currency,
+        feesSource: item.fees_source,
         previousCommissionAmount: Number(item.previous_commission_amount),
         previousTaxAmount: Number(item.previous_tax_amount),
         nextCommissionAmount: Number(item.next_commission_amount),
         nextTaxAmount: Number(item.next_tax_amount),
+        appliedProfileId: item.applied_profile_id ?? null,
+        appliedFeeProfile: item.applied_fee_profile_json ?? null,
       });
       recomputeItems.set(item.job_id, list);
     }
@@ -6250,7 +6426,19 @@ export class PostgresPersistence implements Persistence {
       userId: row.user_id,
       accountId: row.account_id ?? undefined,
       profileId: row.profile_id,
+      useFallbackBindings: row.use_fallback_bindings,
       status: row.status,
+      mode: row.fee_mode,
+      fingerprint: row.preview_fingerprint,
+      expiresAt: normalizeDateTime(row.expires_at),
+      startedAt: row.started_at ? normalizeDateTime(row.started_at) : undefined,
+      completedAt: row.completed_at ? normalizeDateTime(row.completed_at) : undefined,
+      errorCode: row.error_code ?? undefined,
+      errorMessage: row.error_message ?? undefined,
+      accountRevisions: row.account_revisions ?? {},
+      feeConfigFingerprint: row.fee_config_fingerprint,
+      counts: buildRecomputeCounts(recomputeItems.get(row.id) ?? [], row.fee_mode),
+      impactsByCurrency: buildRecomputeImpacts(recomputeItems.get(row.id) ?? []),
       createdAt: normalizeDateTime(row.created_at),
       items: recomputeItems.get(row.id) ?? [],
     }));
@@ -6376,11 +6564,24 @@ export class PostgresPersistence implements Persistence {
     return store.accounting;
   }
 
-  async saveStore(store: Store): Promise<void> {
+  async saveStore(store: Store, options?: import("./types.js").SaveStoreOptions): Promise<void> {
     validateStoreInvariants(store);
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+
+      for (const [accountId, expectedRevision] of Object.entries(options?.expectedAccountRevisions ?? {}).sort()) {
+        const revisionResult = await client.query<{ accounting_revision: string }>(
+          `SELECT accounting_revision::text AS accounting_revision
+             FROM accounts
+            WHERE id = $1 AND user_id = $2
+            FOR UPDATE`,
+          [accountId, store.userId],
+        );
+        if (Number(revisionResult.rows[0]?.accounting_revision ?? -1) !== expectedRevision) {
+          throw routeError(409, "recompute_preview_drift", "Underlying records changed after preview");
+        }
+      }
 
       await client.query(
         `UPDATE users
@@ -6565,32 +6766,128 @@ export class PostgresPersistence implements Persistence {
       }
 
       for (const job of store.recomputeJobs) {
-        await client.query(
-          `INSERT INTO recompute_jobs (id, user_id, account_id, profile_id, status, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [job.id, job.userId, job.accountId ?? null, job.profileId, job.status, job.createdAt],
-        );
-
-        for (const item of job.items) {
-          await client.query(
-            `INSERT INTO recompute_job_items (
-               id, job_id, trade_event_id, previous_commission_amount, previous_tax_amount,
-               next_commission_amount, next_tax_amount
-             ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-            [
-              `${job.id}:${item.tradeEventId}`,
-              job.id,
-              item.tradeEventId,
-              item.previousCommissionAmount,
-              item.previousTaxAmount,
-              item.nextCommissionAmount,
-              item.nextTaxAmount,
-            ],
-          );
-        }
+        await saveRecomputeJobTx(client, job);
       }
 
       await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async saveRecomputeJob(job: RecomputeJob): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const owner = await client.query(
+        `SELECT 1 FROM users WHERE id = $1 FOR UPDATE`,
+        [job.userId],
+      );
+      if (!owner.rows[0]) throw routeError(404, "user_not_found", "User not found");
+      await saveRecomputeJobTx(client, job);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async startRecomputeJob(userId: string, jobId: string, startedAt: string): Promise<boolean> {
+    const result = await this.pool.query(
+      `UPDATE recompute_jobs
+          SET status = 'RUNNING',
+              started_at = $3,
+              completed_at = NULL,
+              error_code = NULL,
+              error_message = NULL
+        WHERE id = $1
+          AND user_id = $2
+          AND status = 'PREVIEWED'
+      RETURNING id`,
+      [jobId, userId, startedAt],
+    );
+    return result.rowCount === 1;
+  }
+
+  async failRecomputeJob(
+    userId: string,
+    jobId: string,
+    failure: { completedAt: string; errorCode: string; errorMessage: string },
+  ): Promise<boolean> {
+    const result = await this.pool.query(
+      `UPDATE recompute_jobs
+          SET status = 'FAILED',
+              completed_at = $3,
+              error_code = $4,
+              error_message = $5
+        WHERE id = $1
+          AND user_id = $2
+          AND status = 'RUNNING'
+      RETURNING id`,
+      [jobId, userId, failure.completedAt, failure.errorCode, failure.errorMessage],
+    );
+    return result.rowCount === 1;
+  }
+
+  async commitRecomputeStore(userId: string, accounting: AccountingStore, job: RecomputeJob): Promise<boolean> {
+    validateAccountingStoreInvariants(accounting);
+    const accountIds = Object.keys(job.accountRevisions).sort();
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
+      const lockedJob = await client.query<{ status: string }>(
+        `SELECT status
+           FROM recompute_jobs
+          WHERE id = $1 AND user_id = $2
+          FOR UPDATE`,
+        [job.id, userId],
+      );
+      if (lockedJob.rows[0]?.status !== "RUNNING") {
+        await client.query("ROLLBACK");
+        return false;
+      }
+      for (const accountId of accountIds) {
+        const revisionResult = await client.query<{ accounting_revision: string }>(
+          `SELECT accounting_revision::text AS accounting_revision
+             FROM accounts
+            WHERE id = $1 AND user_id = $2
+            FOR UPDATE`,
+          [accountId, userId],
+        );
+        if (Number(revisionResult.rows[0]?.accounting_revision ?? -1) !== job.accountRevisions[accountId]) {
+          throw routeError(409, "recompute_preview_drift", "Underlying records changed after preview");
+        }
+      }
+
+      const currentFeeConfigFingerprint = await loadRecomputeFeeConfigFingerprintTx(
+        client,
+        accountIds,
+        recomputeReferencedProfileIds(job),
+      );
+      if (currentFeeConfigFingerprint !== job.feeConfigFingerprint) {
+        throw routeError(409, "recompute_preview_drift", "Fee configuration changed after preview");
+      }
+
+      await this.saveAccountingStoreTx(client, userId, accounting, accountIds);
+      const confirmed = await client.query(
+        `UPDATE recompute_jobs
+            SET status = 'CONFIRMED',
+                completed_at = $3,
+                error_code = NULL,
+                error_message = NULL
+          WHERE id = $1 AND user_id = $2 AND status = 'RUNNING'
+        RETURNING id`,
+        [job.id, userId, job.completedAt ?? new Date().toISOString()],
+      );
+      if (confirmed.rowCount !== 1) throw routeError(409, "recompute_preview_consumed", "Recompute preview is no longer confirmable");
+      await client.query("COMMIT");
+      return true;
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
@@ -9025,12 +9322,12 @@ export class PostgresPersistence implements Persistence {
            id, user_id, account_id, ticker, market_code, instrument_type, trade_type,
            quantity, unit_price, price_currency, trade_date, trade_timestamp, booking_sequence, commission_amount,
            tax_amount, is_day_trade, fee_policy_snapshot_id, source, source_reference, booked_at,
-           reversal_of_trade_event_id
+           reversal_of_trade_event_id, fees_source
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7,
            $8, $9, $10, $11, $12, $13, $14,
            $15, $16, $17, $18, $19, $20,
-           $21
+           $21, $22
          )`,
         [
           trade.id,
@@ -9055,6 +9352,7 @@ export class PostgresPersistence implements Persistence {
           trade.sourceReference ?? trade.id,
           trade.bookedAt ?? new Date(`${trade.tradeDate}T00:00:00.000Z`).toISOString(),
           trade.reversalOfTradeEventId ?? null,
+          trade.feesSource ?? "CALCULATED",
         ],
       );
 
@@ -13576,12 +13874,12 @@ export class PostgresPersistence implements Persistence {
            id, user_id, account_id, ticker, market_code, instrument_type, trade_type,
            quantity, unit_price, price_currency, trade_date, trade_timestamp, booking_sequence, commission_amount,
            tax_amount, is_day_trade, fee_policy_snapshot_id, source, source_reference, booked_at,
-           reversal_of_trade_event_id
+           reversal_of_trade_event_id, fees_source
          ) VALUES (
            $1, $2, $3, $4, $5, $6, $7,
            $8, $9, $10, $11, $12, $13, $14,
            $15, $16, $17, $18, $19, $20,
-           $21
+           $21, $22
          )`,
         [
           tx.id,
@@ -13606,6 +13904,7 @@ export class PostgresPersistence implements Persistence {
           tx.sourceReference ?? tx.id,
           tx.bookedAt ?? new Date(`${tx.tradeDate}T00:00:00.000Z`).toISOString(),
           tx.reversalOfTradeEventId ?? null,
+          tx.feesSource ?? "CALCULATED",
         ],
       );
     }

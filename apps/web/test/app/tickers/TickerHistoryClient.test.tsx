@@ -1528,4 +1528,43 @@ describe("TickerHistoryClient", () => {
     expect(quoteChange?.className).not.toContain("text-destructive");
     expect(quoteChange?.querySelector("svg")).toBeNull();
   });
+
+  it("opens the query-selected transactions tab and preserves account and market when switching tabs", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(() => new Promise(() => {}));
+    navigationMocks.searchParams = "marketCode=TW&accountId=acc-2&tab=transactions";
+    const replaceState = vi.spyOn(window.history, "replaceState");
+
+    const element = renderTickerHistoryClient(details, tickerInstrument, undefined, {
+      initialTab: "transactions",
+    });
+    await flushEffects();
+
+    expect(element.querySelector("[data-testid='ticker-tab-transactions']")?.getAttribute("data-state")).toBe("active");
+    await act(async () => {
+      const overviewTab = element.querySelector<HTMLButtonElement>("[data-testid='ticker-tab-overview']");
+      overviewTab?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+      overviewTab?.click();
+    });
+
+    expect(replaceState).toHaveBeenCalledWith(
+      null,
+      "",
+      "/tickers/2330?marketCode=TW&accountId=acc-2&tab=overview",
+    );
+  });
+
+  it("responds to a live tab query change without remounting ticker detail", async () => {
+    vi.mocked(fetchTickerDetailsHydration).mockImplementation(() => new Promise(() => {}));
+    navigationMocks.searchParams = "marketCode=TW&tab=overview";
+    const element = renderTickerHistoryClient(details, tickerInstrument, undefined, { initialTab: "overview" });
+    await flushEffects();
+
+    navigationMocks.searchParams = "marketCode=TW&tab=dividends";
+    act(() => {
+      root!.render(tickerHistoryClientElement(details, tickerInstrument, undefined, { initialTab: "overview" }));
+    });
+    await flushEffects();
+
+    expect(element.querySelector("[data-testid='ticker-tab-dividends']")?.getAttribute("data-state")).toBe("active");
+  });
 });

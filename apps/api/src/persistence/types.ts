@@ -38,9 +38,14 @@ import type {
   LotAllocationProjection,
   MarketDataFacts,
   PositionAction,
+  RecomputeJob,
   Store,
   InstrumentDef,
 } from "../types/store.js";
+
+export interface SaveStoreOptions {
+  expectedAccountRevisions?: Record<string, number>;
+}
 import type { DailyBar, DailyBarWithMarket, IntradayPriceOverlay, MarketCode } from "@vakwen/domain";
 import type {
   AdminAuditLogResponse,
@@ -939,7 +944,7 @@ export interface TradeEventPatch {
   side?: "BUY" | "SELL";
   commissionAmount?: number;
   taxAmount?: number;
-  feesSource?: "CALCULATED" | "MANUAL";
+  feesSource?: "CALCULATED" | "MANUAL" | "SOURCE_PROVIDED";
 }
 
 export interface DeleteTradeEventResult {
@@ -2786,7 +2791,19 @@ export interface Persistence {
    * This must not hydrate the full user store or full instrument catalog.
    */
   listTransactionInstrumentOptions(userId: string): Promise<InstrumentOptionDto[]>;
-  saveStore(store: Store): Promise<void>;
+  saveStore(store: Store, options?: SaveStoreOptions): Promise<void>;
+  saveRecomputeJob(job: RecomputeJob): Promise<void>;
+  startRecomputeJob(userId: string, jobId: string, startedAt: string): Promise<boolean>;
+  failRecomputeJob(
+    userId: string,
+    jobId: string,
+    failure: { completedAt: string; errorCode: string; errorMessage: string },
+  ): Promise<boolean>;
+  commitRecomputeStore(
+    userId: string,
+    accounting: AccountingStore,
+    job: RecomputeJob,
+  ): Promise<boolean>;
   upsertInstruments(userId: string, instruments: InstrumentDef[]): Promise<void>;
   loadAccountingStore(userId: string): Promise<AccountingStore>;
   saveAccountingStore(userId: string, accounting: AccountingStore): Promise<void>;

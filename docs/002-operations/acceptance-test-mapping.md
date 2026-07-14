@@ -85,7 +85,8 @@ Browser-free API contract tests using `libs/test-api` AAA assistants:
 Routes or flows that need in-process setup, module mocking, persistence orchestration, or streaming:
 
 - **Health:** GET `/health/live`, GET `/health/ready` (status and dependencies shape)
-- **Portfolio:** POST/GET `/portfolio/transactions`, GET `/portfolio/holdings`, POST `/portfolio/recompute/preview`, POST `/portfolio/recompute/confirm`
+- **Portfolio:** POST/GET `/portfolio/transactions`, GET `/portfolio/holdings`, and the two-step `/portfolio/recompute/preview` + `/portfolio/recompute/confirm` flow, including recorded-fee defaulting, calculated-only repricing, fingerprint drift, concurrent confirmation, and durable recompute audit state
+- **Managed Postgres recompute/destructive safety:** `recomputeHistoryPostgresAcceptance.integration.test.ts` covers migration 104, all fee provenance values, persisted job/item audit data, and scoped atomic rollback/commit; the destructive-preview acceptance path covers JSONB round-trip confirmation without semantic row drift
 - **Corporate actions:** GET `/corporate-actions`, POST `/corporate-actions` (success and failure paths)
 - **AI:** POST `/ai/transactions/confirm`
 - **Auth/demo/session internals:** OAuth callback handling, demo session orchestration, SSE, user identity persistence
@@ -111,6 +112,9 @@ Routes covered only by E2E or out of scope for API-only contract suites:
 | `settings-aaa.spec.ts` | Settings drawer, locale, fee profiles, discard flow |
 | `portfolio-transactions-aaa.spec.ts` | Transaction CRUD, inline edit |
 | `transaction-mutations-aaa.spec.ts` | Delete, edit, recompute cascade, SSE confirmation |
+| `recompute-history-aaa.spec.ts` | Recorded-vs-recalculated fee choice, reviewed impacts, stale refresh, explicit reconfirmation, desktop/mobile |
+| `dividend-delete-recovery-aaa.spec.ts` | Visible deletion progress, dismissal/focus lock, stale destructive-preview recovery, desktop/mobile |
+| `dividend-removal-guidance-aaa.spec.ts` | Expected/posted dividend guidance and context-preserving Transactions-tab navigation, desktop/mobile |
 | `tooltips-a11y-aaa.spec.ts` | Tooltip visibility, keyboard accessibility |
 | `auth-oauth-aaa.spec.ts` | OAuth login flow (mock OAuth server) |
 | `sse-events.spec.ts` | SSE event delivery (non-AAA, browser-mediated) |

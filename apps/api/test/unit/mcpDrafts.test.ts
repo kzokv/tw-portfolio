@@ -333,6 +333,8 @@ describe("mcp draft services", () => {
             quantity: 1,
             unitPrice: 100,
             tradeDate: "2026-01-03",
+            commissionAmount: 0,
+            taxAmount: 0,
             sourceMetadata: { fileId: "file-1", rowRef: "1", snippet: "2330,BUY,1,100" },
           },
           {
@@ -372,6 +374,15 @@ describe("mcp draft services", () => {
     expect(posted.createdTransactionIds).toHaveLength(1);
     expect(posted.remainingUnresolvedRowIds).toEqual([]);
     expect(posted.batchVersion).toBeGreaterThan(aggregate!.batch.version);
+
+    const canonicalStore = await app.persistence.loadStore("user-1");
+    expect(canonicalStore.accounting.facts.tradeEvents.find(
+      (trade) => trade.id === posted.createdTransactionIds[0],
+    )).toMatchObject({
+      commissionAmount: 0,
+      taxAmount: 0,
+      feesSource: "SOURCE_PROVIDED",
+    });
 
     const updated = await app.persistence.getAiTransactionDraftBatch(created.batch.id);
     expect(updated?.rows.find((row) => row.id === aggregate!.rows[0]!.id)).toMatchObject({

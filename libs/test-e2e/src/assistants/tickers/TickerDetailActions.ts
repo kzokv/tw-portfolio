@@ -70,7 +70,12 @@ export class TickerDetailActions extends AppBaseActions {
     if (await this.el.transactionRows.first().isVisible().catch(() => false)) {
       return;
     }
-    await this.openTransactionsTab();
+    if (await this.el.transactionsTab.isVisible().catch(() => false)) {
+      await this.openTransactionsTab();
+      return;
+    }
+    await this.uiActions.click.perform(this.el.tabSelect);
+    await this.uiActions.click.perform(this.el.transactionsTabOption);
   }
 
   @Step()
@@ -92,6 +97,12 @@ export class TickerDetailActions extends AppBaseActions {
     );
     await this.uiActions.click.perform(this.el.deleteDialog.confirmButton);
     return responsePromise;
+  }
+
+  @Step()
+  async clickDeleteConfirmWithoutWaiting(): Promise<void> {
+    await expect(this.el.deleteDialog.confirmButton).toBeEnabled({ timeout: 15_000 });
+    await this.uiActions.click.perform(this.el.deleteDialog.confirmButton);
   }
 
   @Step()
@@ -171,6 +182,12 @@ export class TickerDetailActions extends AppBaseActions {
   @Step()
   async cancelDelete(): Promise<void> {
     await this.uiActions.click.perform(this.el.deleteDialog.cancelButton);
+  }
+
+  @Step()
+  async pressEscapeInDeleteDialog(): Promise<void> {
+    await this.mxFocus(this.el.deleteDialog.confirmButton);
+    await this.mxPressKey("Escape");
   }
 
   @Step()
