@@ -389,6 +389,50 @@ describe("transaction mutations (delete + edit)", () => {
       expect(updatedTrade?.taxAmount).toBe(10);
     });
 
+    it("requires confirmation before recalculating SOURCE_PROVIDED fees", async () => {
+      const trade = await createTrade(app, { quantity: 10, unitPrice: 100, commissionAmount: 50, taxAmount: 10 });
+
+      const store = await getStore(app);
+      const tradeInStore = store.accounting.facts.tradeEvents.find((t) => t.id === trade.id);
+      expect(tradeInStore).toBeDefined();
+      tradeInStore!.feesSource = "SOURCE_PROVIDED";
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/portfolio/transactions/${trade.id}`,
+        payload: { quantity: 20 },
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({ requiresFeeConfirmation: true, tradeEventId: trade.id });
+    });
+
+    it("preserves SOURCE_PROVIDED amounts and provenance when recorded fees are kept", async () => {
+      const trade = await createTrade(app, { quantity: 10, unitPrice: 100, commissionAmount: 50, taxAmount: 10 });
+
+      const store = await getStore(app);
+      const tradeInStore = store.accounting.facts.tradeEvents.find((t) => t.id === trade.id);
+      expect(tradeInStore).toBeDefined();
+      tradeInStore!.feesSource = "SOURCE_PROVIDED";
+
+      const res = await app.inject({
+        method: "PATCH",
+        url: `/portfolio/transactions/${trade.id}`,
+        payload: { quantity: 20, keepManualFees: true },
+      });
+
+      expect(res.statusCode).toBe(202);
+
+      await waitForRecompute();
+      const updatedStore = await getStore(app);
+      const updatedTrade = updatedStore.accounting.facts.tradeEvents.find((t) => t.id === trade.id);
+      expect(updatedTrade).toMatchObject({
+        commissionAmount: 50,
+        taxAmount: 10,
+        feesSource: "SOURCE_PROVIDED",
+      });
+    });
+
     it("proceeds with confirmFeeRecalculation flag", async () => {
       const trade = await createTrade(app, { quantity: 10, unitPrice: 100, commissionAmount: 50, taxAmount: 10 });
 

@@ -5669,15 +5669,16 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const explicitFeeOverride = body.commissionAmount !== undefined || body.taxAmount !== undefined;
     if (feeFieldsChanged) {
       const feesSource = trade.feesSource ?? "CALCULATED";
+      const hasProtectedRecordedFees = feesSource === "MANUAL" || feesSource === "SOURCE_PROVIDED";
 
-      if (!explicitFeeOverride && feesSource === "MANUAL" && !body.confirmFeeRecalculation && !body.keepManualFees) {
+      if (!explicitFeeOverride && hasProtectedRecordedFees && !body.confirmFeeRecalculation && !body.keepManualFees) {
         return reply.code(200).send({ requiresFeeConfirmation: true, tradeEventId });
       }
 
       if (explicitFeeOverride) {
         patch.feesSource = "MANUAL";
-      } else if (feesSource === "MANUAL" && body.keepManualFees) {
-        // Keep existing fees — no recalculation
+      } else if (hasProtectedRecordedFees && body.keepManualFees) {
+        // Keep existing recorded fees and their provenance — no recalculation.
       } else {
         // Recalculate fees from bound fee profile
         const newQuantity = body.quantity ?? trade.quantity;
