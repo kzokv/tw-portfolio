@@ -80,8 +80,13 @@ export function useRecomputeAction({
         jobId: preview.jobId,
         fingerprint: preview.fingerprint,
       });
+      setPreview(null);
       setMessage(formatRecomputeMessage(locale, confirmed.status, confirmed.counts.total));
-      await refresh();
+      try {
+        await refresh();
+      } catch (refreshError) {
+        setErrorMessage(resolveErrorMessage(refreshError));
+      }
       return true;
     } catch (error) {
       if (error instanceof ApiError && error.code && REFRESHABLE_RECOMPUTE_PREVIEW_CODES.has(error.code)) {

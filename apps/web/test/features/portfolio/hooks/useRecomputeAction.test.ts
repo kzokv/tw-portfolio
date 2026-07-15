@@ -137,4 +137,32 @@ describe("useRecomputeAction", () => {
     });
     expect(confirmRecompute).toHaveBeenCalledTimes(1);
   });
+
+  it("reports confirmation success and consumes the preview when the follow-up refresh fails", async () => {
+    vi.mocked(confirmRecompute).mockResolvedValueOnce({
+      jobId: keepPreview.jobId,
+      status: "CONFIRMED",
+      mode: "KEEP_RECORDED",
+      counts: keepPreview.counts,
+    });
+    refresh.mockRejectedValueOnce(new Error("portfolio refresh unavailable"));
+    mount();
+
+    await act(async () => {
+      await result.requestPreview();
+    });
+
+    let confirmed = false;
+    await act(async () => {
+      confirmed = await result.confirmPreview();
+    });
+
+    expect(confirmed).toBe(true);
+    expect(confirmRecompute).toHaveBeenCalledTimes(1);
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(result.preview).toBeNull();
+    expect(result.message).toBe("Recompute CONFIRMED, items: 4");
+    expect(result.errorMessage).toBe("portfolio refresh unavailable");
+    expect(result.isConfirming).toBe(false);
+  });
 });
