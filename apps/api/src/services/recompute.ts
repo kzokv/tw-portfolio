@@ -126,13 +126,13 @@ export async function confirmRecompute(
       trade.commissionAmount = item.nextCommissionAmount;
       trade.taxAmount = item.nextTaxAmount;
       if (item.appliedFeeProfile) trade.feeSnapshot = structuredClone(item.appliedFeeProfile);
-      if (!feesChanged) continue;
-      bookTradeSettlementRecompute(simulatedStore, trade);
       scopes.set(`${trade.accountId}\u0000${trade.ticker}\u0000${trade.marketCode}`, {
         accountId: trade.accountId,
         ticker: trade.ticker,
         marketCode: trade.marketCode,
       });
+      if (!feesChanged) continue;
+      bookTradeSettlementRecompute(simulatedStore, trade);
     }
 
     const simulation = new MemoryPersistence();

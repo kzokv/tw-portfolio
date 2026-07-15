@@ -127,6 +127,36 @@ describe("recompute preview", () => {
     )).toEqual([settlement]);
   });
 
+  it("replays position history when recorded fees are unchanged", async () => {
+    const store = createStore();
+    const trade = addTrade(store, "calculated", "CALCULATED", 7, 3);
+    store.accounting.projections.lots.push({
+      id: `lot-${trade.id}`,
+      accountId: trade.accountId,
+      ticker: trade.ticker,
+      openQuantity: 1,
+      totalCostAmount: 100,
+      costCurrency: "TWD",
+      openedAt: trade.tradeDate,
+      openedSequence: 1,
+    });
+    const job = previewRecompute(store, {
+      userId: store.userId,
+      useFallbackBindings: true,
+      mode: "KEEP_RECORDED",
+    });
+
+    await confirmRecompute(store, store.userId, job.id, job.fingerprint);
+
+    expect(store.accounting.projections.lots).toEqual([
+      expect.objectContaining({
+        id: `lot-${trade.id}`,
+        openQuantity: 10,
+        totalCostAmount: 1_010,
+      }),
+    ]);
+  });
+
   it("updates only changed settlements while preserving unchanged rows in the replayed scope", async () => {
     const store = createStore();
     const calculated = addTrade(store, "calculated", "CALCULATED", 7);
