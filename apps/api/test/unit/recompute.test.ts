@@ -96,6 +96,83 @@ describe("recompute preview", () => {
     });
   });
 
+  it("keeps settlement identity and booking time unchanged for a no-op recompute", async () => {
+    const store = createStore();
+    const trade = addTrade(store, "calculated", "CALCULATED", 7, 3);
+    const settlement = {
+      id: "settlement-original",
+      userId: store.userId,
+      accountId: trade.accountId,
+      entryDate: trade.tradeDate,
+      entryType: "TRADE_SETTLEMENT_OUT" as const,
+      amount: -1_010,
+      currency: "TWD",
+      relatedTradeEventId: trade.id,
+      source: "trade_settlement",
+      sourceReference: trade.id,
+      bookedAt: "2026-01-01T08:30:00.000Z",
+    };
+    store.accounting.facts.cashLedgerEntries.push(settlement);
+    const job = previewRecompute(store, {
+      userId: store.userId,
+      useFallbackBindings: true,
+      mode: "KEEP_RECORDED",
+    });
+
+    await confirmRecompute(store, store.userId, job.id, job.fingerprint);
+
+    expect(store.accounting.facts.cashLedgerEntries.filter(
+      (entry) => entry.relatedTradeEventId === trade.id,
+    )).toEqual([settlement]);
+  });
+
+  it("updates only changed settlements while preserving unchanged rows in the replayed scope", async () => {
+    const store = createStore();
+    const calculated = addTrade(store, "calculated", "CALCULATED", 7);
+    const manual = addTrade(store, "manual", "MANUAL", 8);
+    calculated.bookedAt = "2026-01-01T08:00:00.000Z";
+    manual.bookedAt = "2026-01-01T08:05:00.000Z";
+    const unchangedManualSettlement = {
+      id: "settlement-manual-original",
+      userId: store.userId,
+      accountId: manual.accountId,
+      entryDate: manual.tradeDate,
+      entryType: "TRADE_SETTLEMENT_OUT" as const,
+      amount: -1_008,
+      currency: "TWD",
+      relatedTradeEventId: manual.id,
+      source: "trade_settlement",
+      sourceReference: manual.id,
+      bookedAt: "2026-01-01T08:05:00.000Z",
+    };
+    store.accounting.facts.cashLedgerEntries.push({
+      ...unchangedManualSettlement,
+      id: "settlement-calculated-original",
+      relatedTradeEventId: calculated.id,
+      sourceReference: calculated.id,
+      amount: -1_007,
+      bookedAt: "2026-01-01T08:00:00.000Z",
+    }, unchangedManualSettlement);
+    const job = previewRecompute(store, {
+      userId: store.userId,
+      useFallbackBindings: true,
+      mode: "RECALCULATE_CALCULATED",
+    });
+
+    await confirmRecompute(store, store.userId, job.id, job.fingerprint);
+
+    expect(store.accounting.facts.cashLedgerEntries.find(
+      (entry) => entry.relatedTradeEventId === calculated.id,
+    )).toMatchObject({
+      id: "cash-calculated",
+      amount: -1_020,
+      bookedAt: "2026-01-01T08:00:00.000Z",
+    });
+    expect(store.accounting.facts.cashLedgerEntries.find(
+      (entry) => entry.relatedTradeEventId === manual.id,
+    )).toEqual(unchangedManualSettlement);
+  });
+
   it("rejects a stale fingerprint and genuine trade drift", async () => {
     const store = createStore();
     const trade = addTrade(store, "calculated", "CALCULATED", 7);

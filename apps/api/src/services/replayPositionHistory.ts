@@ -42,6 +42,7 @@ export class ReplayError extends Error {
 interface ReplayPositionHistoryOptions {
   marketCode?: MarketCode;
   deletedTradeEventIds?: readonly string[];
+  preserveTradeCashEntries?: boolean;
 }
 
 export async function replayPositionHistory(
@@ -61,8 +62,17 @@ export async function replayPositionHistory(
   // 3. Delete lot_allocations for account+ticker
   await persistence.deleteLotAllocationsForAccountTicker(userId, accountId, ticker, options.marketCode, options.deletedTradeEventIds);
 
-  // 4. Delete TRADE_SETTLEMENT_IN/OUT cash entries for account+ticker
-  await persistence.deleteTradeCashEntriesForAccountTicker(userId, accountId, ticker, options.marketCode, options.deletedTradeEventIds);
+  // 4. Delete TRADE_SETTLEMENT_IN/OUT cash entries for account+ticker unless
+  // the caller already replaced only the settlements whose amounts changed.
+  if (!options.preserveTradeCashEntries) {
+    await persistence.deleteTradeCashEntriesForAccountTicker(
+      userId,
+      accountId,
+      ticker,
+      options.marketCode,
+      options.deletedTradeEventIds,
+    );
+  }
 
   // 5. Replay each trade / position action in deterministic order
   let lots: Lot[] = [];
@@ -152,6 +162,9 @@ export async function replayPositionHistory(
 
     // Skip zero-amount entries (CHECK constraint: amount <> 0)
     if (settlementAmount !== 0) {
+      cashBalanceChange += settlementAmount;
+    }
+    if (!options.preserveTradeCashEntries && settlementAmount !== 0) {
       allCashEntries.push({
         id: `cash-replay-${trade.id}`,
         userId,
@@ -165,7 +178,6 @@ export async function replayPositionHistory(
         sourceReference: trade.id,
         bookedAt: new Date().toISOString(),
       });
-      cashBalanceChange += settlementAmount;
     }
   }
 

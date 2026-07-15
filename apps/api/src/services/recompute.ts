@@ -6,6 +6,7 @@ import { MemoryPersistence } from "../persistence/memory.js";
 import type { BookedTradeEvent, RecomputeJob, RecomputePreviewItem, Store } from "../types/store.js";
 import { canonicalJsonStringify } from "./canonicalJson.js";
 import { listTradeEvents } from "./accountingStore.js";
+import { bookTradeSettlementRecompute } from "./cashLedgerService.js";
 import { replayPositionHistory } from "./replayPositionHistory.js";
 import { recomputeFeeConfigFingerprint } from "./recomputeFeeConfigFingerprint.js";
 
@@ -117,9 +118,13 @@ export async function confirmRecompute(
     for (const item of simulatedJob.items) {
       const trade = tradeById.get(item.tradeEventId);
       if (!trade) throw routeError(409, "recompute_preview_drift", `Trade ${item.tradeEventId} no longer exists`);
+      const feesChanged = roundToDecimal(item.previousCommissionAmount, 4) !== roundToDecimal(item.nextCommissionAmount, 4)
+        || roundToDecimal(item.previousTaxAmount, 4) !== roundToDecimal(item.nextTaxAmount, 4);
       trade.commissionAmount = item.nextCommissionAmount;
       trade.taxAmount = item.nextTaxAmount;
       if (item.appliedFeeProfile) trade.feeSnapshot = structuredClone(item.appliedFeeProfile);
+      if (!feesChanged) continue;
+      bookTradeSettlementRecompute(simulatedStore, trade);
       scopes.set(`${trade.accountId}\u0000${trade.ticker}\u0000${trade.marketCode}`, {
         accountId: trade.accountId,
         ticker: trade.ticker,
@@ -132,7 +137,10 @@ export async function confirmRecompute(
     await simulation.saveStore(simulatedStore);
     await simulation.saveRecomputeJob(simulatedJob);
     for (const scope of [...scopes.values()].sort(compareScopes)) {
-      await replayPositionHistory(simulation, userId, scope.accountId, scope.ticker, { marketCode: scope.marketCode });
+      await replayPositionHistory(simulation, userId, scope.accountId, scope.ticker, {
+        marketCode: scope.marketCode,
+        preserveTradeCashEntries: true,
+      });
     }
 
     const completedStore = await simulation.loadStore(userId);
