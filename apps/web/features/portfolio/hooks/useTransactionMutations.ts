@@ -10,6 +10,7 @@ import type {
   SnapshotsGeneratedEvent,
 } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
+import { ApiError } from "../../../lib/api";
 import { buildRouteDtoCacheTag, clearRouteDtoCacheByTags } from "../../../lib/routeDtoCache";
 import { useEventStream } from "../../../hooks/useEventStream";
 import {
@@ -45,6 +46,7 @@ export interface UseTransactionMutationsResult {
   deletePreview: PreviewImpactResponse | null;
   deleteDividendPreview: DividendDeletePreviewResponse | null;
   isDeletePreviewLoading: boolean;
+  isDeleteSubmitting: boolean;
   isDeleteDialogOpen: boolean;
   startDelete: (transaction: TransactionHistoryItemDto) => void;
   confirmDelete: () => Promise<void>;
@@ -80,6 +82,12 @@ export interface UseTransactionMutationsResult {
 }
 
 const SAFETY_NET_MS = 10_000;
+const REFRESHABLE_DELETE_PREVIEW_CODES = new Set([
+  "dividend_destructive_preview_expired",
+  "dividend_destructive_preview_stale",
+  "dividend_destructive_preview_fingerprint_mismatch",
+  "dividend_destructive_preview_row_drift",
+]);
 export const MUTATION_ROUTE_CACHE_TAGS = [
   buildRouteDtoCacheTag("route", "dashboard-primary"),
   buildRouteDtoCacheTag("route", "dashboard-performance"),
@@ -100,7 +108,9 @@ export function useTransactionMutations({
   const [deletePreview, setDeletePreview] = useState<PreviewImpactResponse | null>(null);
   const [deleteDividendPreview, setDeleteDividendPreview] = useState<DividendDeletePreviewResponse | null>(null);
   const [isDeletePreviewLoading, setIsDeletePreviewLoading] = useState(false);
+  const [isDeleteSubmitting, setIsDeleteSubmitting] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const deleteSubmittingRef = useRef(false);
 
   // Edit flow state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -217,6 +227,7 @@ export function useTransactionMutations({
   );
 
   const cancelDelete = useCallback(() => {
+    if (deleteSubmittingRef.current) return;
     setIsDeleteDialogOpen(false);
     setDeleteTarget(null);
     setDeletePreview(null);
@@ -224,7 +235,9 @@ export function useTransactionMutations({
   }, []);
 
   const confirmDelete = useCallback(async () => {
-    if (!deleteTarget || !deleteDividendPreview) return;
+    if (!deleteTarget || !deleteDividendPreview || deleteSubmittingRef.current) return;
+    deleteSubmittingRef.current = true;
+    setIsDeleteSubmitting(true);
     setMessage("");
     setErrorMessage("");
 
@@ -243,7 +256,32 @@ export function useTransactionMutations({
       setDeletePreview(null);
       setDeleteDividendPreview(null);
     } catch (err: unknown) {
-      setErrorMessage(err instanceof Error ? err.message : "Delete failed");
+      if (err instanceof ApiError && err.code && REFRESHABLE_DELETE_PREVIEW_CODES.has(err.code)) {
+        setIsDeletePreviewLoading(true);
+        setDeletePreview(null);
+        setDeleteDividendPreview(null);
+        try {
+          const impactPreview = await previewImpact(deleteTarget.id, "delete");
+          if (impactPreview.negativeLots.wouldOccur) {
+            setDeletePreview(impactPreview);
+          } else {
+            const dividendPreview = await previewDividendDelete(deleteTarget.id);
+            setDeletePreview(impactPreview);
+            setDeleteDividendPreview(dividendPreview);
+          }
+          setMessage(dictRef.current.mutations.deletePreviewRefreshed);
+          setErrorMessage("");
+        } catch (refreshError: unknown) {
+          setErrorMessage(refreshError instanceof Error ? refreshError.message : "Delete preview refresh failed");
+        } finally {
+          setIsDeletePreviewLoading(false);
+        }
+      } else {
+        setErrorMessage(err instanceof Error ? err.message : "Delete failed");
+      }
+    } finally {
+      deleteSubmittingRef.current = false;
+      setIsDeleteSubmitting(false);
     }
   }, [deleteDividendPreview, deleteTarget, addRecomputing]);
 
@@ -453,6 +491,7 @@ export function useTransactionMutations({
     deletePreview,
     deleteDividendPreview,
     isDeletePreviewLoading,
+    isDeleteSubmitting,
     isDeleteDialogOpen,
     startDelete,
     confirmDelete,

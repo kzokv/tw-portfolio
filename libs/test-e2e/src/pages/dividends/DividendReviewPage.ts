@@ -66,6 +66,8 @@ export interface TDividendReviewElements extends TElementLocatorHelpers {
   drawerLoading: Locator;
   drawerError: Locator;
   drawerRetry: Locator;
+  removalGuidance: Locator;
+  openTickerTransactions: Locator;
 
   // Drawer (reused from KZO-32)
   drawer: TDividendPostingDrawerElements;
@@ -182,6 +184,11 @@ export class DividendReviewPage extends BasePage<TDividendReviewElements> {
       drawerLoading: this.locate("review-drawer-loading", "Review Drawer Loading"),
       drawerError: this.locate("review-drawer-error", "Review Drawer Error"),
       drawerRetry: this.locate("review-drawer-retry", "Review Drawer Retry"),
+      removalGuidance: this.locate("dividend-removal-guidance", "Dividend Removal Guidance"),
+      openTickerTransactions: this.withDescription(
+        this.locate("dividend-removal-guidance").getByRole("link"),
+        "Open Ticker Transactions Link",
+      ),
 
       // Drawer (reused from KZO-32)
       drawer: new DividendPostingDrawerComponent(this.page).elements,

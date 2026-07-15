@@ -86,22 +86,63 @@ describe("MCP portfolio maintenance service", () => {
     const deps = buildDeps(persistence);
 
     const preview = await previewRecomputePortfolioFees(deps, {});
+    expect(preview).toMatchObject({
+      mode: "KEEP_RECORDED",
+      counts: { total: 1, calculated: 1, preserved: 1, changed: 0 },
+    });
 
     await expect(recomputePortfolioFees(deps, {
       jobId: preview.jobId,
       confirmationSummary: preview.confirmationSummary,
       confirmationDigest: "0".repeat(64),
+      fingerprint: preview.fingerprint,
     })).rejects.toMatchObject({ code: "mcp_recompute_confirmation_mismatch" });
 
     await expect(recomputePortfolioFees(deps, {
       jobId: preview.jobId,
       confirmationSummary: preview.confirmationSummary,
       confirmationDigest: preview.confirmationDigest,
+      fingerprint: preview.fingerprint,
     })).resolves.toMatchObject({
       jobId: preview.jobId,
       status: "CONFIRMED",
       affectedItemCount: 1,
     });
+  });
+
+  it("bounds multi-currency confirmation summaries while retaining every structured impact", async () => {
+    const persistence = new MemoryPersistence();
+    const store = createStore();
+    const profile = store.feeProfiles[0]!;
+    for (let index = 0; index < 40; index += 1) {
+      const currency = `${String.fromCharCode(65 + Math.floor(index / 26))}${String.fromCharCode(65 + (index % 26))}X`;
+      store.accounting.facts.tradeEvents.push({
+        id: `trade-currency-${index}`,
+        userId: store.userId,
+        accountId: "acc-1",
+        ticker: `T${index}`,
+        marketCode: "TW",
+        instrumentType: "STOCK",
+        type: "BUY",
+        quantity: 1,
+        unitPrice: 100,
+        priceCurrency: currency,
+        tradeDate: "2026-06-25",
+        commissionAmount: index,
+        taxAmount: 0,
+        isDayTrade: false,
+        feeSnapshot: profile,
+        feesSource: "CALCULATED",
+      } as never);
+    }
+    await persistence.saveStore(store);
+
+    const preview = await previewRecomputePortfolioFees(buildDeps(persistence), {});
+
+    expect(preview.confirmationSummary.length).toBeLessThanOrEqual(500);
+    expect(preview.confirmationSummary).toMatch(/more currencies/);
+    expect(preview.impactsByCurrency).toHaveLength(40);
+    expect(preview.confirmationDigest).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it("creates replay previews only for held ticker-market scopes", async () => {

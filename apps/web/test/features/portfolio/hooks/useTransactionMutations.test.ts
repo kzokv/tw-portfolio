@@ -8,6 +8,7 @@ import {
   type UseTransactionMutationsResult,
 } from "../../../../features/portfolio/hooks/useTransactionMutations";
 import type { AppDictionary } from "../../../../lib/i18n";
+import { ApiError } from "../../../../lib/api";
 
 // ---------------------------------------------------------------------------
 // Module mocks (hoisted by vitest)
@@ -51,6 +52,7 @@ const mockDict = {
     recomputeExhaustedMessage: "Recompute failed",
     recomputeTimeoutMessage: "Taking longer than expected",
     safetyNetMessage: "Portfolio updated.",
+    deletePreviewRefreshed: "Impact refreshed. Review it and confirm again.",
   },
 } as unknown as AppDictionary;
 
@@ -266,6 +268,112 @@ describe("useTransactionMutations — safety net", () => {
     expect(result.isDeleteDialogOpen).toBe(true);
     expect(result.isDeletePreviewLoading).toBe(false);
     expect(previewDividendDelete).not.toHaveBeenCalled();
+  });
+
+  it("locks deletion while confirmation is pending and ignores duplicate submits", async () => {
+    let resolveDelete!: (value: { accountId: string; ticker: string }) => void;
+    vi.mocked(deleteTransaction).mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveDelete = resolve;
+      }) as never,
+    );
+    mount();
+
+    act(() => result.startDelete(mockTx));
+    await act(async () => {});
+
+    let firstConfirmation!: Promise<void>;
+    act(() => {
+      firstConfirmation = result.confirmDelete();
+    });
+
+    expect(result.isDeleteSubmitting).toBe(true);
+    expect(result.isDeleteDialogOpen).toBe(true);
+
+    await act(async () => {
+      await result.confirmDelete();
+    });
+    expect(deleteTransaction).toHaveBeenCalledTimes(1);
+
+    resolveDelete({ accountId: "acc-1", ticker: "2330" });
+    await act(async () => {
+      await firstConfirmation;
+    });
+
+    expect(result.isDeleteSubmitting).toBe(false);
+    expect(result.isDeleteDialogOpen).toBe(false);
+  });
+
+  it("refreshes a stale destructive preview without automatically deleting again", async () => {
+    vi.mocked(deleteTransaction).mockRejectedValueOnce(
+      new ApiError("Underlying records changed", 409, "dividend_destructive_preview_row_drift"),
+    );
+    const refreshedPreview = {
+      preview: {
+        previewId: "preview-2",
+        previewVersion: 2,
+        fingerprint: "fedcba0987654321",
+        accountId: "acc-1",
+        targetTradeEventId: "tx-1",
+        expiresAt: "2026-07-10T12:15:00.000Z",
+      },
+      affectedCounts: {
+        dividendLedgerEntries: 1,
+        cashLedgerEntries: 2,
+        dividendDeductionEntries: 0,
+        dividendSourceLines: 0,
+        stockDividendPositionActions: 0,
+      },
+      affectedDividends: [],
+      manualReceiptReentryLedgerEntryIds: [],
+    };
+    mount();
+
+    act(() => result.startDelete(mockTx));
+    await act(async () => {});
+    vi.mocked(previewDividendDelete).mockResolvedValueOnce(refreshedPreview);
+    await act(async () => {
+      await result.confirmDelete();
+    });
+
+    expect(deleteTransaction).toHaveBeenCalledTimes(1);
+    expect(previewImpact).toHaveBeenCalledTimes(2);
+    expect(previewDividendDelete).toHaveBeenCalledTimes(2);
+    expect(result.deleteDividendPreview?.preview.previewId).toBe("preview-2");
+    expect(result.isDeleteDialogOpen).toBe(true);
+    expect(result.isDeleteSubmitting).toBe(false);
+    expect(result.errorMessage).toBe("");
+    expect(result.message).toBe("Impact refreshed. Review it and confirm again.");
+  });
+
+  it("leaves no stale or mixed preview actionable when stale-preview refresh fails", async () => {
+    vi.mocked(deleteTransaction).mockRejectedValueOnce(
+      new ApiError("Underlying records changed", 409, "dividend_destructive_preview_row_drift"),
+    );
+    mount();
+
+    act(() => result.startDelete(mockTx));
+    await act(async () => {});
+    vi.mocked(previewImpact).mockResolvedValueOnce({
+      negativeLots: { wouldOccur: false, symbols: [] },
+      affectedRows: { cashLedgerEntries: 4, lotAllocations: 5, feePolicySnapshots: 0, holdingSnapshots: 6 },
+    } as never);
+    vi.mocked(previewDividendDelete).mockRejectedValueOnce(new Error("fresh destructive preview unavailable"));
+
+    await act(async () => {
+      await result.confirmDelete();
+    });
+
+    expect(result.deletePreview).toBeNull();
+    expect(result.deleteDividendPreview).toBeNull();
+    expect(result.isDeleteDialogOpen).toBe(true);
+    expect(result.isDeleteSubmitting).toBe(false);
+    expect(result.errorMessage).toBe("fresh destructive preview unavailable");
+
+    await act(async () => {
+      await result.confirmDelete();
+    });
+    expect(deleteTransaction).toHaveBeenCalledTimes(1);
   });
 
   it("does not fire when no symbols are recomputing", async () => {

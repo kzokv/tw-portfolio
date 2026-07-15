@@ -198,8 +198,18 @@ CREATE TABLE IF NOT EXISTS recompute_jobs (
   user_id TEXT NOT NULL REFERENCES users(id),
   account_id TEXT,
   profile_id TEXT NOT NULL,
-  status TEXT NOT NULL,
-  created_at TIMESTAMP NOT NULL
+  status TEXT NOT NULL CHECK (status IN ('PREVIEWED', 'RUNNING', 'CONFIRMED', 'FAILED')),
+  created_at TIMESTAMP NOT NULL,
+  fee_mode TEXT NOT NULL DEFAULT 'KEEP_RECORDED' CHECK (fee_mode IN ('KEEP_RECORDED', 'RECALCULATE_CALCULATED')),
+  use_fallback_bindings BOOLEAN NOT NULL DEFAULT TRUE,
+  account_revisions JSONB NOT NULL DEFAULT '{}'::jsonb,
+  fee_config_fingerprint TEXT NOT NULL CHECK (fee_config_fingerprint ~ '^[a-f0-9]{64}$'),
+  preview_fingerprint TEXT NOT NULL CHECK (preview_fingerprint ~ '^[a-f0-9]{64}$'),
+  expires_at TIMESTAMPTZ NOT NULL,
+  started_at TIMESTAMPTZ,
+  completed_at TIMESTAMPTZ,
+  error_code TEXT,
+  error_message TEXT
 );
 
 CREATE TABLE IF NOT EXISTS trade_fee_policy_snapshots (
@@ -262,7 +272,7 @@ CREATE TABLE IF NOT EXISTS trade_events (
   price_currency TEXT NOT NULL DEFAULT 'TWD',
   fee_policy_snapshot_id TEXT NOT NULL REFERENCES trade_fee_policy_snapshots(id),
   market_code TEXT NOT NULL DEFAULT 'TW' CHECK (market_code ~ '^[A-Z]{2,10}$'),
-  fees_source TEXT NOT NULL DEFAULT 'CALCULATED' CHECK (fees_source IN ('CALCULATED', 'MANUAL')),
+  fees_source TEXT NOT NULL DEFAULT 'CALCULATED' CHECK (fees_source IN ('CALCULATED', 'MANUAL', 'SOURCE_PROVIDED')),
   FOREIGN KEY (account_id, user_id) REFERENCES accounts(id, user_id),
   CHECK (reversal_of_trade_event_id IS NULL OR reversal_of_trade_event_id <> id),
   CONSTRAINT trade_events_booking_sequence_positive
@@ -491,7 +501,14 @@ CREATE TABLE IF NOT EXISTS recompute_job_items (
   previous_tax_amount NUMERIC(20, 4) NOT NULL,
   next_commission_amount NUMERIC(20, 4) NOT NULL,
   next_tax_amount NUMERIC(20, 4) NOT NULL,
-  trade_event_id TEXT NOT NULL REFERENCES trade_events(id) ON DELETE CASCADE
+  -- Historical audit reference: deliberately not an FK so replay rewrites
+  -- and later user-authorized trade deletion cannot erase reviewed evidence.
+  trade_event_id TEXT NOT NULL,
+  currency TEXT NOT NULL CHECK (currency ~ '^[A-Z]{3}$'),
+  fees_source TEXT NOT NULL CHECK (fees_source IN ('CALCULATED', 'MANUAL', 'SOURCE_PROVIDED')),
+  applied_profile_id TEXT,
+  applied_fee_profile_json JSONB,
+  CHECK ((applied_profile_id IS NULL) = (applied_fee_profile_json IS NULL))
 );
 
 CREATE INDEX IF NOT EXISTS idx_accounts_user_id ON accounts(user_id);

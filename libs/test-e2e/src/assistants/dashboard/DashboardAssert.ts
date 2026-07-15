@@ -222,6 +222,74 @@ export class DashboardAssert extends BaseAssert {
   async floatingActionGenerateSnapshotsIsVisible(): Promise<void> {
     await expect(this.el.floatingActionGenerateSnapshots).toBeVisible();
   }
+
+  @Step()
+  async recomputeDialogIsVisible(): Promise<void> {
+    await expect(this.el.recomputeConfirmDialog).toBeVisible();
+  }
+
+  @Step()
+  async recomputeDialogIsHidden(): Promise<void> {
+    await expect(this.el.recomputeConfirmDialog).toBeHidden();
+  }
+
+  @Step()
+  async recomputeImpactIsVisible(): Promise<void> {
+    await expect(this.el.recomputeImpactPreview).toBeVisible();
+  }
+
+  @Step()
+  valueEquals(actual: unknown, expected: unknown): void {
+    expect(actual).toEqual(expected);
+  }
+
+  @Step()
+  async navigationCountIs(expected: number): Promise<void> {
+    expect(await this.page.evaluate(() => performance.getEntriesByType("navigation").length)).toBe(expected);
+  }
+
+  @Step()
+  async recomputeModeIsSelected(mode: "KEEP_RECORDED" | "RECALCULATE_CALCULATED"): Promise<void> {
+    const option = mode === "KEEP_RECORDED"
+      ? this.el.recomputeModeKeep
+      : this.el.recomputeModeRecalculate;
+    await expect(option).toHaveAttribute("data-state", "checked");
+  }
+
+  @Step()
+  async recomputeImpactContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.recomputeImpactPreview).toContainText(text);
+  }
+
+  @Step()
+  async recomputeZeroChangeIsVisible(): Promise<void> {
+    await expect(this.el.recomputeZeroChange).toBeVisible();
+  }
+
+  @Step()
+  async recomputeActionContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.recomputeConfirmDialogCta).toContainText(text);
+  }
+
+  @Step()
+  async recomputeActionIsDisabled(): Promise<void> {
+    await expect(this.el.recomputeConfirmDialogCta).toBeDisabled();
+  }
+
+  @Step()
+  async recomputeCancelIsDisabled(): Promise<void> {
+    await expect(this.el.recomputeConfirmDialogCancel).toBeDisabled();
+  }
+
+  @Step()
+  async recomputeStatusMessageContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.recomputeConfirmDialog.getByRole("status")).toContainText(text);
+  }
+
+  @Step()
+  async viewportHasNoHorizontalOverflow(): Promise<void> {
+    expect(await this.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  }
 }
 
 const FINANCE_TONE_CLASS_EQUIVALENTS: Record<string, string[]> = {

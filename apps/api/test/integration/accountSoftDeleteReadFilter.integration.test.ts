@@ -136,17 +136,23 @@ describePostgres("Account-scoped read filter (Postgres)", () => {
   });
 
   it("loadStore keeps all-account recompute jobs with null account_id", async () => {
-    const before = await persistence!.loadStore(ownerUserId);
-    before.recomputeJobs.push({
+    await persistence!.saveRecomputeJob({
       id: "recompute-all-accounts",
       userId: ownerUserId,
       accountId: undefined,
       profileId: "account-fallback",
+      useFallbackBindings: true,
       status: "PREVIEWED",
+      mode: "KEEP_RECORDED",
+      fingerprint: "1".repeat(64),
+      expiresAt: "2026-05-20T00:15:00.000Z",
+      counts: { total: 0, calculated: 0, preserved: 0, changed: 0 },
+      impactsByCurrency: [],
+      accountRevisions: {},
+      feeConfigFingerprint: "2".repeat(64),
       createdAt: "2026-05-20T00:00:00.000Z",
       items: [],
     });
-    await persistence!.saveStore(before);
 
     const after = await persistence!.loadStore(ownerUserId);
     expect(after.recomputeJobs).toContainEqual(

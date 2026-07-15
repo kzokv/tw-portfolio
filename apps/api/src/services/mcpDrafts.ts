@@ -237,7 +237,16 @@ function deriveDraftFeesSource(row: {
   taxAmount: number | null;
 }): AiTransactionDraftRowRecord["feesSource"] {
   if (row.state === "unsupported") return null;
-  return row.commissionAmount !== null || row.taxAmount !== null ? "SOURCE_PROVIDED" : "CALCULATED";
+  return row.commissionAmount !== null && row.taxAmount !== null ? "SOURCE_PROVIDED" : "CALCULATED";
+}
+
+function effectiveDraftFeesSource(row: Pick<
+  AiTransactionDraftRowRecord,
+  "state" | "commissionAmount" | "taxAmount" | "feesSource"
+>): AiTransactionDraftRowRecord["feesSource"] {
+  const derived = deriveDraftFeesSource(row);
+  if (derived !== "SOURCE_PROVIDED") return derived;
+  return row.feesSource ?? derived;
 }
 
 function getCurrentQuantity(
@@ -365,6 +374,14 @@ async function runPreflight(
     }
     if (candidate.taxAmount !== null && candidate.taxAmount !== undefined && !isValidBookedCharge(candidate.taxAmount)) {
       issues.push({ code: "invalid_tax_amount", message: bookedChargeMessage("Tax") });
+    }
+    const hasCommissionAmount = candidate.commissionAmount !== null && candidate.commissionAmount !== undefined;
+    const hasTaxAmount = candidate.taxAmount !== null && candidate.taxAmount !== undefined;
+    if (hasCommissionAmount !== hasTaxAmount) {
+      issues.push({
+        code: "incomplete_fee_pair",
+        message: "commissionAmount and taxAmount must be provided together or both omitted",
+      });
     }
 
     const storeInstrument = ticker && marketCode
@@ -595,6 +612,7 @@ export async function getTransactionDraftTemplate() {
       "same-day collisions without timestamp or sequence",
       "inactive or unknown accounts",
       "unknown or unclassified instruments",
+      "commissionAmount and taxAmount supplied separately",
       "negative-inventory SELLs",
       "ambiguous same-day ordering",
     ],
@@ -835,7 +853,7 @@ function toTransactionDraftRowDto(
     isDayTrade: row.isDayTrade,
     commissionAmount: row.commissionAmount,
     taxAmount: row.taxAmount,
-    feesSource: row.feesSource ?? deriveDraftFeesSource(row),
+    feesSource: effectiveDraftFeesSource(row),
     note: row.note,
     sourceRowRef: row.sourceRowRef,
     sourceSnippet: row.sourceSnippet,
@@ -934,7 +952,7 @@ function buildPostingPreview(
           isDayTrade: row.isDayTrade ?? false,
           marketCode: row.marketCode,
         });
-    const feeSource = (row.feesSource ?? deriveDraftFeesSource(row)) as "CALCULATED" | "MANUAL" | "SOURCE_PROVIDED";
+    const feeSource = effectiveDraftFeesSource(row) as "CALCULATED" | "MANUAL" | "SOURCE_PROVIDED";
     const commissionAmount = row.commissionAmount ?? fees.commissionAmount;
     const taxAmount = row.taxAmount ?? fees.taxAmount;
     const { warnings, suggestions } = collectPreviewWarnings(row, fees.commissionAmount, fees.taxAmount);
@@ -1309,9 +1327,7 @@ export async function postTransactionDraftRows(
         bookingSequence: row.bookingSequence ?? undefined,
         commissionAmount: row.commissionAmount ?? undefined,
         taxAmount: row.taxAmount ?? undefined,
-        feesSource: row.feesSource === "MANUAL" || row.feesSource === "SOURCE_PROVIDED" || row.commissionAmount !== null || row.taxAmount !== null
-          ? "MANUAL"
-          : "CALCULATED",
+        feesSource: effectiveDraftFeesSource(row) as "CALCULATED" | "MANUAL" | "SOURCE_PROVIDED",
         type: row.tradeType!,
         isDayTrade: row.isDayTrade ?? false,
       });
@@ -1327,7 +1343,7 @@ export async function postTransactionDraftRows(
         ...row,
         state: "confirmed",
         version: row.version + 1,
-        feesSource: row.feesSource ?? (row.commissionAmount !== null || row.taxAmount !== null ? "SOURCE_PROVIDED" : "CALCULATED"),
+        feesSource: effectiveDraftFeesSource(row),
         confirmedTradeEventId: createdTransactionIds[index]!,
         confirmedAt: createdAt,
         confirmedByUserId: deps.requestContext.auth.sessionUserId,
@@ -1505,6 +1521,19 @@ export async function updateTransactionDraftRows(
     if (!patchItem) continue;
     const next = preflightByRowNumber.get(current.rowNumber)!;
     const feeFieldsPatched = Object.hasOwn(patchItem.patch, "commissionAmount") || Object.hasOwn(patchItem.patch, "taxAmount");
+    let feesSource = effectiveDraftFeesSource({
+      state: next.state,
+      commissionAmount: next.normalized.commissionAmount,
+      taxAmount: next.normalized.taxAmount,
+      feesSource: current.feesSource,
+    });
+    if (feeFieldsPatched) {
+      feesSource = deriveDraftFeesSource({
+        state: next.state,
+        commissionAmount: next.normalized.commissionAmount,
+        taxAmount: next.normalized.taxAmount,
+      }) === "SOURCE_PROVIDED" ? "MANUAL" : "CALCULATED";
+    }
     const saved = await deps.app.persistence.saveAiTransactionDraftRow({
       id: current.id,
       batchId: current.batchId,
@@ -1526,13 +1555,7 @@ export async function updateTransactionDraftRows(
       isDayTrade: next.normalized.isDayTrade,
       commissionAmount: next.normalized.commissionAmount,
       taxAmount: next.normalized.taxAmount,
-      feesSource: feeFieldsPatched
-        ? "MANUAL"
-        : current.feesSource ?? deriveDraftFeesSource({
-            state: next.state,
-            commissionAmount: next.normalized.commissionAmount,
-            taxAmount: next.normalized.taxAmount,
-          }),
+      feesSource,
       note: next.normalized.note,
       sourceRowRef: next.normalized.sourceRowRef,
       sourceSnippet: next.normalized.sourceSnippet,

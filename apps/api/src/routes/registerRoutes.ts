@@ -190,7 +190,7 @@ import {
   requireWriterRole,
   resolveActiveSharedCapabilityContext,
 } from "../lib/routeGuards.js";
-import type { Store, Transaction } from "../types/store.js";
+import type { RecomputeJob, Store, Transaction } from "../types/store.js";
 import type {
   AiConnectorAccessLogRecord,
   AiConnectorConnectionRecord,
@@ -5669,15 +5669,16 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const explicitFeeOverride = body.commissionAmount !== undefined || body.taxAmount !== undefined;
     if (feeFieldsChanged) {
       const feesSource = trade.feesSource ?? "CALCULATED";
+      const hasProtectedRecordedFees = feesSource === "MANUAL" || feesSource === "SOURCE_PROVIDED";
 
-      if (!explicitFeeOverride && feesSource === "MANUAL" && !body.confirmFeeRecalculation && !body.keepManualFees) {
+      if (!explicitFeeOverride && hasProtectedRecordedFees && !body.confirmFeeRecalculation && !body.keepManualFees) {
         return reply.code(200).send({ requiresFeeConfirmation: true, tradeEventId });
       }
 
       if (explicitFeeOverride) {
         patch.feesSource = "MANUAL";
-      } else if (feesSource === "MANUAL" && body.keepManualFees) {
-        // Keep existing fees — no recalculation
+      } else if (hasProtectedRecordedFees && body.keepManualFees) {
+        // Keep existing recorded fees and their provenance — no recalculation.
       } else {
         // Recalculate fees from bound fee profile
         const newQuantity = body.quantity ?? trade.quantity;
@@ -7340,6 +7341,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         accountId: userScopedIdSchema.optional(),
         useFallbackBindings: z.boolean().default(true),
         forceProfileOnly: z.boolean().default(false),
+        mode: z.enum(["KEEP_RECORDED", "RECALCULATE_CALCULATED"]).default("KEEP_RECORDED"),
       })
       .parse(req.body);
 
@@ -7359,26 +7361,84 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       requireProfile(store, body.profileId);
     }
 
+    const selectedAccountIds = [...new Set(store.accounting.facts.tradeEvents
+      .filter((trade) => trade.userId === userId && (!body.accountId || trade.accountId === body.accountId))
+      .map((trade) => trade.accountId))];
+    const accountRevisions = Object.fromEntries(await Promise.all(selectedAccountIds.map(async (accountId) => [
+      accountId,
+      await app.persistence.getAccountAccountingRevision(userId, accountId),
+    ] as const)));
     const job = previewRecompute(store, {
       userId,
       profileId: body.profileId,
       accountId: body.accountId,
       useFallbackBindings: body.forceProfileOnly ? false : body.useFallbackBindings,
+      mode: body.mode,
+      accountRevisions,
     });
 
-    await app.persistence.saveStore(store);
-    return job;
+    await app.persistence.saveRecomputeJob(job);
+    return {
+      id: job.id,
+      jobId: job.id,
+      status: job.status,
+      mode: job.mode,
+      fingerprint: job.fingerprint,
+      expiresAt: job.expiresAt,
+      counts: job.counts,
+      impactsByCurrency: job.impactsByCurrency,
+    };
   });
 
   app.post("/portfolio/recompute/confirm", async (req) => {
-    const body = z.object({ jobId: userScopedIdSchema }).parse(req.body);
+    const body = z.object({
+      jobId: userScopedIdSchema,
+      fingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+    }).parse(req.body);
     const { userId, store } = await loadUserStore(app, req);
+    const workingStore = structuredClone(store);
+    let job: RecomputeJob;
+    let ownsRunningJob = false;
+    try {
+      job = await confirmRecompute(workingStore, userId, body.jobId, body.fingerprint, new Date(), {
+        onRunning: async (runningJob) => {
+          const started = await app.persistence.startRecomputeJob(
+            userId,
+            runningJob.id,
+            runningJob.startedAt ?? new Date().toISOString(),
+          );
+          if (!started) throw routeError(409, "recompute_preview_consumed", "Recompute preview is no longer confirmable");
+          ownsRunningJob = true;
+        },
+        onFailed: async (failedJob) => {
+          await app.persistence.failRecomputeJob(userId, failedJob.id, {
+            startedAt: failedJob.startedAt!,
+            completedAt: failedJob.completedAt ?? new Date().toISOString(),
+            errorCode: failedJob.errorCode ?? "recompute_failed",
+            errorMessage: failedJob.errorMessage ?? "Recompute failed",
+          });
+        },
+      });
+      const committed = await app.persistence.commitRecomputeStore(userId, workingStore.accounting, job);
+      if (!committed) throw routeError(409, "recompute_preview_consumed", "Recompute preview is no longer confirmable");
+    } catch (error) {
+      const failedJob = workingStore.recomputeJobs.find((candidate) => candidate.id === body.jobId);
+      if (ownsRunningJob && failedJob?.startedAt) {
+        await app.persistence.failRecomputeJob(userId, body.jobId, {
+          startedAt: failedJob.startedAt,
+          completedAt: new Date().toISOString(),
+          errorCode: typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+            ? error.code
+            : "recompute_failed",
+          errorMessage: error instanceof Error ? error.message : String(error),
+        }).catch(() => false);
+        failedJob.status = "FAILED";
+      }
+      throw error;
+    }
 
-    const job = confirmRecompute(store, userId, body.jobId);
-    await app.persistence.saveStore(store);
-
-    // Recompute History rewrites every trade's fee snapshot via saveStore,
-    // which leaves daily_holding_snapshots stale. Trigger a full regeneration
+    // The scoped atomic replay updates canonical accounting while leaving
+    // daily_holding_snapshots stale. Trigger a full regeneration
     // asynchronously so the caller doesn't block on the walker. Mirrors the
     // pattern in POST /portfolio/snapshots/generate.
     const snapshotRunId = randomUUID();
@@ -7446,7 +7506,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       }
     });
 
-    return job;
+    return {
+      jobId: job.id,
+      status: job.status,
+      mode: job.mode,
+      counts: job.counts,
+      holdingSnapshotGenerationRunId: snapshotRunId,
+      walletSnapshotRefreshQueued: true,
+    };
   });
 
   app.get("/quotes", async (req) => {

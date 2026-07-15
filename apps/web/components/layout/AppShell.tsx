@@ -210,8 +210,8 @@ export function AppShell({
 
   const recomputeAction = useRecomputeAction({
     locale,
-    fallbackConfirm: dict.recompute.fallbackConfirm,
     refresh: refreshAfterTransaction,
+    previewRefreshedMessage: dict.recompute.previewRefreshed,
   });
 
   const snapshotGeneration = useSnapshotGeneration({
@@ -313,9 +313,10 @@ export function AppShell({
   const handleRecomputeFromPalette = useCallback(() => {
     void (async () => {
       await portfolioConfig.ensureLoaded();
+      recomputeAction.reset();
       setRecomputeDialogOpen(true);
     })().catch(() => undefined);
-  }, [portfolioConfig]);
+  }, [portfolioConfig, recomputeAction]);
 
   const canUseGlobalQuickActions = isEditableQuickActionsPath(pathname)
     && (!isSharedContext || sharedContextPermissions.canWriteTransactions);
@@ -367,8 +368,9 @@ export function AppShell({
   ) : null;
 
   const handleRecomputeConfirm = useCallback(() => {
-    setRecomputeDialogOpen(false);
-    void recomputeAction.runRecompute({ skipConfirm: true });
+    void recomputeAction.confirmPreview().then((confirmed) => {
+      if (confirmed) setRecomputeDialogOpen(false);
+    });
   }, [recomputeAction]);
 
   const handleExitSharedContext = useCallback(() => {
@@ -479,9 +481,19 @@ export function AppShell({
             <RecomputeConfirmDialog
               open={recomputeDialogOpen}
               onOpenChange={setRecomputeDialogOpen}
+              feeMode={recomputeAction.feeMode}
+              onFeeModeChange={recomputeAction.setFeeMode}
+              preview={recomputeAction.preview}
+              onRequestPreview={() => {
+                void recomputeAction.requestPreview();
+              }}
               onConfirm={handleRecomputeConfirm}
               dict={dict}
-              pending={recomputeAction.isRunning}
+              locale={locale}
+              isPreviewLoading={recomputeAction.isPreviewLoading}
+              isConfirming={recomputeAction.isConfirming}
+              errorMessage={recomputeAction.errorMessage}
+              statusMessage={recomputeAction.message}
             />
 
             <FloatingQuickActions

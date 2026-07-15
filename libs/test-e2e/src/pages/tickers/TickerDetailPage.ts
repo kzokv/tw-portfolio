@@ -14,6 +14,7 @@ export interface TTickerDetailElements {
   tickerQuantityStat: Locator;
   tickerAvgCostStat: Locator;
   transactionsTab: Locator;
+  transactionsTabOption: Locator;
   overviewTab: Locator;
   dividendsTab: Locator;
   dividendsTabOption: Locator;
@@ -60,6 +61,10 @@ export class TickerDetailPage extends BasePage<TTickerDetailElements> {
       tickerQuantityStat: this.locate("ticker-history-quantity", "Ticker Quantity Stat"),
       tickerAvgCostStat: this.locate("ticker-history-avg-cost", "Ticker Average Cost Stat"),
       transactionsTab: this.locate("ticker-tab-transactions", "Ticker Transactions Tab"),
+      transactionsTabOption: this.withDescription(
+        this.page.getByRole("option", { name: /^(Transactions|交易)$/ }),
+        "Ticker Transactions Tab Select Option",
+      ),
       overviewTab: this.locate("ticker-tab-overview", "Ticker Overview Tab"),
       dividendsTab: this.locate("ticker-tab-dividends", "Ticker Dividends Tab"),
       dividendsTabOption: this.withDescription(

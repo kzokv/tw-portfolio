@@ -7,6 +7,10 @@ import type {
   SourceCompositionStatus,
   StockDistributionRatioState,
   UserSettings,
+  RecomputeAggregateCountsDto,
+  RecomputeCurrencyImpactDto,
+  RecomputeFeeMode,
+  RecomputeJobStatus,
 } from "@vakwen/shared-types";
 
 // KZO-183: `marketCode` removed. Market is now derived from the binding's
@@ -61,7 +65,7 @@ export interface BookedTradeEvent {
   sourceReference?: string;
   bookedAt?: string;
   reversalOfTradeEventId?: string;
-  feesSource?: "CALCULATED" | "MANUAL";
+  feesSource?: "CALCULATED" | "MANUAL" | "SOURCE_PROVIDED";
 }
 
 export type Transaction = BookedTradeEvent;
@@ -175,10 +179,14 @@ export interface DividendDeductionEntry {
 }
 export interface RecomputePreviewItem {
   tradeEventId: string;
+  currency: CurrencyCode;
+  feesSource: "CALCULATED" | "MANUAL" | "SOURCE_PROVIDED";
   previousCommissionAmount: number;
   previousTaxAmount: number;
   nextCommissionAmount: number;
   nextTaxAmount: number;
+  appliedProfileId: string | null;
+  appliedFeeProfile: FeeProfile | null;
 }
 
 export interface RecomputeJob {
@@ -186,7 +194,19 @@ export interface RecomputeJob {
   userId: string;
   accountId?: string;
   profileId: string;
-  status: "PREVIEWED" | "CONFIRMED";
+  useFallbackBindings: boolean;
+  status: RecomputeJobStatus;
+  mode: RecomputeFeeMode;
+  fingerprint: string;
+  expiresAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  errorCode?: string;
+  errorMessage?: string;
+  counts: RecomputeAggregateCountsDto;
+  impactsByCurrency: RecomputeCurrencyImpactDto[];
+  accountRevisions: Record<string, number>;
+  feeConfigFingerprint: string;
   createdAt: string;
   items: RecomputePreviewItem[];
 }

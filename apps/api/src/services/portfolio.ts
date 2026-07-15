@@ -80,7 +80,7 @@ export interface CreateTransactionInput {
   bookingSequence?: number;
   commissionAmount?: number;
   taxAmount?: number;
-  feesSource?: "CALCULATED" | "MANUAL";
+  feesSource?: "CALCULATED" | "MANUAL" | "SOURCE_PROVIDED";
   type: "BUY" | "SELL";
   isDayTrade: boolean;
 }

@@ -95,9 +95,18 @@ interface TickerHistoryClientProps {
     chartStart?: string;
   };
   initialTradeDate: string;
+  initialTab?: TickerDetailTab;
   quotePollIntervalSeconds?: number | null;
   tickerPriceIntradayEnabled?: boolean | null;
   tickerPriceIntradayRefreshIntervalMinutes?: number | null;
+}
+
+export type TickerDetailTab = "overview" | "dividends" | "fundamentals" | "transactions";
+
+function normalizeTickerDetailTab(value: string | null | undefined): TickerDetailTab {
+  return value === "dividends" || value === "fundamentals" || value === "transactions"
+    ? value
+    : "overview";
 }
 
 export function canDeleteTickerTransactions(
@@ -561,6 +570,7 @@ export function TickerHistoryClient({
   transactionMarketFilter,
   initialChartQuery,
   initialTradeDate,
+  initialTab = "overview",
   quotePollIntervalSeconds,
   tickerPriceIntradayEnabled,
   tickerPriceIntradayRefreshIntervalMinutes,
@@ -595,7 +605,7 @@ export function TickerHistoryClient({
   const [detailsState, setDetailsState] = useState(details);
   const detailsStateRef = useRef(details);
   const [isDetailsLoading, setIsDetailsLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState("overview");
+  const [activeTab, setActiveTab] = useState<TickerDetailTab>(initialTab);
   const [pendingDividendLedgerEntryId, setPendingDividendLedgerEntryId] = useState<string | null>(null);
   const [analysisContextCleared, setAnalysisContextCleared] = useState(false);
   const [tickerChartSelection, setTickerChartSelection] = useState<TickerRangeControl>(() => initialTickerChartState.selection);
@@ -614,6 +624,19 @@ export function TickerHistoryClient({
     includeBars: true,
     includeDividends: true,
   });
+
+  useEffect(() => {
+    setActiveTab(normalizeTickerDetailTab(searchParams.get("tab")));
+  }, [searchParamKey, searchParams]);
+
+  const selectTickerTab = useCallback((value: string) => {
+    const nextTab = normalizeTickerDetailTab(value);
+    setActiveTab(nextTab);
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.set("tab", nextTab);
+    const query = nextParams.toString();
+    window.history.replaceState(null, "", `${pathname}${query ? `?${query}` : ""}`);
+  }, [pathname, searchParams]);
   const sharedContextOwnerId = useSharedContextOwnerId();
   const {
     sessionUserId,
@@ -1374,9 +1397,9 @@ export function TickerHistoryClient({
           </div>
         </Card>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="grid gap-6">
+        <Tabs value={activeTab} onValueChange={selectTickerTab} className="grid gap-6">
           <div className="sm:hidden">
-            <Select value={activeTab} onValueChange={setActiveTab}>
+            <Select value={activeTab} onValueChange={selectTickerTab}>
               <SelectTrigger aria-label={dict.tickerHistory.tabsAriaLabel} className="w-full" data-testid="ticker-tab-select">
                 <SelectValue />
               </SelectTrigger>
@@ -1897,6 +1920,9 @@ export function TickerHistoryClient({
         preview={mutations.deletePreview}
         dividendPreview={mutations.deleteDividendPreview}
         isLoading={mutations.isDeletePreviewLoading}
+        isSubmitting={mutations.isDeleteSubmitting}
+        errorMessage={mutations.errorMessage}
+        statusMessage={mutations.message}
         onConfirm={mutations.confirmDelete}
         dict={dict}
         locale={locale}

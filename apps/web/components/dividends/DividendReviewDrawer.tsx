@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import type {
   DividendReviewRowDetailDto,
   DividendReviewRowSummaryDto,
@@ -176,6 +177,9 @@ export function DividendReviewDrawer({
     return fetchedDetail;
   }, [entry, fetchedDetail]);
   const drawerRow = useMemo(() => (detail ? buildDividendCalendarRowFromEntry(detail) : null), [detail]);
+  const isPostedLedgerEntry = detail != null
+    && detail.rowKind !== "expected"
+    && detail.postingStatus !== "expected";
 
   useEffect(() => {
     setIsDirty(false);
@@ -263,6 +267,27 @@ export function DividendReviewDrawer({
               <DrawerMetric label={dict.dividends.review.table.bankFee} value={bankFeeAmount(detail) > 0 ? formatCurrencyAmount(bankFeeAmount(detail), detail.cashCurrency, locale) : "—"} />
               <DrawerMetric label={dict.dividends.review.table.otherDeduction} value={otherDeductionAmount(detail) > 0 ? formatCurrencyAmount(otherDeductionAmount(detail), detail.cashCurrency, locale) : "—"} />
             </div>
+          </Card>
+          <Card
+            className="rounded-lg border border-sky-200 bg-sky-50 p-4 shadow-none"
+            data-testid="dividend-removal-guidance"
+          >
+            <p className="font-semibold text-sky-950">{dict.dividends.review.drawer.removalGuidanceTitle}</p>
+            <p className="mt-1 text-sm text-sky-900">
+              {isPostedLedgerEntry
+                ? dict.dividends.review.drawer.postedCorrectionGuidance
+                : dict.dividends.review.drawer.expectedRemovalGuidance}
+            </p>
+            <Link
+              href={`/tickers/${encodeURIComponent(detail.ticker)}?${new URLSearchParams({
+                marketCode: detail.marketCode,
+                accountId: detail.accountId,
+                tab: "transactions",
+              }).toString()}`}
+              className="mt-3 inline-flex min-h-9 items-center rounded-md border border-sky-300 bg-white px-3 py-2 text-sm font-medium text-sky-900 transition hover:bg-sky-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2"
+            >
+              {dict.dividends.review.drawer.openTickerTransactions}
+            </Link>
           </Card>
           {(detail.receivedStockQuantity > 0 || cashInLieuAmount(detail) > 0) ? (
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.95fr)]">
