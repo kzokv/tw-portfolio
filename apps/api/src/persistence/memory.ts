@@ -2386,7 +2386,12 @@ export class MemoryPersistence implements Persistence {
         throw routeError(409, "recompute_preview_drift", "Underlying records changed after preview");
       }
     }
+    // Recompute jobs have their own lifecycle methods. Preserve their current
+    // durable state when an older full-store snapshot is saved so a PREVIEWED
+    // snapshot cannot delete or downgrade a RUNNING/CONFIRMED job.
+    const recomputeJobs = structuredClone(this.stores.get(store.userId)?.recomputeJobs ?? []);
     syncInstruments(store);
+    store.recomputeJobs = recomputeJobs;
     this.stores.set(store.userId, store);
     for (const account of store.accounts) {
       const key = `${store.userId}:${account.id}`;

@@ -6730,14 +6730,9 @@ export class PostgresPersistence implements Persistence {
         }
       }
 
-      await client.query(
-        `DELETE FROM recompute_job_items
-         WHERE job_id IN (
-           SELECT id FROM recompute_jobs WHERE user_id = $1
-         )`,
-        [store.userId],
-      );
-      await client.query(`DELETE FROM recompute_jobs WHERE user_id = $1`, [store.userId]);
+      // Recompute jobs use dedicated compare-and-transition methods. They are
+      // intentionally excluded from full-store replacement so a stale store
+      // snapshot cannot delete a preview or downgrade a running job.
       await this.saveMarketDataTx(client, store.marketData);
       await this.saveAccountingStoreTx(client, store.userId, store.accounting, accountIds);
 
@@ -6763,10 +6758,6 @@ export class PostgresPersistence implements Persistence {
            WHERE account_id IN (SELECT id FROM accounts WHERE user_id = $1 AND deleted_at IS NULL)`,
           [store.userId],
         );
-      }
-
-      for (const job of store.recomputeJobs) {
-        await saveRecomputeJobTx(client, job);
       }
 
       await client.query("COMMIT");

@@ -320,6 +320,32 @@ describePostgres("recompute-history durable acceptance (postgres integration)", 
     )).rows[0]).toMatchObject({ status: "CONFIRMED", completed_at: expect.any(Date) });
   });
 
+  it("[recompute job isolation]: stale full-store saves after preview and start → preserve the durable job lifecycle", async () => {
+    const seeded = await seedTwoAccountPortfolio();
+    const staleBeforePreview = structuredClone(seeded);
+    const preview = previewRecompute(structuredClone(seeded), {
+      userId,
+      useFallbackBindings: true,
+      mode: "KEEP_RECORDED",
+      accountRevisions: await accountRevisions(seeded),
+    });
+    await persistence.saveRecomputeJob(preview);
+
+    await persistence.saveStore(staleBeforePreview);
+    expect((await persistence.loadStore(userId)).recomputeJobs.find((job) => job.id === preview.id)).toMatchObject({
+      status: "PREVIEWED",
+    });
+
+    const stalePreview = await persistence.loadStore(userId);
+    expect(await persistence.startRecomputeJob(userId, preview.id, "2026-07-14T00:01:00.000Z")).toBe(true);
+    await persistence.saveStore(stalePreview);
+
+    expect((await persistence.loadStore(userId)).recomputeJobs.find((job) => job.id === preview.id)).toMatchObject({
+      status: "RUNNING",
+      startedAt: "2026-07-14T00:01:00.000Z",
+    });
+  });
+
   it("[destructive preview JSONB]: preview round-trip then confirmation → fingerprint remains stable and deletion commits", async () => {
     const store = await persistence.loadStore(userId);
     const account = store.accounts[0]!;

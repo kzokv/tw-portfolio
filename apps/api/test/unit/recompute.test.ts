@@ -176,6 +176,39 @@ describe("recompute preview", () => {
     expect(durable.recomputeJobs.find((candidate) => candidate.id === job.id)?.status).toBe("RUNNING");
   });
 
+  it("preserves durable recompute jobs when stale full-store snapshots are saved", async () => {
+    const persistence = new MemoryPersistence();
+    await persistence.init();
+    const store = createStore();
+    addTrade(store, "calculated", "CALCULATED", 7);
+    await persistence.saveStore(store);
+    const staleBeforePreview = structuredClone(store);
+    const job = previewRecompute(structuredClone(store), {
+      userId: store.userId,
+      useFallbackBindings: true,
+      accountRevisions: {
+        "acc-1": await persistence.getAccountAccountingRevision(store.userId, "acc-1"),
+      },
+    });
+    await persistence.saveRecomputeJob(job);
+
+    await persistence.saveStore(staleBeforePreview);
+    expect((await persistence.loadStore(store.userId)).recomputeJobs.find(
+      (candidate) => candidate.id === job.id,
+    )?.status).toBe("PREVIEWED");
+
+    const stalePreview = structuredClone(await persistence.loadStore(store.userId));
+    expect(await persistence.startRecomputeJob(store.userId, job.id, "2026-07-14T00:01:00.000Z")).toBe(true);
+    await persistence.saveStore(stalePreview);
+
+    expect((await persistence.loadStore(store.userId)).recomputeJobs.find(
+      (candidate) => candidate.id === job.id,
+    )).toMatchObject({
+      status: "RUNNING",
+      startedAt: "2026-07-14T00:01:00.000Z",
+    });
+  });
+
   it("rejects an explicit cross-account profile edit racing after validation", async () => {
     const persistence = new MemoryPersistence();
     await persistence.init();

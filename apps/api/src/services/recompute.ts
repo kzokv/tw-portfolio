@@ -130,6 +130,7 @@ export async function confirmRecompute(
     const simulation = new MemoryPersistence();
     await simulation.init();
     await simulation.saveStore(simulatedStore);
+    await simulation.saveRecomputeJob(simulatedJob);
     for (const scope of [...scopes.values()].sort(compareScopes)) {
       await replayPositionHistory(simulation, userId, scope.accountId, scope.ticker, { marketCode: scope.marketCode });
     }

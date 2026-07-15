@@ -136,8 +136,7 @@ describePostgres("Account-scoped read filter (Postgres)", () => {
   });
 
   it("loadStore keeps all-account recompute jobs with null account_id", async () => {
-    const before = await persistence!.loadStore(ownerUserId);
-    before.recomputeJobs.push({
+    await persistence!.saveRecomputeJob({
       id: "recompute-all-accounts",
       userId: ownerUserId,
       accountId: undefined,
@@ -154,7 +153,6 @@ describePostgres("Account-scoped read filter (Postgres)", () => {
       createdAt: "2026-05-20T00:00:00.000Z",
       items: [],
     });
-    await persistence!.saveStore(before);
 
     const after = await persistence!.loadStore(ownerUserId);
     expect(after.recomputeJobs).toContainEqual(
