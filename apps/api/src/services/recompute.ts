@@ -9,6 +9,7 @@ import { listTradeEvents } from "./accountingStore.js";
 import { bookTradeSettlementRecompute } from "./cashLedgerService.js";
 import { replayPositionHistory } from "./replayPositionHistory.js";
 import { recomputeFeeConfigFingerprint } from "./recomputeFeeConfigFingerprint.js";
+import { isRecomputeRunningLeaseExpired } from "./recomputeLifecycle.js";
 
 export const RECOMPUTE_PREVIEW_TTL_MS = 15 * 60 * 1000;
 
@@ -77,10 +78,12 @@ export async function confirmRecompute(
 ): Promise<RecomputeJob> {
   const job = store.recomputeJobs.find((item) => item.id === jobId && item.userId === userId);
   if (!job) throw routeError(404, "job_not_found", "Recompute job not found");
-  if (job.status !== "PREVIEWED") {
+  const isStaleRunningRecovery = job.status === "RUNNING"
+    && isRecomputeRunningLeaseExpired(job.startedAt, now);
+  if (job.status !== "PREVIEWED" && !isStaleRunningRecovery) {
     throw routeError(409, "recompute_preview_consumed", "Recompute preview is no longer confirmable");
   }
-  if (new Date(job.expiresAt).getTime() <= now.getTime()) {
+  if (job.status === "PREVIEWED" && new Date(job.expiresAt).getTime() <= now.getTime()) {
     throw routeError(409, "recompute_preview_expired", "Recompute preview expired");
   }
   if (reviewedFingerprint !== job.fingerprint) {

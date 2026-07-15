@@ -28,6 +28,7 @@ import {
   recomputeFeeConfigFingerprint,
   recomputeReferencedProfileIds,
 } from "../services/recomputeFeeConfigFingerprint.js";
+import { isRecomputeRunningLeaseExpired } from "../services/recomputeLifecycle.js";
 import type {
   AccountingStore,
   BookedTradeEvent,
@@ -2412,7 +2413,9 @@ export class MemoryPersistence implements Persistence {
   async startRecomputeJob(userId: string, jobId: string, startedAt: string): Promise<boolean> {
     const store = await this.loadStore(userId);
     const job = store.recomputeJobs.find((candidate) => candidate.id === jobId && candidate.userId === userId);
-    if (!job || job.status !== "PREVIEWED") return false;
+    const canStart = job?.status === "PREVIEWED"
+      || (job?.status === "RUNNING" && isRecomputeRunningLeaseExpired(job.startedAt, new Date(startedAt)));
+    if (!job || !canStart) return false;
     job.status = "RUNNING";
     job.startedAt = startedAt;
     delete job.errorCode;
@@ -2423,11 +2426,11 @@ export class MemoryPersistence implements Persistence {
   async failRecomputeJob(
     userId: string,
     jobId: string,
-    failure: { completedAt: string; errorCode: string; errorMessage: string },
+    failure: { startedAt: string; completedAt: string; errorCode: string; errorMessage: string },
   ): Promise<boolean> {
     const store = await this.loadStore(userId);
     const job = store.recomputeJobs.find((candidate) => candidate.id === jobId && candidate.userId === userId);
-    if (!job || job.status !== "RUNNING") return false;
+    if (!job || job.status !== "RUNNING" || job.startedAt !== failure.startedAt) return false;
     job.status = "FAILED";
     job.completedAt = failure.completedAt;
     job.errorCode = failure.errorCode;
@@ -2442,7 +2445,7 @@ export class MemoryPersistence implements Persistence {
   ): Promise<boolean> {
     const store = await this.loadStore(userId);
     const durableJob = store.recomputeJobs.find((candidate) => candidate.id === job.id && candidate.userId === userId);
-    if (!durableJob || durableJob.status !== "RUNNING") return false;
+    if (!durableJob || durableJob.status !== "RUNNING" || durableJob.startedAt !== job.startedAt) return false;
 
     const accountIds = new Set(Object.keys(job.accountRevisions));
     const currentFeeConfigFingerprint = recomputeFeeConfigFingerprint({

@@ -10,7 +10,12 @@ import {
 } from "../../src/services/dividendDestructivePreview.js";
 import { createDividendEvent } from "../../src/services/dividends.js";
 import { createTransaction } from "../../src/services/portfolio.js";
-import { confirmRecompute, previewRecompute } from "../../src/services/recompute.js";
+import {
+  confirmRecompute,
+  previewRecompute,
+  RECOMPUTE_PREVIEW_TTL_MS,
+} from "../../src/services/recompute.js";
+import { RECOMPUTE_RUNNING_LEASE_MS } from "../../src/services/recomputeLifecycle.js";
 import { replayPositionHistory } from "../../src/services/replayPositionHistory.js";
 import type { Store } from "../../src/types/store.js";
 
@@ -210,6 +215,7 @@ describePostgres("recompute-history durable acceptance (postgres integration)", 
         },
         onFailed: async (failedJob) => {
           await persistence.failRecomputeJob(userId, failedJob.id, {
+            startedAt: failedJob.startedAt!,
             completedAt: failedJob.completedAt!,
             errorCode: failedJob.errorCode!,
             errorMessage: failedJob.errorMessage!,
@@ -256,7 +262,10 @@ describePostgres("recompute-history durable acceptance (postgres integration)", 
       accountRevisions: await accountRevisions(seeded),
     });
     await persistence.saveRecomputeJob(preview);
-    expect(await persistence.startRecomputeJob(userId, preview.id, "2026-07-14T00:01:00.000Z")).toBe(true);
+    const startedAt = "2026-07-14T00:01:00.000Z";
+    expect(await persistence.startRecomputeJob(userId, preview.id, startedAt)).toBe(true);
+    preview.status = "RUNNING";
+    preview.startedAt = startedAt;
 
     const nextAccounting = structuredClone(seeded.accounting);
     const originalCommissions = Object.fromEntries(nextAccounting.facts.tradeEvents.map((trade) => [
@@ -344,6 +353,53 @@ describePostgres("recompute-history durable acceptance (postgres integration)", 
       status: "RUNNING",
       startedAt: "2026-07-14T00:01:00.000Z",
     });
+  });
+
+  it("[recompute lease recovery]: process restart after preview expiry → reclaims stale work without old-owner writes", async () => {
+    const seeded = await seedTwoAccountPortfolio();
+    const createdAt = new Date("2026-07-14T00:00:00.000Z");
+    const preview = previewRecompute(seeded, {
+      userId,
+      useFallbackBindings: true,
+      mode: "KEEP_RECORDED",
+      accountRevisions: await accountRevisions(seeded),
+      now: createdAt,
+    });
+    await persistence.saveRecomputeJob(preview);
+    const previousStartedAt = "2026-07-14T00:01:00.000Z";
+    expect(await persistence.startRecomputeJob(userId, preview.id, previousStartedAt)).toBe(true);
+    expect(await persistence.startRecomputeJob(
+      userId,
+      preview.id,
+      new Date(new Date(previousStartedAt).getTime() + RECOMPUTE_RUNNING_LEASE_MS - 1).toISOString(),
+    )).toBe(false);
+
+    const working = await persistence.loadStore(userId);
+    const recovered = await confirmRecompute(
+      working,
+      userId,
+      preview.id,
+      preview.fingerprint,
+      new Date(createdAt.getTime() + RECOMPUTE_PREVIEW_TTL_MS + RECOMPUTE_RUNNING_LEASE_MS),
+      {
+        onRunning: async (runningJob) => {
+          expect(await persistence.startRecomputeJob(userId, runningJob.id, runningJob.startedAt!)).toBe(true);
+          expect(await persistence.failRecomputeJob(userId, preview.id, {
+            startedAt: previousStartedAt,
+            completedAt: new Date().toISOString(),
+            errorCode: "previous_worker_failed",
+            errorMessage: "Previous worker finished after losing its lease",
+          })).toBe(false);
+        },
+      },
+    );
+
+    expect(await persistence.commitRecomputeStore(userId, working.accounting, {
+      ...recovered,
+      startedAt: previousStartedAt,
+    })).toBe(false);
+    expect(await persistence.commitRecomputeStore(userId, working.accounting, recovered)).toBe(true);
+    expect((await persistence.loadStore(userId)).recomputeJobs.find((job) => job.id === preview.id)?.status).toBe("CONFIRMED");
   });
 
   it("[destructive preview JSONB]: preview round-trip then confirmation → fingerprint remains stable and deletion commits", async () => {

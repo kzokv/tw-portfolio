@@ -90,6 +90,7 @@ import {
   recomputeFeeConfigFingerprint,
   recomputeReferencedProfileIds,
 } from "../services/recomputeFeeConfigFingerprint.js";
+import { recomputeRunningLeaseCutoff } from "../services/recomputeLifecycle.js";
 import { MemoryPersistence } from "./memory.js";
 import type {
   AdminAuditLogListOptions,
@@ -6789,6 +6790,7 @@ export class PostgresPersistence implements Persistence {
   }
 
   async startRecomputeJob(userId: string, jobId: string, startedAt: string): Promise<boolean> {
+    const staleBefore = recomputeRunningLeaseCutoff(startedAt);
     const result = await this.pool.query(
       `UPDATE recompute_jobs
           SET status = 'RUNNING',
@@ -6798,9 +6800,12 @@ export class PostgresPersistence implements Persistence {
               error_message = NULL
         WHERE id = $1
           AND user_id = $2
-          AND status = 'PREVIEWED'
+          AND (
+            status = 'PREVIEWED'
+            OR (status = 'RUNNING' AND started_at <= $4)
+          )
       RETURNING id`,
-      [jobId, userId, startedAt],
+      [jobId, userId, startedAt, staleBefore],
     );
     return result.rowCount === 1;
   }
@@ -6808,7 +6813,7 @@ export class PostgresPersistence implements Persistence {
   async failRecomputeJob(
     userId: string,
     jobId: string,
-    failure: { completedAt: string; errorCode: string; errorMessage: string },
+    failure: { startedAt: string; completedAt: string; errorCode: string; errorMessage: string },
   ): Promise<boolean> {
     const result = await this.pool.query(
       `UPDATE recompute_jobs
@@ -6819,8 +6824,9 @@ export class PostgresPersistence implements Persistence {
         WHERE id = $1
           AND user_id = $2
           AND status = 'RUNNING'
+          AND started_at = $6
       RETURNING id`,
-      [jobId, userId, failure.completedAt, failure.errorCode, failure.errorMessage],
+      [jobId, userId, failure.completedAt, failure.errorCode, failure.errorMessage, failure.startedAt],
     );
     return result.rowCount === 1;
   }
@@ -6835,9 +6841,9 @@ export class PostgresPersistence implements Persistence {
       const lockedJob = await client.query<{ status: string }>(
         `SELECT status
            FROM recompute_jobs
-          WHERE id = $1 AND user_id = $2
+          WHERE id = $1 AND user_id = $2 AND started_at = $3
           FOR UPDATE`,
-        [job.id, userId],
+        [job.id, userId, job.startedAt],
       );
       if (lockedJob.rows[0]?.status !== "RUNNING") {
         await client.query("ROLLBACK");
@@ -6872,9 +6878,9 @@ export class PostgresPersistence implements Persistence {
                 completed_at = $3,
                 error_code = NULL,
                 error_message = NULL
-          WHERE id = $1 AND user_id = $2 AND status = 'RUNNING'
+          WHERE id = $1 AND user_id = $2 AND status = 'RUNNING' AND started_at = $4
         RETURNING id`,
-        [job.id, userId, job.completedAt ?? new Date().toISOString()],
+        [job.id, userId, job.completedAt ?? new Date().toISOString(), job.startedAt],
       );
       if (confirmed.rowCount !== 1) throw routeError(409, "recompute_preview_consumed", "Recompute preview is no longer confirmable");
       await client.query("COMMIT");

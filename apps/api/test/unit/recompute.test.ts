@@ -4,6 +4,7 @@ import {
   previewRecompute,
   RECOMPUTE_PREVIEW_TTL_MS,
 } from "../../src/services/recompute.js";
+import { RECOMPUTE_RUNNING_LEASE_MS } from "../../src/services/recomputeLifecycle.js";
 import { createDefaultFeeProfile, createStore } from "../../src/services/store.js";
 import type { BookedTradeEvent, Store } from "../../src/types/store.js";
 import { MemoryPersistence } from "../../src/persistence/memory.js";
@@ -369,6 +370,7 @@ describe("recompute preview", () => {
       },
       onFailed: async (failedJob) => {
         await persistence.failRecomputeJob(store.userId, failedJob.id, {
+          startedAt: failedJob.startedAt!,
           completedAt: failedJob.completedAt!,
           errorCode: failedJob.errorCode!,
           errorMessage: failedJob.errorMessage!,
@@ -385,6 +387,7 @@ describe("recompute preview", () => {
       onFailed: async (failedJob) => {
         loserFailedCallbacks += 1;
         await persistence.failRecomputeJob(store.userId, failedJob.id, {
+          startedAt: failedJob.startedAt!,
           completedAt: failedJob.completedAt!,
           errorCode: failedJob.errorCode!,
           errorMessage: failedJob.errorMessage!,
@@ -403,5 +406,63 @@ describe("recompute preview", () => {
     expect(statusWhileWinnerHeld).toBe("RUNNING");
     const durable = await persistence.loadStore(store.userId);
     expect(durable.recomputeJobs.find((candidate) => candidate.id === job.id)?.status).toBe("CONFIRMED");
+  });
+
+  it("recovers an expired RUNNING lease and rejects the previous worker's writes", async () => {
+    const persistence = new MemoryPersistence();
+    await persistence.init();
+    const store = createStore();
+    addTrade(store, "calculated", "CALCULATED", 7);
+    await persistence.saveStore(store);
+    const createdAt = new Date("2026-07-14T00:00:00.000Z");
+    const job = previewRecompute(store, {
+      userId: store.userId,
+      useFallbackBindings: true,
+      accountRevisions: {
+        "acc-1": await persistence.getAccountAccountingRevision(store.userId, "acc-1"),
+      },
+      now: createdAt,
+    });
+    await persistence.saveRecomputeJob(job);
+    const previousStartedAt = "2026-07-14T00:01:00.000Z";
+    expect(await persistence.startRecomputeJob(store.userId, job.id, previousStartedAt)).toBe(true);
+    expect(await persistence.startRecomputeJob(
+      store.userId,
+      job.id,
+      new Date(new Date(previousStartedAt).getTime() + RECOMPUTE_RUNNING_LEASE_MS - 1).toISOString(),
+    )).toBe(false);
+
+    const working = structuredClone(await persistence.loadStore(store.userId));
+    const recovered = await confirmRecompute(
+      working,
+      store.userId,
+      job.id,
+      job.fingerprint,
+      new Date(createdAt.getTime() + RECOMPUTE_PREVIEW_TTL_MS + RECOMPUTE_RUNNING_LEASE_MS),
+      {
+        onRunning: async (runningJob) => {
+          expect(await persistence.startRecomputeJob(
+            store.userId,
+            runningJob.id,
+            runningJob.startedAt!,
+          )).toBe(true);
+          expect(await persistence.failRecomputeJob(store.userId, job.id, {
+            startedAt: previousStartedAt,
+            completedAt: new Date().toISOString(),
+            errorCode: "previous_worker_failed",
+            errorMessage: "Previous worker finished after losing its lease",
+          })).toBe(false);
+        },
+      },
+    );
+
+    expect(await persistence.commitRecomputeStore(store.userId, working.accounting, {
+      ...recovered,
+      startedAt: previousStartedAt,
+    })).toBe(false);
+    expect(await persistence.commitRecomputeStore(store.userId, working.accounting, recovered)).toBe(true);
+    expect((await persistence.loadStore(store.userId)).recomputeJobs.find(
+      (candidate) => candidate.id === job.id,
+    )?.status).toBe("CONFIRMED");
   });
 });

@@ -387,6 +387,7 @@ export async function recomputePortfolioFees(
     },
     onFailed: async (failedJob) => {
       await deps.app.persistence.failRecomputeJob(userId, failedJob.id, {
+        startedAt: failedJob.startedAt!,
         completedAt: failedJob.completedAt ?? new Date().toISOString(),
         errorCode: failedJob.errorCode ?? "recompute_failed",
         errorMessage: failedJob.errorMessage ?? "Recompute failed",
@@ -398,6 +399,7 @@ export async function recomputePortfolioFees(
     if (!committed) throw routeError(409, "recompute_preview_consumed", "Recompute preview is no longer confirmable");
   } catch (error) {
     await deps.app.persistence.failRecomputeJob(userId, job.id, {
+      startedAt: job.startedAt!,
       completedAt: new Date().toISOString(),
       errorCode: typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
         ? error.code

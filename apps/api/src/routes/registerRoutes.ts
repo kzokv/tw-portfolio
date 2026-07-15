@@ -7412,6 +7412,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         },
         onFailed: async (failedJob) => {
           await app.persistence.failRecomputeJob(userId, failedJob.id, {
+            startedAt: failedJob.startedAt!,
             completedAt: failedJob.completedAt ?? new Date().toISOString(),
             errorCode: failedJob.errorCode ?? "recompute_failed",
             errorMessage: failedJob.errorMessage ?? "Recompute failed",
@@ -7422,15 +7423,16 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       if (!committed) throw routeError(409, "recompute_preview_consumed", "Recompute preview is no longer confirmable");
     } catch (error) {
       const failedJob = workingStore.recomputeJobs.find((candidate) => candidate.id === body.jobId);
-      if (ownsRunningJob) {
+      if (ownsRunningJob && failedJob?.startedAt) {
         await app.persistence.failRecomputeJob(userId, body.jobId, {
+          startedAt: failedJob.startedAt,
           completedAt: new Date().toISOString(),
           errorCode: typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
             ? error.code
             : "recompute_failed",
           errorMessage: error instanceof Error ? error.message : String(error),
         }).catch(() => false);
-        if (failedJob) failedJob.status = "FAILED";
+        failedJob.status = "FAILED";
       }
       throw error;
     }

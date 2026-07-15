@@ -2797,7 +2797,7 @@ export interface Persistence {
   failRecomputeJob(
     userId: string,
     jobId: string,
-    failure: { completedAt: string; errorCode: string; errorMessage: string },
+    failure: { startedAt: string; completedAt: string; errorCode: string; errorMessage: string },
   ): Promise<boolean>;
   commitRecomputeStore(
     userId: string,
