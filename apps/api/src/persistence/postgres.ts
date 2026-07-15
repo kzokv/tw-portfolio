@@ -9470,12 +9470,12 @@ export class PostgresPersistence implements Persistence {
          id, user_id, account_id, ticker, market_code, instrument_type, trade_type,
          quantity, unit_price, price_currency, trade_date, trade_timestamp, booking_sequence, commission_amount,
          tax_amount, is_day_trade, fee_policy_snapshot_id, source, source_reference, booked_at,
-         reversal_of_trade_event_id
+         reversal_of_trade_event_id, fees_source
        ) VALUES (
          $1, $2, $3, $4, $5, $6, $7,
          $8, $9, $10, $11, $12, $13, $14,
          $15, $16, $17, $18, $19, $20,
-         $21
+         $21, $22
        )`,
       [
         trade.id,
@@ -9500,6 +9500,7 @@ export class PostgresPersistence implements Persistence {
         trade.sourceReference ?? trade.id,
         trade.bookedAt ?? new Date(`${trade.tradeDate}T00:00:00.000Z`).toISOString(),
         trade.reversalOfTradeEventId ?? null,
+        trade.feesSource ?? "CALCULATED",
       ],
     );
 

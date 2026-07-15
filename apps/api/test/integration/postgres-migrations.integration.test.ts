@@ -4847,6 +4847,7 @@ describePostgres("postgres migrations", () => {
       type: "BUY",
       isDayTrade: false,
     });
+    trade.feesSource = "SOURCE_PROVIDED";
     const now = "2026-05-01T10:00:00.000Z";
 
     const batch = await persistence.saveAiTransactionDraftBatch({
@@ -4930,7 +4931,13 @@ describePostgres("postgres migrations", () => {
       confirmedTradeEventId: trade.id,
     });
     await expect(
-      pool.query(`SELECT id FROM trade_events WHERE id = $1 AND user_id = $2`, [trade.id, userId]),
-    ).resolves.toMatchObject({ rowCount: 1 });
+      pool.query<{ id: string; fees_source: string }>(
+        `SELECT id, fees_source FROM trade_events WHERE id = $1 AND user_id = $2`,
+        [trade.id, userId],
+      ),
+    ).resolves.toMatchObject({
+      rowCount: 1,
+      rows: [{ id: trade.id, fees_source: "SOURCE_PROVIDED" }],
+    });
   });
 });
