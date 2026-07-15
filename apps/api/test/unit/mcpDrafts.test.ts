@@ -237,6 +237,44 @@ describe("mcp draft services", () => {
     });
   });
 
+  it("blocks source fee rows unless commission and tax are supplied together", async () => {
+    const result = await preflightTransactionDraftCandidates(
+      { app, requestContext: createRequestContext() },
+      {
+        candidates: [
+          {
+            rowNumber: 1,
+            recordType: "trade",
+            accountId: "acc-1",
+            type: "BUY",
+            ticker: "2330",
+            quantity: 1,
+            unitPrice: 100,
+            tradeDate: "2026-01-03",
+            commissionAmount: 5,
+          },
+          {
+            rowNumber: 2,
+            recordType: "trade",
+            accountId: "acc-1",
+            type: "BUY",
+            ticker: "2330",
+            quantity: 1,
+            unitPrice: 101,
+            tradeDate: "2026-01-04",
+            taxAmount: 2,
+          },
+        ],
+      },
+    );
+
+    expect(result.summary).toMatchObject({ blockingRowCount: 2, readyRowCount: 0 });
+    expect(result.rows.map((row) => row.issues)).toEqual([
+      expect.arrayContaining([expect.objectContaining({ code: "incomplete_fee_pair" })]),
+      expect.arrayContaining([expect.objectContaining({ code: "incomplete_fee_pair" })]),
+    ]);
+  });
+
   it("blocks ambiguous account names before batch creation", async () => {
     const store = await app.persistence.loadStore("user-1");
     const duplicateFeeProfile = {
@@ -333,6 +371,8 @@ describe("mcp draft services", () => {
             quantity: 1,
             unitPrice: 100,
             tradeDate: "2026-01-03",
+            commissionAmount: 0,
+            taxAmount: 0,
             sourceMetadata: { fileId: "file-1", rowRef: "1", snippet: "2330,BUY,1,100" },
           },
           {
@@ -372,6 +412,15 @@ describe("mcp draft services", () => {
     expect(posted.createdTransactionIds).toHaveLength(1);
     expect(posted.remainingUnresolvedRowIds).toEqual([]);
     expect(posted.batchVersion).toBeGreaterThan(aggregate!.batch.version);
+
+    const canonicalStore = await app.persistence.loadStore("user-1");
+    expect(canonicalStore.accounting.facts.tradeEvents.find(
+      (trade) => trade.id === posted.createdTransactionIds[0],
+    )).toMatchObject({
+      commissionAmount: 0,
+      taxAmount: 0,
+      feesSource: "SOURCE_PROVIDED",
+    });
 
     const updated = await app.persistence.getAiTransactionDraftBatch(created.batch.id);
     expect(updated?.rows.find((row) => row.id === aggregate!.rows[0]!.id)).toMatchObject({

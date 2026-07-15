@@ -201,6 +201,11 @@ export class DividendReviewActions extends AppBaseActions {
     await this.uiActions.click.perform(this.el.drawerRetry);
   }
 
+  @Step()
+  async openTickerTransactions(): Promise<void> {
+    await this.uiActions.click.perform(this.el.openTickerTransactions);
+  }
+
   // ─── Calendar page navigation ───��────────────────────────────────────────
 
   @Step()

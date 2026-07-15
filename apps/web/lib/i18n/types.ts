@@ -1622,6 +1622,10 @@ export interface AppDictionary {
         correctionPathTitle: string;
         correctionPathAmend: string;
         correctionPathBlocked: string;
+        removalGuidanceTitle: string;
+        expectedRemovalGuidance: string;
+        postedCorrectionGuidance: string;
+        openTickerTransactions: string;
         eligibleShares: string;
         receivedShares: string;
         portfolioCostAdded: string;
@@ -1770,6 +1774,24 @@ export interface AppDictionary {
     costBasisTerm: string;
     quotePollTerm: string;
     fallbackConfirm: string;
+    feeModeTitle: string;
+    keepRecordedTitle: string;
+    keepRecordedDescription: string;
+    recalculateCalculatedTitle: string;
+    recalculateCalculatedDescription: string;
+    reviewImpactAction: string;
+    applyAction: string;
+    previewingAction: string;
+    applyingAction: string;
+    impactTitle: string;
+    totalCount: string;
+    calculatedCount: string;
+    preservedCount: string;
+    changedCount: string;
+    commissionDelta: string;
+    taxDelta: string;
+    noFeeChanges: string;
+    previewRefreshed: string;
   };
   transactions: {
     title: string;
@@ -2039,6 +2061,8 @@ export interface AppDictionary {
   mutations: {
     deleteTitle: string;
     deleteConfirmButton: string;
+    deleteSubmitting: string;
+    deletePreviewRefreshed: string;
     deleteSummaryLabel: string;
     deleteImpactLabel: string;
     deleteImpactDetail: string;

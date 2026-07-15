@@ -15,8 +15,37 @@ import {
   refreshPortfolioCloses,
   fetchTransactionsPrimaryData,
   fetchTransactionInstrumentCatalog,
+  previewRecompute,
+  confirmRecompute,
 } from "../../../../features/portfolio/services/portfolioService";
-import { getJson, postNoBody } from "../../../../lib/api";
+import { getJson, postJson, postNoBody } from "../../../../lib/api";
+
+describe("recompute service contract", () => {
+  afterEach(() => {
+    vi.mocked(postJson).mockReset();
+  });
+
+  it("requests a preview for the selected run-level fee mode", async () => {
+    vi.mocked(postJson).mockResolvedValue({ jobId: "job-1" });
+
+    await previewRecompute("RECALCULATE_CALCULATED");
+
+    expect(postJson).toHaveBeenCalledWith("/portfolio/recompute/preview", {
+      mode: "RECALCULATE_CALCULATED",
+    });
+  });
+
+  it("confirms only the reviewed job fingerprint", async () => {
+    vi.mocked(postJson).mockResolvedValue({ status: "CONFIRMED" });
+
+    await confirmRecompute({ jobId: "job-1", fingerprint: "fingerprint-1" });
+
+    expect(postJson).toHaveBeenCalledWith("/portfolio/recompute/confirm", {
+      jobId: "job-1",
+      fingerprint: "fingerprint-1",
+    });
+  });
+});
 
 // KZO-169 — Frontend Implementer's TDD red specs for slice 5 service-layer
 // changes (D5c): `?market_code=` is appended for specific markets AND for

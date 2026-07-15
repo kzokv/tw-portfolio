@@ -7,6 +7,10 @@ import type {
   InstrumentOptionDto,
   InstrumentCatalogItemDto,
   MarketCode,
+  RecomputeConfirmRequestDto,
+  RecomputeConfirmResponseDto,
+  RecomputeFeeMode,
+  RecomputePreviewDto,
   TransactionPrimaryDto,
   TransactionHistoryItemDto,
   TransactionHistoryPageDto,
@@ -18,15 +22,6 @@ import type { TransactionInput } from "../../../components/portfolio/types";
 // KZO-169: market_code query param accepted by GET /instruments. `null` /
 // undefined / "ALL" all map to the server's default (no filter).
 export type InstrumentCatalogMarketFilter = MarketCode | "ALL" | null | undefined;
-
-export interface RecomputePreviewResponse {
-  id: string;
-  items: Array<{ tradeEventId: string }>;
-}
-
-export interface RecomputeConfirmResponse {
-  status: string;
-}
 
 export interface TransactionInstrumentCatalogResponse {
   instruments: InstrumentCatalogItemDto[];
@@ -248,14 +243,12 @@ export async function estimateTransaction(
   );
 }
 
-export async function previewRecompute(): Promise<RecomputePreviewResponse> {
-  return postJson<RecomputePreviewResponse>("/portfolio/recompute/preview", {
-    useFallbackBindings: true,
-  });
+export async function previewRecompute(mode: RecomputeFeeMode = "KEEP_RECORDED"): Promise<RecomputePreviewDto> {
+  return postJson<RecomputePreviewDto>("/portfolio/recompute/preview", { mode });
 }
 
-export async function confirmRecompute(jobId: string): Promise<RecomputeConfirmResponse> {
-  return postJson<RecomputeConfirmResponse>("/portfolio/recompute/confirm", { jobId });
+export async function confirmRecompute(request: RecomputeConfirmRequestDto): Promise<RecomputeConfirmResponseDto> {
+  return postJson<RecomputeConfirmResponseDto>("/portfolio/recompute/confirm", request);
 }
 
 export async function submitCorporateAction(input: CorporateActionInput): Promise<CorporateActionInput & { id?: string }> {

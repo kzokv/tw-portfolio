@@ -806,14 +806,48 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     });
     expect(preview.statusCode).toBe(200);
     const previewBody = preview.json();
+    expect(previewBody).toMatchObject({
+      mode: "KEEP_RECORDED",
+      counts: { total: 1, calculated: 1, preserved: 1, changed: 0 },
+    });
 
     const confirm = await app.inject({
       method: "POST",
       url: "/portfolio/recompute/confirm",
-      payload: { jobId: previewBody.id },
+      payload: { jobId: previewBody.id, fingerprint: previewBody.fingerprint },
     });
     expect(confirm.statusCode).toBe(200);
     expect(confirm.json().status).toBe("CONFIRMED");
+  });
+
+  it("allows only one concurrent confirmation and keeps the durable job confirmed", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "recompute-race-trade" },
+      payload: transactionPayload(),
+    });
+    const preview = await app.inject({ method: "POST", url: "/portfolio/recompute/preview", payload: {} });
+    const reviewed = preview.json();
+
+    const responses = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: "/portfolio/recompute/confirm",
+        payload: { jobId: reviewed.jobId, fingerprint: reviewed.fingerprint },
+      }),
+      app.inject({
+        method: "POST",
+        url: "/portfolio/recompute/confirm",
+        payload: { jobId: reviewed.jobId, fingerprint: reviewed.fingerprint },
+      }),
+    ]);
+
+    expect(responses.map((response) => response.statusCode).sort()).toEqual([200, 409]);
+    const rejected = responses.find((response) => response.statusCode === 409)!;
+    expect(rejected.json()).toMatchObject({ error: "recompute_preview_consumed" });
+    const persisted = await app.persistence.loadStore("user-1");
+    expect(persisted.recomputeJobs.find((job) => job.id === reviewed.jobId)?.status).toBe("CONFIRMED");
   });
 
   it("recompute confirm materializes missing expected dividends and retires stale expected rows nondestructively", async () => {
@@ -904,7 +938,7 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     const confirm = await app.inject({
       method: "POST",
       url: "/portfolio/recompute/confirm",
-      payload: { jobId: preview.json().id },
+      payload: { jobId: preview.json().id, fingerprint: preview.json().fingerprint },
     });
     expect(confirm.statusCode).toBe(200);
 
@@ -1061,13 +1095,13 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     const preview = await app.inject({
       method: "POST",
       url: "/portfolio/recompute/preview",
-      payload: { profileId: createdProfile.id },
+      payload: { profileId: createdProfile.id, mode: "RECALCULATE_CALCULATED" },
     });
     const previewBody = preview.json();
     await app.inject({
       method: "POST",
       url: "/portfolio/recompute/confirm",
-      payload: { jobId: previewBody.id },
+      payload: { jobId: previewBody.id, fingerprint: previewBody.fingerprint },
     });
 
     const after = await app.inject({ method: "GET", url: "/portfolio/transactions" });
@@ -1135,12 +1169,14 @@ describe("portfolio (transactions, holdings, recompute)", () => {
       userId: "user-1",
       profileId: "fp-zero",
       useFallbackBindings: true,
+      mode: "RECALCULATE_CALCULATED",
     });
-    confirmRecompute(persisted, "user-1", job.id);
+    await confirmRecompute(persisted, "user-1", job.id, job.fingerprint);
 
-    expect(sellTrade?.commissionAmount).toBe(0);
-    expect(sellTrade?.taxAmount).toBe(0);
-    expect(sellTrade?.realizedPnlAmount).toBe(90);
+    const recomputedSell = persisted.accounting.facts.tradeEvents.find((tx) => tx.type === "SELL");
+    expect(recomputedSell?.commissionAmount).toBe(0);
+    expect(recomputedSell?.taxAmount).toBe(0);
+    expect(recomputedSell?.realizedPnlAmount).toBe(100);
   });
 
   it("uses weighted-average cost basis for partial sells", async () => {

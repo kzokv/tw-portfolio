@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import type { DailyBar, MarketCode } from "@vakwen/domain";
-import { MARKET_CODES, marketCodeFor, type MarketCode as SharedMarketCode } from "@vakwen/shared-types";
+import { MARKET_CODES, marketCodeFor, type MarketCode as SharedMarketCode, type RecomputeFeeMode } from "@vakwen/shared-types";
 import { routeError } from "../lib/routeError.js";
 import type { McpToolHandlerContext } from "../mcp/types.js";
 import type { HoldingSnapshotScopePair, McpReplayRunRecord, McpReplayScopeRecord } from "../persistence/types.js";
@@ -12,6 +12,7 @@ import { replayPositionHistory } from "./replayPositionHistory.js";
 import { recomputeSnapshotsForTicker, generateHoldingSnapshots } from "./snapshotGeneration.js";
 import { generateCurrencyWalletSnapshots } from "./currencyWalletSnapshotGeneration.js";
 import { getEffectiveTickerPriceFreshnessConfig } from "./appConfig/tickerPriceFreshness.js";
+import { canonicalJsonStringify } from "./canonicalJson.js";
 import { enqueueDemandIntradayRefreshes } from "./market-data/intradayDemandRefresh.js";
 import { isRegularSessionMarketCode } from "./market-data/marketRegularSession.js";
 import { runCloseRefresh } from "./market-data/closeRefreshService.js";
@@ -28,7 +29,6 @@ export const MCP_REPLAY_POSITION_RUN_QUEUE = "mcp-replay-position-runs";
 const MAX_REPLAY_SCOPES = 50;
 const MAX_SNAPSHOT_PAGE_SIZE = 200;
 const REPLAY_CONFIRMATION_TTL_MS = 15 * 60 * 1000;
-const RECOMPUTE_CONFIRMATION_TTL_MS = 15 * 60 * 1000;
 
 interface TickerMarketInput {
   ticker: string;
@@ -48,12 +48,14 @@ export interface RefreshPortfolioPricesInput extends ScopedInput {
 export interface RecomputePortfolioFeesPreviewInput extends ScopedInput {
   profileId?: string;
   useFallbackBindings?: boolean;
+  mode?: RecomputeFeeMode;
 }
 
 export interface RecomputePortfolioFeesInput {
   jobId: string;
   confirmationSummary: string;
   confirmationDigest: string;
+  fingerprint: string;
 }
 
 export type ReplayPortfolioPositionsPreviewInput = ScopedInput;
@@ -332,16 +334,27 @@ export async function previewRecomputePortfolioFees(
     profileId: input.profileId,
     accountId: hasAccountFilter ? [...accountIds][0] : undefined,
     useFallbackBindings: input.useFallbackBindings ?? true,
+    mode: input.mode ?? "KEEP_RECORDED",
+    accountRevisions: Object.fromEntries(await Promise.all(
+      [...new Set(store.accounting.facts.tradeEvents
+        .filter((trade) => trade.userId === userId && (!hasAccountFilter || accountIds.has(trade.accountId)))
+        .map((trade) => trade.accountId))]
+        .map(async (accountId) => [accountId, await deps.app.persistence.getAccountAccountingRevision(userId, accountId)] as const),
+    )),
   });
-  await deps.app.persistence.saveStore(store);
+  await deps.app.persistence.saveRecomputeJob(job);
   const confirmation = buildRecomputeConfirmation(job);
   return {
     jobId: job.id,
     status: job.status,
+    mode: job.mode,
+    fingerprint: job.fingerprint,
+    counts: job.counts,
+    impactsByCurrency: job.impactsByCurrency,
     affectedItemCount: job.items.length,
     confirmationSummary: confirmation.summary,
     confirmationDigest: confirmation.digest,
-    expiresAt: new Date(new Date(job.createdAt).getTime() + RECOMPUTE_CONFIRMATION_TTL_MS).toISOString(),
+    expiresAt: job.expiresAt,
     deltas: job.items.slice(0, 100).map((item) => ({
       tradeEventId: item.tradeEventId,
       commissionDelta: item.nextCommissionAmount - item.previousCommissionAmount,
@@ -358,18 +371,43 @@ export async function recomputePortfolioFees(
   const { userId, store } = await loadContextStore(deps);
   const preview = store.recomputeJobs.find((item) => item.id === input.jobId && item.userId === userId);
   if (!preview) throw routeError(404, "job_not_found", "Recompute job not found");
-  if (preview.status !== "PREVIEWED") {
-    throw routeError(409, "mcp_recompute_preview_already_confirmed", "Recompute preview was already confirmed");
-  }
-  if (new Date(preview.createdAt).getTime() + RECOMPUTE_CONFIRMATION_TTL_MS < Date.now()) {
-    throw routeError(409, "mcp_recompute_preview_expired", "Recompute preview expired");
-  }
   const confirmation = buildRecomputeConfirmation(preview);
   if (input.confirmationSummary !== confirmation.summary || input.confirmationDigest !== confirmation.digest) {
     throw routeError(409, "mcp_recompute_confirmation_mismatch", "Recompute confirmation does not match the latest preview");
   }
-  const job = confirmRecompute(store, userId, input.jobId);
-  await deps.app.persistence.saveStore(store);
+  const workingStore = structuredClone(store);
+  const job = await confirmRecompute(workingStore, userId, input.jobId, input.fingerprint, new Date(), {
+    onRunning: async (runningJob) => {
+      const started = await deps.app.persistence.startRecomputeJob(
+        userId,
+        runningJob.id,
+        runningJob.startedAt ?? new Date().toISOString(),
+      );
+      if (!started) throw routeError(409, "recompute_preview_consumed", "Recompute preview is no longer confirmable");
+    },
+    onFailed: async (failedJob) => {
+      await deps.app.persistence.failRecomputeJob(userId, failedJob.id, {
+        startedAt: failedJob.startedAt!,
+        completedAt: failedJob.completedAt ?? new Date().toISOString(),
+        errorCode: failedJob.errorCode ?? "recompute_failed",
+        errorMessage: failedJob.errorMessage ?? "Recompute failed",
+      });
+    },
+  });
+  try {
+    const committed = await deps.app.persistence.commitRecomputeStore(userId, workingStore.accounting, job);
+    if (!committed) throw routeError(409, "recompute_preview_consumed", "Recompute preview is no longer confirmable");
+  } catch (error) {
+    await deps.app.persistence.failRecomputeJob(userId, job.id, {
+      startedAt: job.startedAt!,
+      completedAt: new Date().toISOString(),
+      errorCode: typeof error === "object" && error !== null && "code" in error && typeof error.code === "string"
+        ? error.code
+        : "recompute_failed",
+      errorMessage: error instanceof Error ? error.message : String(error),
+    }).catch(() => false);
+    throw error;
+  }
   const snapshotRunId = randomUUID();
   setImmediate(async () => {
     try {
@@ -391,6 +429,8 @@ export async function recomputePortfolioFees(
   return {
     jobId: job.id,
     status: job.status,
+    mode: job.mode,
+    counts: job.counts,
     affectedItemCount: job.items.length,
     holdingSnapshotGenerationRunId: snapshotRunId,
     walletSnapshotRefreshQueued: true,
@@ -398,12 +438,21 @@ export async function recomputePortfolioFees(
 }
 
 function buildRecomputeConfirmation(job: RecomputeJob): { summary: string; digest: string } {
-  const summary = `Recompute fees for ${job.items.length} trade event(s) in ${job.accountId ? `account ${job.accountId}` : "all selected accounts"} using profile ${job.profileId}`;
-  const digest = createHash("sha256").update(JSON.stringify({
+  const impactParts = job.impactsByCurrency.map((impact) => (
+    `${impact.currency}: commission ${impact.commissionDelta >= 0 ? "+" : ""}${impact.commissionDelta}, tax ${impact.taxDelta >= 0 ? "+" : ""}${impact.taxDelta}`
+  ));
+  const base = `${job.mode}: recompute history for ${job.items.length} trade event(s) in ${job.accountId ? `account ${job.accountId}` : "all selected accounts"}; expires ${job.expiresAt}`;
+  const summary = buildBoundedConfirmationSummary(base, impactParts);
+  const digest = createHash("sha256").update(canonicalJsonStringify({
     jobId: job.id,
     userId: job.userId,
     accountId: job.accountId ?? null,
     profileId: job.profileId,
+    mode: job.mode,
+    fingerprint: job.fingerprint,
+    expiresAt: job.expiresAt,
+    counts: job.counts,
+    impactsByCurrency: job.impactsByCurrency,
     createdAt: job.createdAt,
     items: job.items.map((item) => ({
       tradeEventId: item.tradeEventId,
@@ -411,9 +460,32 @@ function buildRecomputeConfirmation(job: RecomputeJob): { summary: string; diges
       previousTaxAmount: item.previousTaxAmount,
       nextCommissionAmount: item.nextCommissionAmount,
       nextTaxAmount: item.nextTaxAmount,
+      feesSource: item.feesSource,
+      currency: item.currency,
+      appliedProfileId: item.appliedProfileId,
+      appliedFeeProfile: item.appliedFeeProfile,
     })),
   })).digest("hex");
   return { summary, digest };
+}
+
+function buildBoundedConfirmationSummary(base: string, impactParts: readonly string[]): string {
+  const limit = 500;
+  if (impactParts.length === 0) return `${base}; no booked currencies`.slice(0, limit);
+  let included = 0;
+  let summary = base;
+  while (included < impactParts.length) {
+    const remainingAfter = impactParts.length - included - 1;
+    const suffix = remainingAfter > 0 ? `; +${remainingAfter} more currencies` : "";
+    const candidate = `${summary}; ${impactParts[included]}${suffix}`;
+    if (candidate.length > limit) break;
+    summary = `${summary}; ${impactParts[included]}`;
+    included += 1;
+  }
+  const remaining = impactParts.length - included;
+  const marker = remaining > 0 ? `; +${remaining} more currencies` : "";
+  if (`${summary}${marker}`.length <= limit) return `${summary}${marker}`;
+  return `${summary.slice(0, Math.max(0, limit - marker.length))}${marker}`;
 }
 
 function buildReplayConfirmation(scopes: readonly McpReplayScopeRecord[]): { summary: string; digest: string } {

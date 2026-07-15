@@ -56,6 +56,28 @@ export class TickerDetailAssert extends BaseAssert {
   }
 
   @Step()
+  async deleteDialogContainsFocus(): Promise<void> {
+    expect(await this.el.deleteDialog.confirmationDialog.evaluate(
+      (dialog) => dialog.contains(document.activeElement),
+    )).toBe(true);
+  }
+
+  @Step()
+  valueEquals(actual: unknown, expected: unknown): void {
+    expect(actual).toEqual(expected);
+  }
+
+  @Step()
+  valueMatchesObject(actual: unknown, expected: Record<string, unknown>): void {
+    expect(actual).toMatchObject(expected);
+  }
+
+  @Step()
+  async eventuallyValueEquals(read: () => unknown | Promise<unknown>, expected: unknown): Promise<void> {
+    await expect.poll(read).toEqual(expected);
+  }
+
+  @Step()
   async deleteTradeSummaryContains(text: string | RegExp): Promise<void> {
     await expect(this.el.deleteDialog.tradeSummary).toContainText(text);
   }
@@ -63,6 +85,42 @@ export class TickerDetailAssert extends BaseAssert {
   @Step()
   async deleteImpactCountsAreVisible(): Promise<void> {
     await expect(this.el.deleteDialog.impactCounts).toBeVisible();
+  }
+
+  @Step()
+  async deleteDividendImpactIsVisible(): Promise<void> {
+    await expect(this.el.deleteDialog.dividendImpact).toBeVisible();
+  }
+
+  @Step()
+  async deleteConfirmContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.deleteDialog.confirmButton).toContainText(text);
+  }
+
+  @Step()
+  async deleteControlsAreDisabled(): Promise<void> {
+    await expect(this.el.deleteDialog.confirmButton).toBeDisabled();
+    await expect(this.el.deleteDialog.cancelButton).toBeDisabled();
+  }
+
+  @Step()
+  async deleteStatusContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.deleteDialog.statusMessage).toContainText(text);
+  }
+
+  @Step()
+  async deleteErrorContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.deleteDialog.errorMessage).toContainText(text);
+  }
+
+  @Step()
+  async transactionsTabIsActive(): Promise<void> {
+    await expect(this.el.transactionsTab).toHaveAttribute("data-state", "active");
+  }
+
+  @Step()
+  async viewportHasNoHorizontalOverflow(): Promise<void> {
+    expect(await this.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   }
 
   @Step()

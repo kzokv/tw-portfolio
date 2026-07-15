@@ -10,7 +10,7 @@ import { getRouteLoadingLabels } from "../../../components/layout/i18n";
 import { requireSession } from "../../../lib/auth";
 import { getJson } from "../../../lib/api";
 import { readSidebarStateCookie } from "../../../lib/sidebar-cookie";
-import { TickerHistoryClient } from "./TickerHistoryClient";
+import { TickerHistoryClient, type TickerDetailTab } from "./TickerHistoryClient";
 import { fetchRepairInstrument } from "../../../features/settings/services/repairService";
 import type { ProfileWithImpersonationDto } from "../../../features/profile/hooks/useProfile";
 import { buildPrimaryTickerDetails, fetchTickerPrimaryDetails } from "../../../features/portfolio/services/tickerDetailsService";
@@ -27,6 +27,7 @@ interface TickerHistoryPageProps {
     includeProvisional?: string;
     marketCode?: string;
     source?: string;
+    tab?: string;
     toDate?: string;
   }>;
 }
@@ -57,8 +58,14 @@ function normalizeTickerChartRange(value?: string): TickerChartRange | undefined
   return (TICKER_CHART_RANGES as readonly string[]).includes(normalized) ? (normalized as TickerChartRange) : undefined;
 }
 
+function normalizeTickerDetailTab(value?: string): TickerDetailTab {
+  return value === "dividends" || value === "fundamentals" || value === "transactions"
+    ? value
+    : "overview";
+}
+
 export default async function TickerHistoryPage({ params, searchParams }: TickerHistoryPageProps) {
-  const [{ ticker: rawTicker }, { accountId, accountIds, chartEnd, chartRange, chartStart, fromDate, includeProvisional, marketCode, source, toDate }, session, profile, sidebarOpen, settings] = await Promise.all([
+  const [{ ticker: rawTicker }, { accountId, accountIds, chartEnd, chartRange, chartStart, fromDate, includeProvisional, marketCode, source, tab, toDate }, session, profile, sidebarOpen, settings] = await Promise.all([
     params,
     searchParams,
     requireSession(),
@@ -175,6 +182,7 @@ export default async function TickerHistoryPage({ params, searchParams }: Ticker
             chartStart: initialChartStart,
           }}
           initialTradeDate={initialTradeDate}
+          initialTab={normalizeTickerDetailTab(tab)}
           quotePollIntervalSeconds={settings?.quotePollIntervalSeconds ?? dashboard.settings?.quotePollIntervalSeconds}
           tickerPriceIntradayEnabled={settings?.effectiveTickerPriceIntradayEnabled ?? dashboard.settings?.effectiveTickerPriceIntradayEnabled}
           tickerPriceIntradayRefreshIntervalMinutes={settings?.effectiveTickerPriceIntradayRefreshIntervalMinutes ?? dashboard.settings?.effectiveTickerPriceIntradayRefreshIntervalMinutes}

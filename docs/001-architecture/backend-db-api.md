@@ -196,8 +196,6 @@ erDiagram
   trade_fee_policy_snapshots ||--|| trade_events : booked_fee_policy
   trade_events ||--o{ cash_ledger_entries : settlement_cash
   trade_events ||--o{ lot_allocations : sell_allocations
-  trade_events ||--o{ recompute_job_items : recompute_target
-
   recompute_jobs ||--o{ recompute_job_items : preview_items
 ```
 
@@ -262,7 +260,7 @@ recompute_jobs
   -> recompute_job_items.job_id
 
 recompute_job_items
-  -> recompute_job_items.trade_event_id
+  -> historical trade_event_id value only (not an FK after migration 104)
 ```
 
 ### Table catalog
@@ -619,8 +617,18 @@ Fields:
 | `user_id` | `TEXT` | `NOT NULL`, FK -> `users.id` | owner |
 | `account_id` | `TEXT` | nullable | account-limited recompute |
 | `profile_id` | `TEXT` | `NOT NULL` | chosen profile or `account-fallback` |
-| `status` | `TEXT` | `NOT NULL` | `PREVIEWED` or `CONFIRMED` in app |
+| `status` | `TEXT` | `NOT NULL`, checked | `PREVIEWED`, `RUNNING`, `CONFIRMED`, or `FAILED` |
 | `created_at` | `TIMESTAMP` | `NOT NULL` | creation time |
+| `fee_mode` | `TEXT DEFAULT 'KEEP_RECORDED'` | `NOT NULL`, checked | `KEEP_RECORDED` or `RECALCULATE_CALCULATED` |
+| `use_fallback_bindings` | `BOOLEAN DEFAULT true` | `NOT NULL` | whether account fallback profiles participate |
+| `account_revisions` | `JSONB DEFAULT '{}'` | `NOT NULL` | reviewed revision for each selected account |
+| `fee_config_fingerprint` | `TEXT` | `NOT NULL`, 64-char lowercase hex | reviewed fee profiles and bindings |
+| `preview_fingerprint` | `TEXT` | `NOT NULL`, 64-char lowercase hex | confirmation token over the complete reviewed preview |
+| `expires_at` | `TIMESTAMPTZ` | `NOT NULL` | preview expiry boundary |
+| `started_at` | `TIMESTAMPTZ` | nullable | successful `PREVIEWED -> RUNNING` transition time |
+| `completed_at` | `TIMESTAMPTZ` | nullable | terminal transition time |
+| `error_code` | `TEXT` | nullable | durable failure classification |
+| `error_message` | `TEXT` | nullable | durable failure detail |
 
 Indexes:
 - `idx_recompute_jobs_user_id`
@@ -629,7 +637,10 @@ Read path:
 - loaded into `Store.recomputeJobs`
 
 Write path:
-- fully deleted/recreated by `saveStore`
+- previewed through `saveRecomputeJob`
+- compare-and-set to `RUNNING` through `startRecomputeJob`
+- marked `FAILED` only from `RUNNING`
+- marked `CONFIRMED` inside `commitRecomputeStore`, atomically with the selected accounting scopes
 
 #### `recompute_job_items`
 
@@ -642,17 +653,22 @@ Fields:
 | --- | --- | --- | --- |
 | `id` | `TEXT` | PK | `${jobId}:${tradeEventId}` in current writes |
 | `job_id` | `TEXT` | `NOT NULL`, FK -> `recompute_jobs.id` | parent job |
-| `trade_event_id` | `TEXT` | `NOT NULL`, FK -> `trade_events.id` `ON DELETE CASCADE` (migration `016`) | canonical trade reference — row deleted automatically when the trade event is deleted |
-| `previous_commission_amount` | `INTEGER` | `NOT NULL` | prior value |
-| `previous_tax_amount` | `INTEGER` | `NOT NULL` | prior value |
-| `next_commission_amount` | `INTEGER` | `NOT NULL` | previewed value |
-| `next_tax_amount` | `INTEGER` | `NOT NULL` | previewed value |
+| `trade_event_id` | `TEXT` | `NOT NULL`, deliberately not an FK after migration `104` | historical source id retained even when replay rewrites or deletion removes the trade |
+| `previous_commission_amount` | `NUMERIC(20,4)` | `NOT NULL` | prior value |
+| `previous_tax_amount` | `NUMERIC(20,4)` | `NOT NULL` | prior value |
+| `next_commission_amount` | `NUMERIC(20,4)` | `NOT NULL` | previewed value |
+| `next_tax_amount` | `NUMERIC(20,4)` | `NOT NULL` | previewed value |
+| `currency` | `TEXT` | `NOT NULL`, ISO-like check | native booked currency for grouped impacts |
+| `fees_source` | `TEXT` | `NOT NULL`, checked | reviewed `CALCULATED`, `MANUAL`, or `SOURCE_PROVIDED` provenance |
+| `applied_profile_id` | `TEXT` | nullable, paired with JSON | exact profile used for calculated-only repricing |
+| `applied_fee_profile_json` | `JSONB` | nullable, paired with id | immutable profile snapshot used during confirmation |
 
 Read path:
 - loaded and grouped under `Store.recomputeJobs[].items`
 
 Write path:
-- fully deleted/recreated by `saveStore`
+- written with the preview job and retained as immutable review/audit evidence
+- loaded with jobs for confirmation and audit inspection
 
 #### `trade_events`
 
@@ -683,7 +699,7 @@ Fields:
 | `source_reference` | `TEXT` | nullable | idempotent source reference |
 | `booked_at` | `TIMESTAMP DEFAULT CURRENT_TIMESTAMP` | `NOT NULL` | persistence time |
 | `reversal_of_trade_event_id` | `TEXT` | nullable, self-FK `ON DELETE CASCADE` (migration `016`) | trade reversal link |
-| `fees_source` | `TEXT DEFAULT 'CALCULATED'` | `NOT NULL`, check `CALCULATED` or `MANUAL` (migration `016`) | `CALCULATED` = fees auto-derived from fee profile at recompute; `MANUAL` = fees set explicitly, not recalculated unless user confirms |
+| `fees_source` | `TEXT DEFAULT 'CALCULATED'` | `NOT NULL`, checked (migration `104`) | `CALCULATED` may be repriced only in the explicit recalculation mode; `MANUAL` and `SOURCE_PROVIDED` remain recorded |
 
 Indexes and uniqueness:
 - `idx_trade_events_user_id`
@@ -698,7 +714,7 @@ Read path:
 
 Write path:
 - single-trade insert via `savePostedTrade`
-- hard delete via `deleteTradeEvent` (cascades to `cash_ledger_entries`, `lot_allocations`, `recompute_job_items`)
+- hard delete via `deleteTradeEvent` (cascades to `cash_ledger_entries` and `lot_allocations`; recompute audit items remain)
 - field patch via `updateTradeEvent`
 - full delete/reinsert via `saveAccountingStoreTx`
 
@@ -1057,7 +1073,7 @@ Current numbered migration inventory:
 - `010_trade_snapshot_recompute_normalization.sql`: introduces `trade_fee_policy_snapshots`, migrates recompute references, backfills dividend cash receipts, and drops retired legacy structures
 - `014_user_identity_and_demo.sql`: adds `display_name`, `is_demo`, `demo_expires_at`, `created_at`, `updated_at`, `deactivated_at`, `deleted_at` to `users`; creates `user_external_identities` table with `UNIQUE(provider, provider_subject)`; makes `users.email` nullable with partial unique index
 - `015_cookie_domain_and_session.sql`: adds `COOKIE_DOMAIN` support to session cookie configuration; adjusts demo session cookie handling for cross-subdomain sharing
-- `016_transaction_mutations.sql`: upgrades FK constraints on `cash_ledger_entries.related_trade_event_id`, `lot_allocations.trade_event_id`, `trade_events.reversal_of_trade_event_id`, and `recompute_job_items.trade_event_id` to `ON DELETE CASCADE`; adds `fees_source TEXT NOT NULL DEFAULT 'CALCULATED'` column to `trade_events`
+- `016_transaction_mutations.sql`: upgrades FK constraints on `cash_ledger_entries.related_trade_event_id`, `lot_allocations.trade_event_id`, `trade_events.reversal_of_trade_event_id`, and (until superseded by migration `104`) `recompute_job_items.trade_event_id` to `ON DELETE CASCADE`; adds `fees_source TEXT NOT NULL DEFAULT 'CALCULATED'` column to `trade_events`
 - `043_kzo168_fx_transfer.sql`: extends `cash_ledger_entries` for FX transfer OUT/IN rows, adds `fx_transfer_id`, enforces one non-reversal OUT and IN leg per transfer, and adds FX transfer audit actions
 - `036_kzo158a_user_preferences.sql`: creates `user_preferences` table (per-user JSONB prefs with `ON DELETE CASCADE` on `users.id`); adds `dashboard_performance_ranges JSONB NULL` column to `app_config` for admin-configurable dashboard timeframe defaults (KZO-159)
 - `041_kzo179_account_created_at_and_name_uniqueness.sql`: adds `accounts.created_at` and per-user account-name uniqueness to support account ordering and migration backfill naming
@@ -1067,6 +1083,7 @@ Current numbered migration inventory:
 - `050_kzo196_gics_industry_group.sql`: adds `gics_industry_group TEXT NULL` to `market_data.instruments` with a partial covering index on `(market_code, gics_industry_group) WHERE gics_industry_group IS NOT NULL`; one-time UPDATE nulling `industry_category_raw` for AU rows (KZO-194 cleanup); adds `asx_gics_refresh_cron TEXT NULL` to `app_config` for the Tier A cron-override column; seeds the `asx-gics-csv` row in `market_data.provider_health_status` (KZO-196)
 - `062_kr_market_support.sql`: extends `accounts.default_currency` to include `KRW`, maps `KRW -> KR` in `currency_to_market`, extends `market_data.ticker_fundamentals.market_code` to `KR`, and seeds `yahoo-finance-kr` / `twelve-data-kr` provider-health rows
 - `092_jp_market_support.sql`: extends `accounts.default_currency` to include `JPY`, maps `JPY -> JP` in `currency_to_market`, widens JP-aware provider/calendar/app-config checks, adds JP Yahoo rate-limit and JP catalog-inclusion app-config columns, seeds `yahoo-finance-jp` / `twelve-data-jp` provider-health rows, and seeds default market calendar source `official-jp`
+- `104_dividend_delete_recompute_history.sql`: adds durable recompute fee modes, fingerprints, expiry/lifecycle fields, native-currency and applied-profile audit data; expands `fees_source` with `SOURCE_PROVIDED`; and removes the recompute-item trade FK so replay or authorized deletion cannot erase immutable audit evidence
 
 ### Transaction market selector and symbol disambiguation (KZO-169)
 
@@ -1165,7 +1182,8 @@ savePostedDividend
 
 deleteTradeEvent (KZO-114)
   deletes one trade_events row (user+id scoped)
-  cascades to: cash_ledger_entries (TRADE_SETTLEMENT_IN/OUT), lot_allocations, recompute_job_items
+  cascades to: cash_ledger_entries (TRADE_SETTLEMENT_IN/OUT), lot_allocations
+  preserves: recompute_job_items as immutable historical audit evidence
 
 updateTradeEvent (KZO-114)
   patches one trade_events row (user+id scoped)
@@ -1204,13 +1222,13 @@ In addition to SQL constraints, `validateStoreInvariants` and `validateAccountin
 ### Database findings summary
 
 - Canonical trade reads use `trade_events` plus `trade_fee_policy_snapshots`.
-- Recompute now targets `trade_events` directly through `recompute_job_items.trade_event_id`.
+- Recompute items retain the reviewed `trade_events.id` value in `recompute_job_items.trade_event_id`, but migration `104` deliberately makes it a non-FK historical reference so scoped replay and later authorized deletion cannot erase audit evidence.
 - `reconciliation_records` is migrated but dormant.
 - `daily_portfolio_snapshots` is persisted in the model but not actively generated by current route/service flows.
 - Full-store save paths no longer rewrite compatibility trade mirrors.
 - Some tables use strong `(account_id, user_id)` composite integrity, while older projection tables like `lots` and `corporate_actions` still only key through `accounts(id)`.
-- Migration `016` (KZO-114) added `ON DELETE CASCADE` to four FKs referencing `trade_events(id)`: `cash_ledger_entries.related_trade_event_id`, `lot_allocations.trade_event_id`, `trade_events.reversal_of_trade_event_id` (self-referential), and `recompute_job_items.trade_event_id`. This enables hard-delete of trade events without manual cleanup.
-- `trade_events.fees_source` (migration `016`) distinguishes auto-calculated fees (`CALCULATED`) from user-supplied fees (`MANUAL`). PATCH routes use this to decide whether to recalculate fees or prompt for confirmation.
+- Migration `016` (KZO-114) added `ON DELETE CASCADE` to four FKs referencing `trade_events(id)`. Migration `104` removes only the `recompute_job_items.trade_event_id` FK for audit retention; settlement cash, lot allocations, and reversal rows retain their cascade behavior.
+- `trade_events.fees_source` distinguishes auto-calculated fees (`CALCULATED`), direct user overrides (`MANUAL`), and imported booked facts (`SOURCE_PROVIDED`). Bulk recompute preserves the latter two in both modes and reprices only `CALCULATED` rows after explicit review.
 
 ### Account soft-delete lifecycle (ui-enhancement)
 
@@ -1473,13 +1491,17 @@ POST /corporate-actions
 POST /portfolio/recompute/preview
   -> loadStore
   -> assertStoreIntegrity
-  -> previewRecompute
-  -> saveStore
+  -> read selected account accounting revisions
+  -> previewRecompute (fee mode + native-currency impacts + fingerprints)
+  -> saveRecomputeJob (preview/audit rows only)
 
 POST /portfolio/recompute/confirm
   -> loadStore
-  -> confirmRecompute
-  -> saveStore
+  -> validate reviewed fingerprint, expiry, trades, and fee configuration
+  -> compare-and-set PREVIEWED -> RUNNING
+  -> simulate deterministic replay for every selected account/ticker scope
+  -> commitRecomputeStore (scoped accounting + CONFIRMED, one transaction)
+  -> regenerate holding and wallet snapshots asynchronously after commit
 
 GET /quotes/latest
   -> getCachedQuotes
@@ -1636,7 +1658,7 @@ Trade posting behavior:
 - SELL allocates against weighted-average lot projection and computes realized PnL
 
 Transaction mutation behavior (KZO-114):
-- `DELETE` hard-deletes the trade event row; DB `ON DELETE CASCADE` removes linked `cash_ledger_entries` (TRADE_SETTLEMENT_IN/OUT), `lot_allocations`, and `recompute_job_items` automatically; `trade_fee_policy_snapshots` row remains (orphaned, not FK-constrained)
+- `DELETE` hard-deletes the trade event row; DB `ON DELETE CASCADE` removes linked `cash_ledger_entries` (TRADE_SETTLEMENT_IN/OUT) and `lot_allocations`; `recompute_job_items` remain as immutable historical evidence and `trade_fee_policy_snapshots` remain orphaned (not FK-constrained)
 - `PATCH` validates at least one field changed; if `quantity` or `price` changes and `fees_source = CALCULATED`, fees are recalculated from the bound fee snapshot; if `fees_source = MANUAL`, a `requiresFeeConfirmation: true` response is returned unless `confirmFeeRecalculation` or `keepManualFees` is provided
 - both mutations respond `202` and immediately fire `scheduleReplayWithRetry` in `setImmediate` — the HTTP response returns before recompute completes
 - recompute result is delivered via SSE: `recompute_complete` on success, `recompute_failed` on failure (with one automatic retry; second failure sets `retriesExhausted: true`)
@@ -1855,14 +1877,17 @@ GET /dashboard/overview
 
 | Method | Path | Request shape | Response shape | Dependencies | Web usage |
 | --- | --- | --- | --- | --- | --- |
-| `POST` | `/portfolio/recompute/preview` | `{ profileId?, accountId?, useFallbackBindings=true, forceProfileOnly=false }` | `RecomputeJob` | `previewRecompute`, `saveStore` | yes |
-| `POST` | `/portfolio/recompute/confirm` | `{ jobId }` | `RecomputeJob` | `confirmRecompute`, `saveStore` | yes |
+| `POST` | `/portfolio/recompute/preview` | `{ profileId?, accountId?, useFallbackBindings=true, forceProfileOnly=false, mode="KEEP_RECORDED" }` | `{ jobId, status, mode, fingerprint, expiresAt, counts, impactsByCurrency }` | `previewRecompute`, `saveRecomputeJob` | yes |
+| `POST` | `/portfolio/recompute/confirm` | `{ jobId, fingerprint }` | `{ jobId, status, mode, counts, holdingSnapshotGenerationRunId, walletSnapshotRefreshQueued }` | `confirmRecompute`, `commitRecomputeStore` | yes |
 | `GET` | `/quotes/latest` | query `symbols=a,b,c` | `Quote[]` | Redis cache, market-data provider fallback | not used by shipped UI |
 
 Recompute behavior:
-- preview computes alternate commission/tax values against current trades
-- confirm mutates trade fee/tax fields and rebuilds linked cash settlement rows
-- both preview and confirm persist through full `saveStore`
+- omitted HTTP and MCP modes default to `KEEP_RECORDED`; this preserves booked commission and tax while still rebuilding deterministic history
+- `RECALCULATE_CALCULATED` updates commission and tax together only for trades whose `fees_source` is `CALCULATED`; `MANUAL` and `SOURCE_PROVIDED` remain unchanged
+- preview returns aggregate deltas by native booked currency and a 15-minute fingerprinted review token; confirmation requires that exact fingerprint
+- confirmation compare-and-sets the durable job to `RUNNING`, simulates every selected scope, then replaces only the selected accounts' core accounting and marks the job `CONFIRMED` in one transaction
+- account revisions and fee-profile/binding fingerprints reject races; losing or stale confirmations cannot regress a confirmed job
+- holding and wallet snapshots regenerate after the atomic core commit and do not roll back confirmed accounting if their asynchronous refresh fails
 
 Quote behavior:
 - maximum 20 symbols per request

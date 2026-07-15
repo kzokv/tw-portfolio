@@ -2076,7 +2076,48 @@ export interface TransactionHistoryItemDto {
   feeProfileId: string;
   feeProfileName: string;
   bookedAt: string | null;
-  feesSource: "CALCULATED" | "MANUAL";
+  feesSource: "CALCULATED" | "MANUAL" | "SOURCE_PROVIDED";
+}
+
+export type RecomputeFeeMode = "KEEP_RECORDED" | "RECALCULATE_CALCULATED";
+export type RecomputeJobStatus = "PREVIEWED" | "RUNNING" | "CONFIRMED" | "FAILED";
+
+export interface RecomputeAggregateCountsDto {
+  total: number;
+  calculated: number;
+  preserved: number;
+  changed: number;
+}
+
+export interface RecomputeCurrencyImpactDto {
+  currency: CurrencyCode;
+  commissionDelta: number;
+  taxDelta: number;
+}
+
+export interface RecomputePreviewDto {
+  id: string;
+  jobId: string;
+  status: RecomputeJobStatus;
+  mode: RecomputeFeeMode;
+  fingerprint: string;
+  expiresAt: string;
+  counts: RecomputeAggregateCountsDto;
+  impactsByCurrency: RecomputeCurrencyImpactDto[];
+}
+
+export interface RecomputeConfirmRequestDto {
+  jobId: string;
+  fingerprint: string;
+}
+
+export interface RecomputeConfirmResponseDto {
+  jobId: string;
+  status: RecomputeJobStatus;
+  mode: RecomputeFeeMode;
+  counts: RecomputeAggregateCountsDto;
+  holdingSnapshotGenerationRunId?: string;
+  walletSnapshotRefreshQueued?: boolean;
 }
 
 export type RealizedPnlBreakdownUnavailableReason =

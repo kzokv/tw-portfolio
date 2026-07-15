@@ -71,6 +71,11 @@ export class DividendReviewAssert extends BaseAssert {
   }
 
   @Step()
+  async urlMatches(pattern: RegExp): Promise<void> {
+    await expect(this.page).toHaveURL(pattern);
+  }
+
+  @Step()
   async viewportHasNoHorizontalOverflow(): Promise<void> {
     expect(await this.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   }
@@ -80,6 +85,23 @@ export class DividendReviewAssert extends BaseAssert {
   @Step()
   async pageLoaded(): Promise<void> {
     await expect(this.el.page).toBeVisible();
+  }
+
+  @Step()
+  async removalGuidanceContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.removalGuidance).toContainText(text);
+  }
+
+  @Step()
+  async removalGuidanceHasNoDeleteAction(): Promise<void> {
+    await expect(this.el.removalGuidance.getByRole("button", { name: /delete|刪除/i })).toHaveCount(0);
+  }
+
+  @Step()
+  async openTickerTransactionsHrefContains(parts: string[]): Promise<void> {
+    const href = await this.el.openTickerTransactions.getAttribute("href");
+    expect(href).not.toBeNull();
+    for (const part of parts) expect(href).toContain(part);
   }
 
   @Step()

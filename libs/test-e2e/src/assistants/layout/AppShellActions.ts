@@ -257,9 +257,11 @@ export class AppShellActions extends AppBaseActions {
     await this.uiActions.click.perform(this.el.testId(`command-palette-item-action-${key}`));
   }
 
-  /** Confirm the Recompute AlertDialog (clicks the locked CTA). */
+  /** Review impact, then explicitly confirm the Recompute AlertDialog. */
   @Step()
   async confirmRecomputeAlertDialog(): Promise<void> {
+    await this.uiActions.click.perform(this.el.testId("recompute-confirm-dialog-cta"));
+    await this.el.testId("recompute-impact-preview").waitFor({ state: "visible" });
     await this.uiActions.click.perform(this.el.testId("recompute-confirm-dialog-cta"));
   }
 

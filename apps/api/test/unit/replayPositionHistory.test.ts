@@ -42,6 +42,28 @@ describe("replayPositionHistory", () => {
     expect(summary.affectedTradeCount).toBe(0);
   });
 
+  it("preserves trade settlement rows when the caller already replaced changed entries", async () => {
+    const persistence = {
+      getTradeEventsForAccountTicker: vi.fn().mockResolvedValue([]),
+      getPositionActionsForAccountTicker: vi.fn().mockResolvedValue([]),
+      deleteLotsForAccountTicker: vi.fn().mockResolvedValue(0),
+      deleteLotAllocationsForAccountTicker: vi.fn().mockResolvedValue(0),
+      deleteTradeCashEntriesForAccountTicker: vi.fn().mockResolvedValue(0),
+      applyDividendLedgerRecompute: vi.fn().mockResolvedValue([]),
+      loadStore: vi.fn().mockResolvedValue({
+        accounting: { facts: { dividendLedgerEntries: [] } },
+        marketData: { dividendEvents: [] },
+      }),
+    } as unknown as Persistence;
+
+    await replayPositionHistory(persistence, "user-1", "acc-1", "2330", {
+      marketCode: "TW",
+      preserveTradeCashEntries: true,
+    });
+
+    expect(persistence.deleteTradeCashEntriesForAccountTicker).not.toHaveBeenCalled();
+  });
+
   it("removes stock-dividend lots during market-scoped replay cleanup", async () => {
     const persistence = new MemoryPersistence();
     const userId = "user-1";

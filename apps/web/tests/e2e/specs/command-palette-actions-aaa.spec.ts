@@ -6,8 +6,8 @@
 //   [actions-B] "Change accent to Emerald" → PATCH /user-preferences persists
 //                 (next mount surfaces the new accent via AccentApplier)
 //   [actions-C] "Add transaction" → AddTransactionDialog opens
-//   [actions-D] "Recompute all positions" → AlertDialog opens → confirm
-//                 closes the AlertDialog (recompute API runs in background)
+//   [actions-D] "Recompute all positions" → AlertDialog opens → review impact
+//                 → explicit confirm closes the AlertDialog
 //   [actions-E] AlertDialog Cancel → dialog closes; recompute does NOT fire
 
 import { test } from "@vakwen/test-e2e/fixtures/appPages";
@@ -60,7 +60,7 @@ test.describe("Phase 3e command palette actions", () => {
     await appShell.assert.addTransactionDialogIsVisible();
   });
 
-  test("[actions-D]: 'Recompute all positions' opens AlertDialog → confirm closes it", async ({
+  test("[actions-D]: Recompute all positions → review impact → explicit confirmation closes dialog", async ({
     appShell,
     dashboard,
   }) => {

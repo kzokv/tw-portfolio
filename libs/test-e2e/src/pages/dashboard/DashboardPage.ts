@@ -25,7 +25,13 @@ export interface TDashboardElements extends TElementLocatorHelpers {
   floatingActionRecompute: Locator;
   floatingActionGenerateSnapshots: Locator;
   // Phase 5e — Recompute action opens an AlertDialog with this CTA.
+  recomputeConfirmDialog: Locator;
   recomputeConfirmDialogCta: Locator;
+  recomputeConfirmDialogCancel: Locator;
+  recomputeModeKeep: Locator;
+  recomputeModeRecalculate: Locator;
+  recomputeImpactPreview: Locator;
+  recomputeZeroChange: Locator;
   generateSnapshotsButton: Locator;
   snapshotStatus: Locator;
   performanceCard: Locator;
@@ -66,7 +72,13 @@ export class DashboardPage extends BasePage<TDashboardElements> {
       floatingActionAddTransaction: this.locate("floating-action-add-transaction", "Floating Action — Add Transaction"),
       floatingActionRecompute: this.locate("floating-action-recompute", "Floating Action — Recompute"),
       floatingActionGenerateSnapshots: this.locate("floating-action-generate-snapshots", "Floating Action — Generate Snapshots"),
+      recomputeConfirmDialog: this.locate("recompute-confirm-dialog", "Recompute Confirm Dialog"),
       recomputeConfirmDialogCta: this.locate("recompute-confirm-dialog-cta", "Recompute Confirm Dialog CTA"),
+      recomputeConfirmDialogCancel: this.locate("recompute-confirm-dialog-cancel", "Recompute Confirm Dialog Cancel"),
+      recomputeModeKeep: this.locate("recompute-mode-keep", "Keep Recorded Fees Mode"),
+      recomputeModeRecalculate: this.locate("recompute-mode-recalculate", "Recalculate Calculated Fees Mode"),
+      recomputeImpactPreview: this.locate("recompute-impact-preview", "Recompute Impact Preview"),
+      recomputeZeroChange: this.locate("recompute-zero-change", "Recompute Zero-change Message"),
       generateSnapshotsButton: this.locate("generate-snapshots-button", "Generate Snapshots Button"),
       snapshotStatus: this.locate("snapshot-status", "Snapshot Status"),
       performanceCard: this.locate("dashboard-performance-card", "Performance Amounts Card"),

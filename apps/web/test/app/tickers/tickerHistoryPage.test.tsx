@@ -40,6 +40,7 @@ vi.mock("../../../app/tickers/[ticker]/TickerHistoryClient", () => ({
     details,
     initialChartQuery,
     initialTradeDate,
+    initialTab,
     instrument,
     quotePollIntervalSeconds,
     ticker,
@@ -61,6 +62,7 @@ vi.mock("../../../app/tickers/[ticker]/TickerHistoryClient", () => ({
     };
     initialChartQuery?: { chartEnd?: string; chartRange?: string; chartStart?: string };
     initialTradeDate?: string;
+    initialTab?: string;
     instrument: { ticker?: string } | null;
     quotePollIntervalSeconds?: number | null;
     ticker: string;
@@ -78,6 +80,7 @@ vi.mock("../../../app/tickers/[ticker]/TickerHistoryClient", () => ({
       data-chart-start={initialChartQuery?.chartStart ?? ""}
       data-chart-end={initialChartQuery?.chartEnd ?? ""}
       data-initial-trade-date={initialTradeDate ?? ""}
+      data-initial-tab={initialTab ?? ""}
       data-transaction-account-filter={transactionAccountFilter ?? ""}
       data-transaction-account-ids-filter={transactionAccountIdsFilter?.join(",") ?? ""}
       data-transaction-market-filter={transactionMarketFilter ?? ""}
@@ -197,6 +200,7 @@ describe("TickerHistoryPage", () => {
         chartRange: "CUSTOM",
         chartStart: "2024-01-01",
         marketCode: "tw",
+        tab: "transactions",
       }),
     });
     const html = renderToStaticMarkup(element);
@@ -212,6 +216,7 @@ describe("TickerHistoryPage", () => {
     expect(html).toContain('data-chart-range="CUSTOM"');
     expect(html).toContain('data-chart-start="2024-01-01"');
     expect(html).toContain('data-chart-end="2024-06-30"');
+    expect(html).toContain('data-initial-tab="transactions"');
     expect(fetchDashboardPrimaryDataMock).toHaveBeenCalledTimes(1);
     expect(fetchTransactionHistoryMock).toHaveBeenCalledWith({ ticker: "2330", accountId: "acc-2", accountIds: undefined, marketCode: "TW" });
     expect(getJsonMock).toHaveBeenCalledWith("/tickers/2330/primary?accountId=acc-2&marketCode=TW&startDate=2024-01-01&endDate=2024-06-30");

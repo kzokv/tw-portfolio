@@ -1,4 +1,5 @@
 import { TestEnv } from "@vakwen/config/test";
+import { expect } from "@playwright/test";
 import { Step } from "@vakwen/test-framework/decorators";
 import { AppBaseActions } from "../../bases/index.js";
 import type { DashboardPage } from "../../pages/dashboard/DashboardPage.js";
@@ -37,6 +38,8 @@ export class DashboardActions extends AppBaseActions {
     // path that `acceptNextDialog` used to handle is retired).
     await this.ensureFloatingSheetOpen();
     await this.uiActions.click.perform(this.el.floatingActionRecompute);
+    await this.uiActions.click.perform(this.el.recomputeConfirmDialogCta);
+    await expect(this.el.recomputeImpactPreview).toBeVisible();
     await this.uiActions.click.perform(this.el.recomputeConfirmDialogCta);
   }
 
@@ -95,6 +98,37 @@ export class DashboardActions extends AppBaseActions {
   @Step()
   async clickFloatingRecompute(): Promise<void> {
     await this.uiActions.click.perform(this.el.floatingActionRecompute);
+  }
+
+  @Step()
+  async openRecomputeDialog(): Promise<void> {
+    await this.ensureFloatingSheetOpen();
+    await this.uiActions.click.perform(this.el.floatingActionRecompute);
+    await expect(this.el.recomputeConfirmDialog).toBeVisible();
+  }
+
+  @Step()
+  async chooseRecomputeMode(mode: "KEEP_RECORDED" | "RECALCULATE_CALCULATED"): Promise<void> {
+    const option = mode === "KEEP_RECORDED"
+      ? this.el.recomputeModeKeep
+      : this.el.recomputeModeRecalculate;
+    await this.uiActions.click.perform(option);
+  }
+
+  @Step()
+  async clickRecomputeDialogAction(): Promise<void> {
+    await this.uiActions.click.perform(this.el.recomputeConfirmDialogCta);
+  }
+
+  @Step()
+  async cancelRecomputeDialog(): Promise<void> {
+    await this.uiActions.click.perform(this.el.recomputeConfirmDialogCancel);
+  }
+
+  @Step()
+  async pressEscapeInRecomputeDialog(): Promise<void> {
+    await this.mxFocus(this.el.recomputeConfirmDialogCta);
+    await this.mxPressKey("Escape");
   }
 
   @Step()
