@@ -355,6 +355,33 @@ describePostgres("recompute-history durable acceptance (postgres integration)", 
     });
   });
 
+  it("[user hard purge]: saved recompute audit items → deletes items before their parent jobs", async () => {
+    const seeded = await seedTwoAccountPortfolio();
+    const preview = previewRecompute(seeded, {
+      userId,
+      useFallbackBindings: true,
+      mode: "KEEP_RECORDED",
+      accountRevisions: await accountRevisions(seeded),
+    });
+    await persistence.saveRecomputeJob(preview);
+
+    expect((await pool.query<{ count: string }>(
+      "SELECT COUNT(*)::text AS count FROM recompute_job_items WHERE job_id = $1",
+      [preview.id],
+    )).rows[0]?.count).not.toBe("0");
+
+    await expect(persistence.hardPurgeUser(userId, { actorUserId: userId })).resolves.toBeUndefined();
+
+    const remaining = await pool.query<{ item_count: string; job_count: string; user_count: string }>(
+      `SELECT
+         (SELECT COUNT(*)::text FROM recompute_job_items WHERE job_id = $1) AS item_count,
+         (SELECT COUNT(*)::text FROM recompute_jobs WHERE id = $1) AS job_count,
+         (SELECT COUNT(*)::text FROM users WHERE id = $2) AS user_count`,
+      [preview.id, userId],
+    );
+    expect(remaining.rows[0]).toEqual({ item_count: "0", job_count: "0", user_count: "0" });
+  });
+
   it("[recompute lease recovery]: process restart after preview expiry → reclaims stale work without old-owner writes", async () => {
     const seeded = await seedTwoAccountPortfolio();
     const createdAt = new Date("2026-07-14T00:00:00.000Z");

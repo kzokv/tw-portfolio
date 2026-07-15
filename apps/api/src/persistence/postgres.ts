@@ -17509,6 +17509,11 @@ export class PostgresPersistence implements Persistence {
       // through fee_profiles.
       await client.query("DELETE FROM user_monitored_tickers WHERE user_id = $1", [userId]);
       await client.query("DELETE FROM refresh_batches WHERE user_id = $1", [userId]);
+      await client.query(
+        `DELETE FROM recompute_job_items
+         WHERE job_id IN (SELECT id FROM recompute_jobs WHERE user_id = $1)`,
+        [userId],
+      );
       await client.query("DELETE FROM recompute_jobs WHERE user_id = $1", [userId]);
       await client.query("DELETE FROM daily_portfolio_snapshots WHERE user_id = $1", [userId]);
 
