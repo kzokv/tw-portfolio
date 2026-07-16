@@ -47,7 +47,7 @@ The final diff was checked against both locked scope documents. All product step
 
 ## Codex Review Follow-up
 
-Codex review on PR #290 identified actionable issues across six review rounds:
+Codex review on PR #290 identified actionable issues across seven review rounds:
 
 1. The new mutation preview and confirmation routes were present in the delegated capability matrix but absent from `SHARED_CONTEXT_WRITE_ROUTE_KEYS`. All three routes now enter the shared-context capability guard, and a table-driven integration test proves viewers without `transaction:write` receive `shared_capability_required` before route handling.
 2. The legacy transaction impact response derived `negativeLots.wouldOccur` only from final open quantity. It now treats canonical replay blockers as authoritative, so an intermediate negative position is reported even when a later buy restores the final quantity to zero.
@@ -62,6 +62,8 @@ Codex review on PR #290 identified actionable issues across six review rounds:
 11. The legacy DELETE alias accepted only the new mutation preview storage after the canonical mutation rollout, even though its adjacent legacy preview endpoint still issued dividend-destructive preview IDs. The alias now preserves both flows: canonical mutation previews use the new mutation path, while legacy preview IDs use the original dividend-destructive confirmation and response.
 12. Shared dividend-impact update and delete previews could persist a durable preview before the route verified `dividend:write`. Batch previews and the legacy PATCH bridge now run a non-persisting canonical simulation first, reject unauthorized dividend impact, and create durable preview records only after authorization succeeds.
 13. Shared mutation preview and run deep links omitted the portfolio owner, so opening a link outside the existing browser context could request the delegate's own portfolio. Generated paths and absolute URLs now include `?as=<owner>`, and both server-rendered pages validate and forward that owner context on their initial API fetch.
+14. MCP update and delete preview tools could persist dividend-impacting previews for delegated connectors before checking `dividend:write`. Shared MCP previews now run the same non-persisting simulation first and require both connector scope and share capability before durable preview creation.
+15. Delegated preview reloads relied on the context cookie being written before the client effect ran. The validated owner context is now passed through preview filtering/reloads and adjacent run polling as an explicit session-scoped API header.
 
 Follow-up evidence:
 
@@ -87,6 +89,10 @@ Follow-up evidence:
 - Sixth-round `npm run test --prefix apps/api`: 201 files passed, 49 skipped; 2,089 tests passed, 473 skipped.
 - Sixth-round `npm run test --prefix apps/web`: 86 component/app files with 583 tests passed, followed by 80 feature/lib files with 534 tests passed.
 - Current-head CI follow-up: `npm run test:e2e:bypass:mem --prefix apps/web -- tests/e2e/specs/holdings-selection-persistence-aaa.spec.ts` passed 1/1 after correcting the stale row-visibility expectation.
+- Seventh-round MCP integration tests: 42 passed, including connector-scope denial, share-capability denial, and authorized durable preview creation.
+- Seventh-round preview/run/page tests: 7 passed; changed-file ESLint and API source/integration plus web TypeScript checks passed.
+- Seventh-round `npm run test --prefix apps/api`: 201 files passed, 49 skipped; 2,090 tests passed, 473 skipped.
+- Seventh-round `npm run test --prefix apps/web`: 86 component/app files with 583 tests passed, followed by 80 feature/lib files with 534 tests passed.
 
 ## Waiver
 

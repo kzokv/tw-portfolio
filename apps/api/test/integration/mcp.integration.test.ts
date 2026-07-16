@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../../src/app.js";
 import {
   createAiConnectorConnection,
@@ -10,6 +10,8 @@ import type { McpRequestContext } from "../../src/mcp/types.js";
 import { mcpDevTokenAllowedForRuntime } from "../../src/mcp/auth.js";
 import { listMcpToolDefinitions } from "../../src/mcp/tools.js";
 import { resetMcpRateLimitBucketsForTest } from "../../src/mcp/policy.js";
+import { createDividendEvent } from "../../src/services/dividends.js";
+import { replayPositionHistory } from "../../src/services/replayPositionHistory.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 
@@ -178,6 +180,61 @@ async function createTrade(
   });
   expect(response.statusCode).toBe(200);
   return response.json<{ id: string }>();
+}
+
+async function seedMcpSharedDividendForOwner() {
+  const store = await app.persistence.loadStore("user-1");
+  const transactionIds = ["mcp-shared-dividend-buy-1", "mcp-shared-dividend-buy-2"];
+  store.accounting.facts.tradeEvents.push({
+    id: transactionIds[0],
+    userId: "user-1",
+    accountId: "acc-1",
+    ticker: "2330",
+    marketCode: "TW",
+    instrumentType: "STOCK",
+    type: "BUY",
+    quantity: 1_000,
+    unitPrice: 100,
+    priceCurrency: "TWD",
+    tradeDate: "2026-01-02",
+    commissionAmount: 0,
+    taxAmount: 0,
+    isDayTrade: false,
+    feeSnapshot: store.feeProfiles[0]!,
+  }, {
+    id: transactionIds[1],
+    userId: "user-1",
+    accountId: "acc-1",
+    ticker: "2330",
+    marketCode: "TW",
+    instrumentType: "STOCK",
+    type: "BUY",
+    quantity: 500,
+    unitPrice: 102,
+    priceCurrency: "TWD",
+    tradeDate: "2026-01-03",
+    commissionAmount: 0,
+    taxAmount: 0,
+    isDayTrade: false,
+    feeSnapshot: store.feeProfiles[0]!,
+  });
+  createDividendEvent(store, {
+    id: "mcp-shared-dividend-event",
+    ticker: "2330",
+    marketCode: "TW",
+    eventType: "CASH",
+    exDividendDate: "2026-02-01",
+    paymentDate: "2026-02-20",
+    cashDividendPerShare: 1,
+    cashDividendCurrency: "TWD",
+    stockDividendPerShare: 0,
+    stockDistributionAmountRaw: 0,
+    stockDistributionRatio: 0,
+    source: "test",
+  });
+  await app.persistence.saveStore(store);
+  await replayPositionHistory(app.persistence, "user-1", "acc-1", "2330", { marketCode: "TW" });
+  return transactionIds;
 }
 
 async function getSelfPortfolio(
@@ -2202,6 +2259,103 @@ describe("mcp routes", () => {
       code: "mcp_portfolio_required",
       statusCode: 400,
     });
+  });
+
+  it("requires delegated dividend access before persisting dividend-impacting MCP previews", async () => {
+    await app.persistence.saveAiConnectorPolicySettings({ groupToggles: { write: true } });
+    const { userId: sharedUserId } = await app.persistence.resolveOrCreateUser("google", "shared-mcp-preview-user", {
+      email: "shared-mcp-preview@example.com",
+      name: "Shared MCP Preview User",
+    });
+    const transactionIds = await seedMcpSharedDividendForOwner();
+    const share = await app.persistence.createShareGrant({
+      ownerUserId: "user-1",
+      granteeUserId: sharedUserId,
+      auditInput: { actorUserId: "user-1", ipAddress: "127.0.0.1" },
+    });
+    await app.persistence.setShareCapabilities({
+      shareId: share.id,
+      capabilities: ["portfolio:mcp_read", "transaction:write"],
+      grantedByUserId: "user-1",
+    });
+    const savePreview = vi.spyOn(app.persistence, "savePostedTransactionMutationPreview");
+    const headers = {
+      authorization: `Bearer ${devToken({ userId: sharedUserId, scopes: ["portfolio:mcp_read", "transaction:write"] })}`,
+      accept: "application/json, text/event-stream",
+    };
+    const sessionId = await initializeMcpSession(headers);
+    const contexts = await callMcpTool(headers, sessionId, "list_portfolio_contexts", {});
+    const contextsBody = parseMcpJson<{
+      result: { structuredContent: { portfolios: Array<{ label: string; isSelf: boolean }> } };
+    }>(contexts.body);
+    const delegatedPortfolio = contextsBody.result.structuredContent.portfolios.find((portfolio) => !portfolio.isSelf);
+    expect(delegatedPortfolio).toBeTruthy();
+
+    const deniedForScope = await callMcpTool(headers, sessionId, "preview_update_posted_transactions", {
+      portfolio: { label: delegatedPortfolio!.label },
+      reason: "Move purchases beyond dividend eligibility",
+      items: [
+        { transactionId: transactionIds[0], patch: { tradeDate: "2026-02-02" } },
+        { transactionId: transactionIds[1], patch: { tradeDate: "2026-02-03" } },
+      ],
+    });
+    const deniedForScopeBody = parseMcpJson<{
+      result: {
+        isError?: boolean;
+        content?: Array<{ text?: string }>;
+        _meta?: { "mcp/www_authenticate"?: string[] };
+      };
+    }>(deniedForScope.body);
+    expect(deniedForScopeBody.result.content?.[0]?.text ?? "").toContain("Authorization");
+    expect(deniedForScopeBody.result._meta?.["mcp/www_authenticate"]?.[0]).toContain("error=\"insufficient_scope\"");
+    expect(savePreview).not.toHaveBeenCalled();
+
+    const dividendScopeHeaders = {
+      authorization: `Bearer ${devToken({
+        userId: sharedUserId,
+        scopes: ["portfolio:mcp_read", "transaction:write", "dividend:write"],
+      })}`,
+      accept: "application/json, text/event-stream",
+    };
+    const dividendScopeSessionId = await initializeMcpSession(dividendScopeHeaders);
+    const deniedForShare = await callMcpTool(
+      dividendScopeHeaders,
+      dividendScopeSessionId,
+      "preview_delete_posted_transactions",
+      {
+        portfolio: { label: delegatedPortfolio!.label },
+        reason: "Remove dividend-eligible transactions",
+        items: transactionIds.map((transactionId) => ({ transactionId })),
+      },
+    );
+    const deniedForShareBody = parseMcpJson<{
+      result: { isError?: boolean; structuredContent: { code: string; statusCode: number } };
+    }>(deniedForShare.body);
+    expect(deniedForShareBody.result.isError).toBe(true);
+    expect(deniedForShareBody.result.structuredContent).toMatchObject({
+      code: "shared_capability_required",
+      statusCode: 403,
+    });
+    expect(savePreview).not.toHaveBeenCalled();
+
+    await app.persistence.setShareCapabilities({
+      shareId: share.id,
+      capabilities: ["portfolio:mcp_read", "transaction:write", "dividend:write"],
+      grantedByUserId: "user-1",
+    });
+    const allowed = await callMcpTool(
+      dividendScopeHeaders,
+      dividendScopeSessionId,
+      "preview_delete_posted_transactions",
+      {
+        portfolio: { label: delegatedPortfolio!.label },
+        reason: "Remove dividend-eligible transactions",
+        items: transactionIds.map((transactionId) => ({ transactionId })),
+      },
+    );
+    const allowedBody = parseMcpJson<{ result: { isError?: boolean } }>(allowed.body);
+    expect(allowedBody.result.isError).not.toBe(true);
+    expect(savePreview).toHaveBeenCalledTimes(1);
   });
 
   it("previews, confirms, and reports posted-transaction MCP update runs", async () => {

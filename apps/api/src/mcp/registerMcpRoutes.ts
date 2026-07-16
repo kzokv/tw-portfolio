@@ -134,6 +134,8 @@ import {
   getPostedTransactionMutationRun,
   previewPostedTransactionDeleteBatch,
   previewPostedTransactionUpdateBatch,
+  simulatePostedTransactionDeleteBatch,
+  simulatePostedTransactionUpdateBatch,
 } from "../services/postedTransactionMutations.js";
 import {
   getAdminMarketCalendarStatusTool,
@@ -274,6 +276,27 @@ async function requireDelegatedDividendWriteForPostedMutation(
   });
   const requiresDividendWrite = preview.summary.deletedDividendCount > 0 || preview.summary.reopenedDividendCount > 0;
   if (!requiresDividendWrite) return;
+  assertMcpScopesGranted(auth, ["dividend:write"]);
+  assertMcpShareCapabilities(resolvedContext, ["dividend:write"]);
+}
+
+async function requireDelegatedDividendWriteForPostedMutationPreview(
+  app: FastifyInstance,
+  auth: McpAuthContext,
+  resolvedContext: McpResolvedContext,
+  input:
+    | { operation: "update"; previewInput: Parameters<typeof previewPostedTransactionUpdateBatch>[1] }
+    | { operation: "delete"; previewInput: Parameters<typeof previewPostedTransactionDeleteBatch>[1] },
+): Promise<void> {
+  if (!resolvedContext.shareId) return;
+  if (
+    auth.scopes.includes("dividend:write")
+    && resolvedContext.shareCapabilities.includes("dividend:write")
+  ) return;
+  const simulation = input.operation === "update"
+    ? await simulatePostedTransactionUpdateBatch(app.persistence, input.previewInput)
+    : await simulatePostedTransactionDeleteBatch(app.persistence, input.previewInput);
+  if (simulation.summary.deletedDividendCount === 0 && simulation.summary.reopenedDividendCount === 0) return;
   assertMcpScopesGranted(auth, ["dividend:write"]);
   assertMcpShareCapabilities(resolvedContext, ["dividend:write"]);
 }
@@ -451,15 +474,21 @@ export async function registerMcpRoutes(
             },
           );
           break;
-        case "preview_update_posted_transactions":
-          result = await previewPostedTransactionUpdateBatch(app.persistence, {
+        case "preview_update_posted_transactions": {
+          const previewInput = {
             ownerUserId: requestContext.resolvedContext.portfolioContextUserId,
             actorUserId: requestContext.auth.sessionUserId,
             items: (args as { items: Parameters<typeof previewPostedTransactionUpdateBatch>[1]["items"] }).items,
             reason: (args as { reason: string }).reason,
             appBaseUrl: app.appBaseUrl,
+          };
+          await requireDelegatedDividendWriteForPostedMutationPreview(app, auth, resolvedContext, {
+            operation: "update",
+            previewInput,
           });
+          result = await previewPostedTransactionUpdateBatch(app.persistence, previewInput);
           break;
+        }
         case "update_posted_transactions":
           await requireDelegatedDividendWriteForPostedMutation(app, auth, resolvedContext, args);
           result = await confirmPostedTransactionMutation(app.persistence, {
@@ -481,15 +510,21 @@ export async function registerMcpRoutes(
             appBaseUrl: app.appBaseUrl,
           });
           break;
-        case "preview_delete_posted_transactions":
-          result = await previewPostedTransactionDeleteBatch(app.persistence, {
+        case "preview_delete_posted_transactions": {
+          const previewInput = {
             ownerUserId: requestContext.resolvedContext.portfolioContextUserId,
             actorUserId: requestContext.auth.sessionUserId,
             items: (args as { items: Parameters<typeof previewPostedTransactionDeleteBatch>[1]["items"] }).items,
             reason: (args as { reason: string }).reason,
             appBaseUrl: app.appBaseUrl,
+          };
+          await requireDelegatedDividendWriteForPostedMutationPreview(app, auth, resolvedContext, {
+            operation: "delete",
+            previewInput,
           });
+          result = await previewPostedTransactionDeleteBatch(app.persistence, previewInput);
           break;
+        }
         case "delete_posted_transactions":
           await requireDelegatedDividendWriteForPostedMutation(app, auth, resolvedContext, args);
           result = await confirmPostedTransactionMutation(app.persistence, {

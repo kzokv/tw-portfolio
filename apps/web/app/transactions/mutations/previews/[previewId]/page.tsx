@@ -50,6 +50,7 @@ export default async function PostedTransactionMutationPreviewPage({
         <PostedTransactionMutationPreviewClient
           initialPreview={initialPreview}
           locale={locale}
+          contextOwnerId={contextOwnerId}
         />
       </AppShell>
     </Suspense>

@@ -256,9 +256,11 @@ function PreviewFactSummary({
 export function PostedTransactionMutationPreviewClient({
   initialPreview,
   locale,
+  contextOwnerId = null,
 }: {
   initialPreview: PostedTransactionMutationPreviewDto;
   locale: LocaleCode;
+  contextOwnerId?: string | null;
 }) {
   const copy = COPY[locale];
   const [preview, setPreview] = useState(initialPreview);
@@ -288,7 +290,7 @@ export function PostedTransactionMutationPreviewClient({
     setBusy(true);
     setError("");
     try {
-      setPreview(await getPostedTransactionMutationPreview(preview.previewId, next));
+      setPreview(await getPostedTransactionMutationPreview(preview.previewId, next, contextOwnerId));
     } catch (err) {
       setError(err instanceof Error ? err.message : copy.loadFailed);
     } finally {

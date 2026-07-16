@@ -161,7 +161,13 @@ describe("PostedTransactionMutationPreviewClient", () => {
 
   it("reloads preview data when filters change", async () => {
     await act(async () => {
-      root.render(<PostedTransactionMutationPreviewClient initialPreview={buildPreview()} locale="en" />);
+      root.render(
+        <PostedTransactionMutationPreviewClient
+          initialPreview={buildPreview()}
+          locale="en"
+          contextOwnerId="owner-1"
+        />,
+      );
     });
 
     const searchInput = container.querySelector("input") as HTMLInputElement | null;
@@ -181,7 +187,7 @@ describe("PostedTransactionMutationPreviewClient", () => {
       ticker: "2330",
       offset: 0,
       limit: 50,
-    }));
+    }), "owner-1");
   });
 
   it("renders localized before and after labels in zh-TW", async () => {

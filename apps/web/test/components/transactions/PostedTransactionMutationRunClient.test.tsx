@@ -89,7 +89,13 @@ describe("PostedTransactionMutationRunClient", () => {
   it("polls a running rebuild and renders terminal partial-failure recovery detail", async () => {
     getPostedTransactionMutationRun.mockResolvedValue(buildRun("partially_failed"));
     await act(async () => {
-      root.render(<PostedTransactionMutationRunClient initialRun={buildRun()} locale="en" />);
+      root.render(
+        <PostedTransactionMutationRunClient
+          initialRun={buildRun()}
+          locale="en"
+          contextOwnerId="owner-1"
+        />,
+      );
     });
 
     expect(container.textContent).toContain("running");
@@ -97,7 +103,7 @@ describe("PostedTransactionMutationRunClient", () => {
       await vi.advanceTimersByTimeAsync(2_000);
     });
 
-    expect(getPostedTransactionMutationRun).toHaveBeenCalledWith("run-1");
+    expect(getPostedTransactionMutationRun).toHaveBeenCalledWith("run-1", "owner-1");
     expect(container.textContent).toContain("partially_failed");
     expect(container.textContent).toContain("Snapshot provider unavailable");
     expect(container.textContent).toContain("Use portfolio replay for the failed scope.");

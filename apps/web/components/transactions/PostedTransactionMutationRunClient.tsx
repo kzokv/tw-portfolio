@@ -63,9 +63,11 @@ function statusTone(status: PostedTransactionMutationRunDto["status"] | PostedTr
 export function PostedTransactionMutationRunClient({
   initialRun,
   locale,
+  contextOwnerId = null,
 }: {
   initialRun: PostedTransactionMutationRunDto;
   locale: LocaleCode;
+  contextOwnerId?: string | null;
 }) {
   const copy = COPY[locale];
   const [run, setRun] = useState(initialRun);
@@ -76,7 +78,7 @@ export function PostedTransactionMutationRunClient({
     setBusy(true);
     setError("");
     try {
-      setRun(await getPostedTransactionMutationRun(run.runId));
+      setRun(await getPostedTransactionMutationRun(run.runId, contextOwnerId));
     } catch {
       setError(copy.refreshFailed);
     } finally {

@@ -45,7 +45,11 @@ export default async function PostedTransactionMutationRunPage({
         initialSettings={settings}
         initialSidebarOpen={sidebarOpen}
       >
-        <PostedTransactionMutationRunClient initialRun={initialRun} locale={locale} />
+        <PostedTransactionMutationRunClient
+          initialRun={initialRun}
+          locale={locale}
+          contextOwnerId={contextOwnerId}
+        />
       </AppShell>
     </Suspense>
   );

@@ -102,6 +102,7 @@ export async function previewPostedTransactionDeleteBatch(
 export async function getPostedTransactionMutationPreview(
   previewId: string,
   query: PostedTransactionMutationPreviewQueryDto = {},
+  contextOwnerId?: string | null,
 ): Promise<PostedTransactionMutationPreviewDto> {
   const params = new URLSearchParams();
   if (query.limit !== undefined) params.set("limit", String(query.limit));
@@ -113,6 +114,9 @@ export async function getPostedTransactionMutationPreview(
   const search = params.toString();
   return getJson<PostedTransactionMutationPreviewDto>(
     `/portfolio/transactions/mutations/previews/${encodeURIComponent(previewId)}${search ? `?${search}` : ""}`,
+    contextOwnerId
+      ? { contextScope: "session", headers: { "x-context-user-id": contextOwnerId } }
+      : undefined,
   );
 }
 
@@ -126,8 +130,14 @@ export async function confirmPostedTransactionMutation(
   );
 }
 
-export async function getPostedTransactionMutationRun(runId: string): Promise<PostedTransactionMutationRunDto> {
+export async function getPostedTransactionMutationRun(
+  runId: string,
+  contextOwnerId?: string | null,
+): Promise<PostedTransactionMutationRunDto> {
   return getJson<PostedTransactionMutationRunDto>(
     `/portfolio/transactions/mutations/runs/${encodeURIComponent(runId)}`,
+    contextOwnerId
+      ? { contextScope: "session", headers: { "x-context-user-id": contextOwnerId } }
+      : undefined,
   );
 }
