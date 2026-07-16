@@ -662,6 +662,7 @@ function mapAiConnectorPolicySettingsRow(row: {
   expiration_warning_days: number;
   fresh_auth_max_age_ms: number;
   max_connector_lifetime_days: number;
+  posted_transaction_mutation_batch_limit?: number | null;
   oauth_public_issuer: string | null;
   oauth_redirect_uri_allowlist: string[] | null;
   oauth_token_secret_set?: boolean;
@@ -670,6 +671,7 @@ function mapAiConnectorPolicySettingsRow(row: {
   return {
     enabled: row.enabled,
     maxActiveConnectionsPerUser: row.max_active_connections_per_user,
+    postedTransactionMutationBatchLimit: row.posted_transaction_mutation_batch_limit ?? 50,
     allowedProviders: {
       chatgpt: row.allow_chatgpt,
       self_hosted: row.allow_self_hosted,
@@ -2993,6 +2995,7 @@ export class PostgresPersistence implements Persistence {
               expiration_warning_days,
               fresh_auth_max_age_ms,
               max_connector_lifetime_days,
+              posted_transaction_mutation_batch_limit,
               oauth_public_issuer,
               oauth_redirect_uri_allowlist,
               EXISTS (
@@ -3033,6 +3036,7 @@ export class PostgresPersistence implements Persistence {
                  expiration_warning_days,
                  fresh_auth_max_age_ms,
                  max_connector_lifetime_days,
+                 posted_transaction_mutation_batch_limit,
                  oauth_public_issuer,
                  oauth_redirect_uri_allowlist,
                  EXISTS (
@@ -3054,6 +3058,8 @@ export class PostgresPersistence implements Persistence {
     const next = {
       enabled: input.enabled ?? current.enabled,
       maxActiveConnectionsPerUser: input.maxActiveConnectionsPerUser ?? current.maxActiveConnectionsPerUser,
+      postedTransactionMutationBatchLimit:
+        input.postedTransactionMutationBatchLimit ?? current.postedTransactionMutationBatchLimit,
       allowedProviders: patchedAllowedProviders,
       allowedClientKinds: {
         chatgpt_app:
@@ -3134,12 +3140,13 @@ export class PostgresPersistence implements Persistence {
          expiration_warning_days,
          fresh_auth_max_age_ms,
          max_connector_lifetime_days,
+         posted_transaction_mutation_batch_limit,
          oauth_public_issuer,
          oauth_redirect_uri_allowlist,
          updated_at
        ) VALUES (
          TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-         $15, $16::text[], $17, $18, $19::text[], $20, $21, $22, $23, $24, $25, NOW()
+         $15, $16::text[], $17, $18, $19::text[], $20, $21, $22, $23, $24, $25, $26::text[], NOW()
        )
        ON CONFLICT (id) DO UPDATE SET
          enabled = EXCLUDED.enabled,
@@ -3165,6 +3172,7 @@ export class PostgresPersistence implements Persistence {
          expiration_warning_days = EXCLUDED.expiration_warning_days,
          fresh_auth_max_age_ms = EXCLUDED.fresh_auth_max_age_ms,
          max_connector_lifetime_days = EXCLUDED.max_connector_lifetime_days,
+         posted_transaction_mutation_batch_limit = EXCLUDED.posted_transaction_mutation_batch_limit,
          oauth_public_issuer = EXCLUDED.oauth_public_issuer,
          oauth_redirect_uri_allowlist = EXCLUDED.oauth_redirect_uri_allowlist,
          updated_at = EXCLUDED.updated_at
@@ -3191,6 +3199,7 @@ export class PostgresPersistence implements Persistence {
                  expiration_warning_days,
                  fresh_auth_max_age_ms,
                  max_connector_lifetime_days,
+                 posted_transaction_mutation_batch_limit,
                  oauth_public_issuer,
                  oauth_redirect_uri_allowlist,
                  EXISTS (
@@ -3223,6 +3232,7 @@ export class PostgresPersistence implements Persistence {
         next.expirationWarningDays,
         next.freshAuthMaxAgeMs,
         next.maxConnectorLifetimeDays,
+        next.postedTransactionMutationBatchLimit,
         next.oauthPublicIssuer,
         next.oauthRedirectUriAllowlist,
       ],
@@ -9242,6 +9252,19 @@ export class PostgresPersistence implements Persistence {
           throw routeError(409, "dividend_destructive_preview_row_drift", "Underlying records changed after preview");
         }
       }
+      for (const [accountId, expectedRevision] of Object.entries(options?.expectedAccountRevisions ?? {}).sort()) {
+        const revisionResult = await client.query<{ accounting_revision: string }>(
+          `SELECT accounting_revision::text AS accounting_revision
+             FROM accounts
+            WHERE id = $1 AND user_id = $2
+            FOR UPDATE`,
+          [accountId, userId],
+        );
+        const currentRevision = Number(revisionResult.rows[0]?.accounting_revision ?? -1);
+        if (currentRevision !== expectedRevision) {
+          throw routeError(409, "posted_transaction_mutation_preview_stale", "Underlying records changed after preview");
+        }
+      }
       const accountIds = options?.accountIds ?? await this.listUserAccountIds(client, userId);
       await this.saveAccountingStoreTx(client, userId, accounting, accountIds);
       for (const scope of options?.deleteHoldingSnapshotScopes ?? []) {
@@ -9266,6 +9289,307 @@ export class PostgresPersistence implements Persistence {
         );
       }
       await this.appendAuditLogTx(client, auditEntry);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async commitPostedTransactionMutation(input: {
+    userId: string;
+    accounting: AccountingStore;
+    auditEntry: AuditLogInput;
+    preview: import("./types.js").PostedTransactionMutationPreviewRecord;
+    replayPreview: import("./types.js").McpReplayPreviewRecord;
+    run: import("./types.js").PostedTransactionMutationRunRecord;
+    replayRun: import("./types.js").McpReplayRunRecord;
+    options: AccountingStoreAuditOptions & {
+      deletedDraftLineage?: import("./types.js").PostedTransactionMutationDeletedDraftLineageRecord[];
+    };
+  }): Promise<void> {
+    validateAccountingStoreInvariants(input.accounting);
+    await this.ensureDefaultPortfolioData(input.userId);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      if (input.options.expectedAccountRevision) {
+        const revisionResult = await client.query<{ accounting_revision: string }>(
+          `SELECT accounting_revision::text AS accounting_revision
+             FROM accounts
+            WHERE id = $1 AND user_id = $2
+            FOR UPDATE`,
+          [input.options.expectedAccountRevision.accountId, input.userId],
+        );
+        const currentRevision = Number(revisionResult.rows[0]?.accounting_revision ?? -1);
+        if (currentRevision !== input.options.expectedAccountRevision.revision) {
+          throw routeError(409, "dividend_destructive_preview_row_drift", "Underlying records changed after preview");
+        }
+      }
+      for (const [accountId, expectedRevision] of Object.entries(input.options.expectedAccountRevisions ?? {}).sort()) {
+        const revisionResult = await client.query<{ accounting_revision: string }>(
+          `SELECT accounting_revision::text AS accounting_revision
+             FROM accounts
+            WHERE id = $1 AND user_id = $2
+            FOR UPDATE`,
+          [accountId, input.userId],
+        );
+        const currentRevision = Number(revisionResult.rows[0]?.accounting_revision ?? -1);
+        if (currentRevision !== expectedRevision) {
+          throw routeError(409, "posted_transaction_mutation_preview_stale", "Underlying records changed after preview");
+        }
+      }
+
+      const accountIds = input.options.accountIds ?? await this.listUserAccountIds(client, input.userId);
+      await this.saveAccountingStoreTx(client, input.userId, input.accounting, accountIds);
+      for (const scope of input.options.deleteHoldingSnapshotScopes ?? []) {
+        await client.query(
+          `DELETE FROM daily_holding_snapshots
+            WHERE user_id = $1
+              AND account_id = $2
+              AND ticker = $3
+              AND market_code = $4
+              AND snapshot_date >= $5::date`,
+          [input.userId, scope.accountId, scope.ticker, scope.marketCode, scope.fromDate],
+        );
+      }
+
+      await client.query(
+        `INSERT INTO posted_transaction_mutation_previews (
+           id, owner_user_id, actor_user_id, operation, status, version, reason,
+           confirmation_summary, confirmation_digest, fingerprint, batch_limit,
+           summary_json, warnings_json, blockers_json, errors_json,
+           affected_account_ids_json, affected_tickers_json, scopes_json, account_revisions_json,
+           final_accounting_json, replay_scopes_json, created_at, expires_at, confirmed_at, confirmed_run_id
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7,
+           $8, $9, $10, $11,
+           $12::jsonb, $13::jsonb, $14::jsonb, $15::jsonb,
+           $16::jsonb, $17::jsonb, $18::jsonb, $19::jsonb,
+           $20::jsonb, $21::jsonb, $22::timestamptz, $23::timestamptz, $24::timestamptz, $25
+         )
+         ON CONFLICT (id) DO UPDATE SET
+           status = EXCLUDED.status,
+           version = EXCLUDED.version,
+           confirmation_summary = EXCLUDED.confirmation_summary,
+           confirmation_digest = EXCLUDED.confirmation_digest,
+           fingerprint = EXCLUDED.fingerprint,
+           summary_json = EXCLUDED.summary_json,
+           warnings_json = EXCLUDED.warnings_json,
+           blockers_json = EXCLUDED.blockers_json,
+           errors_json = EXCLUDED.errors_json,
+           affected_account_ids_json = EXCLUDED.affected_account_ids_json,
+           affected_tickers_json = EXCLUDED.affected_tickers_json,
+           scopes_json = EXCLUDED.scopes_json,
+           account_revisions_json = EXCLUDED.account_revisions_json,
+           final_accounting_json = EXCLUDED.final_accounting_json,
+           replay_scopes_json = EXCLUDED.replay_scopes_json,
+           expires_at = EXCLUDED.expires_at,
+           confirmed_at = EXCLUDED.confirmed_at,
+           confirmed_run_id = EXCLUDED.confirmed_run_id`,
+        [
+          input.preview.id,
+          input.preview.ownerUserId,
+          input.preview.actorUserId,
+          input.preview.operation,
+          input.preview.status,
+          input.preview.version,
+          input.preview.reason,
+          input.preview.confirmationSummary,
+          input.preview.confirmationDigest,
+          input.preview.fingerprint,
+          input.preview.batchLimit,
+          JSON.stringify(input.preview.summary),
+          JSON.stringify(input.preview.warnings),
+          JSON.stringify(input.preview.blockers),
+          JSON.stringify(input.preview.errors),
+          JSON.stringify(input.preview.affectedAccountIds),
+          JSON.stringify(input.preview.affectedTickers),
+          JSON.stringify(input.preview.scopes),
+          JSON.stringify(input.preview.accountRevisions),
+          JSON.stringify(input.preview.finalAccounting),
+          JSON.stringify(input.preview.replayScopes),
+          input.preview.createdAt,
+          input.preview.expiresAt,
+          input.preview.confirmedAt,
+          input.preview.confirmedRunId,
+        ],
+      );
+      await client.query(`DELETE FROM posted_transaction_mutation_preview_items WHERE preview_id = $1`, [input.preview.id]);
+      for (const [ordinal, item] of input.preview.items.entries()) {
+        await client.query(
+          `INSERT INTO posted_transaction_mutation_preview_items (
+             preview_id, transaction_id, ordinal, account_id, ticker, market_code, status, note,
+             before_json, after_json, impacts_json, warnings_json, blockers_json, errors_json
+           ) VALUES (
+             $1, $2, $3, $4, $5, $6, $7, $8,
+             $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb
+           )`,
+          [
+            input.preview.id,
+            item.transactionId,
+            ordinal,
+            item.before?.accountId ?? item.after?.accountId ?? null,
+            item.before?.ticker ?? item.after?.ticker ?? null,
+            item.before?.marketCode ?? item.after?.marketCode ?? null,
+            item.status,
+            item.note ?? null,
+            item.before ? JSON.stringify(item.before) : null,
+            item.after ? JSON.stringify(item.after) : null,
+            JSON.stringify(item.impacts),
+            JSON.stringify(item.warnings),
+            JSON.stringify(item.blockers),
+            JSON.stringify(item.errors),
+          ],
+        );
+      }
+
+      await client.query(
+        `INSERT INTO mcp_replay_position_previews
+           (id, session_user_id, portfolio_context_user_id, scopes_json, warnings_json,
+            confirmation_summary, confirmation_digest, expires_at, created_at)
+         VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8::timestamptz, $9::timestamptz)
+         ON CONFLICT (id) DO UPDATE
+         SET scopes_json = EXCLUDED.scopes_json,
+             warnings_json = EXCLUDED.warnings_json,
+             confirmation_summary = EXCLUDED.confirmation_summary,
+             confirmation_digest = EXCLUDED.confirmation_digest,
+             expires_at = EXCLUDED.expires_at,
+             created_at = EXCLUDED.created_at`,
+        [
+          input.replayPreview.id,
+          input.replayPreview.sessionUserId,
+          input.replayPreview.portfolioContextUserId,
+          JSON.stringify(input.replayPreview.scopes),
+          JSON.stringify(input.replayPreview.warnings),
+          input.replayPreview.confirmationSummary,
+          input.replayPreview.confirmationDigest,
+          input.replayPreview.expiresAt,
+          input.replayPreview.createdAt,
+        ],
+      );
+      await client.query(
+        `INSERT INTO mcp_replay_position_runs (
+           id, preview_id, session_user_id, portfolio_context_user_id, status, created_at, started_at, finished_at
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz, $8::timestamptz
+         )
+         ON CONFLICT (id) DO UPDATE SET
+           status = EXCLUDED.status,
+           started_at = EXCLUDED.started_at,
+           finished_at = EXCLUDED.finished_at`,
+        [
+          input.replayRun.id,
+          input.replayRun.previewId,
+          input.replayRun.sessionUserId,
+          input.replayRun.portfolioContextUserId,
+          input.replayRun.status,
+          input.replayRun.createdAt,
+          input.replayRun.startedAt,
+          input.replayRun.finishedAt,
+        ],
+      );
+      await client.query(`DELETE FROM mcp_replay_position_run_scopes WHERE run_id = $1`, [input.replayRun.id]);
+      for (const scope of input.replayRun.scopes) {
+        await client.query(
+          `INSERT INTO mcp_replay_position_run_scopes
+             (run_id, account_id, account_name, ticker, market_code, status, error_message,
+              replayed_trade_count, snapshot_generation_run_id, earliest_replay_date,
+              deleted_trade_event_ids_json, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::date, $11::jsonb, $12::timestamptz)`,
+          [
+            input.replayRun.id,
+            scope.accountId,
+            scope.accountName,
+            scope.ticker,
+            scope.marketCode,
+            scope.status,
+            scope.errorMessage,
+            scope.replayedTradeCount,
+            scope.snapshotGenerationRunId,
+            scope.earliestReplayDate ?? null,
+            JSON.stringify(scope.deletedTradeEventIds ?? []),
+            scope.updatedAt,
+          ],
+        );
+      }
+
+      await client.query(
+        `INSERT INTO posted_transaction_mutation_runs (
+           id, preview_id, owner_user_id, actor_user_id, operation, status, rebuild_status,
+           reason, warnings_json, blockers_json, errors_json, summary_json,
+           affected_account_ids_json, affected_tickers_json, scopes_json,
+           fingerprint, confirmation_digest, replay_run_id, created_at, started_at, completed_at
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7,
+           $8, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb,
+           $13::jsonb, $14::jsonb, $15::jsonb,
+           $16, $17, $18, $19::timestamptz, $20::timestamptz, $21::timestamptz
+         )
+         ON CONFLICT (id) DO UPDATE SET
+           status = EXCLUDED.status,
+           rebuild_status = EXCLUDED.rebuild_status,
+           warnings_json = EXCLUDED.warnings_json,
+           blockers_json = EXCLUDED.blockers_json,
+           errors_json = EXCLUDED.errors_json,
+           summary_json = EXCLUDED.summary_json,
+           affected_account_ids_json = EXCLUDED.affected_account_ids_json,
+           affected_tickers_json = EXCLUDED.affected_tickers_json,
+           scopes_json = EXCLUDED.scopes_json,
+           replay_run_id = EXCLUDED.replay_run_id,
+           started_at = EXCLUDED.started_at,
+           completed_at = EXCLUDED.completed_at`,
+        [
+          input.run.id,
+          input.run.previewId,
+          input.run.ownerUserId,
+          input.run.actorUserId,
+          input.run.operation,
+          input.run.status,
+          input.run.rebuildStatus,
+          input.run.reason,
+          JSON.stringify(input.run.warnings),
+          JSON.stringify(input.run.blockers),
+          JSON.stringify(input.run.errors),
+          JSON.stringify(input.run.summary),
+          JSON.stringify(input.run.affectedAccountIds),
+          JSON.stringify(input.run.affectedTickers),
+          JSON.stringify(input.run.scopes),
+          input.run.fingerprint,
+          input.run.confirmationDigest,
+          input.run.replayRunId,
+          input.run.createdAt,
+          input.run.startedAt,
+          input.run.completedAt,
+        ],
+      );
+
+      for (const record of input.options.deletedDraftLineage ?? []) {
+        await client.query(
+          `INSERT INTO posted_transaction_mutation_deleted_draft_lineage (
+             trade_event_id, owner_user_id, batch_id, row_id, deleted_at, deleted_by_user_id, mutation_run_id
+           ) VALUES (
+             $1, $2, $3, $4, $5::timestamptz, $6, $7
+           )
+           ON CONFLICT (trade_event_id) DO UPDATE SET
+             deleted_at = EXCLUDED.deleted_at,
+             deleted_by_user_id = EXCLUDED.deleted_by_user_id,
+             mutation_run_id = EXCLUDED.mutation_run_id`,
+          [
+            record.tradeEventId,
+            record.ownerUserId,
+            record.batchId,
+            record.rowId,
+            record.deletedAt,
+            record.deletedByUserId,
+            record.mutationRunId,
+          ],
+        );
+      }
+
+      await this.appendAuditLogTx(client, input.auditEntry);
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
@@ -14161,6 +14485,11 @@ export class PostgresPersistence implements Persistence {
         values.push(patch.side);
         paramIndex++;
       }
+      if (patch.isDayTrade !== undefined) {
+        setClauses.push(`is_day_trade = $${paramIndex}`);
+        values.push(patch.isDayTrade);
+        paramIndex++;
+      }
       if (patch.commissionAmount !== undefined) {
         setClauses.push(`commission_amount = $${paramIndex}`);
         values.push(patch.commissionAmount);
@@ -15640,17 +15969,21 @@ export class PostgresPersistence implements Persistence {
     // `jsonb_strip_nulls()`. Top-level `{cardOrder:null}` still routes
     // through the delete-keys arm and removes the entire `cardOrder` key.
     //
-    // `adminMarketDataTableSettings.contexts` is also sub-key-merged so
-    // concurrently mounted admin tables do not overwrite sibling contexts.
+    // `holdingsTableSettings.contexts` and
+    // `adminMarketDataTableSettings.contexts` are sub-key-merged so
+    // concurrently mounted tables do not overwrite sibling contexts.
     const mergeObj: Record<string, unknown> = {};
     const deleteKeys: string[] = [];
     let cardOrderPatch: Record<string, unknown> | null = null;
+    let holdingsTableSettingsPatch: Record<string, unknown> | null = null;
     let adminMarketDataTableSettingsPatch: Record<string, unknown> | null = null;
     for (const [k, v] of Object.entries(patch)) {
       if (v === null) {
         deleteKeys.push(k);
       } else if (k === "cardOrder" && typeof v === "object" && !Array.isArray(v)) {
         cardOrderPatch = v as Record<string, unknown>;
+      } else if (k === "holdingsTableSettings" && typeof v === "object" && !Array.isArray(v)) {
+        holdingsTableSettingsPatch = v as Record<string, unknown>;
       } else if (k === "adminMarketDataTableSettings" && typeof v === "object" && !Array.isArray(v)) {
         adminMarketDataTableSettingsPatch = v as Record<string, unknown>;
       } else {
@@ -15662,13 +15995,42 @@ export class PostgresPersistence implements Persistence {
        VALUES ($1, jsonb_strip_nulls(
          COALESCE($2::jsonb, '{}'::jsonb)
          || COALESCE(jsonb_build_object('cardOrder', $4::jsonb), '{}'::jsonb)
-         || COALESCE(jsonb_build_object('adminMarketDataTableSettings', $5::jsonb), '{}'::jsonb)
+         || COALESCE(jsonb_build_object('holdingsTableSettings', $5::jsonb), '{}'::jsonb)
+         || COALESCE(jsonb_build_object('adminMarketDataTableSettings', $6::jsonb), '{}'::jsonb)
        ), NOW())
        ON CONFLICT (user_id) DO UPDATE
          SET preferences = CASE
-           WHEN $5::jsonb IS NOT NULL THEN
+           WHEN $6::jsonb IS NOT NULL THEN
              jsonb_set(
                CASE
+                 WHEN $5::jsonb IS NOT NULL THEN
+                   jsonb_set(
+                     CASE
+                       WHEN $4::jsonb IS NOT NULL THEN
+                         jsonb_set(
+                           (public.user_preferences.preferences || EXCLUDED.preferences) - $3::text[],
+                           '{cardOrder}',
+                           jsonb_strip_nulls(
+                             COALESCE(public.user_preferences.preferences->'cardOrder', '{}'::jsonb)
+                             || $4::jsonb
+                           )
+                         )
+                       ELSE
+                         (public.user_preferences.preferences || EXCLUDED.preferences) - $3::text[]
+                     END,
+                     '{holdingsTableSettings}',
+                     jsonb_set(
+                       jsonb_strip_nulls(
+                         COALESCE(public.user_preferences.preferences->'holdingsTableSettings', '{}'::jsonb)
+                         || $5::jsonb
+                       ),
+                       '{contexts}',
+                       jsonb_strip_nulls(
+                         COALESCE(public.user_preferences.preferences#>'{holdingsTableSettings,contexts}', '{}'::jsonb)
+                         || COALESCE($5::jsonb->'contexts', '{}'::jsonb)
+                       )
+                    )
+                   )
                  WHEN $4::jsonb IS NOT NULL THEN
                    jsonb_set(
                      (public.user_preferences.preferences || EXCLUDED.preferences) - $3::text[],
@@ -15685,14 +16047,42 @@ export class PostgresPersistence implements Persistence {
                jsonb_set(
                  jsonb_strip_nulls(
                    COALESCE(public.user_preferences.preferences->'adminMarketDataTableSettings', '{}'::jsonb)
-                   || $5::jsonb
+                   || $6::jsonb
                  ),
                  '{contexts}',
                  jsonb_strip_nulls(
                    COALESCE(public.user_preferences.preferences#>'{adminMarketDataTableSettings,contexts}', '{}'::jsonb)
-                   || COALESCE($5::jsonb->'contexts', '{}'::jsonb)
+                   || COALESCE($6::jsonb->'contexts', '{}'::jsonb)
                  )
               )
+             )
+           WHEN $5::jsonb IS NOT NULL THEN
+             jsonb_set(
+               CASE
+                 WHEN $4::jsonb IS NOT NULL THEN
+                   jsonb_set(
+                     (public.user_preferences.preferences || EXCLUDED.preferences) - $3::text[],
+                     '{cardOrder}',
+                     jsonb_strip_nulls(
+                       COALESCE(public.user_preferences.preferences->'cardOrder', '{}'::jsonb)
+                       || $4::jsonb
+                     )
+                   )
+                 ELSE
+                   (public.user_preferences.preferences || EXCLUDED.preferences) - $3::text[]
+               END,
+               '{holdingsTableSettings}',
+               jsonb_set(
+                 jsonb_strip_nulls(
+                   COALESCE(public.user_preferences.preferences->'holdingsTableSettings', '{}'::jsonb)
+                   || $5::jsonb
+                 ),
+                 '{contexts}',
+                 jsonb_strip_nulls(
+                   COALESCE(public.user_preferences.preferences#>'{holdingsTableSettings,contexts}', '{}'::jsonb)
+                   || COALESCE($5::jsonb->'contexts', '{}'::jsonb)
+                 )
+               )
              )
            WHEN $4::jsonb IS NOT NULL THEN
              jsonb_set(
@@ -15713,6 +16103,7 @@ export class PostgresPersistence implements Persistence {
         JSON.stringify(mergeObj),
         deleteKeys,
         cardOrderPatch === null ? null : JSON.stringify(cardOrderPatch),
+        holdingsTableSettingsPatch === null ? null : JSON.stringify(holdingsTableSettingsPatch),
         adminMarketDataTableSettingsPatch === null ? null : JSON.stringify(adminMarketDataTableSettingsPatch),
       ],
     );
@@ -18958,8 +19349,9 @@ export class PostgresPersistence implements Persistence {
         await client.query(
           `INSERT INTO mcp_replay_position_run_scopes
              (run_id, account_id, account_name, ticker, market_code, status, error_message,
-              replayed_trade_count, snapshot_generation_run_id, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz)`,
+              replayed_trade_count, snapshot_generation_run_id, earliest_replay_date,
+              deleted_trade_event_ids_json, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::date, $11::jsonb, $12::timestamptz)`,
           [
             record.id,
             scope.accountId,
@@ -18970,6 +19362,8 @@ export class PostgresPersistence implements Persistence {
             scope.errorMessage,
             scope.replayedTradeCount,
             scope.snapshotGenerationRunId,
+            scope.earliestReplayDate ?? null,
+            JSON.stringify(scope.deletedTradeEventIds ?? []),
             scope.updatedAt,
           ],
         );
@@ -19010,10 +19404,13 @@ export class PostgresPersistence implements Persistence {
         error_message: string | null;
         replayed_trade_count: string | null;
         snapshot_generation_run_id: string | null;
+        earliest_replay_date: string | null;
+        deleted_trade_event_ids_json: string[] | null;
         updated_at: string;
       }>(
         `SELECT account_id, account_name, ticker, market_code, status, error_message,
-                replayed_trade_count::text, snapshot_generation_run_id, updated_at::text
+                replayed_trade_count::text, snapshot_generation_run_id, earliest_replay_date::text,
+                deleted_trade_event_ids_json, updated_at::text
            FROM mcp_replay_position_run_scopes
           WHERE run_id = $1
           ORDER BY account_name ASC, ticker ASC, market_code ASC`,
@@ -19040,6 +19437,8 @@ export class PostgresPersistence implements Persistence {
         errorMessage: scope.error_message,
         replayedTradeCount: scope.replayed_trade_count !== null ? Number(scope.replayed_trade_count) : null,
         snapshotGenerationRunId: scope.snapshot_generation_run_id,
+        earliestReplayDate: scope.earliest_replay_date ?? undefined,
+        deletedTradeEventIds: scope.deleted_trade_event_ids_json ?? [],
         updatedAt: scope.updated_at,
       })),
     };
@@ -19115,6 +19514,384 @@ export class PostgresPersistence implements Persistence {
     if ((result.rowCount ?? 0) === 0) {
       throw routeError(404, "mcp_replay_run_not_found", "Replay run not found");
     }
+  }
+
+  async savePostedTransactionMutationPreview(
+    record: import("./types.js").PostedTransactionMutationPreviewRecord,
+  ): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `INSERT INTO posted_transaction_mutation_previews (
+           id, owner_user_id, actor_user_id, operation, status, version, reason,
+           confirmation_summary, confirmation_digest, fingerprint, batch_limit,
+           summary_json, warnings_json, blockers_json, errors_json,
+           affected_account_ids_json, affected_tickers_json, scopes_json, account_revisions_json,
+           final_accounting_json, replay_scopes_json, created_at, expires_at, confirmed_at, confirmed_run_id
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7,
+           $8, $9, $10, $11,
+           $12::jsonb, $13::jsonb, $14::jsonb, $15::jsonb,
+           $16::jsonb, $17::jsonb, $18::jsonb, $19::jsonb,
+           $20::jsonb, $21::jsonb, $22::timestamptz, $23::timestamptz, $24::timestamptz, $25
+         )
+         ON CONFLICT (id) DO UPDATE SET
+           status = EXCLUDED.status,
+           version = EXCLUDED.version,
+           confirmation_summary = EXCLUDED.confirmation_summary,
+           confirmation_digest = EXCLUDED.confirmation_digest,
+           fingerprint = EXCLUDED.fingerprint,
+           summary_json = EXCLUDED.summary_json,
+           warnings_json = EXCLUDED.warnings_json,
+           blockers_json = EXCLUDED.blockers_json,
+           errors_json = EXCLUDED.errors_json,
+           affected_account_ids_json = EXCLUDED.affected_account_ids_json,
+           affected_tickers_json = EXCLUDED.affected_tickers_json,
+           scopes_json = EXCLUDED.scopes_json,
+           account_revisions_json = EXCLUDED.account_revisions_json,
+           final_accounting_json = EXCLUDED.final_accounting_json,
+           replay_scopes_json = EXCLUDED.replay_scopes_json,
+           expires_at = EXCLUDED.expires_at,
+           confirmed_at = EXCLUDED.confirmed_at,
+           confirmed_run_id = EXCLUDED.confirmed_run_id`,
+        [
+          record.id,
+          record.ownerUserId,
+          record.actorUserId,
+          record.operation,
+          record.status,
+          record.version,
+          record.reason,
+          record.confirmationSummary,
+          record.confirmationDigest,
+          record.fingerprint,
+          record.batchLimit,
+          JSON.stringify(record.summary),
+          JSON.stringify(record.warnings),
+          JSON.stringify(record.blockers),
+          JSON.stringify(record.errors),
+          JSON.stringify(record.affectedAccountIds),
+          JSON.stringify(record.affectedTickers),
+          JSON.stringify(record.scopes),
+          JSON.stringify(record.accountRevisions),
+          JSON.stringify(record.finalAccounting),
+          JSON.stringify(record.replayScopes),
+          record.createdAt,
+          record.expiresAt,
+          record.confirmedAt,
+          record.confirmedRunId,
+        ],
+      );
+      await client.query(`DELETE FROM posted_transaction_mutation_preview_items WHERE preview_id = $1`, [record.id]);
+      for (const [ordinal, item] of record.items.entries()) {
+        await client.query(
+          `INSERT INTO posted_transaction_mutation_preview_items (
+             preview_id, transaction_id, ordinal, account_id, ticker, market_code, status, note,
+             before_json, after_json, impacts_json, warnings_json, blockers_json, errors_json
+           ) VALUES (
+             $1, $2, $3, $4, $5, $6, $7, $8,
+             $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb
+           )`,
+          [
+            record.id,
+            item.transactionId,
+            ordinal,
+            item.before?.accountId ?? item.after?.accountId ?? null,
+            item.before?.ticker ?? item.after?.ticker ?? null,
+            item.before?.marketCode ?? item.after?.marketCode ?? null,
+            item.status,
+            item.note ?? null,
+            item.before ? JSON.stringify(item.before) : null,
+            item.after ? JSON.stringify(item.after) : null,
+            JSON.stringify(item.impacts),
+            JSON.stringify(item.warnings),
+            JSON.stringify(item.blockers),
+            JSON.stringify(item.errors),
+          ],
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getPostedTransactionMutationPreview(
+    id: string,
+  ): Promise<import("./types.js").PostedTransactionMutationPreviewRecord | null> {
+    const [previewResult, itemsResult] = await Promise.all([
+      this.pool.query<{
+        id: string;
+        owner_user_id: string;
+        actor_user_id: string;
+        operation: import("./types.js").PostedTransactionMutationOperationRecord;
+        status: import("./types.js").PostedTransactionMutationPreviewStatusRecord;
+        version: number;
+        reason: string;
+        confirmation_summary: string;
+        confirmation_digest: string;
+        fingerprint: string;
+        batch_limit: number;
+        summary_json: import("./types.js").PostedTransactionMutationPreviewRecord["summary"];
+        warnings_json: string[];
+        blockers_json: string[];
+        errors_json: import("./types.js").PostedTransactionMutationErrorRecord[];
+        affected_account_ids_json: string[];
+        affected_tickers_json: Array<{ ticker: string; marketCode: MarketCode }>;
+        scopes_json: import("./types.js").PostedTransactionMutationScopeRecord[];
+        account_revisions_json: Record<string, number>;
+        final_accounting_json: AccountingStore;
+        replay_scopes_json: Array<{ accountId: string; ticker: string; marketCode: MarketCode; fromDate: string }>;
+        created_at: string;
+        expires_at: string;
+        confirmed_at: string | null;
+        confirmed_run_id: string | null;
+      }>(
+        `SELECT id, owner_user_id, actor_user_id, operation, status, version, reason,
+                confirmation_summary, confirmation_digest, fingerprint, batch_limit,
+                summary_json, warnings_json, blockers_json, errors_json,
+                affected_account_ids_json, affected_tickers_json, scopes_json, account_revisions_json,
+                final_accounting_json, replay_scopes_json,
+                created_at::text, expires_at::text, confirmed_at::text, confirmed_run_id
+           FROM posted_transaction_mutation_previews
+          WHERE id = $1`,
+        [id],
+      ),
+      this.pool.query<{
+        transaction_id: string;
+        status: import("./types.js").PostedTransactionMutationItemStatusRecord;
+        note: string | null;
+        before_json: Record<string, unknown> | null;
+        after_json: Record<string, unknown> | null;
+        impacts_json: import("./types.js").PostedTransactionMutationPreviewRecord["summary"];
+        warnings_json: string[];
+        blockers_json: string[];
+        errors_json: import("./types.js").PostedTransactionMutationErrorRecord[];
+      }>(
+        `SELECT transaction_id, status, note, before_json, after_json, impacts_json, warnings_json, blockers_json, errors_json
+           FROM posted_transaction_mutation_preview_items
+          WHERE preview_id = $1
+          ORDER BY ordinal ASC`,
+        [id],
+      ),
+    ]);
+    const preview = previewResult.rows[0];
+    if (!preview) return null;
+    return {
+      id: preview.id,
+      ownerUserId: preview.owner_user_id,
+      actorUserId: preview.actor_user_id,
+      operation: preview.operation,
+      status: preview.status,
+      version: preview.version,
+      reason: preview.reason,
+      confirmationSummary: preview.confirmation_summary,
+      confirmationDigest: preview.confirmation_digest,
+      fingerprint: preview.fingerprint,
+      batchLimit: preview.batch_limit,
+      summary: preview.summary_json,
+      warnings: preview.warnings_json ?? [],
+      blockers: preview.blockers_json ?? [],
+      errors: preview.errors_json ?? [],
+      affectedAccountIds: preview.affected_account_ids_json ?? [],
+      affectedTickers: preview.affected_tickers_json ?? [],
+      scopes: preview.scopes_json ?? [],
+      accountRevisions: preview.account_revisions_json ?? {},
+      items: itemsResult.rows.map((row) => ({
+        transactionId: row.transaction_id,
+        status: row.status,
+        note: row.note,
+        before: row.before_json,
+        after: row.after_json,
+        impacts: row.impacts_json,
+        warnings: row.warnings_json ?? [],
+        blockers: row.blockers_json ?? [],
+        errors: row.errors_json ?? [],
+      })),
+      finalAccounting: preview.final_accounting_json,
+      replayScopes: preview.replay_scopes_json ?? [],
+      createdAt: preview.created_at,
+      expiresAt: preview.expires_at,
+      confirmedAt: preview.confirmed_at,
+      confirmedRunId: preview.confirmed_run_id,
+    };
+  }
+
+  async savePostedTransactionMutationRun(
+    record: import("./types.js").PostedTransactionMutationRunRecord,
+  ): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO posted_transaction_mutation_runs (
+         id, preview_id, owner_user_id, actor_user_id, operation, status, rebuild_status,
+         reason, warnings_json, blockers_json, errors_json, summary_json,
+         affected_account_ids_json, affected_tickers_json, scopes_json,
+         fingerprint, confirmation_digest, replay_run_id, created_at, started_at, completed_at
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7,
+         $8, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb,
+         $13::jsonb, $14::jsonb, $15::jsonb,
+         $16, $17, $18, $19::timestamptz, $20::timestamptz, $21::timestamptz
+       )
+       ON CONFLICT (id) DO UPDATE SET
+         status = EXCLUDED.status,
+         rebuild_status = EXCLUDED.rebuild_status,
+         warnings_json = EXCLUDED.warnings_json,
+         blockers_json = EXCLUDED.blockers_json,
+         errors_json = EXCLUDED.errors_json,
+         summary_json = EXCLUDED.summary_json,
+         affected_account_ids_json = EXCLUDED.affected_account_ids_json,
+         affected_tickers_json = EXCLUDED.affected_tickers_json,
+         scopes_json = EXCLUDED.scopes_json,
+         replay_run_id = EXCLUDED.replay_run_id,
+         started_at = EXCLUDED.started_at,
+         completed_at = EXCLUDED.completed_at`,
+      [
+        record.id,
+        record.previewId,
+        record.ownerUserId,
+        record.actorUserId,
+        record.operation,
+        record.status,
+        record.rebuildStatus,
+        record.reason,
+        JSON.stringify(record.warnings),
+        JSON.stringify(record.blockers),
+        JSON.stringify(record.errors),
+        JSON.stringify(record.summary),
+        JSON.stringify(record.affectedAccountIds),
+        JSON.stringify(record.affectedTickers),
+        JSON.stringify(record.scopes),
+        record.fingerprint,
+        record.confirmationDigest,
+        record.replayRunId,
+        record.createdAt,
+        record.startedAt,
+        record.completedAt,
+      ],
+    );
+  }
+
+  async getPostedTransactionMutationRun(
+    id: string,
+  ): Promise<import("./types.js").PostedTransactionMutationRunRecord | null> {
+    const result = await this.pool.query<{
+      id: string;
+      preview_id: string;
+      owner_user_id: string;
+      actor_user_id: string;
+      operation: import("./types.js").PostedTransactionMutationOperationRecord;
+      status: import("./types.js").PostedTransactionMutationRunStatusRecord;
+      rebuild_status: import("./types.js").PostedTransactionMutationRebuildStatusRecord;
+      reason: string;
+      warnings_json: string[];
+      blockers_json: string[];
+      errors_json: import("./types.js").PostedTransactionMutationErrorRecord[];
+      summary_json: import("./types.js").PostedTransactionMutationPreviewRecord["summary"];
+      affected_account_ids_json: string[];
+      affected_tickers_json: Array<{ ticker: string; marketCode: MarketCode }>;
+      scopes_json: import("./types.js").PostedTransactionMutationScopeRecord[];
+      fingerprint: string;
+      confirmation_digest: string;
+      replay_run_id: string | null;
+      created_at: string;
+      started_at: string | null;
+      completed_at: string | null;
+    }>(
+      `SELECT id, preview_id, owner_user_id, actor_user_id, operation, status, rebuild_status,
+              reason, warnings_json, blockers_json, errors_json, summary_json,
+              affected_account_ids_json, affected_tickers_json, scopes_json,
+              fingerprint, confirmation_digest, replay_run_id,
+              created_at::text, started_at::text, completed_at::text
+         FROM posted_transaction_mutation_runs
+        WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      previewId: row.preview_id,
+      ownerUserId: row.owner_user_id,
+      actorUserId: row.actor_user_id,
+      operation: row.operation,
+      status: row.status,
+      rebuildStatus: row.rebuild_status,
+      reason: row.reason,
+      warnings: row.warnings_json ?? [],
+      blockers: row.blockers_json ?? [],
+      errors: row.errors_json ?? [],
+      summary: row.summary_json,
+      affectedAccountIds: row.affected_account_ids_json ?? [],
+      affectedTickers: row.affected_tickers_json ?? [],
+      scopes: row.scopes_json ?? [],
+      fingerprint: row.fingerprint,
+      confirmationDigest: row.confirmation_digest,
+      replayRunId: row.replay_run_id,
+      createdAt: row.created_at,
+      startedAt: row.started_at,
+      completedAt: row.completed_at,
+    };
+  }
+
+  async savePostedTransactionMutationDeletedDraftLineage(
+    record: import("./types.js").PostedTransactionMutationDeletedDraftLineageRecord,
+  ): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO posted_transaction_mutation_deleted_draft_lineage (
+         trade_event_id, owner_user_id, batch_id, row_id, deleted_at, deleted_by_user_id, mutation_run_id
+       ) VALUES (
+         $1, $2, $3, $4, $5::timestamptz, $6, $7
+       )
+       ON CONFLICT (trade_event_id) DO UPDATE SET
+         deleted_at = EXCLUDED.deleted_at,
+         deleted_by_user_id = EXCLUDED.deleted_by_user_id,
+         mutation_run_id = EXCLUDED.mutation_run_id`,
+      [
+        record.tradeEventId,
+        record.ownerUserId,
+        record.batchId,
+        record.rowId,
+        record.deletedAt,
+        record.deletedByUserId,
+        record.mutationRunId,
+      ],
+    );
+  }
+
+  async listPostedTransactionMutationDeletedDraftLineage(
+    ownerUserId: string,
+    tradeEventIds: readonly string[],
+  ): Promise<import("./types.js").PostedTransactionMutationDeletedDraftLineageRecord[]> {
+    if (tradeEventIds.length === 0) return [];
+    const result = await this.pool.query<{
+      trade_event_id: string;
+      owner_user_id: string;
+      batch_id: string;
+      row_id: string;
+      deleted_at: string;
+      deleted_by_user_id: string;
+      mutation_run_id: string;
+    }>(
+      `SELECT trade_event_id, owner_user_id, batch_id, row_id,
+              deleted_at::text, deleted_by_user_id, mutation_run_id
+         FROM posted_transaction_mutation_deleted_draft_lineage
+        WHERE owner_user_id = $1
+          AND trade_event_id = ANY($2::text[])`,
+      [ownerUserId, tradeEventIds],
+    );
+    return result.rows.map((row) => ({
+      tradeEventId: row.trade_event_id,
+      ownerUserId: row.owner_user_id,
+      batchId: row.batch_id,
+      rowId: row.row_id,
+      deletedAt: row.deleted_at,
+      deletedByUserId: row.deleted_by_user_id,
+      mutationRunId: row.mutation_run_id,
+    }));
   }
 
   async createProviderOperationLog(input: CreateProviderOperationLogInput): Promise<ProviderOperationLogRecord> {

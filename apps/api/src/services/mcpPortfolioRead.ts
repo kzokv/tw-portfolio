@@ -1,4 +1,4 @@
-import type { CurrencyCode, MarketCode } from "@vakwen/domain";
+import { roundToDecimal, type CurrencyCode, type MarketCode } from "@vakwen/domain";
 import {
   ACCOUNT_DEFAULT_CURRENCIES,
   MARKET_CODES,
@@ -270,25 +270,35 @@ export async function getRecentTransactions(
     .filter((trade) => !tickerFilter || tickerFilter.has(trade.ticker))
     .filter((trade) => !accountFilter || accountFilter.has(trade.accountId))
     .sort(compareTransactionsForHistory)
-    .map((trade) => ({
-      id: trade.id,
-      accountId: trade.accountId,
-      accountName: resolveAccountDisplayName(accountById, trade.accountId),
-      ticker: trade.ticker,
-      marketCode: trade.marketCode,
-      type: trade.type,
-      quantity: trade.quantity,
-      unitPrice: trade.unitPrice,
-      priceCurrency: trade.priceCurrency,
-      tradeDate: trade.tradeDate,
-      tradeTimestamp: trade.tradeTimestamp ?? null,
-      bookingSequence: trade.bookingSequence ?? null,
-      commissionAmount: trade.commissionAmount,
-      taxAmount: trade.taxAmount,
-      isDayTrade: trade.isDayTrade,
-      source: trade.source ?? null,
-      sourceReference: trade.sourceReference ?? null,
-    }));
+    .map((trade) => {
+      const grossTradeValueAmount = roundToDecimal(trade.quantity * trade.unitPrice, 2);
+      const settlementAmount = trade.type === "BUY"
+        ? roundToDecimal(grossTradeValueAmount + trade.commissionAmount + trade.taxAmount, 2)
+        : roundToDecimal(grossTradeValueAmount - trade.commissionAmount - trade.taxAmount, 2);
+      return {
+        id: trade.id,
+        accountId: trade.accountId,
+        accountName: resolveAccountDisplayName(accountById, trade.accountId),
+        ticker: trade.ticker,
+        marketCode: trade.marketCode,
+        type: trade.type,
+        quantity: trade.quantity,
+        unitPrice: trade.unitPrice,
+        priceCurrency: trade.priceCurrency,
+        tradeDate: trade.tradeDate,
+        tradeTimestamp: trade.tradeTimestamp ?? null,
+        bookingSequence: trade.bookingSequence ?? null,
+        grossTradeValueAmount,
+        commissionAmount: trade.commissionAmount,
+        taxAmount: trade.taxAmount,
+        settlementAmount,
+        settlementAvailable: true,
+        bookedCostAmount: trade.type === "BUY" ? settlementAmount : null,
+        isDayTrade: trade.isDayTrade,
+        source: trade.source ?? null,
+        sourceReference: trade.sourceReference ?? null,
+      };
+    });
   return {
     portfolioContextUserId,
     fromDate,

@@ -161,6 +161,37 @@ describe("transaction mutations (delete + edit)", () => {
       expect(res.json().error).toBe("dividend_destructive_preview_required");
     });
 
+    it("rejects a deletion preview that targets a different transaction ID", async () => {
+      const requestedTrade = await createTrade(app);
+      const previewedTrade = await createTrade(app, { tradeDate: "2026-01-02" });
+      const previewResponse = await app.inject({
+        method: "POST",
+        url: "/portfolio/transactions/mutations/delete-preview",
+        payload: {
+          reason: "Remove duplicate trade",
+          items: [{ transactionId: previewedTrade.id }],
+        },
+      });
+      expect(previewResponse.statusCode).toBe(200);
+      const preview = previewResponse.json<{
+        previewId: string;
+        previewVersion: number;
+        fingerprint: string;
+      }>();
+
+      const response = await app.inject({
+        method: "DELETE",
+        url: `/portfolio/transactions/${requestedTrade.id}`,
+        payload: preview,
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json().error).toBe("posted_transaction_mutation_target_mismatch");
+      const store = await getStore(app);
+      expect(store.accounting.facts.tradeEvents.some((trade) => trade.id === requestedTrade.id)).toBe(true);
+      expect(store.accounting.facts.tradeEvents.some((trade) => trade.id === previewedTrade.id)).toBe(true);
+    });
+
     it("deletes a trade after confirmation and reports affected row counts", async () => {
       const trade = await createTrade(app);
 

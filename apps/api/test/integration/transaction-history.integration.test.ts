@@ -184,4 +184,53 @@ describe("transaction history route", () => {
       },
     });
   });
+
+  it("returns canonical BUY booked cost and leaves SELL booked cost unavailable", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "history-booked-cost-buy" },
+      payload: transactionPayload({
+        tradeDate: "2026-02-01",
+        ticker: "2330",
+        quantity: 10,
+        unitPrice: 100,
+        commissionAmount: 2,
+        taxAmount: 3,
+      }),
+    });
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "history-booked-cost-sell" },
+      payload: transactionPayload({
+        tradeDate: "2026-02-10",
+        ticker: "2330",
+        type: "SELL",
+        quantity: 5,
+        unitPrice: 110,
+        commissionAmount: 4,
+        taxAmount: 5,
+      }),
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/transactions/history?marketCode=TW&limit=10&offset=0",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().items).toEqual([
+      expect.objectContaining({
+        type: "SELL",
+        tradeDate: "2026-02-10",
+        bookedCostAmount: null,
+      }),
+      expect.objectContaining({
+        type: "BUY",
+        tradeDate: "2026-02-01",
+        bookedCostAmount: 1005,
+      }),
+    ]);
+  });
 });

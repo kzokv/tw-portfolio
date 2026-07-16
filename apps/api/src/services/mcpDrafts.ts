@@ -40,6 +40,7 @@ import {
 
 type TradeType = "BUY" | "SELL";
 type RowState = AiTransactionDraftRowRecord["state"];
+type DraftRowDisplayState = RowState | "posted_transaction_deleted";
 
 export interface DraftCandidateInput {
   rowNumber: number;
@@ -800,8 +801,16 @@ export async function getTransactionDraftBatch(
   batchId: string,
 ) {
   const aggregate = requireOwnedBatch(deps, await deps.app.persistence.getAiTransactionDraftBatch(batchId), batchId);
+  const lineageByTradeId = buildDeletedDraftLineageByTradeId(await deps.app.persistence.listPostedTransactionMutationDeletedDraftLineage(
+    aggregate.batch.ownerUserId,
+    aggregate.rows.flatMap((row) => row.confirmedTradeEventId ? [row.confirmedTradeEventId] : []),
+  ));
   return {
     ...aggregate,
+    rows: aggregate.rows.map((row) => ({
+      ...row,
+      deletedPostedTransaction: row.confirmedTradeEventId ? lineageByTradeId.get(row.confirmedTradeEventId) ?? null : null,
+    })),
     deepLinkUrl: buildDeepLink(deps.app.appBaseUrl, batchId, aggregate.batch.ownerUserId),
   };
 }
@@ -831,12 +840,17 @@ function toTransactionDraftBatchDto(batch: AiTransactionDraftBatchRecord): Trans
 function toTransactionDraftRowDto(
   row: AiTransactionDraftRowRecord,
   accountById: ReadonlyMap<string, { id: string; name: string }>,
+  lineageByTradeId: ReadonlyMap<string, import("../persistence/types.js").PostedTransactionMutationDeletedDraftLineageRecord>,
 ): TransactionDraftRowDto {
+  const lineage = row.confirmedTradeEventId ? lineageByTradeId.get(row.confirmedTradeEventId) : undefined;
+  const { displayState, statusCopy } = resolveDraftRowDisplay(row, lineage);
   return {
     id: row.id,
     batchId: row.batchId,
     rowNumber: row.rowNumber,
     state: row.state,
+    displayState,
+    statusCopy,
     version: row.version,
     accountId: row.accountId,
     accountName: row.accountId ? resolveAccountDisplayName(accountById, row.accountId) : row.accountNameInput,
@@ -861,7 +875,48 @@ function toTransactionDraftRowDto(
     warnings: row.warnings,
     confirmedTradeEventId: row.confirmedTradeEventId,
     confirmedAt: row.confirmedAt,
+    deletedPostedTransaction: lineage
+      ? {
+          deletedAt: lineage.deletedAt,
+          deletedByUserId: lineage.deletedByUserId,
+          mutationRunId: lineage.mutationRunId,
+        }
+      : null,
     updatedAt: row.updatedAt,
+  } as TransactionDraftRowDto;
+}
+
+function buildDeletedDraftLineageByTradeId(
+  lineages: readonly import("../persistence/types.js").PostedTransactionMutationDeletedDraftLineageRecord[],
+): ReadonlyMap<string, import("../persistence/types.js").PostedTransactionMutationDeletedDraftLineageRecord> {
+  return new Map(lineages.map((lineage) => [lineage.tradeEventId, lineage] as const));
+}
+
+function resolveDraftRowDisplay(
+  row: AiTransactionDraftRowRecord,
+  lineage?: import("../persistence/types.js").PostedTransactionMutationDeletedDraftLineageRecord,
+): { displayState: DraftRowDisplayState; statusCopy: string } {
+  if (lineage) {
+    return {
+      displayState: "posted_transaction_deleted",
+      statusCopy: "Posted transaction deleted",
+    };
+  }
+
+  const copyByState: Record<AiTransactionDraftRowRecord["state"], string> = {
+    needs_clarification: "Needs clarification",
+    pending_validation: "Pending validation",
+    ready: "Ready to post",
+    invalid: "Invalid",
+    duplicate_blocked: "Duplicate blocked",
+    excluded: "Excluded",
+    rejected: "Rejected",
+    confirmed: "Posted transaction confirmed",
+    unsupported: "Unsupported",
+  };
+  return {
+    displayState: row.state,
+    statusCopy: copyByState[row.state],
   };
 }
 
@@ -1094,6 +1149,10 @@ export async function getTransactionDraftBatchComponent(
   const aggregate = requireOwnedBatch(deps, await deps.app.persistence.getAiTransactionDraftBatch(input.batchId), input.batchId);
   const { store } = await loadDraftStore(deps);
   const accountById = new Map(store.accounts.map((account) => [account.id, account]));
+  const lineageByTradeId = buildDeletedDraftLineageByTradeId(await deps.app.persistence.listPostedTransactionMutationDeletedDraftLineage(
+    aggregate.batch.ownerUserId,
+    aggregate.rows.flatMap((row) => row.confirmedTradeEventId ? [row.confirmedTradeEventId] : []),
+  ));
   const settings = await deps.app.persistence.getAiConnectorPolicySettings();
   const selectedRows = aggregate.rows.filter((row) => row.state === "ready");
   const postingPreview = selectedRows.length > 0 ? buildPostingPreview(store, aggregate, selectedRows) : null;
@@ -1102,7 +1161,7 @@ export async function getTransactionDraftBatchComponent(
     title: "Review transaction draft rows",
     subtitle: "Vakwen received structured candidates through the AI connector and validated them before this component rendered.",
     batch: toTransactionDraftBatchDto(aggregate.batch),
-    rows: aggregate.rows.map((row) => toTransactionDraftRowDto(row, accountById)),
+    rows: aggregate.rows.map((row) => toTransactionDraftRowDto(row, accountById, lineageByTradeId)),
     unsupportedItems: aggregate.unsupportedItems.map(toTransactionDraftUnsupportedDto),
     accounts: collectWidgetAccounts(store),
     selectedRowIds: selectedRows.map((row) => row.id),

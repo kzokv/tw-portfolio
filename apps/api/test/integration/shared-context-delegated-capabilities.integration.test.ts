@@ -231,6 +231,81 @@ describe("shared-context delegated capabilities", () => {
     });
   });
 
+  it("[shared transaction mutation]: delegated actor can open its preview and run deep links", async () => {
+    const { viewerUserId } = await createViewerShare(["portfolio:mcp_read", "transaction:write"]);
+    const headers = {
+      "x-user-id": viewerUserId,
+      "x-user-role": "viewer",
+      "x-context-user-id": "user-1",
+    };
+    const created = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { ...headers, "idempotency-key": "shared-context-mutation-link-1" },
+      payload: {
+        accountId: "acc-1",
+        ticker: "2330",
+        marketCode: "TW",
+        quantity: 1,
+        unitPrice: 100,
+        priceCurrency: "TWD",
+        tradeDate: "2026-01-02",
+        type: "BUY",
+      },
+    });
+    expect(created.statusCode).toBe(200);
+    const transactionId = created.json<{ id: string }>().id;
+
+    const previewResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions/mutations/update-preview",
+      headers,
+      payload: {
+        reason: "Correct delegated transaction",
+        items: [{ transactionId, patch: { quantity: 2 } }],
+      },
+    });
+    expect(previewResponse.statusCode).toBe(200);
+    const preview = previewResponse.json<{
+      previewId: string;
+      previewVersion: number;
+      operation: "update";
+      fingerprint: string;
+      confirmationSummary: string;
+      confirmationDigest: string;
+    }>();
+
+    const previewLink = await app.inject({
+      method: "GET",
+      url: `/portfolio/transactions/mutations/previews/${preview.previewId}`,
+      headers,
+    });
+    expect(previewLink.statusCode).toBe(200);
+
+    const confirmed = await app.inject({
+      method: "POST",
+      url: `/portfolio/transactions/mutations/previews/${preview.previewId}/confirm`,
+      headers,
+      payload: {
+        previewVersion: preview.previewVersion,
+        operation: preview.operation,
+        fingerprint: preview.fingerprint,
+        confirmationSummary: preview.confirmationSummary,
+        confirmationDigest: preview.confirmationDigest,
+      },
+    });
+    expect(confirmed.statusCode).toBe(200);
+    const runId = confirmed.json<{ runId: string }>().runId;
+
+    const runLink = await app.inject({
+      method: "GET",
+      url: `/portfolio/transactions/mutations/runs/${runId}`,
+      headers,
+    });
+    expect(runLink.statusCode).toBe(200);
+    expect(runLink.json()).toMatchObject({ runId, previewId: preview.previewId });
+  });
+
   it("[shared dividend write]: viewer with dividend:write can post and reconcile owner dividend entries", async () => {
     const { viewerUserId } = await createViewerShare(["portfolio:mcp_read", "dividend:write"]);
     await seedSharedDividendForOwner();

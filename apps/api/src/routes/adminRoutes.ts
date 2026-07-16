@@ -407,6 +407,7 @@ const aiConnectorPolicySettingsPatchSchema = z
   .object({
     enabled: z.boolean().optional(),
     maxActiveConnectionsPerUser: z.number().int().min(1).max(25).optional(),
+    postedTransactionMutationBatchLimit: z.number().int().positive().optional(),
     allowedProviders: z
       .object({
         chatgpt: z.boolean().optional(),

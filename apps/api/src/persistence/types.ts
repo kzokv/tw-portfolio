@@ -942,6 +942,7 @@ export interface TradeEventPatch {
   quantity?: number;
   price?: number;
   side?: "BUY" | "SELL";
+  isDayTrade?: boolean;
   commissionAmount?: number;
   taxAmount?: number;
   feesSource?: "CALCULATED" | "MANUAL" | "SOURCE_PROVIDED";
@@ -978,6 +979,7 @@ export interface AccountingStoreAuditOptions {
     accountId: string;
     revision: number;
   };
+  expectedAccountRevisions?: Record<string, number>;
   deleteHoldingSnapshotScopes?: Array<{
     accountId: string;
     ticker: string;
@@ -2282,6 +2284,8 @@ export interface McpReplayRunScopeRecord extends McpReplayScopeRecord {
   errorMessage: string | null;
   replayedTradeCount: number | null;
   snapshotGenerationRunId: string | null;
+  earliestReplayDate?: string;
+  deletedTradeEventIds?: string[];
   updatedAt: string;
 }
 
@@ -2295,6 +2299,126 @@ export interface McpReplayRunRecord {
   startedAt: string | null;
   finishedAt: string | null;
   scopes: McpReplayRunScopeRecord[];
+}
+
+export type PostedTransactionMutationOperationRecord = "update" | "delete";
+export type PostedTransactionMutationPreviewStatusRecord = "ready" | "expired" | "stale" | "confirmed" | "failed";
+export type PostedTransactionMutationRunStatusRecord = "queued" | "running" | "completed" | "partially_failed" | "failed";
+export type PostedTransactionMutationRebuildStatusRecord = "pending" | "running" | "completed" | "partially_failed" | "failed";
+export type PostedTransactionMutationItemStatusRecord = "changed" | "deleted" | "unchanged" | "blocked";
+
+export interface PostedTransactionMutationErrorRecord {
+  code: string;
+  message: string;
+  transactionId?: string | null;
+}
+
+export interface PostedTransactionMutationScopeRecord {
+  accountId: string;
+  accountName: string;
+  ticker: string;
+  marketCode: MarketCode;
+  earliestReplayDate: string;
+  accountRevision: number;
+  fingerprint: string;
+  status?: PostedTransactionMutationRunStatusRecord | PostedTransactionMutationItemStatusRecord;
+  errorMessage?: string | null;
+  replayRunId?: string | null;
+}
+
+export interface PostedTransactionMutationPreviewItemRecord {
+  transactionId: string;
+  status: PostedTransactionMutationItemStatusRecord;
+  note?: string | null;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  impacts: {
+    quantityDelta: number;
+    costBasisDelta: number;
+    realizedPnlDelta: number;
+    cashDelta: number;
+    reopenedDividendCount: number;
+    deletedDividendCount: number;
+  };
+  warnings: string[];
+  blockers: string[];
+  errors: PostedTransactionMutationErrorRecord[];
+}
+
+export interface PostedTransactionMutationPreviewRecord {
+  id: string;
+  ownerUserId: string;
+  actorUserId: string;
+  operation: PostedTransactionMutationOperationRecord;
+  status: PostedTransactionMutationPreviewStatusRecord;
+  version: number;
+  reason: string;
+  confirmationSummary: string;
+  confirmationDigest: string;
+  fingerprint: string;
+  batchLimit: number;
+  summary: {
+    quantityDelta: number;
+    costBasisDelta: number;
+    realizedPnlDelta: number;
+    cashDelta: number;
+    reopenedDividendCount: number;
+    deletedDividendCount: number;
+  };
+  warnings: string[];
+  blockers: string[];
+  errors: PostedTransactionMutationErrorRecord[];
+  affectedAccountIds: string[];
+  affectedTickers: Array<{ ticker: string; marketCode: MarketCode }>;
+  scopes: PostedTransactionMutationScopeRecord[];
+  accountRevisions: Record<string, number>;
+  items: PostedTransactionMutationPreviewItemRecord[];
+  finalAccounting: AccountingStore;
+  replayScopes: Array<{
+    accountId: string;
+    ticker: string;
+    marketCode: MarketCode;
+    fromDate: string;
+    deletedTradeEventIds?: string[];
+  }>;
+  createdAt: string;
+  expiresAt: string;
+  confirmedAt: string | null;
+  confirmedRunId: string | null;
+}
+
+export interface PostedTransactionMutationRunRecord {
+  id: string;
+  previewId: string;
+  ownerUserId: string;
+  actorUserId: string;
+  operation: PostedTransactionMutationOperationRecord;
+  status: PostedTransactionMutationRunStatusRecord;
+  rebuildStatus: PostedTransactionMutationRebuildStatusRecord;
+  reason: string;
+  warnings: string[];
+  blockers: string[];
+  errors: PostedTransactionMutationErrorRecord[];
+  summary: PostedTransactionMutationPreviewRecord["summary"];
+  affectedAccountIds: string[];
+  affectedTickers: Array<{ ticker: string; marketCode: MarketCode }>;
+  scopes: PostedTransactionMutationScopeRecord[];
+  fingerprint: string;
+  confirmationDigest: string;
+  replayRunId: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+export interface PostedTransactionMutationDeletedDraftLineageRecord {
+  tradeEventId: string;
+  ownerUserId: string;
+  batchId: string;
+  rowId: string;
+  deletedAt: string;
+  deletedByUserId: string;
+  mutationRunId: string;
 }
 
 // ── Currency wallet snapshots (KZO-165) ───────────────────────────────────────
@@ -2820,6 +2944,18 @@ export interface Persistence {
     auditEntry: AuditLogInput,
     options?: AccountingStoreAuditOptions,
   ): Promise<void>;
+  commitPostedTransactionMutation(input: {
+    userId: string;
+    accounting: AccountingStore;
+    auditEntry: AuditLogInput;
+    preview: PostedTransactionMutationPreviewRecord;
+    replayPreview: McpReplayPreviewRecord;
+    run: PostedTransactionMutationRunRecord;
+    replayRun: McpReplayRunRecord;
+    options: AccountingStoreAuditOptions & {
+      deletedDraftLineage?: PostedTransactionMutationDeletedDraftLineageRecord[];
+    };
+  }): Promise<void>;
   getAccountAccountingRevision(userId: string, accountId: string): Promise<number>;
   savePostedTrade(userId: string, accounting: AccountingStore, tradeEventId: string): Promise<void>;
   savePostedDividend(
@@ -3530,6 +3666,15 @@ export interface Persistence {
     startedAt?: string | null;
     finishedAt?: string | null;
   }): Promise<void>;
+  savePostedTransactionMutationPreview(record: PostedTransactionMutationPreviewRecord): Promise<void>;
+  getPostedTransactionMutationPreview(id: string): Promise<PostedTransactionMutationPreviewRecord | null>;
+  savePostedTransactionMutationRun(record: PostedTransactionMutationRunRecord): Promise<void>;
+  getPostedTransactionMutationRun(id: string): Promise<PostedTransactionMutationRunRecord | null>;
+  savePostedTransactionMutationDeletedDraftLineage(record: PostedTransactionMutationDeletedDraftLineageRecord): Promise<void>;
+  listPostedTransactionMutationDeletedDraftLineage(
+    ownerUserId: string,
+    tradeEventIds: readonly string[],
+  ): Promise<PostedTransactionMutationDeletedDraftLineageRecord[]>;
 
   // Currency wallet snapshots (KZO-165) — minimal aggregator stub. WAC + FX is KZO-166.
   /**

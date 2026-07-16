@@ -575,6 +575,30 @@ describePostgres("postgres migrations", () => {
     });
   });
 
+  it("persists the posted transaction mutation batch limit alongside oauth policy fields", async () => {
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    const updated = await persistence.saveAiConnectorPolicySettings({
+      postedTransactionMutationBatchLimit: 125,
+      oauthPublicIssuer: "https://issuer.example.test",
+      oauthRedirectUriAllowlist: ["https://app.example.test/callback"],
+    });
+
+    expect(updated.postedTransactionMutationBatchLimit).toBe(125);
+    expect(updated.oauthPublicIssuer).toBe("https://issuer.example.test");
+    expect(updated.oauthRedirectUriAllowlist).toEqual(["https://app.example.test/callback"]);
+
+    await expect(persistence.getAiConnectorPolicySettings()).resolves.toMatchObject({
+      postedTransactionMutationBatchLimit: 125,
+      oauthPublicIssuer: "https://issuer.example.test",
+      oauthRedirectUriAllowlist: ["https://app.example.test/callback"],
+    });
+  });
+
   it("ignores blank legacy migration checksums when verifying applied migrations", async () => {
     const manifest = await migrationManifestPromise;
 

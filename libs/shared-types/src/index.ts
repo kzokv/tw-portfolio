@@ -429,6 +429,11 @@ export interface DividendDailyHighlightItemDto {
   expectedCashAmount: number;
   expectedStockQuantity: number;
   eligibleQuantity: number;
+  stockDistributionRatio?: number | null;
+  stockDistributionRatioState?: StockDistributionRatioState;
+  expectedStockCalcState?: ExpectedStockCalcState;
+  receivedStockQuantity?: number;
+  cashInLieuAmount?: number | null;
   hasPostedLedgerEntry: boolean;
   dividendLedgerEntryId: string | null;
   applicableLocalDate: string;
@@ -1228,6 +1233,13 @@ export interface UnrealizedPnlAnalysisSettingsPreferenceDto {
 }
 
 export type HoldingsTableLayoutStyle = "dashboard" | "portfolio";
+export type HoldingsSelectionMode = "all" | "custom";
+
+export interface HoldingsSelectionPreferenceDto {
+  version: 1;
+  mode: HoldingsSelectionMode;
+  tickerIds?: string[];
+}
 
 export interface HoldingsTableContextPreferenceDto {
   columnOrder?: string[];
@@ -1367,8 +1379,45 @@ const holdingsTableSelectionSchema = z
     (arr) => new Set(arr).size === arr.length,
     { message: "holdings_table_duplicate_selection" },
   );
+const holdingsSelectionTickerIdSchema = z
+  .string()
+  .trim()
+  .min(3)
+  .max(128)
+  .regex(/^(TW|US|AU|KR|JP):[A-Z0-9@._-]+$/, "holdings_selection_invalid_ticker_id");
+const holdingsSelectionTickerIdListSchema = z
+  .array(holdingsSelectionTickerIdSchema)
+  .max(500)
+  .refine(
+    (arr) => new Set(arr).size === arr.length,
+    { message: "holdings_selection_duplicate_ticker_id" },
+  );
 const tickerAllocationChartModeSchema = z.enum(TICKER_ALLOCATION_CHART_MODES);
 const tickerAllocationTopNSchema = z.enum(TICKER_ALLOCATION_TOP_N_OPTIONS);
+
+export const holdingsSelectionPreferenceSchema: z.ZodType<HoldingsSelectionPreferenceDto> = z
+  .object({
+    version: z.literal(1),
+    mode: z.enum(["all", "custom"]),
+    tickerIds: holdingsSelectionTickerIdListSchema.optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.mode === "custom" && (!value.tickerIds || value.tickerIds.length === 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "holdings_selection_custom_requires_tickers",
+        path: ["tickerIds"],
+      });
+    }
+    if (value.mode === "all" && value.tickerIds && value.tickerIds.length > 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "holdings_selection_all_forbids_tickers",
+        path: ["tickerIds"],
+      });
+    }
+  });
 
 export const holdingsTableSettingsPreferenceSchema: z.ZodType<HoldingsTableSettingsPreferenceDto> = z
   .object({
@@ -2067,8 +2116,12 @@ export interface TransactionHistoryItemDto {
   tradeDate: string;
   tradeTimestamp: string | null;
   bookingSequence: number | null;
+  grossTradeValueAmount?: number;
   commissionAmount: number;
   taxAmount: number;
+  settlementAmount?: number | null;
+  settlementAvailable?: boolean;
+  bookedCostAmount?: number | null;
   isDayTrade: boolean;
   realizedPnlAmount: number | null;
   realizedPnlCurrency: CurrencyCode | null;
@@ -2948,6 +3001,7 @@ export type AiTransactionDraftRowState =
   | "rejected"
   | "confirmed"
   | "unsupported";
+export type AiTransactionDraftRowDisplayState = AiTransactionDraftRowState | "posted_transaction_deleted";
 export type AiTransactionDraftEventType =
   | "batch_created"
   | "preflight_run"
@@ -2989,6 +3043,7 @@ export interface AiConnectorConnectionDto {
 export interface AiConnectorPolicySettingsDto {
   enabled: boolean;
   maxActiveConnectionsPerUser: number;
+  postedTransactionMutationBatchLimit: number;
   /**
    * Transitional compatibility field. New code should prefer
    * `allowedClientKinds`.
@@ -3133,7 +3188,7 @@ export interface McpOAuthConsentRequestDto {
   csrfToken: string;
   expiresAt: string;
   redirectUriRepair?: McpOAuthRedirectUriRepairDto | null;
-  policy: Pick<AiConnectorPolicySettingsDto, "maxConnectorLifetimeDays" | "groupToggles">;
+  policy: Pick<AiConnectorPolicySettingsDto, "maxConnectorLifetimeDays" | "groupToggles" | "postedTransactionMutationBatchLimit">;
 }
 
 export interface McpOAuthConsentDecisionDto {
@@ -3206,6 +3261,197 @@ export interface McpPostTransactionDraftRowsResultDto {
   }>;
 }
 
+export type PostedTransactionMutationOperation = "update" | "delete";
+export type PostedTransactionMutationPreviewStatus = "ready" | "expired" | "stale" | "confirmed" | "failed";
+export type PostedTransactionMutationRunStatus = "queued" | "running" | "completed" | "partially_failed" | "failed";
+export type PostedTransactionMutationRebuildStatus = "pending" | "running" | "completed" | "partially_failed" | "failed";
+export type PostedTransactionFeeOverrideMode = "preserve_recorded" | "recalculate";
+export type PostedTransactionMutationItemStatus = "changed" | "deleted" | "unchanged" | "blocked";
+export type PostedTransactionMutationErrorCode =
+  | "posted_transaction_mutation_batch_limit_exceeded"
+  | "posted_transaction_mutation_duplicate_transaction"
+  | "posted_transaction_mutation_conflicting_patch"
+  | "posted_transaction_mutation_no_changes"
+  | "posted_transaction_mutation_identity_immutable"
+  | "posted_transaction_mutation_preview_expired"
+  | "posted_transaction_mutation_preview_stale"
+  | "posted_transaction_mutation_confirmation_conflict"
+  | "posted_transaction_mutation_unauthorized_or_missing"
+  | "posted_transaction_mutation_inventory_conflict"
+  | "posted_transaction_mutation_rebuild_unavailable"
+  | "posted_transaction_mutation_enqueue_failed";
+export type PostedTransactionMutationScopeStatus = "queued" | "running" | "completed" | "partially_failed" | "failed";
+
+export interface PostedTransactionMutationUpdatePatchDto {
+  tradeDate?: string;
+  quantity?: number;
+  unitPrice?: number;
+  side?: "BUY" | "SELL";
+  isDayTrade?: boolean;
+  commissionAmount?: number;
+  taxAmount?: number;
+  feeOverrideMode?: PostedTransactionFeeOverrideMode;
+}
+
+export interface PostedTransactionMutationUpdateItemDto {
+  transactionId: string;
+  note?: string | null;
+  patch: PostedTransactionMutationUpdatePatchDto;
+}
+
+export interface PostedTransactionMutationDeleteItemDto {
+  transactionId: string;
+  note?: string | null;
+}
+
+export interface PostedTransactionMutationDeepLinksDto {
+  previewPath: string;
+  runPath: string | null;
+  transactionPath: string;
+  previewUrl: string | null;
+  runUrl: string | null;
+}
+
+export interface PostedTransactionMutationErrorDto {
+  code: PostedTransactionMutationErrorCode;
+  message: string;
+  transactionId?: string | null;
+}
+
+export interface PostedTransactionMutationTransactionFactsDto {
+  transactionId: string;
+  accountId: string;
+  accountName: string;
+  ticker: string;
+  marketCode: MarketCode;
+  priceCurrency: CurrencyCode;
+  tradeDate: string;
+  side: "BUY" | "SELL";
+  quantity: number;
+  unitPrice: number;
+  grossTradeValueAmount: number;
+  commissionAmount: number;
+  taxAmount: number;
+  settlementAmount: number | null;
+  settlementAvailable: boolean;
+  bookedCostAmount: number | null;
+  isDayTrade: boolean;
+  feesSource: "CALCULATED" | "MANUAL" | "SOURCE_PROVIDED";
+}
+
+export interface PostedTransactionMutationImpactSummaryDto {
+  quantityDelta: number;
+  costBasisDelta: number;
+  realizedPnlDelta: number;
+  cashDelta: number;
+  reopenedDividendCount: number;
+  deletedDividendCount: number;
+}
+
+export interface PostedTransactionMutationScopeDto {
+  accountId: string;
+  accountName: string;
+  ticker: string;
+  marketCode: MarketCode;
+  earliestReplayDate: string;
+  accountRevision: number;
+  fingerprint: string;
+  status?: PostedTransactionMutationScopeStatus;
+  errorMessage?: string | null;
+  replayRunId?: string | null;
+}
+
+export interface PostedTransactionMutationPreviewItemDto {
+  transactionId: string;
+  status: PostedTransactionMutationItemStatus;
+  note?: string | null;
+  before: PostedTransactionMutationTransactionFactsDto | null;
+  after: PostedTransactionMutationTransactionFactsDto | null;
+  impacts: PostedTransactionMutationImpactSummaryDto;
+  warnings: string[];
+  blockers: string[];
+  errors: PostedTransactionMutationErrorDto[];
+}
+
+export interface PostedTransactionMutationPreviewPageDto {
+  items: PostedTransactionMutationPreviewItemDto[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface PostedTransactionMutationPreviewQueryDto {
+  limit?: number;
+  offset?: number;
+  accountId?: string;
+  ticker?: string;
+  marketCode?: MarketCode;
+  status?: PostedTransactionMutationItemStatus | "warning" | "blocked";
+}
+
+export interface PostedTransactionMutationPreviewDto {
+  previewId: string;
+  previewVersion: number;
+  status: PostedTransactionMutationPreviewStatus;
+  operation: PostedTransactionMutationOperation;
+  reason: string;
+  confirmationSummary: string;
+  confirmationDigest: string;
+  fingerprint: string;
+  expiresAt: string;
+  createdAt: string;
+  batchLimit: number;
+  affectedAccountIds: string[];
+  affectedTickers: Array<{ ticker: string; marketCode: MarketCode }>;
+  scopes: PostedTransactionMutationScopeDto[];
+  warnings: string[];
+  blockers: string[];
+  errors: PostedTransactionMutationErrorDto[];
+  summary: PostedTransactionMutationImpactSummaryDto;
+  page: PostedTransactionMutationPreviewPageDto;
+  deepLinks: PostedTransactionMutationDeepLinksDto;
+}
+
+export interface PostedTransactionMutationConfirmRequestDto {
+  previewId: string;
+  previewVersion: number;
+  operation: PostedTransactionMutationOperation;
+  fingerprint: string;
+  confirmationSummary: string;
+  confirmationDigest: string;
+}
+
+export interface PostedTransactionMutationConfirmResultDto {
+  runId: string;
+  previewId: string;
+  operation: PostedTransactionMutationOperation;
+  status: PostedTransactionMutationRunStatus;
+  rebuildStatus: PostedTransactionMutationRebuildStatus;
+  idempotentReplay: boolean;
+  committedAt: string;
+  deepLinks: PostedTransactionMutationDeepLinksDto;
+}
+
+export interface PostedTransactionMutationRunDto {
+  runId: string;
+  previewId: string;
+  operation: PostedTransactionMutationOperation;
+  status: PostedTransactionMutationRunStatus;
+  rebuildStatus: PostedTransactionMutationRebuildStatus;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  reason: string;
+  warnings: string[];
+  blockers: string[];
+  errors: PostedTransactionMutationErrorDto[];
+  summary: PostedTransactionMutationImpactSummaryDto;
+  affectedAccountIds: string[];
+  affectedTickers: Array<{ ticker: string; marketCode: MarketCode }>;
+  scopes: PostedTransactionMutationScopeDto[];
+  deepLinks: PostedTransactionMutationDeepLinksDto;
+}
+
 export interface AiConnectorAccessLogDto {
   id: string;
   connectionId: string | null;
@@ -3252,6 +3498,8 @@ export interface TransactionDraftRowDto {
   batchId: string;
   rowNumber: number;
   state: AiTransactionDraftRowState;
+  displayState?: AiTransactionDraftRowDisplayState;
+  statusCopy?: string;
   version: number;
   accountId: string | null;
   accountName: string | null;
@@ -3276,6 +3524,11 @@ export interface TransactionDraftRowDto {
   warnings: unknown[];
   confirmedTradeEventId: string | null;
   confirmedAt: string | null;
+  deletedPostedTransaction?: {
+    deletedAt: string;
+    deletedByUserId: string;
+    mutationRunId: string;
+  } | null;
   updatedAt: string;
 }
 

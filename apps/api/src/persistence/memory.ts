@@ -594,6 +594,7 @@ export class MemoryPersistence implements Persistence {
   private aiConnectorPolicySettings: AiConnectorPolicySettingsRecord = {
     enabled: true,
     maxActiveConnectionsPerUser: 3,
+    postedTransactionMutationBatchLimit: 50,
     allowedProviders: { chatgpt: true, self_hosted: true },
     allowedClientKinds: {
       chatgpt_app: true,
@@ -686,6 +687,9 @@ export class MemoryPersistence implements Persistence {
   private readonly providerOperationLogs: ProviderOperationLogRecord[] = [];
   private readonly mcpReplayPreviews = new Map<string, import("./types.js").McpReplayPreviewRecord>();
   private readonly mcpReplayRuns = new Map<string, import("./types.js").McpReplayRunRecord>();
+  private readonly postedTransactionMutationPreviews = new Map<string, import("./types.js").PostedTransactionMutationPreviewRecord>();
+  private readonly postedTransactionMutationRuns = new Map<string, import("./types.js").PostedTransactionMutationRunRecord>();
+  private readonly postedTransactionMutationDeletedDraftLineage = new Map<string, import("./types.js").PostedTransactionMutationDeletedDraftLineageRecord>();
   private readonly marketCalendarSources = new Map<string, MarketCalendarSourceConfigRecord>();
   private readonly marketCalendarPreviews = new Map<string, MarketCalendarPreviewRecord>();
   private readonly marketCalendarVersions = new Map<string, MarketCalendarVersionRecord>();
@@ -2541,6 +2545,12 @@ export class MemoryPersistence implements Persistence {
         throw routeError(409, "dividend_destructive_preview_row_drift", "Underlying records changed after preview");
       }
     }
+    for (const [accountId, expectedRevision] of Object.entries(options?.expectedAccountRevisions ?? {})) {
+      const currentRevision = await this.getAccountAccountingRevision(userId, accountId);
+      if (currentRevision !== expectedRevision) {
+        throw routeError(409, "posted_transaction_mutation_preview_stale", "Underlying records changed after preview");
+      }
+    }
     const previousAccounting = structuredClone(store.accounting);
     const previousHoldingSnapshots = options?.deleteHoldingSnapshotScopes?.length
       ? structuredClone(this.holdingSnapshots)
@@ -2596,6 +2606,49 @@ export class MemoryPersistence implements Persistence {
       if (previousHoldingSnapshots) {
         this.holdingSnapshots.splice(0, this.holdingSnapshots.length, ...previousHoldingSnapshots);
       }
+      throw error;
+    }
+  }
+
+  async commitPostedTransactionMutation(input: {
+    userId: string;
+    accounting: AccountingStore;
+    auditEntry: AuditLogInput;
+    preview: import("./types.js").PostedTransactionMutationPreviewRecord;
+    replayPreview: import("./types.js").McpReplayPreviewRecord;
+    run: import("./types.js").PostedTransactionMutationRunRecord;
+    replayRun: import("./types.js").McpReplayRunRecord;
+    options: AccountingStoreAuditOptions & {
+      deletedDraftLineage?: import("./types.js").PostedTransactionMutationDeletedDraftLineageRecord[];
+    };
+  }): Promise<void> {
+    const previousPreview = this.postedTransactionMutationPreviews.get(input.preview.id);
+    const previousReplayPreview = this.mcpReplayPreviews.get(input.replayPreview.id);
+    const previousRun = this.postedTransactionMutationRuns.get(input.run.id);
+    const previousReplayRun = this.mcpReplayRuns.get(input.replayRun.id);
+    try {
+      await this.saveAccountingStoreWithAudit(
+        input.userId,
+        input.accounting,
+        input.auditEntry,
+        input.options,
+      );
+      this.postedTransactionMutationPreviews.set(input.preview.id, structuredClone(input.preview));
+      this.mcpReplayPreviews.set(input.replayPreview.id, structuredClone(input.replayPreview));
+      this.postedTransactionMutationRuns.set(input.run.id, structuredClone(input.run));
+      this.mcpReplayRuns.set(input.replayRun.id, structuredClone(input.replayRun));
+      for (const record of input.options.deletedDraftLineage ?? []) {
+        this.postedTransactionMutationDeletedDraftLineage.set(record.tradeEventId, structuredClone(record));
+      }
+    } catch (error) {
+      if (previousPreview) this.postedTransactionMutationPreviews.set(input.preview.id, previousPreview);
+      else this.postedTransactionMutationPreviews.delete(input.preview.id);
+      if (previousReplayPreview) this.mcpReplayPreviews.set(input.replayPreview.id, previousReplayPreview);
+      else this.mcpReplayPreviews.delete(input.replayPreview.id);
+      if (previousRun) this.postedTransactionMutationRuns.set(input.run.id, previousRun);
+      else this.postedTransactionMutationRuns.delete(input.run.id);
+      if (previousReplayRun) this.mcpReplayRuns.set(input.replayRun.id, previousReplayRun);
+      else this.mcpReplayRuns.delete(input.replayRun.id);
       throw error;
     }
   }
@@ -4925,6 +4978,49 @@ export class MemoryPersistence implements Persistence {
     if (input.finishedAt !== undefined) run.finishedAt = input.finishedAt;
   }
 
+  async savePostedTransactionMutationPreview(
+    record: import("./types.js").PostedTransactionMutationPreviewRecord,
+  ): Promise<void> {
+    this.postedTransactionMutationPreviews.set(record.id, structuredClone(record));
+  }
+
+  async getPostedTransactionMutationPreview(
+    id: string,
+  ): Promise<import("./types.js").PostedTransactionMutationPreviewRecord | null> {
+    const record = this.postedTransactionMutationPreviews.get(id);
+    return record ? structuredClone(record) : null;
+  }
+
+  async savePostedTransactionMutationRun(
+    record: import("./types.js").PostedTransactionMutationRunRecord,
+  ): Promise<void> {
+    this.postedTransactionMutationRuns.set(record.id, structuredClone(record));
+  }
+
+  async getPostedTransactionMutationRun(
+    id: string,
+  ): Promise<import("./types.js").PostedTransactionMutationRunRecord | null> {
+    const record = this.postedTransactionMutationRuns.get(id);
+    return record ? structuredClone(record) : null;
+  }
+
+  async savePostedTransactionMutationDeletedDraftLineage(
+    record: import("./types.js").PostedTransactionMutationDeletedDraftLineageRecord,
+  ): Promise<void> {
+    this.postedTransactionMutationDeletedDraftLineage.set(record.tradeEventId, structuredClone(record));
+  }
+
+  async listPostedTransactionMutationDeletedDraftLineage(
+    ownerUserId: string,
+    tradeEventIds: readonly string[],
+  ): Promise<import("./types.js").PostedTransactionMutationDeletedDraftLineageRecord[]> {
+    return tradeEventIds
+      .map((tradeEventId) => this.postedTransactionMutationDeletedDraftLineage.get(tradeEventId))
+      .filter((record): record is import("./types.js").PostedTransactionMutationDeletedDraftLineageRecord =>
+        Boolean(record && record.ownerUserId === ownerUserId))
+      .map((record) => structuredClone(record));
+  }
+
   // ── Currency wallet snapshots (KZO-165) ───────────────────────────────────
   // Memory mirror. Note: MemoryPersistence does NOT enforce the composite FK or
   // ISO CHECK that Postgres does — those gaps are documented in
@@ -5081,6 +5177,7 @@ export class MemoryPersistence implements Persistence {
     if (patch.quantity !== undefined) trade.quantity = patch.quantity;
     if (patch.price !== undefined) trade.unitPrice = patch.price;
     if (patch.side !== undefined) trade.type = patch.side;
+    if (patch.isDayTrade !== undefined) trade.isDayTrade = patch.isDayTrade;
     if (patch.commissionAmount !== undefined) trade.commissionAmount = patch.commissionAmount;
     if (patch.taxAmount !== undefined) trade.taxAmount = patch.taxAmount;
     if (patch.feesSource !== undefined) trade.feesSource = patch.feesSource;
@@ -5966,8 +6063,9 @@ export class MemoryPersistence implements Persistence {
     // just that sub-key; the empty `cardOrder` object is preserved (caller
     // can still PATCH `{cardOrder:null}` to clear the whole top-level key).
     //
-    // Admin market-data table settings are likewise context-merged so one
-    // mounted table cannot overwrite sibling table contexts from a stale hook.
+    // Holdings table settings and admin market-data table settings are
+    // context-merged so one mounted table cannot overwrite sibling contexts
+    // from a stale hook.
     const current = this.userPreferences.get(userId) ?? {};
     const next: Record<string, unknown> = { ...current };
     for (const [key, value] of Object.entries(patch)) {
@@ -5987,6 +6085,25 @@ export class MemoryPersistence implements Persistence {
           }
         }
         next.cardOrder = merged;
+      } else if (
+        key === "holdingsTableSettings"
+        && isPlainObject(value)
+      ) {
+        const currentSettings = isPlainObject(next.holdingsTableSettings)
+          ? next.holdingsTableSettings
+          : {};
+        const currentContexts = isPlainObject(currentSettings.contexts)
+          ? currentSettings.contexts
+          : {};
+        const patchContexts = isPlainObject(value.contexts) ? value.contexts : {};
+        next.holdingsTableSettings = {
+          ...currentSettings,
+          ...value,
+          contexts: {
+            ...currentContexts,
+            ...patchContexts,
+          },
+        };
       } else if (
         key === "adminMarketDataTableSettings"
         && isPlainObject(value)

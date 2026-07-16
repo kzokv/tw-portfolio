@@ -31,9 +31,19 @@ import {
   handleMcpOAuthToken,
   setMcpOAuthNoStoreHeaders,
 } from "./oauth.js";
-import { DefaultMcpPolicyService } from "./policy.js";
+import {
+  assertMcpScopesGranted,
+  assertMcpShareCapabilities,
+  DefaultMcpPolicyService,
+} from "./policy.js";
 import { getMcpToolDefinition, listMcpToolDefinitions, type McpToolName } from "./tools.js";
-import type { McpAuthService, McpPolicyService, McpRequestContext, McpResolvedContext } from "./types.js";
+import type {
+  McpAuthContext,
+  McpAuthService,
+  McpPolicyService,
+  McpRequestContext,
+  McpResolvedContext,
+} from "./types.js";
 import { resolvePortfolioSelector } from "../services/mcpNameResolution.js";
 import {
   archiveTransactionDraftBatchByName,
@@ -117,6 +127,14 @@ import {
 } from "../services/mcpPortfolioMaintenance.js";
 import { buildDailyReviewReport, buildMarketReport, buildPortfolioReport } from "../services/reports.js";
 import type { BuildReportInput } from "../services/reports.js";
+import {
+  confirmPostedTransactionMutation,
+  dispatchPostedTransactionMutationRebuild,
+  getPostedTransactionMutationPreview,
+  getPostedTransactionMutationRun,
+  previewPostedTransactionDeleteBatch,
+  previewPostedTransactionUpdateBatch,
+} from "../services/postedTransactionMutations.js";
 import {
   getAdminMarketCalendarStatusTool,
   listAdminMarketCalendarSourcesTool,
@@ -221,6 +239,12 @@ function requiresExplicitPortfolioSelector(toolName: McpToolName): boolean {
     "amend_dividend_receipt",
     "preview_update_dividend_reconciliation",
     "update_dividend_reconciliation",
+    "preview_update_posted_transactions",
+    "update_posted_transactions",
+    "preview_delete_posted_transactions",
+    "delete_posted_transactions",
+    "get_posted_transaction_mutation_preview",
+    "get_posted_transaction_mutation_run",
   ].includes(toolName);
 }
 
@@ -231,6 +255,27 @@ function extractPendingContext(extra: unknown): PendingToolRequestContext | unde
   const extraPayload = (authInfo as { extra?: unknown }).extra;
   if (!extraPayload || typeof extraPayload !== "object") return undefined;
   return (extraPayload as { pendingContext?: PendingToolRequestContext }).pendingContext;
+}
+
+async function requireDelegatedDividendWriteForPostedMutation(
+  app: FastifyInstance,
+  auth: McpAuthContext,
+  resolvedContext: McpResolvedContext,
+  args: unknown,
+): Promise<void> {
+  if (!resolvedContext.shareId || !args || typeof args !== "object" || Array.isArray(args)) return;
+  const previewId = (args as { previewId?: unknown }).previewId;
+  if (typeof previewId !== "string" || previewId.length === 0) return;
+  const preview = await getPostedTransactionMutationPreview(app.persistence, {
+    ownerUserId: resolvedContext.portfolioContextUserId,
+    actorUserId: auth.sessionUserId,
+    previewId,
+    appBaseUrl: app.appBaseUrl,
+  });
+  const requiresDividendWrite = preview.summary.deletedDividendCount > 0 || preview.summary.reopenedDividendCount > 0;
+  if (!requiresDividendWrite) return;
+  assertMcpScopesGranted(auth, ["dividend:write"]);
+  assertMcpShareCapabilities(resolvedContext, ["dividend:write"]);
 }
 
 export function toReportInput(args: unknown): BuildReportInput {
@@ -405,6 +450,90 @@ export async function registerMcpRoutes(
               accountNames?: string[];
             },
           );
+          break;
+        case "preview_update_posted_transactions":
+          result = await previewPostedTransactionUpdateBatch(app.persistence, {
+            ownerUserId: requestContext.resolvedContext.portfolioContextUserId,
+            actorUserId: requestContext.auth.sessionUserId,
+            items: (args as { items: Parameters<typeof previewPostedTransactionUpdateBatch>[1]["items"] }).items,
+            reason: (args as { reason: string }).reason,
+            appBaseUrl: app.appBaseUrl,
+          });
+          break;
+        case "update_posted_transactions":
+          await requireDelegatedDividendWriteForPostedMutation(app, auth, resolvedContext, args);
+          result = await confirmPostedTransactionMutation(app.persistence, {
+            ownerUserId: requestContext.resolvedContext.portfolioContextUserId,
+            actorUserId: requestContext.auth.sessionUserId,
+            appBaseUrl: app.appBaseUrl,
+            confirmation: args as Parameters<typeof confirmPostedTransactionMutation>[1]["confirmation"],
+          }, { eventBus: app.eventBus });
+          await dispatchPostedTransactionMutationRebuild(app.persistence, {
+            ownerUserId: requestContext.resolvedContext.portfolioContextUserId,
+            runId: (result as { runId: string }).runId,
+            boss: app.boss ?? undefined,
+            eventBus: app.eventBus,
+          });
+          result = await getPostedTransactionMutationRun(app.persistence, {
+            ownerUserId: requestContext.resolvedContext.portfolioContextUserId,
+            actorUserId: requestContext.auth.sessionUserId,
+            runId: (result as { runId: string }).runId,
+            appBaseUrl: app.appBaseUrl,
+          });
+          break;
+        case "preview_delete_posted_transactions":
+          result = await previewPostedTransactionDeleteBatch(app.persistence, {
+            ownerUserId: requestContext.resolvedContext.portfolioContextUserId,
+            actorUserId: requestContext.auth.sessionUserId,
+            items: (args as { items: Parameters<typeof previewPostedTransactionDeleteBatch>[1]["items"] }).items,
+            reason: (args as { reason: string }).reason,
+            appBaseUrl: app.appBaseUrl,
+          });
+          break;
+        case "delete_posted_transactions":
+          await requireDelegatedDividendWriteForPostedMutation(app, auth, resolvedContext, args);
+          result = await confirmPostedTransactionMutation(app.persistence, {
+            ownerUserId: requestContext.resolvedContext.portfolioContextUserId,
+            actorUserId: requestContext.auth.sessionUserId,
+            appBaseUrl: app.appBaseUrl,
+            confirmation: args as Parameters<typeof confirmPostedTransactionMutation>[1]["confirmation"],
+          }, { eventBus: app.eventBus });
+          await dispatchPostedTransactionMutationRebuild(app.persistence, {
+            ownerUserId: requestContext.resolvedContext.portfolioContextUserId,
+            runId: (result as { runId: string }).runId,
+            boss: app.boss ?? undefined,
+            eventBus: app.eventBus,
+          });
+          result = await getPostedTransactionMutationRun(app.persistence, {
+            ownerUserId: requestContext.resolvedContext.portfolioContextUserId,
+            actorUserId: requestContext.auth.sessionUserId,
+            runId: (result as { runId: string }).runId,
+            appBaseUrl: app.appBaseUrl,
+          });
+          break;
+        case "get_posted_transaction_mutation_preview":
+          result = await getPostedTransactionMutationPreview(app.persistence, {
+            ownerUserId: requestContext.resolvedContext.portfolioContextUserId,
+            actorUserId: requestContext.auth.sessionUserId,
+            previewId: (args as { previewId: string }).previewId,
+            appBaseUrl: app.appBaseUrl,
+            query: {
+              limit: (args as { limit?: number }).limit,
+              offset: (args as { offset?: number }).offset,
+              accountId: (args as { accountId?: string }).accountId,
+              ticker: (args as { ticker?: string }).ticker,
+              marketCode: (args as { marketCode?: "TW" | "US" | "AU" | "KR" | "JP" }).marketCode,
+              status: (args as { status?: "changed" | "deleted" | "unchanged" | "warning" | "blocked" }).status,
+            },
+          });
+          break;
+        case "get_posted_transaction_mutation_run":
+          result = await getPostedTransactionMutationRun(app.persistence, {
+            ownerUserId: requestContext.resolvedContext.portfolioContextUserId,
+            actorUserId: requestContext.auth.sessionUserId,
+            runId: (args as { runId: string }).runId,
+            appBaseUrl: app.appBaseUrl,
+          });
           break;
         case "get_dividends_overview":
           result = await getDividendsOverview(

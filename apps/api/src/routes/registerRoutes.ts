@@ -64,6 +64,7 @@ import {
   dashboardPerformanceRangesSchema,
   densityModeSchema,
   holdingAllocationBasisSchema,
+  holdingsSelectionPreferenceSchema,
   holdingsTableSettingsPreferenceSchema,
   priceColorConventionSchema,
   themeAccentSchema,
@@ -136,6 +137,14 @@ import {
 } from "../services/mcpConnectorLifecycle.js";
 import { confirmRecompute, previewRecompute } from "../services/recompute.js";
 import { replayPositionHistory, scheduleReplayWithRetry } from "../services/replayPositionHistory.js";
+import {
+  confirmPostedTransactionMutation,
+  dispatchPostedTransactionMutationRebuild,
+  getPostedTransactionMutationPreview,
+  getPostedTransactionMutationRun,
+  previewPostedTransactionDeleteBatch,
+  previewPostedTransactionUpdateBatch,
+} from "../services/postedTransactionMutations.js";
 import { generateHoldingSnapshots, recomputeSnapshotsForTicker } from "../services/snapshotGeneration.js";
 import { generateCurrencyWalletSnapshots } from "../services/currencyWalletSnapshotGeneration.js";
 import { ReadPathTiming } from "../services/readPathTiming.js";
@@ -783,6 +792,9 @@ const WRITER_ROLE_ROUTE_KEYS = new Set([
   "PATCH /portfolio/transactions/:tradeEventId",
   "POST /portfolio/transactions/:tradeEventId/dividend-delete-preview",
   "POST /portfolio/transactions/:tradeEventId/dividend-delete-confirm",
+  "POST /portfolio/transactions/mutations/update-preview",
+  "POST /portfolio/transactions/mutations/delete-preview",
+  "POST /portfolio/transactions/mutations/previews/:previewId/confirm",
   "POST /portfolio/dividends/postings",
   "POST /portfolio/accounts/:accountId/purge-rebuild-preview",
   "POST /portfolio/accounts/:accountId/purge-rebuild-confirm",
@@ -897,6 +909,9 @@ const SHARED_CONTEXT_WRITE_CAPABILITY_MATRIX: Readonly<Record<string, ShareCapab
   "PATCH /portfolio/transactions/:tradeEventId": "transaction:write",
   "POST /portfolio/transactions/:tradeEventId/dividend-delete-preview": "transaction:write",
   "POST /portfolio/transactions/:tradeEventId/dividend-delete-confirm": "transaction:write",
+  "POST /portfolio/transactions/mutations/update-preview": "transaction:write",
+  "POST /portfolio/transactions/mutations/delete-preview": "transaction:write",
+  "POST /portfolio/transactions/mutations/previews/:previewId/confirm": "transaction:write",
   "POST /portfolio/dividends/postings": "dividend:write",
   "POST /portfolio/accounts/:accountId/purge-rebuild-preview": "transaction:write",
   "POST /portfolio/accounts/:accountId/purge-rebuild-confirm": "transaction:write",
@@ -1426,16 +1441,30 @@ function toTransactionDraftBatchDto(app: FastifyInstance, batch: AiTransactionDr
   };
 }
 
-function toTransactionDraftRowDto(row: AiTransactionDraftRowRecord): TransactionDraftRowDto & {
+function toTransactionDraftRowDto(row: AiTransactionDraftRowRecord & {
+  deletedPostedTransaction?: {
+    deletedAt: string;
+    deletedByUserId: string;
+    mutationRunId: string;
+  } | null;
+}): TransactionDraftRowDto & {
   tradeTimestamp: string | null;
   bookingSequence: number | null;
   note: string | null;
+  deletedPostedTransaction: {
+    deletedAt: string;
+    deletedByUserId: string;
+    mutationRunId: string;
+  } | null;
 } {
+  const lineage = row.deletedPostedTransaction ?? null;
   return {
     id: row.id,
     batchId: row.batchId,
     rowNumber: row.rowNumber,
     state: row.state,
+    displayState: lineage ? "posted_transaction_deleted" : row.state,
+    statusCopy: lineage ? "Posted transaction deleted" : row.state === "confirmed" ? "Posted transaction confirmed" : row.state,
     version: row.version,
     accountId: row.accountId,
     accountName: row.accountNameInput,
@@ -1460,7 +1489,17 @@ function toTransactionDraftRowDto(row: AiTransactionDraftRowRecord): Transaction
     warnings: row.warnings,
     confirmedTradeEventId: row.confirmedTradeEventId,
     confirmedAt: row.confirmedAt,
+    deletedPostedTransaction: lineage,
     updatedAt: row.updatedAt,
+  } as TransactionDraftRowDto & {
+    tradeTimestamp: string | null;
+    bookingSequence: number | null;
+    note: string | null;
+    deletedPostedTransaction: {
+      deletedAt: string;
+      deletedByUserId: string;
+      mutationRunId: string;
+    } | null;
   };
 }
 
@@ -1476,13 +1515,22 @@ function toTransactionDraftUnsupportedDto(item: AiTransactionDraftUnsupportedIte
   };
 }
 
-function toTransactionDraftDetailDto(
+async function toTransactionDraftDetailDto(
   app: FastifyInstance,
   aggregate: AiTransactionDraftBatchAggregate,
-): TransactionDraftBatchDetailDto & { deepLinkUrl: string } {
+): Promise<TransactionDraftBatchDetailDto & { deepLinkUrl: string }> {
+  const deletedDraftLineageByTradeId = new Map(
+    (await app.persistence.listPostedTransactionMutationDeletedDraftLineage(
+      aggregate.batch.ownerUserId,
+      aggregate.rows.flatMap((row) => row.confirmedTradeEventId ? [row.confirmedTradeEventId] : []),
+    )).map((lineage) => [lineage.tradeEventId, lineage] as const),
+  );
   return {
     batch: toTransactionDraftBatchDto(app, aggregate.batch),
-    rows: aggregate.rows.map(toTransactionDraftRowDto),
+    rows: aggregate.rows.map((row) => toTransactionDraftRowDto({
+      ...row,
+      deletedPostedTransaction: row.confirmedTradeEventId ? deletedDraftLineageByTradeId.get(row.confirmedTradeEventId) ?? null : null,
+    })),
     unsupportedItems: aggregate.unsupportedItems.map(toTransactionDraftUnsupportedDto),
     deepLinkUrl: buildAiDraftDeepLink(app, aggregate.batch.id, aggregate.batch.ownerUserId),
   };
@@ -2208,6 +2256,10 @@ function mapTransactionHistoryItem(
   accountById: ReadonlyMap<string, { id: string; name: string }>,
   buildRealizedPnlBreakdown: (trade: Transaction) => TransactionHistoryItemDto["realizedPnlBreakdown"],
 ): TransactionHistoryItemDto {
+  const grossTradeValueAmount = roundToDecimal(trade.quantity * trade.unitPrice, 2);
+  const settlementAmount = trade.type === "BUY"
+    ? roundToDecimal(grossTradeValueAmount + trade.commissionAmount + trade.taxAmount, 2)
+    : roundToDecimal(grossTradeValueAmount - trade.commissionAmount - trade.taxAmount, 2);
   return {
     id: trade.id,
     accountId: trade.accountId,
@@ -2222,8 +2274,12 @@ function mapTransactionHistoryItem(
     tradeDate: trade.tradeDate,
     tradeTimestamp: trade.tradeTimestamp ?? null,
     bookingSequence: trade.bookingSequence ?? null,
+    grossTradeValueAmount,
     commissionAmount: trade.commissionAmount,
     taxAmount: trade.taxAmount,
+    settlementAmount,
+    settlementAvailable: true,
+    bookedCostAmount: trade.type === "BUY" ? settlementAmount : null,
     isDayTrade: trade.isDayTrade,
     realizedPnlAmount: trade.realizedPnlAmount ?? null,
     realizedPnlCurrency: trade.realizedPnlCurrency ?? null,
@@ -4112,6 +4168,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       holdingsTableSettings: z
         .union([holdingsTableSettingsPreferenceSchema, z.null()])
         .optional(),
+      holdingsSelection: z
+        .union([holdingsSelectionPreferenceSchema, z.null()])
+        .optional(),
       adminMarketDataTableSettings: z
         .union([adminMarketDataTableSettingsPreferenceSchema, z.null()])
         .optional(),
@@ -5381,6 +5440,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     quantity: z.number().int().positive().optional(),
     price: z.number().positive().multipleOf(0.01).optional(),
     side: z.enum(["BUY", "SELL"]).optional(),
+    isDayTrade: z.boolean().optional(),
     commissionAmount: bookedChargeFieldSchema("Commission").optional(),
     taxAmount: bookedChargeFieldSchema("Tax").optional(),
     confirmFeeRecalculation: z.boolean().optional(),
@@ -5391,6 +5451,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       || data.quantity !== undefined
       || data.price !== undefined
       || data.side !== undefined
+      || data.isDayTrade !== undefined
       || data.commissionAmount !== undefined
       || data.taxAmount !== undefined,
     { message: "At least one field must be provided" },
@@ -5486,6 +5547,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     });
   }
 
+  function isRouteErrorCode(error: unknown, code: string): error is Error & { code: string } {
+    return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === code;
+  }
+
   app.post("/portfolio/transactions/:tradeEventId/dividend-delete-preview", async (req) => {
     const { tradeEventId } = z.object({ tradeEventId: userScopedIdSchema }).parse(req.params);
     const body = destructivePreviewReasonSchema.parse(req.body);
@@ -5549,25 +5614,59 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       sharedContext,
       "DELETE /portfolio/transactions/:tradeEventId",
     );
-    const result = await confirmTradeDividendDeletion(app.persistence, {
+    const preview = await getPostedTransactionMutationPreview(app.persistence, {
       ownerUserId: userId,
       actorUserId: sharedContext?.sessionUserId ?? userId,
       previewId: body.previewId,
-      previewVersion: body.previewVersion,
-      fingerprint: body.fingerprint,
-      tradeEventId,
-      ipAddress: req.ip,
+      appBaseUrl: app.appBaseUrl,
     });
-    scheduleDestructiveSnapshotRebuild(userId, result.operation.replayScopes);
+    if (
+      preview.operation !== "delete"
+      || preview.page.total !== 1
+      || preview.page.items[0]?.transactionId !== tradeEventId
+    ) {
+      throw routeError(
+        409,
+        "posted_transaction_mutation_target_mismatch",
+        "The deletion preview does not match the transaction in this request.",
+      );
+    }
+    const result = await confirmPostedTransactionMutation(app.persistence, {
+      ownerUserId: userId,
+      actorUserId: sharedContext?.sessionUserId ?? userId,
+      appBaseUrl: app.appBaseUrl,
+      confirmation: {
+        previewId: body.previewId,
+        previewVersion: body.previewVersion,
+        operation: "delete",
+        fingerprint: body.fingerprint,
+        confirmationSummary: preview.confirmationSummary,
+        confirmationDigest: preview.confirmationDigest,
+      },
+    }, { eventBus: app.eventBus });
+    await dispatchPostedTransactionMutationRebuild(app.persistence, {
+      ownerUserId: userId,
+      runId: result.runId,
+      boss: app.boss ?? undefined,
+      eventBus: app.eventBus,
+    });
     await appendDelegatedWriteAudit(app, req, {
       mutation: "dividend_trade_delete_confirmed",
       routeKey: "DELETE /portfolio/transactions/:tradeEventId",
       previewId: body.previewId,
-      accountId: result.preview.accountId,
-      tradeEventId: result.preview.targetTradeEventId,
+      accountId: preview.page.items[0]?.before?.accountId ?? null,
+      tradeEventId,
     });
     reply.code(200);
-    return result;
+    return {
+      accountId: preview.page.items[0]?.before?.accountId ?? null,
+      ticker: preview.page.items[0]?.before?.ticker ?? null,
+      deletedTradeEventId: tradeEventId,
+      deletedChildRows: {
+        cashLedgerEntries: Math.abs(result.summary.cashDelta) > 0 ? 1 : 0,
+        lotAllocations: 0,
+      },
+    };
   });
 
   app.post("/portfolio/accounts/:accountId/purge-rebuild-preview", async (req) => {
@@ -5628,81 +5727,101 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     const trade = await app.persistence.getTradeEvent(userId, tradeEventId);
     if (!trade) throw routeError(404, "trade_event_not_found", "Trade event not found");
-
-    // Build patch
-    const patch: import("../persistence/types.js").TradeEventPatch = {};
-    const changedFields: string[] = [];
-
-    if (body.date !== undefined && body.date !== trade.tradeDate) {
-      patch.date = body.date;
-      changedFields.push("date");
-    }
-    if (body.quantity !== undefined && body.quantity !== trade.quantity) {
-      patch.quantity = body.quantity;
-      changedFields.push("quantity");
-    }
-    if (body.price !== undefined && body.price !== trade.unitPrice) {
-      patch.price = body.price;
-      changedFields.push("price");
-    }
-    if (body.side !== undefined && body.side !== trade.type) {
-      patch.side = body.side;
-      changedFields.push("side");
-    }
-    if (body.commissionAmount !== undefined && body.commissionAmount !== trade.commissionAmount) {
-      patch.commissionAmount = body.commissionAmount;
-      patch.feesSource = "MANUAL";
-      changedFields.push("commissionAmount");
-    }
-    if (body.taxAmount !== undefined && body.taxAmount !== trade.taxAmount) {
-      patch.taxAmount = body.taxAmount;
-      patch.feesSource = "MANUAL";
-      changedFields.push("taxAmount");
+    const changedFields = Object.entries({
+      date: body.date !== undefined && body.date !== trade.tradeDate,
+      quantity: body.quantity !== undefined && body.quantity !== trade.quantity,
+      price: body.price !== undefined && body.price !== trade.unitPrice,
+      side: body.side !== undefined && body.side !== trade.type,
+      isDayTrade: body.isDayTrade !== undefined && body.isDayTrade !== trade.isDayTrade,
+      commissionAmount: body.commissionAmount !== undefined && body.commissionAmount !== trade.commissionAmount,
+      taxAmount: body.taxAmount !== undefined && body.taxAmount !== trade.taxAmount,
+    }).filter(([, changed]) => changed).map(([field]) => field);
+    const feeSensitiveChange = changedFields.some((field) =>
+      field === "quantity" || field === "price" || field === "isDayTrade");
+    if (
+      feeSensitiveChange
+      && !body.keepManualFees
+      && !body.confirmFeeRecalculation
+      && body.commissionAmount === undefined
+      && body.taxAmount === undefined
+      && (trade.feesSource === "MANUAL" || trade.feesSource === "SOURCE_PROVIDED")
+    ) {
+      reply.code(200);
+      return {
+        requiresFeeConfirmation: true,
+        tradeEventId,
+      };
     }
 
-    if (changedFields.length === 0) {
-      throw routeError(400, "no_changes", "No fields changed");
-    }
-
-    // Fee recalculation check
-    const feeFieldsChanged = changedFields.includes("quantity") || changedFields.includes("price");
-    const explicitFeeOverride = body.commissionAmount !== undefined || body.taxAmount !== undefined;
-    if (feeFieldsChanged) {
-      const feesSource = trade.feesSource ?? "CALCULATED";
-      const hasProtectedRecordedFees = feesSource === "MANUAL" || feesSource === "SOURCE_PROVIDED";
-
-      if (!explicitFeeOverride && hasProtectedRecordedFees && !body.confirmFeeRecalculation && !body.keepManualFees) {
-        return reply.code(200).send({ requiresFeeConfirmation: true, tradeEventId });
+    let result;
+    try {
+      const preview = await previewPostedTransactionUpdateBatch(app.persistence, {
+        ownerUserId: userId,
+        actorUserId: userId,
+        reason: "User requested posted transaction correction",
+        appBaseUrl: app.appBaseUrl,
+        items: [{
+          transactionId: tradeEventId,
+          patch: {
+            tradeDate: body.date,
+            quantity: body.quantity,
+            unitPrice: body.price,
+            side: body.side,
+            isDayTrade: body.isDayTrade,
+            commissionAmount: body.commissionAmount,
+            taxAmount: body.taxAmount,
+            feeOverrideMode: body.confirmFeeRecalculation ? "recalculate" : "preserve_recorded",
+          },
+        }],
+      });
+      result = await confirmPostedTransactionMutation(app.persistence, {
+        ownerUserId: userId,
+        actorUserId: userId,
+        appBaseUrl: app.appBaseUrl,
+        confirmation: {
+          previewId: preview.previewId,
+          previewVersion: preview.previewVersion,
+          operation: "update",
+          fingerprint: preview.fingerprint,
+          confirmationSummary: preview.confirmationSummary,
+          confirmationDigest: preview.confirmationDigest,
+        },
+      }, { eventBus: app.eventBus });
+      await dispatchPostedTransactionMutationRebuild(app.persistence, {
+        ownerUserId: userId,
+        runId: result.runId,
+        boss: app.boss ?? undefined,
+        eventBus: app.eventBus,
+      });
+    } catch (error) {
+      if (isRouteErrorCode(error, "posted_transaction_mutation_no_changes")) {
+        throw routeError(400, "no_changes", "No changes requested");
       }
-
-      if (explicitFeeOverride) {
-        patch.feesSource = "MANUAL";
-      } else if (hasProtectedRecordedFees && body.keepManualFees) {
-        // Keep existing recorded fees and their provenance — no recalculation.
-      } else {
-        // Recalculate fees from bound fee profile
-        const newQuantity = body.quantity ?? trade.quantity;
-        const newPrice = body.price ?? trade.unitPrice;
-        const tradeValue = newQuantity * newPrice;
-        const newSide = body.side ?? trade.type;
-
-        const fees = newSide === "BUY"
-          ? calculateBuyFees(trade.feeSnapshot, tradeValue, trade.priceCurrency)
-          : calculateSellFees(trade.feeSnapshot, {
-              tradeValueAmount: tradeValue,
-              tradeCurrency: trade.priceCurrency,
-              instrumentType: trade.instrumentType,
-              isDayTrade: trade.isDayTrade,
-              marketCode: trade.marketCode,
-            });
-
-        patch.commissionAmount = fees.commissionAmount;
-        patch.taxAmount = fees.taxAmount;
-        patch.feesSource = "CALCULATED";
+      if (isRouteErrorCode(error, "posted_transaction_mutation_inventory_conflict")) {
+        try {
+          await app.eventBus.publishEvent(userId, "recompute_failed", {
+            accountId: trade.accountId,
+            ticker: trade.ticker,
+            reason: error.message,
+            retriesExhausted: true,
+          });
+        } catch {
+          // Event delivery is best-effort.
+        }
       }
+      throw error;
     }
-
-    await app.persistence.updateTradeEvent(userId, tradeEventId, patch);
+    try {
+      await app.eventBus.publishEvent(userId, "recompute_complete", {
+        accountId: trade.accountId,
+        ticker: trade.ticker,
+        updatedHoldings: null,
+        changedFields,
+        mutationRunId: result.runId,
+      });
+    } catch {
+      // Event delivery is best-effort.
+    }
     await appendDelegatedWriteAudit(app, req, {
       mutation: "transaction_updated",
       routeKey: "PATCH /portfolio/transactions/:tradeEventId",
@@ -5710,14 +5829,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       accountId: trade.accountId,
       ticker: trade.ticker,
       changedFields,
-    });
-
-    // Schedule async recompute — use min(oldTradeDate, newTradeDate) so a
-    // patch that moves the trade earlier regenerates the earlier window too.
-    const effectiveFromDate = patch.date && patch.date < trade.tradeDate ? patch.date : trade.tradeDate;
-    scheduleReplayWithRetry(app.persistence, app.eventBus, userId, trade.accountId, trade.ticker, {
-      snapshotFromDate: effectiveFromDate,
-      marketCode: trade.marketCode,
     });
 
     reply.code(202);
@@ -5743,17 +5854,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     const trade = await app.persistence.getTradeEvent(userId, tradeEventId);
     if (!trade) throw routeError(404, "trade_event_not_found", "Trade event not found");
-
-    // Count affected rows
-    const store = await app.persistence.loadStore(userId);
-    const cashEntries = store.accounting.facts.cashLedgerEntries.filter(
-      (e) => e.relatedTradeEventId === tradeEventId,
-    ).length;
-    const lotAllocs = store.accounting.projections.lotAllocations.filter(
-      (a) => a.tradeEventId === tradeEventId,
-    ).length;
-    // For a patch that moves the trade earlier, the affected snapshot window
-    // extends back to the new date — use min(old, new) for an accurate count.
     const effectiveSnapshotFromDate = query.action === "patch" && query.date && query.date < trade.tradeDate
       ? query.date
       : trade.tradeDate;
@@ -5764,48 +5864,201 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       effectiveSnapshotFromDate,
       trade.marketCode,
     );
-
-    // Check for negative lots
-    let negativeLots = { wouldOccur: false, resultingQuantity: 0, ticker: trade.ticker };
-
-    if (query.action === "delete" || query.side || query.quantity) {
-      const accountTrades = store.accounting.facts.tradeEvents
-        .filter((t) => t.accountId === trade.accountId && t.ticker === trade.ticker)
-        .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate) || (a.bookingSequence ?? 0) - (b.bookingSequence ?? 0));
-
-      let simulatedQty = 0;
-      let wouldGoNegative = false;
-
-      for (const t of accountTrades) {
-        if (query.action === "delete" && t.id === tradeEventId) continue;
-
-        const qty = t.id === tradeEventId ? (query.quantity ?? t.quantity) : t.quantity;
-        const side = t.id === tradeEventId ? (query.side ?? t.type) : t.type;
-
-        if (side === "BUY") {
-          simulatedQty += qty;
-        } else {
-          simulatedQty -= qty;
-          if (simulatedQty < 0) wouldGoNegative = true;
-        }
-      }
-
-      negativeLots = {
-        wouldOccur: wouldGoNegative,
-        resultingQuantity: simulatedQty,
-        ticker: trade.ticker,
+    const store = await app.persistence.loadStore(userId);
+    const currentOpenQuantity = store.accounting.projections.lots
+      .filter((lot) =>
+        lot.accountId === trade.accountId
+        && lot.ticker === trade.ticker
+        && lot.openQuantity > 0)
+      .reduce((sum, lot) => sum + lot.openQuantity, 0);
+    const currentSignedQuantity = trade.type === "BUY" ? trade.quantity : -trade.quantity;
+    const nextSignedQuantity = query.action === "delete"
+      ? 0
+      : ((query.side ?? trade.type) === "BUY" ? (query.quantity ?? trade.quantity) : -(query.quantity ?? trade.quantity));
+    const resultingQuantity = currentOpenQuantity + (nextSignedQuantity - currentSignedQuantity);
+    try {
+      const preview = query.action === "delete"
+        ? await previewPostedTransactionDeleteBatch(app.persistence, {
+            ownerUserId: userId,
+            items: [{ transactionId: tradeEventId }],
+            reason: "Preview posted transaction deletion impact",
+            appBaseUrl: app.appBaseUrl,
+          })
+        : await previewPostedTransactionUpdateBatch(app.persistence, {
+            ownerUserId: userId,
+            reason: "Preview posted transaction correction impact",
+            appBaseUrl: app.appBaseUrl,
+            items: [{
+              transactionId: tradeEventId,
+              patch: {
+                tradeDate: query.date,
+                quantity: query.quantity,
+                unitPrice: query.price,
+                side: query.side,
+              },
+            }],
+          });
+      return {
+        affectedRows: {
+          cashLedgerEntries: Math.abs(preview.summary.cashDelta) > 0 ? 1 : 0,
+          lotAllocations: 0,
+          feePolicySnapshots: 1,
+          holdingSnapshots,
+        },
+        negativeLots: {
+          wouldOccur: resultingQuantity < 0,
+          resultingQuantity,
+          ticker: trade.ticker,
+        },
+        ...(preview.blockers.length > 0 ? { blockers: preview.blockers } : {}),
+      };
+    } catch (error) {
+      if (!isRouteErrorCode(error, "posted_transaction_mutation_inventory_conflict")) throw error;
+      return {
+        affectedRows: {
+          cashLedgerEntries: 1,
+          lotAllocations: 0,
+          feePolicySnapshots: 1,
+          holdingSnapshots,
+        },
+        negativeLots: {
+          wouldOccur: resultingQuantity < 0,
+          resultingQuantity,
+          ticker: trade.ticker,
+        },
+        blockers: [error.message],
       };
     }
+  });
 
-    return {
-      affectedRows: {
-        cashLedgerEntries: cashEntries,
-        lotAllocations: lotAllocs,
-        feePolicySnapshots: 1,
-        holdingSnapshots,
+  app.post("/portfolio/transactions/mutations/update-preview", async (req) => {
+    const body = z.object({
+      reason: z.string().trim().min(1).max(500),
+      items: z.array(z.object({
+        transactionId: userScopedIdSchema,
+        note: z.string().trim().max(500).optional(),
+        patch: z.object({
+          tradeDate: isoDateSchema.optional(),
+          quantity: z.number().positive().optional(),
+          unitPrice: z.number().positive().optional(),
+          side: z.enum(["BUY", "SELL"]).optional(),
+          isDayTrade: z.boolean().optional(),
+          commissionAmount: z.number().min(0).optional(),
+          taxAmount: z.number().min(0).optional(),
+          feeOverrideMode: z.enum(["preserve_recorded", "recalculate"]).optional(),
+        }).strict(),
+      }).strict()).min(1),
+    }).parse(req.body);
+    const identity = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    return previewPostedTransactionUpdateBatch(app.persistence, {
+      ownerUserId: identity.contextUserId,
+      actorUserId: identity.sessionUserId,
+      items: body.items,
+      reason: body.reason,
+      appBaseUrl: app.appBaseUrl,
+    });
+  });
+
+  app.post("/portfolio/transactions/mutations/delete-preview", async (req) => {
+    const body = z.object({
+      reason: z.string().trim().min(1).max(500),
+      items: z.array(z.object({
+        transactionId: userScopedIdSchema,
+        note: z.string().trim().max(500).optional(),
+      }).strict()).min(1),
+    }).parse(req.body);
+    const identity = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    return previewPostedTransactionDeleteBatch(app.persistence, {
+      ownerUserId: identity.contextUserId,
+      actorUserId: identity.sessionUserId,
+      items: body.items,
+      reason: body.reason,
+      appBaseUrl: app.appBaseUrl,
+    });
+  });
+
+  app.get("/portfolio/transactions/mutations/previews/:previewId", async (req) => {
+    const { previewId } = z.object({ previewId: userScopedIdSchema }).parse(req.params);
+    const query = z.object({
+      limit: z.coerce.number().int().positive().max(200).optional(),
+      offset: z.coerce.number().int().min(0).optional(),
+      accountId: userScopedIdSchema.optional(),
+      ticker: tickerSchema.optional(),
+      marketCode: marketCodeSchema.optional(),
+      status: z.enum(["changed", "deleted", "unchanged", "warning", "blocked"]).optional(),
+    }).parse(req.query);
+    const identity = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    return getPostedTransactionMutationPreview(app.persistence, {
+      ownerUserId: identity.contextUserId,
+      actorUserId: identity.sessionUserId,
+      previewId,
+      query,
+      appBaseUrl: app.appBaseUrl,
+    });
+  });
+
+  app.post("/portfolio/transactions/mutations/previews/:previewId/confirm", async (req) => {
+    const { previewId } = z.object({ previewId: userScopedIdSchema }).parse(req.params);
+    const body = z.object({
+      previewVersion: z.number().int().positive(),
+      operation: z.enum(["update", "delete"]),
+      fingerprint: z.string().trim().min(1),
+      confirmationSummary: z.string().trim().min(1),
+      confirmationDigest: z.string().trim().min(1),
+    }).parse(req.body);
+    const identity = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const sharedContext = await resolveActiveSharedCapabilityContext(req);
+    if (body.operation === "delete" && sharedContext) {
+      const preview = await getPostedTransactionMutationPreview(app.persistence, {
+        ownerUserId: identity.contextUserId,
+        actorUserId: identity.sessionUserId,
+        previewId,
+        appBaseUrl: app.appBaseUrl,
+      });
+      if (preview.summary.deletedDividendCount > 0 || preview.summary.reopenedDividendCount > 0) {
+        requireDelegatedDividendWriteForHistoryRewrite(
+          sharedContext,
+          "POST /portfolio/transactions/mutations/previews/:previewId/confirm",
+        );
+      }
+    }
+    let result = await confirmPostedTransactionMutation(app.persistence, {
+      ownerUserId: identity.contextUserId,
+      actorUserId: identity.sessionUserId,
+      appBaseUrl: app.appBaseUrl,
+      confirmation: {
+        previewId,
+        previewVersion: body.previewVersion,
+        operation: body.operation,
+        fingerprint: body.fingerprint,
+        confirmationSummary: body.confirmationSummary,
+        confirmationDigest: body.confirmationDigest,
       },
-      negativeLots,
-    };
+    }, { eventBus: app.eventBus });
+    await dispatchPostedTransactionMutationRebuild(app.persistence, {
+      ownerUserId: identity.contextUserId,
+      runId: result.runId,
+      boss: app.boss ?? undefined,
+      eventBus: app.eventBus,
+    });
+    result = await getPostedTransactionMutationRun(app.persistence, {
+      ownerUserId: identity.contextUserId,
+      actorUserId: identity.sessionUserId,
+      runId: result.runId,
+      appBaseUrl: app.appBaseUrl,
+    });
+    return result;
+  });
+
+  app.get("/portfolio/transactions/mutations/runs/:runId", async (req) => {
+    const { runId } = z.object({ runId: userScopedIdSchema }).parse(req.params);
+    const identity = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    return getPostedTransactionMutationRun(app.persistence, {
+      ownerUserId: identity.contextUserId,
+      actorUserId: identity.sessionUserId,
+      runId,
+      appBaseUrl: app.appBaseUrl,
+    });
   });
 
   app.get("/portfolio/transactions", async (req, reply) => {
@@ -7585,7 +7838,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       requestContext.resolvedContext,
       await app.persistence.getAiTransactionDraftBatch(params.batchId),
     );
-    return toTransactionDraftDetailDto(app, aggregate);
+    return await toTransactionDraftDetailDto(app, aggregate);
   });
 
   const draftRowPatchSchema = z.object({
@@ -7643,7 +7896,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       batchId: params.batchId,
       rowId: params.rowId,
     });
-    return toTransactionDraftDetailDto(app, updated);
+    return await toTransactionDraftDetailDto(app, updated);
   });
 
   const draftRowIdsBodySchema = z.object({
@@ -7681,7 +7934,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       batchId: params.batchId,
       rowIds: body.rowIds,
     });
-    return toTransactionDraftDetailDto(app, updated);
+    return await toTransactionDraftDetailDto(app, updated);
   }
 
   app.post("/ai/transaction-drafts/:batchId/exclude", (req) =>
@@ -7726,7 +7979,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       batchId: params.batchId,
       status: updated.batch.status,
     });
-    return toTransactionDraftDetailDto(app, updated);
+    return await toTransactionDraftDetailDto(app, updated);
   });
 
   app.delete("/ai/transaction-drafts/:batchId", async (req) => {
@@ -7791,7 +8044,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await app.persistence.getAiTransactionDraftBatch(params.batchId),
     );
     return {
-      ...toTransactionDraftDetailDto(app, updated),
+      ...(await toTransactionDraftDetailDto(app, updated)),
       posting,
     };
   });
