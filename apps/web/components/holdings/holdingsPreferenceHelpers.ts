@@ -37,6 +37,13 @@ interface UserPreferencesResponse {
   };
 }
 
+interface PortfolioPrimaryHoldingsUniverseResponse {
+  holdingGroups?: Array<{
+    marketCode?: unknown;
+    ticker?: unknown;
+  }>;
+}
+
 export function buildHoldingsTickerId(marketCode: string, ticker: string): string {
   return `${marketCode}:${ticker.toUpperCase()}`;
 }
@@ -110,6 +117,15 @@ export async function fetchHoldingsPreferences(): Promise<{
     holdingsTableSettings: resolvedHoldingsTableSettings.preference,
     migratedHoldingsTableSettings: resolvedHoldingsTableSettings.migrated,
   };
+}
+
+export async function fetchHoldingsSelectionUniverseTickerIds(): Promise<string[]> {
+  const response = await getJson<PortfolioPrimaryHoldingsUniverseResponse>("/portfolio/primary");
+  return [...new Set((response.holdingGroups ?? []).flatMap((holding) => (
+    typeof holding.marketCode === "string" && typeof holding.ticker === "string"
+      ? [buildHoldingsTickerId(holding.marketCode, holding.ticker)]
+      : []
+  )))].sort((left, right) => left.localeCompare(right));
 }
 
 export async function persistHoldingsSelectionPreference(

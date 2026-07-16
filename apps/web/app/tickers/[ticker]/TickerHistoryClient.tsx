@@ -865,6 +865,7 @@ export function TickerHistoryClient({
     locale,
     dict,
     refresh,
+    transactions: displayTransactions,
     onDeleteAccepted: handleDeleteAccepted,
   });
 

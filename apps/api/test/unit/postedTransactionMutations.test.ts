@@ -348,6 +348,7 @@ describe("posted transaction mutation service", () => {
     const persistence = new MemoryPersistence();
     const tradeId = await seedTrade(persistence);
     const publishEvent = vi.fn().mockResolvedValue(undefined);
+    const deleteWalletSnapshots = vi.spyOn(persistence, "deleteAllCurrencyWalletSnapshots");
     const preview = await previewPostedTransactionUpdateBatch(persistence, {
       ownerUserId: "user-1",
       actorUserId: "user-1",
@@ -390,6 +391,7 @@ describe("posted transaction mutation service", () => {
       runId: confirmed.runId,
       status: "completed",
     }));
+    expect(deleteWalletSnapshots).toHaveBeenCalledWith("user-1");
   });
 
   it("returns the original run for identical confirmation retries and rejects conflicting reuse", async () => {

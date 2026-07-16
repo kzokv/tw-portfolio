@@ -32,6 +32,7 @@ interface UseTransactionMutationsOptions {
   locale: LocaleCode;
   dict: AppDictionary;
   refresh: () => Promise<void>;
+  transactions?: TransactionHistoryItemDto[];
   onDeleteAccepted?: (transactionId: string) => void;
 }
 
@@ -60,7 +61,7 @@ export interface UseTransactionMutationsResult {
   isEditSubmitting: boolean;
   confirmEdit: () => Promise<void>;
   cancelEditPreview: () => void;
-  feeConfirmTarget: null;
+  feeConfirmTarget: PendingEditRequest | null;
   isFeeConfirmOpen: boolean;
   confirmFeeRecalc: () => Promise<void>;
   keepManualFees: () => Promise<void>;
@@ -113,6 +114,7 @@ export function useTransactionMutations({
   locale: _locale,
   dict,
   refresh,
+  transactions = [],
   onDeleteAccepted,
 }: UseTransactionMutationsOptions): UseTransactionMutationsResult {
   const [deleteTarget, setDeleteTarget] = useState<TransactionHistoryItemDto | null>(null);
@@ -124,6 +126,7 @@ export function useTransactionMutations({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [pendingEditRequest, setPendingEditRequest] = useState<PendingEditRequest | null>(null);
   const [editPreview, setEditPreview] = useState<PostedTransactionMutationPreviewDto | null>(null);
+  const [feeConfirmTarget, setFeeConfirmTarget] = useState<PendingEditRequest | null>(null);
   const [isEditPreviewOpen, setIsEditPreviewOpen] = useState(false);
   const [isEditPreviewLoading, setIsEditPreviewLoading] = useState(false);
   const [isEditSubmitting, setIsEditSubmitting] = useState(false);
@@ -285,6 +288,7 @@ export function useTransactionMutations({
   const startEdit = useCallback((id: string) => {
     setEditingId(id);
     setPendingEditRequest(null);
+    setFeeConfirmTarget(null);
     setEditPreview(null);
     setIsEditPreviewOpen(false);
     setMessage("");
@@ -294,13 +298,14 @@ export function useTransactionMutations({
   const cancelEdit = useCallback(() => {
     setEditingId(null);
     setPendingEditRequest(null);
+    setFeeConfirmTarget(null);
     setEditPreview(null);
     setIsEditPreviewOpen(false);
     setIsEditPreviewLoading(false);
   }, []);
 
-  const submitEdit = useCallback(async (transactionId: string, patch: TransactionPatch) => {
-    setPendingEditRequest({ transactionId, patch });
+  const previewEditRequest = useCallback(async (request: PendingEditRequest) => {
+    setPendingEditRequest(request);
     setEditPreview(null);
     setIsEditPreviewLoading(true);
     setIsEditPreviewOpen(true);
@@ -309,7 +314,7 @@ export function useTransactionMutations({
     try {
       const preview = await previewPostedTransactionUpdateBatch(
         "User confirmed a posted transaction update from ticker history.",
-        [{ transactionId, patch: toUpdatePatch(patch) }],
+        [{ transactionId: request.transactionId, patch: toUpdatePatch(request.patch) }],
       );
       setEditPreview(preview);
     } catch (err: unknown) {
@@ -319,6 +324,43 @@ export function useTransactionMutations({
       setIsEditPreviewLoading(false);
     }
   }, []);
+
+  const submitEdit = useCallback(async (transactionId: string, patch: TransactionPatch) => {
+    const transaction = transactions.find((candidate) => candidate.id === transactionId);
+    const changesFeeInputs = patch.quantity !== undefined || patch.price !== undefined || patch.side !== undefined;
+    const hasExplicitFees = patch.commissionAmount !== undefined || patch.taxAmount !== undefined;
+    const hasProtectedFees = transaction?.feesSource === "MANUAL" || transaction?.feesSource === "SOURCE_PROVIDED";
+    if (changesFeeInputs && hasProtectedFees && !hasExplicitFees) {
+      setFeeConfirmTarget({ transactionId, patch });
+      setEditPreview(null);
+      setIsEditPreviewOpen(false);
+      setMessage("");
+      setErrorMessage("");
+      return;
+    }
+    setFeeConfirmTarget(null);
+    await previewEditRequest({ transactionId, patch });
+  }, [previewEditRequest, transactions]);
+
+  const confirmFeeRecalc = useCallback(async () => {
+    if (!feeConfirmTarget) return;
+    const request = feeConfirmTarget;
+    setFeeConfirmTarget(null);
+    await previewEditRequest({
+      ...request,
+      patch: { ...request.patch, confirmFeeRecalculation: true, keepManualFees: false },
+    });
+  }, [feeConfirmTarget, previewEditRequest]);
+
+  const keepManualFees = useCallback(async () => {
+    if (!feeConfirmTarget) return;
+    const request = feeConfirmTarget;
+    setFeeConfirmTarget(null);
+    await previewEditRequest({
+      ...request,
+      patch: { ...request.patch, confirmFeeRecalculation: false, keepManualFees: true },
+    });
+  }, [feeConfirmTarget, previewEditRequest]);
 
   const confirmEdit = useCallback(async () => {
     if (!pendingEditRequest || !editPreview || isEditSubmitting) return;
@@ -356,6 +398,7 @@ export function useTransactionMutations({
   const cancelEditPreview = useCallback(() => {
     if (isEditSubmitting) return;
     setPendingEditRequest(null);
+    setFeeConfirmTarget(null);
     setEditPreview(null);
     setIsEditPreviewOpen(false);
     setIsEditPreviewLoading(false);
@@ -394,10 +437,10 @@ export function useTransactionMutations({
     isEditSubmitting,
     confirmEdit,
     cancelEditPreview,
-    feeConfirmTarget: null,
-    isFeeConfirmOpen: false,
-    confirmFeeRecalc: async () => {},
-    keepManualFees: async () => {},
+    feeConfirmTarget,
+    isFeeConfirmOpen: feeConfirmTarget !== null,
+    confirmFeeRecalc,
+    keepManualFees,
     recomputingIds,
     recomputingSymbols,
     message,

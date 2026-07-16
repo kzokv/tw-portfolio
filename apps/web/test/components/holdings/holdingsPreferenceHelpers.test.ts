@@ -12,6 +12,7 @@ import {
   buildHoldingsTickerId,
   defaultHoldingsSelectionPreference,
   fetchHoldingsPreferences,
+  fetchHoldingsSelectionUniverseTickerIds,
   normalizeHoldingsSelectionPreference,
   persistHoldingsSelectionPreference,
   persistHoldingsTableContexts,
@@ -131,6 +132,20 @@ describe("holdingsPreferenceHelpers", () => {
       migratedHoldingsTableSettings: false,
     });
     expect(getJson).toHaveBeenCalledWith("/user-preferences", { contextScope: "session" });
+  });
+
+  it("loads the full portfolio holdings universe for all-mode materialization", async () => {
+    vi.mocked(getJson).mockResolvedValue({
+      holdingGroups: [
+        { marketCode: "TW", ticker: "2330" },
+        { marketCode: "US", ticker: "aapl" },
+        { marketCode: "US", ticker: "AAPL" },
+        { marketCode: null, ticker: "INVALID" },
+      ],
+    });
+
+    await expect(fetchHoldingsSelectionUniverseTickerIds()).resolves.toEqual(["TW:2330", "US:AAPL"]);
+    expect(getJson).toHaveBeenCalledWith("/portfolio/primary");
   });
 
   it("hydrates a migrated in-memory holdings table view and retries persistence on a later fetch", async () => {

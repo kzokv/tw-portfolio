@@ -5,6 +5,7 @@ import type { HoldingsSelectionPreferenceDto } from "@vakwen/shared-types";
 import {
   buildHoldingsTickerId,
   defaultHoldingsSelectionPreference,
+  fetchHoldingsSelectionUniverseTickerIds,
   fetchHoldingsPreferences,
   persistHoldingsSelectionPreference,
 } from "./holdingsPreferenceHelpers";
@@ -19,6 +20,12 @@ export interface HoldingsSelectionUniverseItem {
 let cachedSelection: HoldingsSelectionPreferenceDto | null = null;
 let hydratePromise: Promise<HoldingsSelectionPreferenceDto> | null = null;
 const subscribers = new Set<(selection: HoldingsSelectionPreferenceDto) => void>();
+
+export function resetHoldingsSelectionStateForTest(): void {
+  cachedSelection = null;
+  hydratePromise = null;
+  subscribers.clear();
+}
 
 function emitSelection(selection: HoldingsSelectionPreferenceDto): void {
   cachedSelection = selection;
@@ -116,7 +123,7 @@ export function useHoldingsSelection(universe: HoldingsSelectionUniverseItem[]) 
   );
 
   function commit(nextSelection: HoldingsSelectionPreferenceDto): void {
-    const previousSelection = selection;
+    const previousSelection = cachedSelection ?? selection;
     setSelection(nextSelection);
     emitSelection(nextSelection);
     setSelectionError("");
@@ -137,9 +144,16 @@ export function useHoldingsSelection(universe: HoldingsSelectionUniverseItem[]) 
 
   function toggleTicker(tickerId: string): void {
     if (selection.mode === "all") {
-      commit(normalizeSelectionForPersist(
-        universeTickerIds.filter((currentTickerId) => currentTickerId !== tickerId),
-      ));
+      void fetchHoldingsSelectionUniverseTickerIds()
+        .then((fullUniverseTickerIds) => {
+          const materializedTickerIds = [...new Set([...fullUniverseTickerIds, ...universeTickerIds])];
+          commit(normalizeSelectionForPersist(
+            materializedTickerIds.filter((currentTickerId) => currentTickerId !== tickerId),
+          ));
+        })
+        .catch((error) => {
+          setSelectionError(error instanceof Error ? error.message : String(error));
+        });
       return;
     }
     const nextSelectedTickerIds = new Set(selectedTickerIds);

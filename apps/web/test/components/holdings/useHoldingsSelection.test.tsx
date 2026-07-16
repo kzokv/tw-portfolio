@@ -1,9 +1,13 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { useHoldingsSelection } from "../../../components/holdings/useHoldingsSelection";
+import {
+  resetHoldingsSelectionStateForTest,
+  useHoldingsSelection,
+} from "../../../components/holdings/useHoldingsSelection";
 import {
   fetchHoldingsPreferences,
+  fetchHoldingsSelectionUniverseTickerIds,
   persistHoldingsSelectionPreference,
 } from "../../../components/holdings/holdingsPreferenceHelpers";
 
@@ -12,6 +16,7 @@ vi.mock("../../../components/holdings/holdingsPreferenceHelpers", async (importO
   return {
     ...actual,
     fetchHoldingsPreferences: vi.fn(),
+    fetchHoldingsSelectionUniverseTickerIds: vi.fn(),
     persistHoldingsSelectionPreference: vi.fn(),
   };
 });
@@ -48,6 +53,7 @@ describe("useHoldingsSelection", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+    resetHoldingsSelectionStateForTest();
     vi.clearAllMocks();
   });
 
@@ -58,6 +64,11 @@ describe("useHoldingsSelection", () => {
       migratedHoldingsTableSettings: false,
     });
     vi.mocked(persistHoldingsSelectionPreference).mockResolvedValue();
+    vi.mocked(fetchHoldingsSelectionUniverseTickerIds).mockResolvedValue([
+      "TW:2330",
+      "TW:2454",
+      "US:AAPL",
+    ]);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -73,6 +84,7 @@ describe("useHoldingsSelection", () => {
 
     await act(async () => {
       container.querySelector("button")?.click();
+      await Promise.resolve();
     });
 
     expect(container.querySelector("[data-testid='mode']")?.textContent).toBe("custom");
@@ -80,6 +92,48 @@ describe("useHoldingsSelection", () => {
     expect(container.querySelector("[data-testid='2330-selected']")?.textContent).toBe("false");
     expect(container.querySelector("[data-testid='2454-selected']")?.textContent).toBe("true");
     expect(container.querySelector("[data-testid='aapl-selected']")?.textContent).toBe("true");
+    expect(persistHoldingsSelectionPreference).toHaveBeenCalledWith({
+      version: 1,
+      mode: "custom",
+      tickerIds: ["TW:2454", "US:AAPL"],
+    });
+  });
+
+  it("preserves tickers outside a scoped universe when leaving all mode", async () => {
+    vi.mocked(fetchHoldingsPreferences).mockResolvedValue({
+      holdingsSelection: { version: 1, mode: "all" },
+      holdingsTableSettings: { version: 1, contexts: {} },
+      migratedHoldingsTableSettings: false,
+    });
+    vi.mocked(fetchHoldingsSelectionUniverseTickerIds).mockResolvedValue([
+      "TW:2330",
+      "TW:2454",
+      "US:AAPL",
+    ]);
+    vi.mocked(persistHoldingsSelectionPreference).mockResolvedValue();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+
+    function ScopedSelectionHarness() {
+      const selection = useHoldingsSelection(universe.slice(0, 2));
+      return (
+        <div>
+          <span data-testid="selected">{selection.selectedTickerIds.join(",")}</span>
+          <button type="button" onClick={() => selection.toggleTicker("TW:2330")}>Toggle TSMC</button>
+        </div>
+      );
+    }
+
+    await act(async () => {
+      root.render(<ScopedSelectionHarness />);
+    });
+    await act(async () => {
+      container.querySelector("button")?.click();
+      await Promise.resolve();
+    });
+
+    expect(container.querySelector("[data-testid='selected']")?.textContent).toBe("TW:2454,US:AAPL");
     expect(persistHoldingsSelectionPreference).toHaveBeenCalledWith({
       version: 1,
       mode: "custom",

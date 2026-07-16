@@ -47,7 +47,7 @@ The final diff was checked against both locked scope documents. All product step
 
 ## Codex Review Follow-up
 
-Codex review on PR #290 identified actionable issues across seven review rounds:
+Codex review on PR #290 identified actionable issues across eight review rounds:
 
 1. The new mutation preview and confirmation routes were present in the delegated capability matrix but absent from `SHARED_CONTEXT_WRITE_ROUTE_KEYS`. All three routes now enter the shared-context capability guard, and a table-driven integration test proves viewers without `transaction:write` receive `shared_capability_required` before route handling.
 2. The legacy transaction impact response derived `negativeLots.wouldOccur` only from final open quantity. It now treats canonical replay blockers as authoritative, so an intermediate negative position is reported even when a later buy restores the final quantity to zero.
@@ -64,6 +64,9 @@ Codex review on PR #290 identified actionable issues across seven review rounds:
 13. Shared mutation preview and run deep links omitted the portfolio owner, so opening a link outside the existing browser context could request the delegate's own portfolio. Generated paths and absolute URLs now include `?as=<owner>`, and both server-rendered pages validate and forward that owner context on their initial API fetch.
 14. MCP update and delete preview tools could persist dividend-impacting previews for delegated connectors before checking `dividend:write`. Shared MCP previews now run the same non-persisting simulation first and require both connector scope and share capability before durable preview creation.
 15. Delegated preview reloads relied on the context cookie being written before the client effect ran. The validated owner context is now passed through preview filtering/reloads and adjacent run polling as an explicit session-scoped API header.
+16. Transaction edits with protected manual or source-provided fees bypassed the existing fee recalculation choice. Quantity, price, and side changes now pause before preview and let the user explicitly recalculate or preserve the recorded fee amounts.
+17. Leaving holdings all-mode from a report-scoped table materialized only the visible report universe, which could silently drop holdings outside that view. The transition now fetches the full primary-portfolio holdings universe before persisting the custom selection.
+18. Synchronous mutation rebuilds refreshed account and portfolio state but omitted the currency wallet snapshot refresh performed by the worker path. Successful synchronous rebuilds now run the same best-effort wallet snapshot regeneration.
 
 Follow-up evidence:
 
@@ -93,6 +96,11 @@ Follow-up evidence:
 - Seventh-round preview/run/page tests: 7 passed; changed-file ESLint and API source/integration plus web TypeScript checks passed.
 - Seventh-round `npm run test --prefix apps/api`: 201 files passed, 49 skipped; 2,090 tests passed, 473 skipped.
 - Seventh-round `npm run test --prefix apps/web`: 86 component/app files with 583 tests passed, followed by 80 feature/lib files with 534 tests passed.
+- Eighth-round posted-transaction mutation tests: 12 passed, including synchronous wallet snapshot refresh.
+- Eighth-round holdings-selection, preference-helper, and transaction-hook tests: 17 passed, including protected-fee choice and full-universe materialization from a scoped table.
+- Eighth-round API source/integration TypeScript, web TypeScript, changed-file ESLint, and `git diff --check`: passed.
+- Eighth-round `npm run test --prefix apps/api`: 201 files passed, 49 skipped; 2,090 tests passed, 473 skipped.
+- Eighth-round `npm run test --prefix apps/web`: 86 component/app files with 585 tests passed, followed by 80 feature/lib files with 535 tests passed.
 
 ## Waiver
 

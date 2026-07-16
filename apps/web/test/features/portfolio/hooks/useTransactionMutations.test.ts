@@ -49,6 +49,7 @@ const mockTx = {
   id: "tx-1",
   accountId: "acc-1",
   ticker: "2330",
+  feesSource: "CALCULATED",
 } as TransactionHistoryItemDto;
 
 function buildPreview(operation: "delete" | "update" = "delete"): PostedTransactionMutationPreviewDto {
@@ -206,11 +207,13 @@ let result: UseTransactionMutationsResult;
 function Harness({
   onDeleteAccepted,
   refresh,
+  transactions,
 }: {
   onDeleteAccepted?: (transactionId: string) => void;
   refresh: () => Promise<void>;
+  transactions: TransactionHistoryItemDto[];
 }) {
-  result = useTransactionMutations({ locale: "en", dict: mockDict, refresh, onDeleteAccepted });
+  result = useTransactionMutations({ locale: "en", dict: mockDict, refresh, transactions, onDeleteAccepted });
   return null;
 }
 
@@ -240,9 +243,9 @@ describe("useTransactionMutations", () => {
     vi.clearAllMocks();
   });
 
-  function mount() {
+  function mount(transactions: TransactionHistoryItemDto[] = [mockTx]) {
     act(() => {
-      root.render(createElement(Harness, { refresh, onDeleteAccepted }));
+      root.render(createElement(Harness, { refresh, transactions, onDeleteAccepted }));
     });
   }
 
@@ -377,6 +380,29 @@ describe("useTransactionMutations", () => {
     expect(result.editingId).toBeNull();
     expect(refresh).toHaveBeenCalled();
     expect(result.message).toBe("Recomputed successfully");
+  });
+
+  it("requires a fee choice before previewing protected-fee edits", async () => {
+    mount([{ ...mockTx, feesSource: "MANUAL" }]);
+
+    await act(async () => {
+      await result.submitEdit("tx-1", { quantity: 12, price: 101 });
+    });
+
+    expect(result.isFeeConfirmOpen).toBe(true);
+    expect(result.isEditPreviewOpen).toBe(false);
+    expect(previewPostedTransactionUpdateBatch).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await result.confirmFeeRecalc();
+    });
+
+    expect(result.isFeeConfirmOpen).toBe(false);
+    expect(result.isEditPreviewOpen).toBe(true);
+    expect(previewPostedTransactionUpdateBatch).toHaveBeenCalledWith(
+      "User confirmed a posted transaction update from ticker history.",
+      [{ transactionId: "tx-1", patch: expect.objectContaining({ feeOverrideMode: "recalculate" }) }],
+    );
   });
 
   it("marks edit confirmation as submitting while the canonical confirm request is in flight", async () => {

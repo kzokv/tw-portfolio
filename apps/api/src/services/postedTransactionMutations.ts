@@ -24,6 +24,7 @@ import { recomputeSnapshotsForTicker } from "./snapshotGeneration.js";
 import { canonicalJsonStringify } from "./canonicalJson.js";
 import type { BookedTradeEvent, Store } from "../types/store.js";
 import { MCP_REPLAY_POSITION_RUN_QUEUE } from "./mcpPortfolioMaintenance.js";
+import { generateCurrencyWalletSnapshots } from "./currencyWalletSnapshotGeneration.js";
 
 const PREVIEW_TTL_MS = 30 * 60 * 1000;
 const INITIAL_PREVIEW_PAGE_LIMIT = 50;
@@ -1229,6 +1230,7 @@ async function runRebuildSynchronously(
     await publishMutationRebuildEvent(eventBus, mutationRun, "running");
   }
   let failed = 0;
+  let succeeded = 0;
   for (const scope of replayRun.scopes) {
     const replayScope = replayScopes.find((candidate) => scopeKey(candidate) === scopeKey(scope));
     await persistence.updateMcpReplayRunScope({ ...scope, runId, status: "running", updatedAt: new Date().toISOString() });
@@ -1257,6 +1259,7 @@ async function runRebuildSynchronously(
           updatedAt: new Date().toISOString(),
         });
         completed = true;
+        succeeded += 1;
         break;
       } catch (error) {
         lastError = error;
@@ -1272,6 +1275,11 @@ async function runRebuildSynchronously(
         updatedAt: new Date().toISOString(),
       });
     }
+  }
+  try {
+    if (succeeded > 0) await generateCurrencyWalletSnapshots(ownerUserId, persistence);
+  } catch {
+    // Replay status is position-scoped; wallet refresh failures remain best-effort here and in the worker.
   }
   const replayTerminalStatus = failed === 0
     ? "completed"
