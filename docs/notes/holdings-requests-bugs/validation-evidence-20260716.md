@@ -36,7 +36,7 @@ Additional checks:
 2. Concurrent identical Postgres confirmations could report stale state to the losing caller. Confirmation now returns the already-created run when preview ID and digest match, preserving idempotency.
 3. Mutation rebuild status could diverge between replay scopes and the linked mutation run. Synchronous and worker paths now persist running and terminal status, scope failures, and lifecycle events.
 4. Rebuild recovery attempted each scope only once. Mutation-linked scopes now retry up to three bounded attempts and exhausted runs direct the caller to the existing preview/replay recovery tools.
-5. In global holdings `all` mode, clicking an inline ticker entered custom mode by excluding the clicked ticker. It now enters custom mode with the clicked ticker selected; unit and E2E assertions cover the transition and persistence.
+5. In global holdings `all` mode, clicking an inline ticker initially entered custom mode with only that ticker selected. It now preserves the rest of the universe and excludes only the clicked ticker; focused hook coverage verifies the transition and persistence.
 6. Fee profile discount persistence lacked end-to-end coverage. The settings assistant and browser scenario now edit, leave, reopen, and verify the saved discount.
 7. One OAuth full-suite attempt dropped the dashboard card over itself and timed out waiting for a preference PATCH. The trace showed no application request because the pointer drag did not move. The same case passed three consecutive focused repetitions, and the exact full OAuth suite then passed 121/121; no product defect was found.
 
@@ -46,7 +46,7 @@ The final diff was checked against both locked scope documents. All product step
 
 ## Codex Review Follow-up
 
-Codex review on PR #290 identified two actionable route-level issues:
+Codex review on PR #290 identified actionable issues across four review rounds:
 
 1. The new mutation preview and confirmation routes were present in the delegated capability matrix but absent from `SHARED_CONTEXT_WRITE_ROUTE_KEYS`. All three routes now enter the shared-context capability guard, and a table-driven integration test proves viewers without `transaction:write` receive `shared_capability_required` before route handling.
 2. The legacy transaction impact response derived `negativeLots.wouldOccur` only from final open quantity. It now treats canonical replay blockers as authoritative, so an intermediate negative position is reported even when a later buy restores the final quantity to zero.
@@ -55,6 +55,9 @@ Codex review on PR #290 identified two actionable route-level issues:
 5. Shared update confirmations only checked `dividend:write` for delete operations. Both explicit confirmation and the legacy PATCH bridge now require `dividend:write` whenever preview impact deletes or reopens dividend state.
 6. The legacy shared PATCH bridge attributed mutation previews, runs, replay runs, and atomic audit records to the portfolio owner. It now uses the authenticated session actor while retaining the owner as portfolio context.
 7. The first dividend-authorization regression fixture exposed that superseded/reversed ledger rows were still counted as active preview impact. The active dividend summary now excludes those rows, and the corrected fixture proves an update that retires eligibility is blocked without `dividend:write`.
+8. Holdings row selection controls appeared unchecked in the default all-tickers mode. In-universe tickers now report selected while unavailable ticker identities remain unchecked.
+9. Leaving all-tickers mode from an inline row control retained only the clicked ticker. The custom selection now starts from the current universe and removes the clicked ticker, preserving every other holding.
+10. The delete confirmation dialog labeled monetary and quantity deltas as cash-entry and lot-allocation row counts. Localized copy now presents formatted cash-balance and holdings-quantity changes explicitly.
 
 Follow-up evidence:
 
@@ -68,6 +71,9 @@ Follow-up evidence:
 - Third-round focused mutation/shared-context tests: 69 passed.
 - Third-round API TypeScript and ESLint checks: passed.
 - Third-round `npm run test --prefix apps/api`: 201 files passed, 49 skipped; 2,088 tests passed, 473 skipped.
+- Fourth-round focused holdings-selection and delete-dialog tests: 3 passed. The first dialog assertion expected an ISO currency code, while the shared formatter correctly emitted `NT$`; the assertion was aligned with the existing formatter and reran cleanly.
+- Fourth-round web TypeScript and changed-file ESLint checks: passed.
+- Fourth-round `npm run test --prefix apps/web`: 85 component/app files with 580 tests passed, followed by 80 feature/lib files with 534 tests passed.
 
 ## Waiver
 

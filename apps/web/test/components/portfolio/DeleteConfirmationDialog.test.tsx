@@ -135,6 +135,9 @@ describe("DeleteConfirmationDialog", () => {
 
     expect(document.querySelector("[data-testid='delete-impact-counts']")).not.toBeNull();
     expect(document.querySelector("[data-testid='delete-dividend-impact']")).not.toBeNull();
+    expect(document.body.textContent).toContain("Cash balance change: NT$2");
+    expect(document.body.textContent).toContain("holdings quantity change: -100");
+    expect(document.body.textContent).not.toContain("cash entries");
     expect(document.body.textContent).toContain("Deleting…");
     expect(document.querySelector<HTMLButtonElement>("[data-testid='delete-confirm-button']")?.disabled).toBe(true);
     expect(document.querySelector<HTMLButtonElement>("[data-testid='delete-cancel-button']")?.disabled).toBe(true);

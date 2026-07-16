@@ -137,7 +137,9 @@ export function useHoldingsSelection(universe: HoldingsSelectionUniverseItem[]) 
 
   function toggleTicker(tickerId: string): void {
     if (selection.mode === "all") {
-      commit(normalizeSelectionForPersist([tickerId]));
+      commit(normalizeSelectionForPersist(
+        universeTickerIds.filter((currentTickerId) => currentTickerId !== tickerId),
+      ));
       return;
     }
     const nextSelectedTickerIds = new Set(selectedTickerIds);
@@ -166,8 +168,9 @@ export function useHoldingsSelection(universe: HoldingsSelectionUniverseItem[]) 
     universeItems,
     universeTickerIds,
     universeTickerIdSet,
-    isTickerSelected: (tickerId: string) => selection.mode === "custom"
-      && selectedTickerIdSet.has(tickerId),
+    isTickerSelected: (tickerId: string) => selection.mode === "all"
+      ? universeTickerIdSet.has(tickerId)
+      : selectedTickerIdSet.has(tickerId),
     setAll,
     setCustomTickerIds,
     toggleTicker,

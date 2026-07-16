@@ -157,8 +157,11 @@ export function DeleteConfirmationDialog({
                 </p>
                 <p className="mt-1">
                   {dict.mutations.deleteImpactDetail
-                    .replace("{cashEntries}", String(Math.abs(preview.summary.cashDelta)))
-                    .replace("{lotAllocations}", String(Math.abs(preview.summary.quantityDelta)))}
+                    .replace(
+                      "{cashDelta}",
+                      formatCurrencyAmount(preview.summary.cashDelta, transaction.priceCurrency, locale),
+                    )
+                    .replace("{quantityDelta}", formatNumber(preview.summary.quantityDelta, locale))}
                 </p>
               </div>
               {preview.warnings.length > 0 ? (
