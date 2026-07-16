@@ -47,7 +47,7 @@ The final diff was checked against both locked scope documents. All product step
 
 ## Codex Review Follow-up
 
-Codex review on PR #290 identified actionable issues across nine review rounds:
+Codex review on PR #290 identified actionable issues across ten review rounds:
 
 1. The new mutation preview and confirmation routes were present in the delegated capability matrix but absent from `SHARED_CONTEXT_WRITE_ROUTE_KEYS`. All three routes now enter the shared-context capability guard, and a table-driven integration test proves viewers without `transaction:write` receive `shared_capability_required` before route handling.
 2. The legacy transaction impact response derived `negativeLots.wouldOccur` only from final open quantity. It now treats canonical replay blockers as authoritative, so an intermediate negative position is reported even when a later buy restores the final quantity to zero.
@@ -68,6 +68,8 @@ Codex review on PR #290 identified actionable issues across nine review rounds:
 17. Leaving holdings all-mode from a report-scoped table materialized only the visible report universe, which could silently drop holdings outside that view. The transition now fetches the full primary-portfolio holdings universe before persisting the custom selection.
 18. Synchronous mutation rebuilds refreshed account and portfolio state but omitted the currency wallet snapshot refresh performed by the worker path. Successful synchronous rebuilds now run the same best-effort wallet snapshot regeneration.
 19. Posted-mutation HTTP and MCP update schemas accepted fractional quantities and prices beyond database precision. Both boundaries now enforce positive integer quantities and positive prices in cent increments before a preview can be persisted.
+20. Owner reads and confirmations of delegate-created mutation records were rejected by the delegated actor match. Owners may now inspect and confirm records on their own portfolio, while other delegates remain restricted to records they created.
+21. The portfolio compact holdings view inherited the dashboard top-holdings preference context. It now explicitly uses the portfolio holdings context, keeping dashboard and portfolio column, limit, and layout settings isolated.
 
 Follow-up evidence:
 
@@ -105,6 +107,11 @@ Follow-up evidence:
 - Ninth-round posted-transaction HTTP and MCP integration tests: 88 passed, including rejection of fractional quantities and sub-cent prices before preview persistence.
 - Ninth-round API source/integration TypeScript and changed-file ESLint checks: passed.
 - Ninth-round `npm run test --prefix apps/api`: 201 files passed, 49 skipped; 2,093 tests passed, 473 skipped.
+- Tenth-round posted-transaction owner-access tests: 13 passed, including owner confirmation and denial for an unrelated delegate.
+- Tenth-round portfolio holdings-style tests: 8 passed, including explicit compact-view use of the `portfolio.holdings` settings context.
+- Tenth-round API/web TypeScript and changed-file ESLint checks: passed.
+- Tenth-round `npm run test --prefix apps/api`: 201 files passed, 49 skipped; 2,094 tests passed, 473 skipped.
+- Tenth-round `npm run test --prefix apps/web`: 86 component/app files with 585 tests passed, followed by 80 feature/lib files with 535 tests passed.
 
 ## Waiver
 

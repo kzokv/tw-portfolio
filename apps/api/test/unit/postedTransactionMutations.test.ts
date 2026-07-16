@@ -344,6 +344,61 @@ describe("posted transaction mutation service", () => {
     }));
   });
 
+  it("allows the portfolio owner to inspect and confirm a delegate-created preview", async () => {
+    const persistence = new MemoryPersistence();
+    const tradeId = await seedTrade(persistence);
+    const preview = await previewPostedTransactionDeleteBatch(persistence, {
+      ownerUserId: "user-1",
+      actorUserId: "delegate-user",
+      reason: "Remove delegated duplicate",
+      appBaseUrl: "http://localhost",
+      items: [{ transactionId: tradeId }],
+    });
+
+    await expect(getPostedTransactionMutationPreview(persistence, {
+      ownerUserId: "user-1",
+      actorUserId: "user-1",
+      previewId: preview.previewId,
+      appBaseUrl: "http://localhost",
+    })).resolves.toMatchObject({ previewId: preview.previewId });
+    await expect(getPostedTransactionMutationPreview(persistence, {
+      ownerUserId: "user-1",
+      actorUserId: "other-delegate",
+      previewId: preview.previewId,
+      appBaseUrl: "http://localhost",
+    })).rejects.toMatchObject({ statusCode: 404 });
+
+    const confirmed = await confirmPostedTransactionMutation(persistence, {
+      ownerUserId: "user-1",
+      actorUserId: "user-1",
+      appBaseUrl: "http://localhost",
+      confirmation: {
+        previewId: preview.previewId,
+        previewVersion: preview.previewVersion,
+        operation: "delete",
+        fingerprint: preview.fingerprint,
+        confirmationSummary: preview.confirmationSummary,
+        confirmationDigest: preview.confirmationDigest,
+      },
+    });
+
+    await expect(getPostedTransactionMutationRun(persistence, {
+      ownerUserId: "user-1",
+      actorUserId: "user-1",
+      runId: confirmed.runId,
+      appBaseUrl: "http://localhost",
+    })).resolves.toMatchObject({ runId: confirmed.runId });
+    await expect(persistence.getPostedTransactionMutationRun(confirmed.runId)).resolves.toMatchObject({
+      actorUserId: "user-1",
+    });
+    await expect(getPostedTransactionMutationRun(persistence, {
+      ownerUserId: "user-1",
+      actorUserId: "other-delegate",
+      runId: confirmed.runId,
+      appBaseUrl: "http://localhost",
+    })).rejects.toMatchObject({ statusCode: 404 });
+  });
+
   it("persists synchronous rebuild completion on the mutation run and publishes lifecycle events", async () => {
     const persistence = new MemoryPersistence();
     const tradeId = await seedTrade(persistence);

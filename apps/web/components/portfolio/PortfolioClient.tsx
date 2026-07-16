@@ -337,6 +337,7 @@ export function PortfolioClient({
                         fxRates={portfolio.data.fxRates}
                         locale={locale}
                         reportingCurrency={effectiveReportingCurrency}
+                        settingsContextKey={PORTFOLIO_HOLDINGS_CONTEXT_KEY}
                         quoteRefreshVersion={portfolio.quoteRefreshVersion}
                         showAdminActivityLinks={sessionUserRole === "admin" && !isSharedContext}
                         isRefreshing={portfolio.isRefreshing}

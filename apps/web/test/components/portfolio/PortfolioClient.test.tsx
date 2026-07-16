@@ -338,10 +338,10 @@ describe("PortfolioClient", () => {
     });
 
     expect(dashboardHoldingsPreviewMock).toHaveBeenCalledTimes(1);
-    expect(dashboardHoldingsPreviewMock.mock.calls[0]?.[0]).not.toHaveProperty("settingsContextKey");
     expect(dashboardHoldingsPreviewMock.mock.calls[0]?.[0]).toMatchObject({
       isRefreshing: false,
       onRefresh: expect.any(Function),
+      settingsContextKey: "portfolio.holdings",
     });
   });
 
