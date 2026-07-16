@@ -703,7 +703,7 @@ export interface ListAiConnectorAccessLogsOptions {
 export interface AiTransactionDraftBatchRecord {
   id: string;
   ownerUserId: string;
-  createdByUserId: string;
+  createdByUserId: string | null;
   connectorConnectionId: string | null;
   shareId: string | null;
   sourceChannel: AiTransactionDraftSourceChannel;
@@ -726,7 +726,7 @@ export interface AiTransactionDraftBatchRecord {
 export interface SaveAiTransactionDraftBatchInput {
   id: string;
   ownerUserId: string;
-  createdByUserId: string;
+  createdByUserId: string | null;
   connectorConnectionId?: string | null;
   shareId?: string | null;
   sourceChannel: AiTransactionDraftSourceChannel;

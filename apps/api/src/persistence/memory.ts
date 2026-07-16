@@ -1977,7 +1977,7 @@ export class MemoryPersistence implements Persistence {
 
   async saveAiTransactionDraftBatch(input: SaveAiTransactionDraftBatchInput): Promise<AiTransactionDraftBatchRecord | null> {
     this.assertUserExists(input.ownerUserId);
-    this.assertUserExists(input.createdByUserId);
+    if (input.createdByUserId) this.assertUserExists(input.createdByUserId);
     if (input.connectorConnectionId && !this.aiConnectorConnections.has(input.connectorConnectionId)) {
       throw routeError(404, "ai_connector_connection_not_found", "AI connector connection not found");
     }
@@ -7357,6 +7357,17 @@ export class MemoryPersistence implements Persistence {
       }
       if (invite.shareOwnerUserId === userId) {
         invite.shareOwnerUserId = null;
+      }
+    }
+
+    for (const [batchId, batch] of this.aiTransactionDraftBatches) {
+      if (batch.ownerUserId === userId) {
+        this.aiTransactionDraftBatches.delete(batchId);
+        this.aiTransactionDraftRows.delete(batchId);
+        this.aiTransactionDraftUnsupportedItems.delete(batchId);
+        this.aiTransactionDraftEvents.delete(batchId);
+      } else if (batch.createdByUserId === userId) {
+        batch.createdByUserId = null;
       }
     }
 

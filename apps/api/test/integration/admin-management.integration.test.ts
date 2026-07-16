@@ -207,6 +207,24 @@ describe("hard-purge cascade", () => {
     const ownerUserId = await createUser(app, "mutation-owner@example.com", "Mutation Owner");
     const ownerStore = await app.persistence.loadStore(ownerUserId);
     const createdAt = new Date().toISOString();
+    await app.persistence.saveAiTransactionDraftBatch({
+      id: "memory-purge-batch",
+      ownerUserId,
+      createdByUserId: targetUserId,
+      sourceChannel: "mcp",
+      status: "open",
+      version: 1,
+      rowCount: 1,
+      unsupportedCount: 0,
+    });
+    await app.persistence.saveAiTransactionDraftRow({
+      id: "memory-purge-row",
+      batchId: "memory-purge-batch",
+      ownerUserId,
+      rowNumber: 1,
+      state: "confirmed",
+      version: 1,
+    });
     await app.persistence.savePostedTransactionMutationPreview({
       id: "memory-purge-preview",
       ownerUserId,
@@ -299,6 +317,12 @@ describe("hard-purge cascade", () => {
       deletedByUserId: null,
       mutationRunId: "memory-purge-run",
     }]);
+    await expect(app.persistence.getAiTransactionDraftBatch("memory-purge-batch")).resolves.toMatchObject({
+      batch: {
+        ownerUserId,
+        createdByUserId: null,
+      },
+    });
   });
 });
 
@@ -518,7 +542,7 @@ describePostgres("hard-purge cascade — Postgres ON DELETE CASCADE", () => {
     await persistence!.saveAiTransactionDraftBatch({
       id: "purge-draft-batch",
       ownerUserId: ownerId,
-      createdByUserId: ownerId,
+      createdByUserId: delegateId,
       sourceChannel: "mcp",
       status: "open",
       version: 1,
@@ -585,6 +609,7 @@ describePostgres("hard-purge cascade — Postgres ON DELETE CASCADE", () => {
       preview_actor_user_id: string | null;
       run_actor_user_id: string | null;
       deleted_by_user_id: string | null;
+      batch_created_by_user_id: string | null;
     }>(
       `SELECT
          (SELECT COUNT(*)::text FROM users WHERE id = $1) AS owner_count,
@@ -594,7 +619,8 @@ describePostgres("hard-purge cascade — Postgres ON DELETE CASCADE", () => {
          (SELECT COUNT(*)::text FROM posted_transaction_mutation_deleted_draft_lineage WHERE trade_event_id = 'purge-trade') AS lineage_count,
          (SELECT actor_user_id FROM posted_transaction_mutation_previews WHERE id = 'purge-preview') AS preview_actor_user_id,
          (SELECT actor_user_id FROM posted_transaction_mutation_runs WHERE id = 'purge-run') AS run_actor_user_id,
-         (SELECT deleted_by_user_id FROM posted_transaction_mutation_deleted_draft_lineage WHERE trade_event_id = 'purge-trade') AS deleted_by_user_id`,
+         (SELECT deleted_by_user_id FROM posted_transaction_mutation_deleted_draft_lineage WHERE trade_event_id = 'purge-trade') AS deleted_by_user_id,
+         (SELECT created_by_user_id FROM ai_transaction_draft_batches WHERE id = 'purge-draft-batch') AS batch_created_by_user_id`,
       [ownerId, delegateId],
     );
     expect(remaining.rows[0]).toEqual({
@@ -606,6 +632,7 @@ describePostgres("hard-purge cascade — Postgres ON DELETE CASCADE", () => {
       preview_actor_user_id: null,
       run_actor_user_id: null,
       deleted_by_user_id: null,
+      batch_created_by_user_id: null,
     });
 
     const constraints = await pool.query<{ conname: string; confdeltype: string }>(
@@ -615,12 +642,14 @@ describePostgres("hard-purge cascade — Postgres ON DELETE CASCADE", () => {
         ORDER BY conname`,
       [[
         "fk_ptm_lineage_deleted_by",
+        "fk_ai_draft_batches_created_by",
         "fk_ptm_previews_actor",
         "fk_ptm_runs_actor",
         "fk_ptm_runs_preview",
       ]],
     );
     expect(constraints.rows).toEqual([
+      { conname: "fk_ai_draft_batches_created_by", confdeltype: "n" },
       { conname: "fk_ptm_lineage_deleted_by", confdeltype: "n" },
       { conname: "fk_ptm_previews_actor", confdeltype: "n" },
       { conname: "fk_ptm_runs_actor", confdeltype: "n" },

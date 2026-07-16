@@ -3476,7 +3476,7 @@ export interface TransactionAiInboxBadgeDto {
 export interface TransactionDraftBatchDto {
   id: string;
   ownerUserId: string;
-  createdByUserId: string;
+  createdByUserId: string | null;
   connectorConnectionId: string | null;
   shareId: string | null;
   sourceChannel: AiTransactionDraftSourceChannel;

@@ -849,7 +849,7 @@ function mapAiConnectorAccessLogRow(row: {
 function mapAiTransactionDraftBatchRow(row: {
   id: string;
   owner_user_id: string;
-  created_by_user_id: string;
+  created_by_user_id: string | null;
   connector_connection_id: string | null;
   share_id: string | null;
   source_channel: AiTransactionDraftSourceChannel;
@@ -4151,7 +4151,7 @@ export class PostgresPersistence implements Persistence {
       const result = await client.query<{
         id: string;
         owner_user_id: string;
-        created_by_user_id: string;
+        created_by_user_id: string | null;
         connector_connection_id: string | null;
         share_id: string | null;
         source_channel: AiTransactionDraftSourceChannel;
@@ -4274,7 +4274,7 @@ export class PostgresPersistence implements Persistence {
     const batchResult = await this.pool.query<{
       id: string;
       owner_user_id: string;
-      created_by_user_id: string;
+      created_by_user_id: string | null;
       connector_connection_id: string | null;
       share_id: string | null;
       source_channel: AiTransactionDraftSourceChannel;
@@ -4336,7 +4336,7 @@ export class PostgresPersistence implements Persistence {
     const result = await this.pool.query<{
       id: string;
       owner_user_id: string;
-      created_by_user_id: string;
+      created_by_user_id: string | null;
       connector_connection_id: string | null;
       share_id: string | null;
       source_channel: AiTransactionDraftSourceChannel;
@@ -4933,7 +4933,7 @@ export class PostgresPersistence implements Persistence {
       const batchResult = await client.query<{
         id: string;
         owner_user_id: string;
-        created_by_user_id: string;
+        created_by_user_id: string | null;
         connector_connection_id: string | null;
         share_id: string | null;
         source_channel: AiTransactionDraftSourceChannel;
