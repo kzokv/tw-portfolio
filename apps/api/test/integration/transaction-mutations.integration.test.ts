@@ -192,6 +192,28 @@ describe("transaction mutations (delete + edit)", () => {
       expect(store.accounting.facts.tradeEvents.some((trade) => trade.id === previewedTrade.id)).toBe(true);
     });
 
+    it("accepts a legacy dividend-delete preview through the DELETE alias", async () => {
+      const trade = await createTrade(app);
+      const previewResponse = await previewTradeDelete(app, trade.id);
+      expect(previewResponse.statusCode).toBe(200);
+      const preview = previewResponse.json<DestructivePreviewBody>();
+
+      const response = await app.inject({
+        method: "DELETE",
+        url: `/portfolio/transactions/${trade.id}`,
+        payload: {
+          previewId: preview.preview.previewId,
+          previewVersion: preview.preview.previewVersion,
+          fingerprint: preview.preview.fingerprint,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json<DestructivePreviewBody>().preview.previewId).toBe(preview.preview.previewId);
+      const store = await getStore(app);
+      expect(store.accounting.facts.tradeEvents.some((item) => item.id === trade.id)).toBe(false);
+    });
+
     it("deletes a trade after confirmation and reports affected row counts", async () => {
       const trade = await createTrade(app);
 

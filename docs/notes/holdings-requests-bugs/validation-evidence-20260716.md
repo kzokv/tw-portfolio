@@ -46,7 +46,7 @@ The final diff was checked against both locked scope documents. All product step
 
 ## Codex Review Follow-up
 
-Codex review on PR #290 identified actionable issues across four review rounds:
+Codex review on PR #290 identified actionable issues across five review rounds:
 
 1. The new mutation preview and confirmation routes were present in the delegated capability matrix but absent from `SHARED_CONTEXT_WRITE_ROUTE_KEYS`. All three routes now enter the shared-context capability guard, and a table-driven integration test proves viewers without `transaction:write` receive `shared_capability_required` before route handling.
 2. The legacy transaction impact response derived `negativeLots.wouldOccur` only from final open quantity. It now treats canonical replay blockers as authoritative, so an intermediate negative position is reported even when a later buy restores the final quantity to zero.
@@ -58,6 +58,7 @@ Codex review on PR #290 identified actionable issues across four review rounds:
 8. Holdings row selection controls appeared unchecked in the default all-tickers mode. In-universe tickers now report selected while unavailable ticker identities remain unchecked.
 9. Leaving all-tickers mode from an inline row control retained only the clicked ticker. The custom selection now starts from the current universe and removes the clicked ticker, preserving every other holding.
 10. The delete confirmation dialog labeled monetary and quantity deltas as cash-entry and lot-allocation row counts. Localized copy now presents formatted cash-balance and holdings-quantity changes explicitly.
+11. The legacy DELETE alias accepted only the new mutation preview storage after the canonical mutation rollout, even though its adjacent legacy preview endpoint still issued dividend-destructive preview IDs. The alias now preserves both flows: canonical mutation previews use the new mutation path, while legacy preview IDs use the original dividend-destructive confirmation and response.
 
 Follow-up evidence:
 
@@ -74,6 +75,9 @@ Follow-up evidence:
 - Fourth-round focused holdings-selection and delete-dialog tests: 3 passed. The first dialog assertion expected an ISO currency code, while the shared formatter correctly emitted `NT$`; the assertion was aligned with the existing formatter and reran cleanly.
 - Fourth-round web TypeScript and changed-file ESLint checks: passed.
 - Fourth-round `npm run test --prefix apps/web`: 85 component/app files with 580 tests passed, followed by 80 feature/lib files with 534 tests passed.
+- Fifth-round transaction-mutation integration tests: 43 passed, including the legacy dividend-preview then DELETE sequence.
+- Fifth-round API source/integration TypeScript and changed-file ESLint checks: passed.
+- Fifth-round `npm run test --prefix apps/api`: 201 files passed, 49 skipped; 2,089 tests passed, 473 skipped.
 
 ## Waiver
 

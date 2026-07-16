@@ -5619,9 +5619,32 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       sharedContext,
       "DELETE /portfolio/transactions/:tradeEventId",
     );
+    const actorUserId = sharedContext?.sessionUserId ?? userId;
+    const mutationPreview = await app.persistence.getPostedTransactionMutationPreview(body.previewId);
+    if (!mutationPreview) {
+      const result = await confirmTradeDividendDeletion(app.persistence, {
+        ownerUserId: userId,
+        actorUserId,
+        previewId: body.previewId,
+        previewVersion: body.previewVersion,
+        fingerprint: body.fingerprint,
+        tradeEventId,
+        ipAddress: req.ip,
+      });
+      scheduleDestructiveSnapshotRebuild(userId, result.operation.replayScopes);
+      await appendDelegatedWriteAudit(app, req, {
+        mutation: "dividend_trade_delete_confirmed",
+        routeKey: "DELETE /portfolio/transactions/:tradeEventId",
+        previewId: body.previewId,
+        accountId: result.preview.accountId,
+        tradeEventId: result.preview.targetTradeEventId,
+      });
+      reply.code(200);
+      return result;
+    }
     const preview = await getPostedTransactionMutationPreview(app.persistence, {
       ownerUserId: userId,
-      actorUserId: sharedContext?.sessionUserId ?? userId,
+      actorUserId,
       previewId: body.previewId,
       appBaseUrl: app.appBaseUrl,
     });
@@ -5638,7 +5661,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
     const result = await confirmPostedTransactionMutation(app.persistence, {
       ownerUserId: userId,
-      actorUserId: sharedContext?.sessionUserId ?? userId,
+      actorUserId,
       appBaseUrl: app.appBaseUrl,
       confirmation: {
         previewId: body.previewId,
