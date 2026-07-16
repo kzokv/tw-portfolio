@@ -80,14 +80,14 @@ test.describe("holdings selection persistence", () => {
       "portfolio selection summary counts",
     );
     await appShell.assert.mxAssertEqual(
-      await portfolioSection.getByTestId("holding-group-row-8811-TW").isVisible(),
-      true,
-      "clicked ticker remains visible in custom mode",
+      await portfolioSection.getByTestId("holding-group-row-8811-TW").isVisible().catch(() => false),
+      false,
+      "deselected ticker is excluded from custom mode",
     );
     await appShell.assert.mxAssertEqual(
-      await portfolioSection.getByTestId("holding-group-row-8812-TW").isVisible().catch(() => false),
-      false,
-      "unclicked ticker is excluded from custom mode",
+      await portfolioSection.getByTestId("holding-group-row-8812-TW").isVisible(),
+      true,
+      "remaining selected ticker stays visible in custom mode",
     );
 
     await page.reload({ waitUntil: "domcontentloaded" });

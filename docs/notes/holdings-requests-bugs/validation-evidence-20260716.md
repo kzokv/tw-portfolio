@@ -39,6 +39,7 @@ Additional checks:
 5. In global holdings `all` mode, clicking an inline ticker initially entered custom mode with only that ticker selected. It now preserves the rest of the universe and excludes only the clicked ticker; focused hook coverage verifies the transition and persistence.
 6. Fee profile discount persistence lacked end-to-end coverage. The settings assistant and browser scenario now edit, leave, reopen, and verify the saved discount.
 7. One OAuth full-suite attempt dropped the dashboard card over itself and timed out waiting for a preference PATCH. The trace showed no application request because the pointer drag did not move. The same case passed three consecutive focused repetitions, and the exact full OAuth suite then passed 121/121; no product defect was found.
+8. Current-head CI exposed a stale assertion in the new holdings selection persistence E2E: after deselecting `8811` from all mode, it expected `8811` to remain visible and `8812` to disappear. The assertion now matches the locked behavior and focused hook coverage: the deselected ticker is hidden while the remaining selected ticker stays visible. The exact production-build E2E command passed 1/1 locally.
 
 ## Review Outcome
 
@@ -85,6 +86,7 @@ Follow-up evidence:
 - Sixth-round API source/integration TypeScript, web TypeScript, changed-file ESLint, and `git diff --check`: passed.
 - Sixth-round `npm run test --prefix apps/api`: 201 files passed, 49 skipped; 2,089 tests passed, 473 skipped.
 - Sixth-round `npm run test --prefix apps/web`: 86 component/app files with 583 tests passed, followed by 80 feature/lib files with 534 tests passed.
+- Current-head CI follow-up: `npm run test:e2e:bypass:mem --prefix apps/web -- tests/e2e/specs/holdings-selection-persistence-aaa.spec.ts` passed 1/1 after correcting the stale row-visibility expectation.
 
 ## Waiver
 
