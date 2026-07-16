@@ -47,7 +47,7 @@ The final diff was checked against both locked scope documents. All product step
 
 ## Codex Review Follow-up
 
-Codex review on PR #290 identified actionable issues across fifteen review rounds:
+Codex review on PR #290 identified actionable issues across sixteen review rounds:
 
 1. The new mutation preview and confirmation routes were present in the delegated capability matrix but absent from `SHARED_CONTEXT_WRITE_ROUTE_KEYS`. All three routes now enter the shared-context capability guard, and a table-driven integration test proves viewers without `transaction:write` receive `shared_capability_required` before route handling.
 2. The legacy transaction impact response derived `negativeLots.wouldOccur` only from final open quantity. It now treats canonical replay blockers as authoritative, so an intermediate negative position is reported even when a later buy restores the final quantity to zero.
@@ -75,6 +75,8 @@ Codex review on PR #290 identified actionable issues across fifteen review round
 24. Postgres account rewrites cleared AI draft rows' confirmed trade links through the `ON DELETE SET NULL` foreign key, including links for trades immediately reinserted by the rewrite. Rewrites now capture and restore links for retained trades after reinsertion, while genuinely deleted trades resolve their durable mutation lineage by draft-row ID so deletion status remains visible without weakening referential integrity.
 25. Cascading delegated actor references allowed a delegate purge to erase mutation history owned by another user. Append-only migration `108` makes preview/run actor and deleted-lineage deleter attribution nullable with `ON DELETE SET NULL`, while retaining cascade ownership from preview to run and lineage. The purge regression verifies the owner and all owner-owned mutation artifacts survive with anonymized attribution.
 26. Delegated AI draft creators still cascaded owner-owned draft batches during purge, conflicting with retained mutation lineage. Append-only migration `109` makes draft creator attribution nullable with `ON DELETE SET NULL`; DTO and persistence records expose anonymized creators as `null`, and memory persistence mirrors owner cascade versus delegated-creator anonymization.
+27. Deleted draft lineage used restrictive batch/row references that could block the simultaneous owner, batch, row, and lineage cascades during owner purge. Append-only migration `110` makes both lineage links cascade; the Postgres regression now purges the owner after the delegate and verifies the complete owner-owned chain is removed.
+28. Memory hard purge anonymized delegated draft creators but left owner-owned draft event actor IDs intact. Memory persistence now nulls draft-event owner/actor attribution just as the Postgres event foreign keys do, with aggregate-read coverage after purge.
 
 Follow-up evidence:
 
@@ -133,6 +135,8 @@ Follow-up evidence:
 - Fourteenth-round full repository typecheck, changed-file ESLint, 27 focused mutation/draft unit tests, and `git diff --check`: passed.
 - Fifteenth-round managed admin-management file: 15 passed with the draft batch created by the purged delegate; assertions verify the owner-owned batch, preview, run, and lineage survive, all delegate attribution is null, and all five FK delete modes match the ownership model.
 - Fifteenth-round full repository typecheck, memory admin-management tests, changed-file ESLint, and `git diff --check`: passed.
+- Sixteenth-round managed admin-management file: 15 passed, including delegated actor anonymization, retained owner history, subsequent owner purge, seven exact FK delete modes, and migration reapplication.
+- Sixteenth-round memory admin-management tests, API integration TypeScript, changed-file ESLint, and `git diff --check`: passed; the memory aggregate verifies draft event actor anonymization.
 
 ## Waiver
 

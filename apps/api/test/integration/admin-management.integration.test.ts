@@ -225,6 +225,14 @@ describe("hard-purge cascade", () => {
       state: "confirmed",
       version: 1,
     });
+    await app.persistence.appendAiTransactionDraftEvent({
+      id: "memory-purge-event",
+      batchId: "memory-purge-batch",
+      rowId: "memory-purge-row",
+      ownerUserId,
+      actorUserId: targetUserId,
+      eventType: "row_updated",
+    });
     await app.persistence.savePostedTransactionMutationPreview({
       id: "memory-purge-preview",
       ownerUserId,
@@ -322,6 +330,11 @@ describe("hard-purge cascade", () => {
         ownerUserId,
         createdByUserId: null,
       },
+      events: [expect.objectContaining({
+        id: "memory-purge-event",
+        ownerUserId,
+        actorUserId: null,
+      })],
     });
   });
 });
@@ -642,6 +655,8 @@ describePostgres("hard-purge cascade — Postgres ON DELETE CASCADE", () => {
         ORDER BY conname`,
       [[
         "fk_ptm_lineage_deleted_by",
+        "fk_ptm_lineage_batch",
+        "fk_ptm_lineage_row",
         "fk_ai_draft_batches_created_by",
         "fk_ptm_previews_actor",
         "fk_ptm_runs_actor",
@@ -650,11 +665,40 @@ describePostgres("hard-purge cascade — Postgres ON DELETE CASCADE", () => {
     );
     expect(constraints.rows).toEqual([
       { conname: "fk_ai_draft_batches_created_by", confdeltype: "n" },
+      { conname: "fk_ptm_lineage_batch", confdeltype: "c" },
       { conname: "fk_ptm_lineage_deleted_by", confdeltype: "n" },
+      { conname: "fk_ptm_lineage_row", confdeltype: "c" },
       { conname: "fk_ptm_previews_actor", confdeltype: "n" },
       { conname: "fk_ptm_runs_actor", confdeltype: "n" },
       { conname: "fk_ptm_runs_preview", confdeltype: "c" },
     ]);
+
+    await expect(persistence!.hardPurgeUser(ownerId, { actorUserId: adminActorId })).resolves.toBeUndefined();
+    const ownerPurge = await pool.query<{
+      owner_count: string;
+      preview_count: string;
+      run_count: string;
+      lineage_count: string;
+      batch_count: string;
+      row_count: string;
+    }>(
+      `SELECT
+         (SELECT COUNT(*)::text FROM users WHERE id = $1) AS owner_count,
+         (SELECT COUNT(*)::text FROM posted_transaction_mutation_previews WHERE id = 'purge-preview') AS preview_count,
+         (SELECT COUNT(*)::text FROM posted_transaction_mutation_runs WHERE id = 'purge-run') AS run_count,
+         (SELECT COUNT(*)::text FROM posted_transaction_mutation_deleted_draft_lineage WHERE trade_event_id = 'purge-trade') AS lineage_count,
+         (SELECT COUNT(*)::text FROM ai_transaction_draft_batches WHERE id = 'purge-draft-batch') AS batch_count,
+         (SELECT COUNT(*)::text FROM ai_transaction_draft_rows WHERE id = 'purge-draft-row') AS row_count`,
+      [ownerId],
+    );
+    expect(ownerPurge.rows[0]).toEqual({
+      owner_count: "0",
+      preview_count: "0",
+      run_count: "0",
+      lineage_count: "0",
+      batch_count: "0",
+      row_count: "0",
+    });
   });
 
   it("anonymous_share_tokens — owner purged → ON DELETE CASCADE removes token", async () => {

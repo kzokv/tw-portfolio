@@ -7370,6 +7370,12 @@ export class MemoryPersistence implements Persistence {
         batch.createdByUserId = null;
       }
     }
+    for (const events of this.aiTransactionDraftEvents.values()) {
+      for (const event of events) {
+        if (event.ownerUserId === userId) event.ownerUserId = null;
+        if (event.actorUserId === userId) event.actorUserId = null;
+      }
+    }
 
     const deletedMutationPreviewIds = new Set<string>();
     for (const [previewId, preview] of this.postedTransactionMutationPreviews) {
