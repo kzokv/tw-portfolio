@@ -898,6 +898,7 @@ export interface AppDictionary {
     bookedAtLabel: string;
       commissionLabel: string;
       taxLabel: string;
+      bookedCostLabel: string;
       realizedPnlLabel: string;
       unrealizedPnlLabel: string;
       feeProfileLabel: string;
@@ -1150,6 +1151,7 @@ export interface AppDictionary {
     accountsListDeleteProfileLabel: string;
     accountsListSaveProfileEdit: string;
     accountsListCancelProfileEdit: string;
+    accountsListProfileSaveError: string;
     accountsListOverridesSectionLabel: string;
     accountsListAddOverride: string;
     accountsListOverridesEmptyState: string;
@@ -1356,6 +1358,19 @@ export interface AppDictionary {
     paymentDateTbdSection: string;
     viewAllLink: string;
     eligibleSharesLabel: string;
+    sharesUnit: string;
+    pending: string;
+    unavailable: string;
+    eventType: {
+      cash: string;
+      stock: string;
+      cashAndStock: string;
+    };
+    stockRatioState: {
+      authoritative: string;
+      derived: string;
+      unresolved: string;
+    };
     overview: {
       eyebrow: string;
       expected: string;
@@ -1394,6 +1409,18 @@ export interface AppDictionary {
       noPayingToday: string;
       noExDividendToday: string;
       viewAllNeedsAction: string;
+      eventTypeLabel: string;
+      expectedCashLabel: string;
+      receivedCashLabel: string;
+      expectedStockLabel: string;
+      receivedStockLabel: string;
+      cashInLieuLabel: string;
+      ratioLabel: string;
+      stockVarianceLabel: string;
+      stockEventsDetail: string;
+      stockPostingsDetail: string;
+      moreTickerQuantities: string;
+      stockNeedsAction: string;
     };
     ticker: {
       eyebrow: string;
@@ -1605,6 +1632,7 @@ export interface AppDictionary {
         paymentDate: string;
         ticker: string;
         account: string;
+        eventType: string;
         expected: string;
         received: string;
         nhi: string;
@@ -1612,7 +1640,10 @@ export interface AppDictionary {
         otherDeduction: string;
         expectedNet: string;
         actualNet: string;
+        expectedStock: string;
+        ratioState: string;
         stockReceived: string;
+        stockVariance: string;
         cashInLieu: string;
         variance: string;
         status: string;
@@ -1843,12 +1874,16 @@ export interface AppDictionary {
     commissionEstimateTitle: string;
     taxEstimateTitle: string;
     estimatedLabel: string;
+    grossTradeValueLabel: string;
+    buyCashOutLabel: string;
+    sellNetProceedsLabel: string;
     overrideAmountPlaceholder: string;
     // ui-enhancement (2026-05-13) — fee/tax 4-tuple gate degradation copy.
     // Rendered when the 4-tuple holds but `feeEstimate == null` (price
     // mismatch / network race). Flat strings, no functions.
     estimatedUnavailable: string;
     estimateUnavailableSubLabel: string;
+    settlementUnavailableMessage: string;
     // KZO-169: market_code chip selector + currency-aware account filter
     // strings. String-only per .claude/rules/nextjs-i18n-serialization.md —
     // {currency} placeholder replaced at call site via .replace().
@@ -1871,13 +1906,29 @@ export interface AppDictionary {
     };
     unavailable: string;
   };
-	  holdings: {
-	    title: string;
-	    description: string;
-	    entries: string;
-	    visibleRowsLabel: string;
-	    visibleRowsDetail: string;
-	    visibleRowsCurrencyDetail: string;
+    holdings: {
+      title: string;
+      description: string;
+      entries: string;
+      selectionLabel: string;
+      selectionAll: string;
+      selectionSelectedCount: string;
+      selectionReset: string;
+      selectionSearchPlaceholder: string;
+      selectionNoMatches: string;
+      selectionUnavailable: string;
+      selectionUnavailableHint: string;
+      selectionRemoveAria: string;
+      selectionOpenPickerAria: string;
+      selectionVisibleOfSelected: string;
+      selectionSummaryCost: string;
+      selectionSummaryMarketValue: string;
+      selectionSummaryUnrealizedPnl: string;
+      selectionSummaryPartial: string;
+      selectionToggleAria: string;
+      visibleRowsLabel: string;
+      visibleRowsDetail: string;
+      visibleRowsCurrencyDetail: string;
 	    accountTerm: string;
     tickerTerm: string;
     quantityTerm: string;

@@ -227,6 +227,68 @@ describe("AddTransactionCard — chip + account-filter render contract", () => {
     expect(html).not.toContain('data-testid="tx-no-account-error"');
   });
 
+  it("renders gross trade value plus BUY cash-out using manual fee overrides ahead of estimates", () => {
+    const html = renderToStaticMarkup(
+      <AddTransactionCard
+        value={valueWith({
+          accountId: "acc-tw",
+          marketCode: "TW",
+          ticker: "2330",
+          quantity: 3,
+          unitPrice: 10.125,
+          commissionAmount: 2,
+          taxAmount: 1,
+          type: "BUY",
+        })}
+        accountOptions={[TWD_ACCOUNT]}
+        pending={false}
+        onChange={() => undefined}
+        onSubmit={async () => undefined}
+        dict={dict}
+        locale="en"
+        framed={false}
+        priceHint={null}
+        showPriceUnavailableHint={false}
+        feeEstimate={{ commissionAmount: 99, taxAmount: 99, reason: "estimate" } as never}
+      />,
+    );
+
+    expect(html).toContain('data-testid="gross-trade-value-amount"');
+    expect(html).toContain("NT$30.38");
+    expect(html).toContain("NT$33.38");
+  });
+
+  it("renders SELL settlement as unavailable when fees are unavailable", () => {
+    const html = renderToStaticMarkup(
+      <AddTransactionCard
+        value={valueWith({
+          accountId: "acc-tw",
+          marketCode: "TW",
+          ticker: "2330",
+          quantity: 2,
+          unitPrice: 50,
+          commissionAmount: undefined,
+          taxAmount: undefined,
+          type: "SELL",
+        })}
+        accountOptions={[TWD_ACCOUNT]}
+        pending={false}
+        onChange={() => undefined}
+        onSubmit={async () => undefined}
+        dict={dict}
+        locale="en"
+        framed={false}
+        priceHint={null}
+        showPriceUnavailableHint={false}
+        feeEstimate={null}
+      />,
+    );
+
+    expect(html).toContain('data-testid="gross-trade-value-amount"');
+    expect(html).toContain("NT$100");
+    expect(html).toContain('data-testid="settlement-value-unavailable"');
+  });
+
   it("does NOT render the no-account error when the chip matches an existing account currency", () => {
     const html = renderToStaticMarkup(
       <AddTransactionCard

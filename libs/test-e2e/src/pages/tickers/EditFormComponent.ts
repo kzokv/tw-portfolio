@@ -10,6 +10,7 @@ export interface TEditFormElements {
   saveButton: Locator;
   inlineCancelButton: Locator;
   confirmationDialog: Locator;
+  confirmButton: Locator;
   negativeLotsWarning: Locator;
   dialogCancelButton: Locator;
 }
@@ -42,6 +43,7 @@ export class EditFormComponent extends BasePage<TEditFormElements> {
         "Inline Edit Cancel Button",
       ),
       confirmationDialog: this.locate("edit-confirmation-dialog", "Edit Confirmation Dialog"),
+      confirmButton: this.locate("edit-confirm-button", "Edit Confirmation Save Button"),
       negativeLotsWarning: this.locate("edit-negative-lots-warning", "Edit Negative Lots Warning"),
       dialogCancelButton: this.withDescription(
         this.locate("edit-confirmation-dialog", "Edit Confirmation Dialog")

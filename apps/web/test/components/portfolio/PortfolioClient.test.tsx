@@ -323,7 +323,8 @@ describe("PortfolioClient", () => {
     expect(container.textContent).not.toContain("Compact holdings");
     expect(container.textContent).not.toContain("Detailed holdings");
     const styleShell = container.querySelector('[data-testid="portfolio-holdings-style-shell"]');
-    expect(styleShell?.className).toContain("overflow-hidden");
+    expect(styleShell?.className).not.toContain("overflow-hidden");
+    expect(styleShell?.className).toContain("pl-2");
     expect(styleShell?.className).toContain("grid-cols-[minmax(0,1fr)]");
     expect(styleShell?.querySelector("div")?.className).toContain("w-full");
     expect(holdingsTableMock).toHaveBeenCalledTimes(1);

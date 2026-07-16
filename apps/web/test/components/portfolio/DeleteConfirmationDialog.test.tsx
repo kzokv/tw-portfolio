@@ -1,10 +1,9 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PreviewImpactResponse, TransactionHistoryItemDto } from "@vakwen/shared-types";
+import type { PostedTransactionMutationPreviewDto, TransactionHistoryItemDto } from "@vakwen/shared-types";
 import { DeleteConfirmationDialog } from "../../../components/portfolio/DeleteConfirmationDialog";
 import { getDictionary } from "../../../lib/i18n";
-import type { DividendDeletePreviewResponse } from "../../../features/portfolio/services/transactionMutationService";
 
 beforeAll(() => {
   (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
@@ -22,29 +21,80 @@ const transaction = {
 } as TransactionHistoryItemDto;
 
 const preview = {
-  negativeLots: { wouldOccur: false, symbols: [], resultingQuantity: 100, ticker: "2330" },
-  affectedRows: { cashLedgerEntries: 2, lotAllocations: 3, feePolicySnapshots: 0, holdingSnapshots: 12 },
-} as PreviewImpactResponse;
-
-const dividendPreview = {
-  preview: {
-    previewId: "preview-1",
-    previewVersion: 1,
-    fingerprint: "abcdef1234567890",
-    accountId: "acc-1",
-    targetTradeEventId: "tx-1",
-    expiresAt: "2026-07-14T10:00:00.000Z",
+  previewId: "preview-1",
+  previewVersion: 1,
+  status: "ready",
+  operation: "delete",
+  reason: "Delete posted transaction",
+  confirmationSummary: "Delete one posted transaction",
+  confirmationDigest: "digest-1",
+  fingerprint: "fingerprint-1",
+  expiresAt: "2026-07-14T10:00:00.000Z",
+  createdAt: "2026-07-14T09:30:00.000Z",
+  batchLimit: 50,
+  affectedAccountIds: ["acc-1"],
+  affectedTickers: [{ ticker: "2330", marketCode: "TW" }],
+  scopes: [],
+  warnings: ["A dividend receipt may require manual re-entry."],
+  blockers: [],
+  errors: [],
+  summary: {
+    quantityDelta: -100,
+    costBasisDelta: -50_000,
+    realizedPnlDelta: 0,
+    cashDelta: 2,
+    reopenedDividendCount: 1,
+    deletedDividendCount: 0,
   },
-  affectedCounts: {
-    dividendLedgerEntries: 1,
-    cashLedgerEntries: 2,
-    dividendDeductionEntries: 0,
-    dividendSourceLines: 0,
-    stockDividendPositionActions: 0,
+  page: {
+    total: 1,
+    limit: 50,
+    offset: 0,
+    items: [{
+      transactionId: "tx-1",
+      status: "deleted",
+      before: {
+        transactionId: "tx-1",
+        accountId: "acc-1",
+        accountName: "Main Brokerage",
+        ticker: "2330",
+        marketCode: "TW",
+        priceCurrency: "TWD",
+        tradeDate: "2026-01-09",
+        side: "BUY",
+        quantity: 100,
+        unitPrice: 500,
+        grossTradeValueAmount: 50_000,
+        commissionAmount: 71,
+        taxAmount: 0,
+        settlementAmount: -50_071,
+        settlementAvailable: true,
+        bookedCostAmount: 50_071,
+        isDayTrade: false,
+        feesSource: "CALCULATED",
+      },
+      after: null,
+      impacts: {
+        quantityDelta: -100,
+        costBasisDelta: -50_000,
+        realizedPnlDelta: 0,
+        cashDelta: 2,
+        reopenedDividendCount: 1,
+        deletedDividendCount: 0,
+      },
+      warnings: [],
+      blockers: [],
+      errors: [],
+    }],
   },
-  affectedDividends: [],
-  manualReceiptReentryLedgerEntryIds: [],
-} satisfies DividendDeletePreviewResponse;
+  deepLinks: {
+    previewPath: "/transactions/mutations/preview-1",
+    runPath: null,
+    transactionPath: "/transactions",
+    previewUrl: null,
+    runUrl: null,
+  },
+} satisfies PostedTransactionMutationPreviewDto;
 
 describe("DeleteConfirmationDialog", () => {
   let root: Root;
@@ -71,7 +121,7 @@ describe("DeleteConfirmationDialog", () => {
           onOpenChange={onOpenChange}
           transaction={transaction}
           preview={preview}
-          dividendPreview={dividendPreview}
+          dividendPreview={null}
           isLoading={false}
           isSubmitting
           errorMessage=""
@@ -103,7 +153,7 @@ describe("DeleteConfirmationDialog", () => {
         onOpenChange={vi.fn()}
         transaction={transaction}
         preview={preview}
-        dividendPreview={dividendPreview}
+        dividendPreview={null}
         isLoading={false}
         isSubmitting={isSubmitting}
         errorMessage=""
@@ -131,6 +181,6 @@ describe("DeleteConfirmationDialog", () => {
     confirmButton?.blur();
     await act(async () => {});
 
-    expect(document.activeElement).toBe(dialog);
+    expect(dialog?.contains(document.activeElement)).toBe(true);
   });
 });

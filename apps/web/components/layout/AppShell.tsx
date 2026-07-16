@@ -7,6 +7,7 @@ import {
   type AccountDefaultCurrency,
   type LocaleCode,
   type ShellPortfolioConfigDto,
+  type SnapshotsGeneratedEvent,
   type UserSettings,
 } from "@vakwen/shared-types";
 import { getDictionary } from "../../lib/i18n";
@@ -18,6 +19,7 @@ import {
 } from "../../lib/routeDtoCache";
 import { useNotifications } from "../../hooks/useNotifications";
 import { useCommandPalette } from "../../hooks/useCommandPalette";
+import { useEventStream } from "../../hooks/useEventStream";
 import { useProfile, type ProfileWithImpersonationDto } from "../../features/profile/hooks/useProfile";
 import { useRecomputeAction } from "../../features/portfolio/hooks/useRecomputeAction";
 import { useTransactionMutations } from "../../features/portfolio/hooks/useTransactionMutations";
@@ -218,12 +220,15 @@ export function AppShell({
     dict,
     onSuccess: bumpContextRefreshSignal,
   });
+  useEventStream({
+    eventType: "snapshots_generated",
+    onEvent: (event) => snapshotGeneration.handleSnapshotsGenerated(event as SnapshotsGeneratedEvent),
+  });
 
   const mutations = useTransactionMutations({
     locale,
     dict,
     refresh: refreshAfterTransaction,
-    onSnapshotsGenerated: snapshotGeneration.handleSnapshotsGenerated,
   });
 
   const notificationData = useNotifications({ onSharingNotification: handleSharingNotification });

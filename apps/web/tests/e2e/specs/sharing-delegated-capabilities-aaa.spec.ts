@@ -55,11 +55,11 @@ test.describe("sharing delegated capabilities", () => {
       "active share row shows account manage capability",
     );
     await appShell.assert.mxAssertTruthy(
-      /Create, edit, and delete transactions/.test(activeRowText ?? ""),
+      /Post, update, and delete confirmed transactions/.test(activeRowText ?? ""),
       "active share row shows transaction write capability",
     );
     await appShell.assert.mxAssertTruthy(
-      /Post, reconcile, and delete dividends/.test(activeRowText ?? ""),
+      /Write dividends and related accounting adjustments/.test(activeRowText ?? ""),
       "active share row shows dividend write capability",
     );
 

@@ -160,11 +160,7 @@ export class DividendReviewPage extends BasePage<TDividendReviewElements> {
       }),
       row: (id: string) => this.locate(`review-row-${id}`, `Row ${id}`),
       rowStatusBadge: (id: string) =>
-        this.withinByCss(
-          this.locate(`review-row-${id}`),
-          "span.inline-flex",
-          `Row ${id} Status Badge`,
-        ),
+        this.locate(`dividend-review-status-${id}`, `Row ${id} Status Badge`),
       markMatchedButton: (id: string) => this.locate(`mark-matched-${id}`, `Mark Matched ${id}`),
 
       // Pagination

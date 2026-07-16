@@ -129,8 +129,8 @@ export class TickerDetailAssert extends BaseAssert {
   }
 
   @Step()
-  async deleteConfirmButtonIsHidden(): Promise<void> {
-    await expect(this.el.deleteDialog.confirmButton).toBeHidden();
+  async deleteConfirmButtonIsDisabled(): Promise<void> {
+    await expect(this.el.deleteDialog.confirmButton).toBeDisabled();
   }
 
   @Step()

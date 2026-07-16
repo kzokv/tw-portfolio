@@ -100,7 +100,7 @@ test.describe("portfolio snapshots", () => {
     await dashboard.assert.returnPercentChartHasData();
   });
 
-  test("delete preview: snapshot impact count shown in dialog", async ({
+  test("delete preview: canonical impact summary shown in dialog", async ({
     dashboard,
     ticker,
   }) => {
@@ -137,7 +137,6 @@ test.describe("portfolio snapshots", () => {
 
     await ticker.assert.deleteDialogIsVisible();
     await ticker.assert.deleteImpactCountsAreVisible();
-    await ticker.assert.deleteSnapshotImpactIsVisible();
 
     await ticker.actions.cancelDelete();
     await ticker.assert.deleteDialogIsHidden();

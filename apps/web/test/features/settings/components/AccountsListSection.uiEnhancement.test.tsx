@@ -103,6 +103,7 @@ describe("AccountsListSection — ui-enhancement deletion affordances (Item 1)",
   let root: Root;
 
   const handlers = {
+    onSaveProfile: vi.fn(async () => undefined),
     onUpdateAccountProfile: vi.fn(),
     onRenameAccount: vi.fn(async () => undefined),
     onAddProfileForAccount: vi.fn(),
@@ -232,6 +233,7 @@ describe("AccountsListSection — permanent-delete typed-name modal", () => {
   let root: Root;
 
   const handlers = {
+    onSaveProfile: vi.fn(async () => undefined),
     onUpdateAccountProfile: vi.fn(),
     onRenameAccount: vi.fn(async () => undefined),
     onAddProfileForAccount: vi.fn(),
@@ -341,6 +343,7 @@ describe("AccountsListSection — ui-enhancement (2026-05-14) P2-2 effective gra
   let root: Root;
 
   const handlers = {
+    onSaveProfile: vi.fn(async () => undefined),
     onUpdateAccountProfile: vi.fn(),
     onRenameAccount: vi.fn(async () => undefined),
     onAddProfileForAccount: vi.fn(),

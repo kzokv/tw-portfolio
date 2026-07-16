@@ -58,6 +58,7 @@ interface AccountsListSectionProps {
     key: keyof SettingsProfileModel,
     value: string | number,
   ) => void;
+  onSaveProfile: (profileId: string) => Promise<void>;
   onRemoveProfileFromAccount: (accountId: string, profileId: string) => void;
   onDuplicateProfilesFromAccount: (
     sourceAccountId: string,
@@ -172,6 +173,7 @@ export function AccountsListSection({
   onRenameAccount,
   onAddProfileForAccount,
   onUpdateProfileField,
+  onSaveProfile,
   onRemoveProfileFromAccount,
   onDuplicateProfilesFromAccount,
   onAddBinding,
@@ -197,6 +199,8 @@ export function AccountsListSection({
 
   // Profile editor state — only one profile per account is open at a time.
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+  const [savingProfileId, setSavingProfileId] = useState<string | null>(null);
+  const [profileErrorById, setProfileErrorById] = useState<Record<string, string>>({});
 
   // Search input.
   const [searchInput, setSearchInput] = useState("");
@@ -330,6 +334,22 @@ export function AccountsListSection({
       setRenameError(dict.settings.accountRenameError);
     } finally {
       setSavingAccountId(null);
+    }
+  }
+
+  async function saveProfileEdit(profileId: string) {
+    setSavingProfileId(profileId);
+    setProfileErrorById((current) => ({ ...current, [profileId]: "" }));
+    try {
+      await onSaveProfile(profileId);
+      setEditingProfileId((current) => (current === profileId ? null : current));
+    } catch {
+      setProfileErrorById((current) => ({
+        ...current,
+        [profileId]: dict.settings.accountsListProfileSaveError,
+      }));
+    } finally {
+      setSavingProfileId((current) => (current === profileId ? null : current));
     }
   }
 
@@ -938,16 +958,34 @@ export function AccountsListSection({
                                 </div>
                               ) : null}
 
+                              {isProfileEditing && profileErrorById[profile.id] ? (
+                                <p
+                                  className="mt-3 text-xs text-rose-600"
+                                  data-testid={`accounts-profile-error-${profile.id}`}
+                                >
+                                  {profileErrorById[profile.id]}
+                                </p>
+                              ) : null}
+
                               {isProfileEditing ? (
                                 <div className="mt-3 flex flex-wrap gap-2">
                                   <Button
                                     type="button"
                                     size="sm"
-                                    onClick={() => setEditingProfileId(null)}
+                                    onClick={() => void saveProfileEdit(profile.id)}
                                     data-testid={`accounts-profile-edit-done-${profile.id}`}
-                                    disabled={!canManage}
+                                    disabled={!canManage || savingProfileId === profile.id}
                                   >
-                                    {dict.settings.accountsListSaveProfileEdit}
+                                    {savingProfileId === profile.id ? dict.actions.submitting : dict.settings.accountsListSaveProfileEdit}
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={() => setEditingProfileId(null)}
+                                    disabled={!canManage || savingProfileId === profile.id}
+                                  >
+                                    {dict.settings.accountsListCancelProfileEdit}
                                   </Button>
                                 </div>
                               ) : null}

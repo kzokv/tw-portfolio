@@ -71,6 +71,11 @@ import {
   type HoldingsColumnSettingsState,
   type HoldingsGridColumnDefinition,
 } from "../holdings/HoldingsColumnSettings";
+import {
+  HoldingsSelectionInlineToggle,
+  HoldingsSelectionSummaryStrip,
+  HoldingsSelectionToolbar,
+} from "../holdings/HoldingsSelectionControls";
 import { HoldingsDetailSheet } from "../holdings/HoldingsDetailSheet";
 import { HoldingsDataHealthBadges } from "../holdings/HoldingsDataHealth";
 import {
@@ -85,6 +90,16 @@ import {
   holdingsStickyFirstColumnClassName,
   holdingsWarningBadgeClassName,
 } from "../holdings/holdingsStyle";
+import { buildHoldingsSelectionVisibleSummary, type HoldingsSelectionSummaryRow } from "../holdings/holdingsSelectionSummary";
+import {
+  buildHoldingsTickerId,
+  REPORTS_DAILY_REVIEW_HOLDINGS_CONTEXT_KEY,
+  REPORTS_DAILY_REVIEW_TOP_MOVERS_CONTEXT_KEY,
+  REPORTS_MARKET_DETAIL_CONTEXT_KEY,
+  REPORTS_MARKET_TOP_HOLDINGS_CONTEXT_KEY,
+  REPORTS_PORTFOLIO_HOLDINGS_CONTEXT_KEY,
+} from "../holdings/holdingsPreferenceHelpers";
+import { useHoldingsSelection } from "../holdings/useHoldingsSelection";
 import { TooltipInfo } from "../ui/TooltipInfo";
 import { ValuationHealthPanel } from "../valuation/ValuationHealthPanel";
 import { getValuationHealthAdminRepairHref } from "../valuation/valuationHealthAdminLink";
@@ -173,7 +188,6 @@ const REPORT_HOLDINGS_COLUMNS: Array<HoldingsGridColumnDefinition<ReportHoldings
   { id: "health", label: "Data health", defaultWidth: 192 },
 ];
 const REPORT_MOBILE_FIELD_COLUMNS: ReportHoldingsColumn[] = ["position", "avgCost", "price", "unitPnl", "marketValue", "costBasis", "unrealized", "daily", "weight", "health"];
-const SHARED_HOLDINGS_SETTINGS_CONTEXT_KEY = "holdings.shared";
 
 function reportHoldingColumnLabel(dict: AppDictionary, column: ReportHoldingsColumn): string {
   switch (column) {
@@ -617,12 +631,6 @@ function ReportBody({
       uiDict.reports.weight,
     ],
   );
-  const reportHoldingsSettings = useHoldingsColumnSettings<ReportHoldingsColumn>({
-    columns: reportHoldingsColumns,
-    contextKey: SHARED_HOLDINGS_SETTINGS_CONTEXT_KEY,
-    defaultLayoutStyle: "portfolio",
-    mobileSummaryColumnIds: REPORT_MOBILE_FIELD_COLUMNS,
-  });
   const dataHealthRef = useRef<HTMLDivElement | null>(null);
   const focusedHealthKeyRef = useRef<string | null>(null);
   const healthFocusKey = healthQuery.open ? healthQuery.reasons.join(",") || "open" : "";
@@ -699,12 +707,12 @@ function ReportBody({
           showAdminActions={showAdminActions}
         />
       </div>
-      {tab === "daily-review" ? <DailyReviewView data={data as DailyReviewReportDto} dict={uiDict} holdingsSettings={reportHoldingsSettings} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} showAdminActions={showAdminActions} /> : null}
+      {tab === "daily-review" ? <DailyReviewView data={data as DailyReviewReportDto} dict={uiDict} holdingsColumns={reportHoldingsColumns} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} showAdminActions={showAdminActions} /> : null}
       {tab === "portfolio" ? (
         <PortfolioReportView
           data={data as PortfolioReportDto}
           dict={uiDict}
-          holdingsSettings={reportHoldingsSettings}
+          holdingsColumns={reportHoldingsColumns}
           isRefreshing={isRefreshing}
           locale={locale}
           onRefresh={onRefresh}
@@ -718,7 +726,7 @@ function ReportBody({
         <MarketReportView
           data={data as MarketReportDto}
           dict={uiDict}
-          holdingsSettings={reportHoldingsSettings}
+          holdingsColumns={reportHoldingsColumns}
           isRefreshing={isRefreshing}
           locale={locale}
           onRefresh={onRefresh}
@@ -1669,7 +1677,7 @@ async function copyReportHealthAdminLink(cause: ReportHealthCause, locale: Local
 function DailyReviewView({
   data,
   dict,
-  holdingsSettings,
+  holdingsColumns,
   isRefreshing,
   locale,
   onRefresh,
@@ -1677,7 +1685,7 @@ function DailyReviewView({
 }: {
   data: DailyReviewReportDto;
   dict: AppDictionary;
-  holdingsSettings: HoldingsColumnSettingsState<ReportHoldingsColumn>;
+  holdingsColumns: Array<HoldingsGridColumnDefinition<ReportHoldingsColumn>>;
   isRefreshing: boolean;
   locale: LocaleCode;
   onRefresh: () => void;
@@ -1714,18 +1722,20 @@ function DailyReviewView({
           </CardContent>
         </Card>
         <HoldingsCard
+          columns={holdingsColumns}
           dict={dict}
-          columnSettings={holdingsSettings}
           title={dict.reports.topMoversTitle}
-          contextKey="reports.dailyReview.topMovers"
+          contextKey={REPORTS_DAILY_REVIEW_TOP_MOVERS_CONTEXT_KEY}
+          selectionUniverseRows={data.holdings.rows}
           rows={{ total: data.topMovers.length, limit: data.topMovers.length, offset: 0, rows: data.topMovers }}
           isRefreshing={isRefreshing}
           locale={locale}
           onRefresh={onRefresh}
           showAdminActivityLinks={showAdminActions}
+          showTopHoldingsLimit
         />
       </div>
-      <HoldingsCard dict={dict} columnSettings={holdingsSettings} title={dict.reports.holdingsDetailTitle} contextKey="reports.dailyReview.holdings" rows={data.holdings} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} showAdminActivityLinks={showAdminActions} stickyFirstColumn />
+      <HoldingsCard columns={holdingsColumns} dict={dict} title={dict.reports.holdingsDetailTitle} contextKey={REPORTS_DAILY_REVIEW_HOLDINGS_CONTEXT_KEY} selectionUniverseRows={data.holdings.rows} rows={data.holdings} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} showAdminActivityLinks={showAdminActions} stickyFirstColumn />
     </>
   );
 }
@@ -1757,7 +1767,7 @@ function dailyReviewSeverityLabel(dict: AppDictionary, severity: DailyReviewRepo
 function PortfolioReportView({
   data,
   dict,
-  holdingsSettings,
+  holdingsColumns,
   isRefreshing,
   locale,
   onRefresh,
@@ -1768,7 +1778,7 @@ function PortfolioReportView({
 }: {
   data: PortfolioReportDto;
   dict: AppDictionary;
-  holdingsSettings: HoldingsColumnSettingsState<ReportHoldingsColumn>;
+  holdingsColumns: Array<HoldingsGridColumnDefinition<ReportHoldingsColumn>>;
   isRefreshing: boolean;
   locale: LocaleCode;
   onRefresh: () => void;
@@ -1803,7 +1813,7 @@ function PortfolioReportView({
         reportScope={data.query.scope}
         rows={Array.isArray(data.allocation.byTicker) ? data.allocation.byTicker : []}
       />
-      <HoldingsCard dict={dict} columnSettings={holdingsSettings} title={dict.reports.holdingsDetailTitle} contextKey="reports.portfolio.holdings" rows={data.holdings} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} showAdminActivityLinks={showAdminActions} stickyFirstColumn />
+      <HoldingsCard columns={holdingsColumns} dict={dict} title={dict.reports.holdingsDetailTitle} contextKey={REPORTS_PORTFOLIO_HOLDINGS_CONTEXT_KEY} selectionUniverseRows={data.holdings.rows} rows={data.holdings} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} showAdminActivityLinks={showAdminActions} stickyFirstColumn />
     </>
   );
 }
@@ -1811,7 +1821,7 @@ function PortfolioReportView({
 function MarketReportView({
   data,
   dict,
-  holdingsSettings,
+  holdingsColumns,
   isRefreshing,
   locale,
   onRefresh,
@@ -1822,7 +1832,7 @@ function MarketReportView({
 }: {
   data: MarketReportDto;
   dict: AppDictionary;
-  holdingsSettings: HoldingsColumnSettingsState<ReportHoldingsColumn>;
+  holdingsColumns: Array<HoldingsGridColumnDefinition<ReportHoldingsColumn>>;
   isRefreshing: boolean;
   locale: LocaleCode;
   onRefresh: () => void;
@@ -1848,18 +1858,20 @@ function MarketReportView({
       <div className="grid gap-4 lg:grid-cols-[1fr_1.5fr]">
         <AllocationChart dict={dict} title={dict.reports.marketSummaryTitle} buckets={data.marketSummary} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} />
         <HoldingsCard
+          columns={holdingsColumns}
           dict={dict}
-          columnSettings={holdingsSettings}
           title={dict.reports.topHoldingsTitle}
-          contextKey="reports.market.topHoldings"
+          contextKey={REPORTS_MARKET_TOP_HOLDINGS_CONTEXT_KEY}
+          selectionUniverseRows={data.detail.rows}
           rows={{ total: data.topHoldings.length, limit: data.topHoldings.length, offset: 0, rows: data.topHoldings }}
           isRefreshing={isRefreshing}
           locale={locale}
           onRefresh={onRefresh}
           showAdminActivityLinks={showAdminActions}
+          showTopHoldingsLimit
         />
       </div>
-      <HoldingsCard dict={dict} columnSettings={holdingsSettings} title={dict.reports.marketDetailTitle} contextKey="reports.market.detail" rows={data.detail} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} showAdminActivityLinks={showAdminActions} stickyFirstColumn />
+      <HoldingsCard columns={holdingsColumns} dict={dict} title={dict.reports.marketDetailTitle} contextKey={REPORTS_MARKET_DETAIL_CONTEXT_KEY} selectionUniverseRows={data.detail.rows} rows={data.detail} isRefreshing={isRefreshing} locale={locale} onRefresh={onRefresh} showAdminActivityLinks={showAdminActions} stickyFirstColumn />
     </>
   );
 }
@@ -2540,41 +2552,61 @@ function TickerAllocationRowContent({
 }
 
 function HoldingsCard({
-  columnSettings,
+  columns,
   contextKey,
   dict,
   locale,
   isRefreshing,
   onRefresh,
   rows,
+  selectionUniverseRows,
   showAdminActivityLinks = false,
+  showTopHoldingsLimit = false,
   stickyFirstColumn = true,
   title,
 }: {
-  columnSettings: HoldingsColumnSettingsState<ReportHoldingsColumn>;
+  columns: Array<HoldingsGridColumnDefinition<ReportHoldingsColumn>>;
   contextKey: string;
   dict: AppDictionary;
   isRefreshing: boolean;
   locale: LocaleCode;
   onRefresh: () => void;
   rows: ReportHoldingRowsPageDto;
+  selectionUniverseRows: ReportHoldingRowDto[];
   showAdminActivityLinks?: boolean;
+  showTopHoldingsLimit?: boolean;
   stickyFirstColumn?: boolean;
   title: string;
 }) {
+  const columnSettings = useHoldingsColumnSettings<ReportHoldingsColumn>({
+    columns,
+    contextKey,
+    defaultLayoutStyle: "portfolio",
+    mobileSummaryColumnIds: REPORT_MOBILE_FIELD_COLUMNS,
+  });
   const reportingCurrency = rows.rows[0]?.reportingCurrency ?? null;
   const [query, setQuery] = useState("");
   const [selectedPreset, setSelectedPreset] = useState<ReportHoldingFocusPreset>("largest");
   const [sortMode, setSortMode] = useState<ReportHoldingSort>("value");
   const visibleColumns = columnSettings.orderedColumns.filter((column) => columnSettings.visibleColumns.includes(column.id));
   const mobileColumnSplit = splitMobileHoldingColumns(columnSettings, REPORT_MOBILE_FIELD_COLUMNS);
+  const holdingsSelectionUniverse = useMemo(
+    () => selectionUniverseRows.map((row) => ({
+      marketCode: row.marketCode,
+      ticker: row.ticker,
+      label: row.instrumentName?.trim() || row.ticker,
+      searchText: `${row.marketCode} ${row.ticker} ${row.instrumentName ?? ""}`.toLowerCase(),
+    })),
+    [selectionUniverseRows],
+  );
+  const holdingsSelection = useHoldingsSelection(holdingsSelectionUniverse);
   const marketOptions = useMemo(
-    () => [...new Set(rows.rows.map((row) => row.marketCode))].sort((left, right) => left.localeCompare(right)),
-    [rows.rows],
+    () => [...new Set(selectionUniverseRows.map((row) => row.marketCode))].sort((left, right) => left.localeCompare(right)),
+    [selectionUniverseRows],
   );
   const accountOptions = useMemo(() => {
     const accounts = new Map<string, string>();
-    for (const row of rows.rows) {
+    for (const row of selectionUniverseRows) {
       for (const account of row.accounts ?? []) {
         accounts.set(account.id, account.name);
       }
@@ -2582,7 +2614,7 @@ function HoldingsCard({
     return [...accounts.entries()]
       .map(([id, name]) => ({ id, name }))
       .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
-  }, [rows.rows]);
+  }, [selectionUniverseRows]);
   const accountOptionIds = useMemo(() => accountOptions.map((account) => account.id), [accountOptions]);
   const selectedMarketCodes = useMemo(
     () => filterAvailableHoldingsSelections(columnSettings.selectedMarketCodes, marketOptions),
@@ -2605,6 +2637,13 @@ function HoldingsCard({
   const filteredRows = useMemo(() => {
     const normalizedQuery = query.trim().toUpperCase();
     const baseRows = rows.rows.filter((row) => {
+      const tickerId = buildHoldingsTickerId(row.marketCode, row.ticker);
+      if (
+        holdingsSelection.selectionMode === "custom"
+        && !holdingsSelection.selectedTickerIdSet.has(tickerId)
+      ) {
+        return false;
+      }
       const marketMatches = selectedMarketCodes.length === 0 || selectedMarketCodes.includes(row.marketCode);
       const accountMatches = selectedAccountIds.length === 0 || (row.accounts ?? []).some((account) => selectedAccountIds.includes(account.id));
       const queryMatches = normalizedQuery === ""
@@ -2622,14 +2661,52 @@ function HoldingsCard({
       reportHoldingRowId,
       columnSettings.rowOrder,
     );
-  }, [columnSettings.rowOrder, query, rows.rows, selectedAccountIds, selectedMarketCodes, selectedPreset, sortMode]);
+  }, [
+    columnSettings.rowOrder,
+    holdingsSelection.selectedTickerIdSet,
+    holdingsSelection.selectionMode,
+    query,
+    rows.rows,
+    selectedAccountIds,
+    selectedMarketCodes,
+    selectedPreset,
+    sortMode,
+  ]);
+  const visibleRows = useMemo(
+    () => showTopHoldingsLimit ? filteredRows.slice(0, columnSettings.topHoldingsLimit) : filteredRows,
+    [columnSettings.topHoldingsLimit, filteredRows, showTopHoldingsLimit],
+  );
   const filteredRowsPage: ReportHoldingRowsPageDto = {
     ...rows,
-    limit: filteredRows.length,
+    limit: visibleRows.length,
     offset: 0,
-    rows: filteredRows,
-    total: filteredRows.length,
+    rows: visibleRows,
+    total: visibleRows.length,
   };
+  const selectionSummaryRows = useMemo<HoldingsSelectionSummaryRow[]>(
+    () => visibleRows.map((row) => ({
+      marketCode: row.marketCode,
+      ticker: row.ticker,
+      reportingCostBasisAmount: row.reportingCostBasisAmount,
+      reportingMarketValueAmount: row.reportingMarketValueAmount,
+      reportingUnrealizedPnlAmount: row.reportingUnrealizedPnlAmount,
+    })),
+    [visibleRows],
+  );
+  const selectionSummary = useMemo(
+    () => buildHoldingsSelectionVisibleSummary({
+      mode: holdingsSelection.selectionMode,
+      rows: selectionSummaryRows,
+      selectedTickerIds: holdingsSelection.selectedTickerIds,
+      universeTickerIds: holdingsSelection.universeTickerIds,
+    }),
+    [
+      holdingsSelection.selectedTickerIds,
+      holdingsSelection.selectionMode,
+      holdingsSelection.universeTickerIds,
+      selectionSummaryRows,
+    ],
+  );
 
   function handlePresetChange(value: string) {
     if (!isReportHoldingFocusPreset(value)) return;
@@ -2643,7 +2720,7 @@ function HoldingsCard({
         <div className="flex min-w-0 flex-col gap-2">
           <CardTitle>{title}</CardTitle>
           <div className="flex flex-wrap items-center gap-2">
-            <CardDescription>{formatReportMessage(dict.reports.totalRows, { count: formatNumber(filteredRows.length, locale) })}</CardDescription>
+            <CardDescription>{formatReportMessage(dict.reports.totalRows, { count: formatNumber(visibleRows.length, locale) })}</CardDescription>
             {reportingCurrency ? <Badge variant="outline">{formatReportMessage(dict.reports.reportingCurrencyBadge, { currency: reportingCurrency })}</Badge> : null}
             <CardDescription className="basis-full">
               {dict.holdings.dataHealthDescription}
@@ -2664,56 +2741,85 @@ function HoldingsCard({
               description: row.instrumentName ? `${row.marketCode} · ${row.instrumentName}` : row.marketCode,
             }))}
             settings={columnSettings}
+            showTopHoldingsLimit={showTopHoldingsLimit}
             testIdPrefix="reports-holdings"
           />
           <SectionRefreshButton dict={dict} isRefreshing={isRefreshing} onRefresh={onRefresh} testId={`reports-${title.toLowerCase().replace(/\s+/g, "-")}-refresh`} />
         </div>
       </CardHeader>
       <CardContent>
-        <div className="mb-4 grid gap-3 lg:grid-cols-[minmax(220px,1fr)_auto_auto_auto]">
-          <label className="relative block min-w-0">
-            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-            <span className="sr-only">{dict.dashboardHome.topHoldingsSearchLabel}</span>
-            <Input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={dict.dashboardHome.topHoldingsSearchPlaceholder}
-              className="pl-9"
-              data-testid={`reports-holdings-search-${contextKey}`}
+        <div className="mb-4 flex flex-col gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <HoldingsSelectionToolbar
+              dict={dict}
+              mode={holdingsSelection.selectionMode}
+              universeItems={holdingsSelection.universeItems}
+              selectedTickerIds={holdingsSelection.selectedTickerIds}
+              availableSelectedTickerIds={holdingsSelection.availableSelectedTickerIds}
+              unavailableTickerIds={holdingsSelection.unavailableTickerIds}
+              onReset={holdingsSelection.setAll}
+              onToggleTicker={holdingsSelection.toggleTicker}
+              onRemoveTicker={holdingsSelection.removeTicker}
             />
-          </label>
-          <ReportsMultiSelectMenu
-            allLabel={dict.dashboardHome.topHoldingsAllMarkets}
-            buttonLabel={marketFilterLabel}
-            label={dict.dashboardHome.topHoldingsMarketLabel}
-            options={marketOptions.map((market) => ({ id: market, label: market }))}
-            selectedIds={selectedMarketCodes}
-            setSelectedIds={columnSettings.setSelectedMarketCodes}
-            testId={`reports-holdings-market-filter-${contextKey}`}
+          </div>
+          <div className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_auto_auto_auto]">
+            <label className="relative block min-w-0">
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+              <span className="sr-only">{dict.dashboardHome.topHoldingsSearchLabel}</span>
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={dict.dashboardHome.topHoldingsSearchPlaceholder}
+                className="pl-9"
+                data-testid={`reports-holdings-search-${contextKey}`}
+              />
+            </label>
+            <ReportsMultiSelectMenu
+              allLabel={dict.dashboardHome.topHoldingsAllMarkets}
+              buttonLabel={marketFilterLabel}
+              label={dict.dashboardHome.topHoldingsMarketLabel}
+              options={marketOptions.map((market) => ({ id: market, label: market }))}
+              selectedIds={selectedMarketCodes}
+              setSelectedIds={columnSettings.setSelectedMarketCodes}
+              testId={`reports-holdings-market-filter-${contextKey}`}
+            />
+            <ReportsMultiSelectMenu
+              allLabel={dict.dashboardHome.topHoldingsAllAccounts}
+              buttonLabel={accountFilterLabel}
+              label={dict.dashboardHome.topHoldingsAccountLabel}
+              options={accountOptions.map((account) => ({ id: account.id, label: account.name }))}
+              selectedIds={selectedAccountIds}
+              setSelectedIds={columnSettings.setSelectedAccountIds}
+              testId={`reports-holdings-account-filter-${contextKey}`}
+            />
+            <Select value={sortMode} onValueChange={(value) => setSortMode(value as ReportHoldingSort)}>
+              <SelectTrigger aria-label={dict.dashboardHome.topHoldingsSortLabel} className="min-w-36" data-testid={`reports-holdings-sort-${contextKey}`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="value">{dict.dashboardHome.topHoldingsSortValue}</SelectItem>
+                  <SelectItem value="daily">{dict.dashboardHome.topHoldingsSortDaily}</SelectItem>
+                  <SelectItem value="pnl">{dict.dashboardHome.topHoldingsSortPnl}</SelectItem>
+                  <SelectItem value="unitPnl">{dict.holdings.unitPnlTerm}</SelectItem>
+                  <SelectItem value="ticker">{dict.dashboardHome.topHoldingsSortTicker}</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </div>
+          {holdingsSelection.selectionError ? (
+            <p className="text-sm text-destructive" data-testid={`reports-holdings-selection-error-${contextKey}`}>
+              {holdingsSelection.selectionError}
+            </p>
+          ) : null}
+          <HoldingsSelectionSummaryStrip
+            className="border-0 py-0"
+            dict={dict}
+            framed={false}
+            locale={locale}
+            reportingCurrency={reportingCurrency ?? "TWD"}
+            summary={selectionSummary}
           />
-          <ReportsMultiSelectMenu
-            allLabel={dict.dashboardHome.topHoldingsAllAccounts}
-            buttonLabel={accountFilterLabel}
-            label={dict.dashboardHome.topHoldingsAccountLabel}
-            options={accountOptions.map((account) => ({ id: account.id, label: account.name }))}
-            selectedIds={selectedAccountIds}
-            setSelectedIds={columnSettings.setSelectedAccountIds}
-            testId={`reports-holdings-account-filter-${contextKey}`}
-          />
-          <Select value={sortMode} onValueChange={(value) => setSortMode(value as ReportHoldingSort)}>
-            <SelectTrigger aria-label={dict.dashboardHome.topHoldingsSortLabel} className="min-w-36" data-testid={`reports-holdings-sort-${contextKey}`}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                <SelectItem value="value">{dict.dashboardHome.topHoldingsSortValue}</SelectItem>
-                <SelectItem value="daily">{dict.dashboardHome.topHoldingsSortDaily}</SelectItem>
-                <SelectItem value="pnl">{dict.dashboardHome.topHoldingsSortPnl}</SelectItem>
-                <SelectItem value="unitPnl">{dict.holdings.unitPnlTerm}</SelectItem>
-                <SelectItem value="ticker">{dict.dashboardHome.topHoldingsSortTicker}</SelectItem>
-              </SelectGroup>
-            </SelectContent>
-          </Select>
         </div>
         <div className="mb-4 sm:hidden">
           <Select value={selectedPreset} onValueChange={handlePresetChange}>
@@ -2754,6 +2860,7 @@ function HoldingsCard({
         <HoldingsMobileList
           detailColumns={mobileColumnSplit.detailColumns}
           dict={dict}
+          holdingsSelection={holdingsSelection}
           rows={filteredRowsPage.rows}
           locale={locale}
           showAdminActivityLinks={showAdminActivityLinks}
@@ -2793,6 +2900,7 @@ function HoldingsCard({
                       column={column.id}
                       columnSettings={columnSettings}
                       dict={dict}
+                      holdingsSelection={holdingsSelection}
                       locale={locale}
                       row={row}
                       showAdminActivityLinks={showAdminActivityLinks}
@@ -2900,6 +3008,7 @@ function ReportHoldingTableCell({
   column,
   columnSettings,
   dict,
+  holdingsSelection,
   locale,
   row,
   showAdminActivityLinks,
@@ -2908,6 +3017,7 @@ function ReportHoldingTableCell({
   column: ReportHoldingsColumn;
   columnSettings: HoldingsColumnSettingsState<ReportHoldingsColumn>;
   dict: AppDictionary;
+  holdingsSelection: ReturnType<typeof useHoldingsSelection>;
   locale: LocaleCode;
   row: ReportHoldingRowDto;
   showAdminActivityLinks: boolean;
@@ -2916,22 +3026,32 @@ function ReportHoldingTableCell({
   const style = holdingsColumnCellStyle(columnSettings, column);
   const className = reportHoldingCellClassName(column, stickyFirstColumn);
   if (column === "ticker") {
+    const tickerId = buildHoldingsTickerId(row.marketCode, row.ticker);
     return (
       <td className={className} style={style}>
-        <div className="flex min-w-0 flex-col gap-1">
-          <TickerLink marketCode={row.marketCode} ticker={row.ticker} />
-          <Link
-            href={reportHoldingAnalysisHref(row)}
-            className="w-fit text-xs font-medium text-primary underline decoration-primary/30 underline-offset-4 hover:text-primary/80"
-            aria-label={dict.reports.openUnrealizedPnlAnalysis}
-            data-testid={`reports-holding-analysis-link-${row.ticker}-${row.marketCode}`}
-          >
-            {dict.navigation.analysisLabel}
-          </Link>
-          {row.instrumentName ? <span className="text-xs text-muted-foreground">{row.instrumentName}</span> : null}
-          <span className="text-xs text-muted-foreground">
-            {formatReportMessage(dict.reports.accountAbbrev, { count: formatNumber(row.accountCount, locale) })} · {formatReportMessage(dict.reports.unitsLabel, { count: formatNumber(row.quantity, locale, 2) })}
-          </span>
+        <div className="flex min-w-0 items-start gap-2">
+          <HoldingsSelectionInlineToggle
+            dict={dict}
+            tickerId={tickerId}
+            checked={holdingsSelection.isTickerSelected(tickerId)}
+            onToggle={() => holdingsSelection.toggleTicker(tickerId)}
+            className="mt-1"
+          />
+          <div className="flex min-w-0 flex-col gap-1">
+            <TickerLink marketCode={row.marketCode} ticker={row.ticker} />
+            <Link
+              href={reportHoldingAnalysisHref(row)}
+              className="w-fit text-xs font-medium text-primary underline decoration-primary/30 underline-offset-4 hover:text-primary/80"
+              aria-label={dict.reports.openUnrealizedPnlAnalysis}
+              data-testid={`reports-holding-analysis-link-${row.ticker}-${row.marketCode}`}
+            >
+              {dict.navigation.analysisLabel}
+            </Link>
+            {row.instrumentName ? <span className="text-xs text-muted-foreground">{row.instrumentName}</span> : null}
+            <span className="text-xs text-muted-foreground">
+              {formatReportMessage(dict.reports.accountAbbrev, { count: formatNumber(row.accountCount, locale) })} · {formatReportMessage(dict.reports.unitsLabel, { count: formatNumber(row.quantity, locale, 2) })}
+            </span>
+          </div>
         </div>
       </td>
     );
@@ -3429,6 +3549,7 @@ function ReportMobileColumnMetric({
 function HoldingsMobileList({
   detailColumns,
   dict,
+  holdingsSelection,
   locale,
   rows,
   showAdminActivityLinks,
@@ -3436,6 +3557,7 @@ function HoldingsMobileList({
 }: {
   detailColumns: ReportHoldingsColumn[];
   dict: AppDictionary;
+  holdingsSelection: ReturnType<typeof useHoldingsSelection>;
   locale: LocaleCode;
   rows: ReportHoldingRowDto[];
   showAdminActivityLinks: boolean;
@@ -3452,12 +3574,21 @@ function HoldingsMobileList({
           data-testid={`reports-mobile-row-${row.ticker}-${row.marketCode}`}
         >
           <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <TickerLink marketCode={row.marketCode} ticker={row.ticker} className="font-medium" />
-              {row.instrumentName ? <p className="mt-1 text-xs text-muted-foreground">{row.instrumentName}</p> : null}
-              <p className="mt-1 text-xs text-muted-foreground">
-                {row.marketCode}
-              </p>
+            <div className="flex min-w-0 items-start gap-3">
+              <HoldingsSelectionInlineToggle
+                dict={dict}
+                tickerId={buildHoldingsTickerId(row.marketCode, row.ticker)}
+                checked={holdingsSelection.isTickerSelected(buildHoldingsTickerId(row.marketCode, row.ticker))}
+                onToggle={() => holdingsSelection.toggleTicker(buildHoldingsTickerId(row.marketCode, row.ticker))}
+                className="mt-1"
+              />
+              <div className="min-w-0">
+                <TickerLink marketCode={row.marketCode} ticker={row.ticker} className="font-medium" />
+                {row.instrumentName ? <p className="mt-1 text-xs text-muted-foreground">{row.instrumentName}</p> : null}
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {row.marketCode}
+                </p>
+              </div>
             </div>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2">

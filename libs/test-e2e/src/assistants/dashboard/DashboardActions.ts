@@ -81,6 +81,7 @@ export class DashboardActions extends AppBaseActions {
     const responsePromise = this.waitForSnapshotGeneration();
     await this.clickGenerateSnapshots();
     await responsePromise;
+    await expect(this.el.snapshotStatus).toBeVisible({ timeout: 30_000 });
   }
 
   // --- Phase 5e — floating ⨁ Sheet actions ---

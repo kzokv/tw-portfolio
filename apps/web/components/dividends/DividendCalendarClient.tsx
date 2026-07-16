@@ -14,6 +14,15 @@ import {
   updateDividendReconciliation,
 } from "../../features/dividends/services/dividendService";
 import { mapDividendDailyHighlightItem, type DividendDailyHighlightRow } from "../../features/dividends/dailyHighlights";
+import {
+  buildTickerShareSummaries,
+  dividendEventTypeLabel,
+  formatDividendRatio,
+  formatDividendShares,
+  isCashDividendEvent,
+  isStockDividendEvent,
+  stockRatioStateLabel,
+} from "../../features/dividends/presentation";
 import type {
   DividendCalendarRow,
   DividendCalendarSnapshot,
@@ -38,6 +47,7 @@ interface DividendCalendarClientProps {
 
 type CalendarBadge = "unposted" | "pendingReview" | "posted" | "postedVariance" | "resolved" | "matched" | "explained";
 type CurrencyTotals = Partial<Record<CurrencyCode, number>>;
+type StockSummaryLike = Pick<DividendEventListItem, "marketCode" | "ticker" | "tickerName"> & { quantity: number };
 
 function formatTemplate(template: string, values: Record<string, string | number>): string {
   return Object.entries(values).reduce((result, [key, value]) => result.replaceAll(`{${key}}`, String(value)), template);
@@ -191,8 +201,61 @@ function tickerLabel(event: Pick<DividendEventListItem, "ticker" | "tickerName">
 
 function actionPriority(row: DividendCalendarRow): number {
   if (row.ledgerEntry?.sourceCompositionStatus === "unknown_pending_disclosure") return 0;
+  if (row.event.eventType !== "CASH" && row.event.stockDistributionRatioState === "unresolved") return 1;
   if (row.ledgerEntry?.reconciliationStatus === "open") return 1;
   return 2;
+}
+
+function eventTypeBadgeClassName(eventType: DividendEventListItem["eventType"]): string {
+  switch (eventType) {
+    case "STOCK":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "CASH_AND_STOCK":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    default:
+      return "border-sky-200 bg-sky-50 text-sky-700";
+  }
+}
+
+function ratioToneClassName(
+  state: DividendEventListItem["stockDistributionRatioState"] | DividendLedgerEntryDetails["stockDistributionRatioState"],
+  calcState?: DividendLedgerEntryDetails["expectedStockCalcState"] | null,
+): string {
+  if (calcState === "needs_action" || state === "unresolved") {
+    return "text-amber-700";
+  }
+  if (state === "derived_non_authoritative") {
+    return "text-slate-500";
+  }
+  return "text-muted-foreground";
+}
+
+function stockMetricSupplementary(
+  dict: AppDictionary,
+  locale: LocaleCode,
+  detailTemplate: string,
+  rows: readonly StockSummaryLike[],
+): string[] {
+  if (rows.length === 0) return [];
+  const summary = buildTickerShareSummaries(rows, locale, dict);
+  const lines = [
+    formatTemplate(detailTemplate, { count: formatNumber(rows.length, locale) }),
+    ...summary.items,
+  ];
+  if (summary.overflowCount > 0) {
+    lines.push(formatTemplate(dict.dividends.overview.moreTickerQuantities, { count: formatNumber(summary.overflowCount, locale) }));
+  }
+  return lines;
+}
+
+function stockIssueLabel(dict: AppDictionary, row: DividendCalendarRow): string | null {
+  if (!isStockDividendEvent(row.event.eventType)) return null;
+  const expectedStockCalcState = row.ledgerEntry?.expectedStockCalcState
+    ?? (row.event.stockDistributionRatioState === "unresolved" ? "needs_action" : "resolved");
+  if (expectedStockCalcState === "needs_action" || row.event.stockDistributionRatioState === "unresolved") {
+    return `${dict.dividends.overview.stockNeedsAction}: ${dict.dividends.stockRatioState.unresolved}`;
+  }
+  return null;
 }
 
 export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, locale, onSnapshotChange }: DividendCalendarClientProps) {
@@ -341,6 +404,7 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
   });
 
   const rows = useMemo(() => buildRows(snapshot), [snapshot]);
+  const eventById = useMemo(() => new Map(rows.map((row) => [row.event.id, row.event])), [rows]);
   const tbdRows = rows.filter((row) => row.event.paymentDate === null);
   const receiptRows = rows
     .filter((row) => row.ledgerEntry?.postingStatus === "posted" || row.ledgerEntry?.postingStatus === "adjusted")
@@ -366,6 +430,34 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
   const receivedTotals = receiptRows.reduce<CurrencyTotals>(
     (totals, row) => row.ledgerEntry ? addCurrencyTotal(totals, row.ledgerEntry.cashCurrency, row.ledgerEntry.receivedCashAmount) : totals,
     {},
+  );
+  const expectedStockRows = rows
+    .filter((row) => isStockDividendEvent(row.event.eventType))
+    .map((row) => ({
+      marketCode: row.event.marketCode,
+      ticker: row.event.ticker,
+      tickerName: row.event.tickerName,
+      quantity: row.event.expectedStockQuantity,
+    }));
+  const receivedStockRows = receiptRows
+    .filter((row) => row.ledgerEntry && isStockDividendEvent(row.ledgerEntry.eventType))
+    .map((row) => ({
+      marketCode: row.event.marketCode,
+      ticker: row.event.ticker,
+      tickerName: row.event.tickerName,
+      quantity: row.ledgerEntry?.receivedStockQuantity ?? 0,
+    }));
+  const expectedMetricSupplementary = stockMetricSupplementary(
+    dict,
+    locale,
+    dict.dividends.overview.stockEventsDetail,
+    expectedStockRows,
+  );
+  const receivedMetricSupplementary = stockMetricSupplementary(
+    dict,
+    locale,
+    dict.dividends.overview.stockPostingsDetail,
+    receivedStockRows,
   );
   const resolvedTickerCount = rows.filter((row) => row.event.tickerName?.trim()).length;
   const tickerCoverage = rows.length > 0 ? Math.round((resolvedTickerCount / rows.length) * 100) : 100;
@@ -450,8 +542,20 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
       </section>
 
       <section className="min-w-0 grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label={dict.dividends.pageTitle}>
-        <OverviewMetric label={dict.dividends.overview.expected} value={formatCurrencyTotals(expectedTotals, locale)} detail={formatTemplate(dict.dividends.overview.eventsScheduled, { count: formatNumber(rows.length, locale) })} tone="neutral" />
-        <OverviewMetric label={dict.dividends.overview.received} value={formatCurrencyTotals(receivedTotals, locale)} detail={formatTemplate(dict.dividends.overview.receiptsPosted, { count: formatNumber(receiptRows.length, locale) })} tone="positive" />
+        <OverviewMetric
+          label={dict.dividends.overview.expected}
+          value={formatCurrencyTotals(expectedTotals, locale)}
+          detail={formatTemplate(dict.dividends.overview.eventsScheduled, { count: formatNumber(rows.length, locale) })}
+          supplementary={expectedMetricSupplementary}
+          tone="neutral"
+        />
+        <OverviewMetric
+          label={dict.dividends.overview.received}
+          value={formatCurrencyTotals(receivedTotals, locale)}
+          detail={formatTemplate(dict.dividends.overview.receiptsPosted, { count: formatNumber(receiptRows.length, locale) })}
+          supplementary={receivedMetricSupplementary}
+          tone="positive"
+        />
         <OverviewMetric label={dict.dividends.overview.needsAction} value={formatNumber(actionRows.length, locale)} detail={formatTemplate(dict.dividends.overview.actionItems, { count: formatNumber(actionRows.length, locale) })} tone={actionRows.length > 0 ? "warning" : "positive"} />
         <OverviewMetric label={dict.dividends.overview.coverage} value={`${formatNumber(tickerCoverage, locale)}%`} detail={formatTemplate(dict.dividends.overview.tickerNamesResolved, { count: formatNumber(tickerCoverage, locale) })} tone={tickerCoverage === 100 ? "positive" : "warning"} />
       </section>
@@ -469,9 +573,12 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
                 <TodayHighlightRow
                   key={`paying-${event.id}`}
                   event={event}
+                  snapshotEvent={eventById.get(event.id) ?? null}
                   dict={dict}
                   locale={locale}
+                  primaryLabel={dict.dividends.overview.payDateLabel}
                   primaryDate={event.paymentDate ?? event.exDividendDate}
+                  showTbdWhenMissing
                 />
               ))}
             </div>
@@ -488,9 +595,12 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
                 <TodayHighlightRow
                   key={`ex-${event.id}`}
                   event={event}
+                  snapshotEvent={eventById.get(event.id) ?? null}
                   dict={dict}
                   locale={locale}
+                  primaryLabel={dict.dividends.overview.exDateLabel}
                   primaryDate={event.exDividendDate}
+                  showTbdWhenMissing={false}
                 />
               ))}
             </div>
@@ -617,12 +727,31 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
   );
 }
 
-function OverviewMetric({ label, value, detail, tone }: { label: string; value: string; detail: string; tone: "neutral" | "positive" | "warning" }) {
+function OverviewMetric({
+  label,
+  value,
+  detail,
+  supplementary,
+  tone,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  supplementary?: string[];
+  tone: "neutral" | "positive" | "warning";
+}) {
   return (
     <Card className="min-w-0 rounded-lg border-border bg-card p-4 shadow-sm">
       <p className="text-[11px] font-semibold uppercase text-muted-foreground">{label}</p>
       <p className="mt-3 break-words text-2xl font-semibold text-foreground">{value}</p>
       <p className={cn("mt-2 text-sm", tone === "positive" ? "text-emerald-700" : tone === "warning" ? "text-amber-700" : "text-muted-foreground")}>{detail}</p>
+      {supplementary && supplementary.length > 0 ? (
+        <div className="mt-3 grid gap-1 text-xs text-muted-foreground">
+          {supplementary.map((line) => (
+            <p key={line}>{line}</p>
+          ))}
+        </div>
+      ) : null}
     </Card>
   );
 }
@@ -644,27 +773,58 @@ function PanelHeading({ title, description, action, badge }: { title: string; de
 
 function TodayHighlightRow({
   event,
+  snapshotEvent,
   dict,
   locale,
+  primaryLabel,
   primaryDate,
+  showTbdWhenMissing,
 }: {
   event: DividendDailyHighlightRow;
+  snapshotEvent: DividendEventListItem | null;
   dict: AppDictionary;
   locale: LocaleCode;
+  primaryLabel: string;
   primaryDate: string;
+  showTbdWhenMissing?: boolean;
 }) {
+  const stockDistributionRatio = snapshotEvent?.stockDistributionRatio ?? null;
+  const stockDistributionRatioState = snapshotEvent?.stockDistributionRatioState ?? "unresolved";
   return (
     <div className="grid gap-2 px-4 py-4 text-sm">
       <div className="flex items-start justify-between gap-3">
         <TickerCell event={event} />
-        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{event.marketCode}</span>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          <EventTypeBadge dict={dict} eventType={event.eventType} />
+          <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">{event.marketCode}</span>
+        </div>
       </div>
       <div className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
-        <span>{dict.dividends.overview.dateLabel}: {formatDateLabel(primaryDate, locale)}</span>
+        <span>{primaryLabel}: {showTbdWhenMissing && !event.paymentDate ? dict.dividends.paymentDateTbdSection : formatDateLabel(primaryDate, locale)}</span>
         <span>{dict.dividends.overview.marketLabel}: {event.marketDateLabel}</span>
       </div>
-      <div className="text-sm font-medium text-foreground">
-        {formatCurrencyAmount(event.expectedCashAmount, event.cashDividendCurrency, locale)}
+      <div className="grid gap-1.5">
+        {isCashDividendEvent(event.eventType) ? (
+          <HighlightValueLine
+            label={dict.dividends.overview.expectedCashLabel}
+            value={formatCurrencyAmount(event.expectedCashAmount, event.cashDividendCurrency, locale)}
+          />
+        ) : null}
+        {isStockDividendEvent(event.eventType) ? (
+          <>
+            <HighlightValueLine
+              label={dict.dividends.overview.expectedStockLabel}
+              value={formatDividendShares(event.expectedStockQuantity, locale, dict)}
+            />
+            <HighlightValueLine
+              label={dict.dividends.overview.ratioLabel}
+              value={stockDistributionRatio == null
+                ? stockRatioStateLabel(dict, stockDistributionRatioState, "needs_action")
+                : `${formatDividendRatio(stockDistributionRatio, locale)} · ${stockRatioStateLabel(dict, stockDistributionRatioState)}`}
+              tone={stockDistributionRatio == null ? "warning" : "muted"}
+            />
+          </>
+        ) : null}
       </div>
     </div>
   );
@@ -673,31 +833,70 @@ function TodayHighlightRow({
 function EventRow({ row, dict, locale, pending, onOpen, onMarkMatched }: { row: DividendCalendarRow; dict: AppDictionary; locale: LocaleCode; pending: boolean; onOpen?: () => void; onMarkMatched?: () => void }) {
   const badge = resolveBadge(row);
   const grossAmount = calculateGrossAmount(row.ledgerEntry);
+  const ratio = row.ledgerEntry?.stockDistributionRatio ?? row.event.stockDistributionRatio;
+  const ratioState = row.ledgerEntry?.stockDistributionRatioState ?? row.event.stockDistributionRatioState;
+  const stockCalcState = row.ledgerEntry?.expectedStockCalcState
+    ?? (row.event.stockDistributionRatioState === "unresolved" ? "needs_action" : "resolved");
+  const stockIssue = stockIssueLabel(dict, row);
   return (
-    <div className="grid min-w-0 gap-2 px-4 py-4 text-sm xl:grid-cols-[minmax(190px,1.4fr)_110px_110px_120px_110px] xl:items-center xl:gap-3" data-testid={`dividend-row-${row.event.id}`}>
-      <TickerCell event={row.event} />
+    <div className="grid min-w-0 gap-2 px-4 py-4 text-sm xl:grid-cols-[minmax(220px,1.5fr)_120px_120px_minmax(240px,1.4fr)_minmax(180px,1fr)] xl:items-center xl:gap-3" data-testid={`dividend-row-${row.event.id}`}>
+      <div className="grid gap-2">
+        <TickerCell event={row.event} />
+        <div className="flex flex-wrap items-center gap-2">
+          <EventTypeBadge dict={dict} eventType={row.event.eventType} />
+        </div>
+      </div>
       <MobileField label={dict.dividends.overview.exDateLabel}>{formatDateLabel(row.event.exDividendDate, locale)}</MobileField>
       <MobileField label={dict.dividends.overview.payDateLabel}>{row.event.paymentDate ? formatDateLabel(row.event.paymentDate, locale) : dict.dividends.paymentDateTbdSection}</MobileField>
-      <MobileField label={dict.dividends.overview.amountLabel} className="font-semibold md:text-right">
-        <span className="block">{formatCurrencyAmount(row.event.expectedCashAmount, row.event.cashDividendCurrency, locale)}</span>
-        {grossAmount !== null && grossAmount !== row.event.expectedCashAmount ? (
-          <span className="block text-xs font-medium text-muted-foreground">
-            {formatCurrencyAmount(grossAmount, row.ledgerEntry?.cashCurrency ?? row.event.cashDividendCurrency, locale)}
-          </span>
-        ) : null}
+      <MobileField label={dict.dividends.overview.amountLabel} className="xl:text-right">
+        <div className="grid gap-1 text-left xl:text-right">
+          {isCashDividendEvent(row.event.eventType) ? (
+            <StackedValueLine
+              label={dict.dividends.overview.expectedCashLabel}
+              value={formatCurrencyAmount(row.event.expectedCashAmount, row.event.cashDividendCurrency, locale)}
+            />
+          ) : null}
+          {isStockDividendEvent(row.event.eventType) ? (
+            <>
+              <StackedValueLine
+                label={dict.dividends.overview.expectedStockLabel}
+                value={formatDividendShares(row.event.expectedStockQuantity, locale, dict)}
+              />
+              <StackedValueLine
+                label={dict.dividends.overview.ratioLabel}
+                value={ratio == null
+                  ? stockRatioStateLabel(dict, ratioState, stockCalcState)
+                  : `${formatDividendRatio(ratio, locale)} · ${stockRatioStateLabel(dict, ratioState, stockCalcState)}`}
+                toneClassName={ratioToneClassName(ratioState, stockCalcState)}
+              />
+            </>
+          ) : null}
+          {grossAmount !== null && grossAmount !== row.event.expectedCashAmount ? (
+            <StackedValueLine
+              label={dict.dividends.overview.receivedCashLabel}
+              value={formatCurrencyAmount(grossAmount, row.ledgerEntry?.cashCurrency ?? row.event.cashDividendCurrency, locale)}
+              toneClassName="text-muted-foreground"
+            />
+          ) : null}
+        </div>
       </MobileField>
-      <div className="flex flex-wrap items-center gap-2">
-        <StatusBadge label={resolveBadgeLabel(dict, badge)} className={badgeClassName(badge)} testId={`dividend-badge-${row.event.id}`} />
-        {row.ledgerEntry?.reconciliationStatus === "open" && onMarkMatched ? (
-          <Button size="sm" variant="secondary" disabled={pending} onClick={onMarkMatched} data-testid={`dividend-mark-matched-${row.event.id}`}>
-            {dict.dividends.action.markMatched}
-          </Button>
-        ) : null}
-        {onOpen ? (
-          <Button size="sm" variant={row.ledgerEntry ? "secondary" : "default"} onClick={onOpen} data-testid={row.ledgerEntry ? `dividend-edit-${row.event.id}` : `dividend-post-${row.event.id}`}>
-            {row.ledgerEntry ? dict.dividends.action.edit : dict.dividends.action.postDividend}
-          </Button>
-        ) : null}
+      <div className="grid gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusBadge label={resolveBadgeLabel(dict, badge)} className={badgeClassName(badge)} testId={`dividend-badge-${row.event.id}`} />
+          {stockIssue ? <span className="text-xs font-medium text-amber-700">{stockIssue}</span> : null}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {row.ledgerEntry?.reconciliationStatus === "open" && onMarkMatched ? (
+            <Button size="sm" variant="secondary" disabled={pending} onClick={onMarkMatched} data-testid={`dividend-mark-matched-${row.event.id}`}>
+              {dict.dividends.action.markMatched}
+            </Button>
+          ) : null}
+          {onOpen ? (
+            <Button size="sm" variant={row.ledgerEntry ? "secondary" : "default"} onClick={onOpen} data-testid={row.ledgerEntry ? `dividend-edit-${row.event.id}` : `dividend-post-${row.event.id}`}>
+              {row.ledgerEntry ? dict.dividends.action.edit : dict.dividends.action.postDividend}
+            </Button>
+          ) : null}
+        </div>
       </div>
     </div>
   );
@@ -706,17 +905,41 @@ function EventRow({ row, dict, locale, pending, onOpen, onMarkMatched }: { row: 
 function ActionRow({ row, dict, locale, activeMonthKey, pending, onOpen, onMarkMatched }: { row: DividendCalendarRow; dict: AppDictionary; locale: LocaleCode; activeMonthKey: string; pending: boolean; onOpen?: () => void; onMarkMatched?: () => void }) {
   const sourceGap = row.ledgerEntry?.sourceCompositionStatus === "unknown_pending_disclosure";
   const badge = sourceGap ? null : resolveBadge(row);
+  const stockIssue = stockIssueLabel(dict, row);
+  const ratio = row.ledgerEntry?.stockDistributionRatio ?? row.event.stockDistributionRatio;
+  const ratioState = row.ledgerEntry?.stockDistributionRatioState ?? row.event.stockDistributionRatioState;
+  const stockCalcState = row.ledgerEntry?.expectedStockCalcState
+    ?? (row.event.stockDistributionRatioState === "unresolved" ? "needs_action" : "resolved");
   return (
     <div className="grid gap-3 py-4 text-sm">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="break-words font-semibold text-foreground">{tickerLabel(row.event)}</p>
           <p className="mt-1 text-muted-foreground">{eventAccountLabel(row.event)} · {row.event.paymentDate ? formatDateLabel(row.event.paymentDate, locale) : dict.dividends.paymentDateTbdSection}</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <EventTypeBadge dict={dict} eventType={row.event.eventType} />
+          </div>
         </div>
         <StatusBadge
           label={sourceGap ? dict.dividends.overview.sourceGap : resolveBadgeLabel(dict, badge ?? "pendingReview")}
           className={sourceGap ? "bg-amber-50 text-amber-700" : badgeClassName(badge ?? "pendingReview")}
         />
+      </div>
+      <div className="grid gap-1 text-xs text-muted-foreground">
+        {isCashDividendEvent(row.event.eventType) ? (
+          <span>{dict.dividends.overview.expectedCashLabel}: {formatCurrencyAmount(row.event.expectedCashAmount, row.event.cashDividendCurrency, locale)}</span>
+        ) : null}
+        {isStockDividendEvent(row.event.eventType) ? (
+          <span>{dict.dividends.overview.expectedStockLabel}: {formatDividendShares(row.event.expectedStockQuantity, locale, dict)}</span>
+        ) : null}
+        {isStockDividendEvent(row.event.eventType) ? (
+          <span className={ratioToneClassName(ratioState, stockCalcState)}>
+            {dict.dividends.overview.ratioLabel}: {ratio == null
+              ? stockRatioStateLabel(dict, ratioState, stockCalcState)
+              : `${formatDividendRatio(ratio, locale)} · ${stockRatioStateLabel(dict, ratioState, stockCalcState)}`}
+          </span>
+        ) : null}
+        {stockIssue ? <span className="font-medium text-amber-700">{stockIssue}</span> : null}
       </div>
       <div className="flex flex-wrap gap-2">
         {row.ledgerEntry?.reconciliationStatus === "open" && onMarkMatched ? (
@@ -736,11 +959,38 @@ function ReceiptRow({ row, dict, locale, onOpen }: { row: DividendCalendarRow; d
   if (!entry) return null;
   const badge = resolveBadge(row);
   return (
-    <button type="button" className="grid w-full min-w-0 gap-2 px-4 py-4 text-left text-sm enabled:hover:bg-muted/50 disabled:cursor-default xl:grid-cols-[minmax(190px,1.4fr)_110px_130px_130px_110px] xl:items-center xl:gap-3" onClick={onOpen} disabled={!onOpen} data-testid={`dividend-receipt-${entry.id}`}>
-      <TickerCell event={row.event} subLabel={`Ledger ${entry.id}`} />
+    <button type="button" className="grid w-full min-w-0 gap-2 px-4 py-4 text-left text-sm enabled:hover:bg-muted/50 disabled:cursor-default xl:grid-cols-[minmax(220px,1.4fr)_120px_130px_minmax(240px,1.2fr)_110px] xl:items-center xl:gap-3" onClick={onOpen} disabled={!onOpen} data-testid={`dividend-receipt-${entry.id}`}>
+      <div className="grid gap-2">
+        <TickerCell event={row.event} subLabel={`Ledger ${entry.id}`} />
+        <div className="flex flex-wrap items-center gap-2">
+          <EventTypeBadge dict={dict} eventType={entry.eventType} />
+        </div>
+      </div>
       <MobileField label={dict.dividends.overview.postedLabel}>{formatDateLabel(entry.paymentDate ?? entry.bookedAt ?? row.event.paymentDate ?? row.event.exDividendDate, locale)}</MobileField>
       <MobileField label={dict.dividends.overview.accountLabel}>{eventAccountLabel(row.event)}</MobileField>
-      <MobileField label={dict.dividends.overview.netAmountLabel} className="font-semibold md:text-right">{formatCurrencyAmount(entry.receivedCashAmount, entry.cashCurrency, locale)}</MobileField>
+      <MobileField label={dict.dividends.overview.netAmountLabel} className="xl:text-right">
+        <div className="grid gap-1 text-left xl:text-right">
+          {isCashDividendEvent(entry.eventType) ? (
+            <StackedValueLine
+              label={dict.dividends.overview.receivedCashLabel}
+              value={formatCurrencyAmount(entry.receivedCashAmount, entry.cashCurrency, locale)}
+            />
+          ) : null}
+          {isStockDividendEvent(entry.eventType) ? (
+            <StackedValueLine
+              label={dict.dividends.overview.receivedStockLabel}
+              value={formatDividendShares(entry.receivedStockQuantity, locale, dict)}
+            />
+          ) : null}
+          {entry.cashInLieuAmount != null && entry.cashInLieuAmount > 0 ? (
+            <StackedValueLine
+              label={dict.dividends.overview.cashInLieuLabel}
+              value={formatCurrencyAmount(entry.cashInLieuAmount, entry.cashCurrency, locale)}
+              toneClassName="text-muted-foreground"
+            />
+          ) : null}
+        </div>
+      </MobileField>
       <div><StatusBadge label={resolveBadgeLabel(dict, badge)} className={badgeClassName(badge)} testId={`dividend-badge-${row.event.id}`} /></div>
     </button>
   );
@@ -760,8 +1010,8 @@ function TickerCell({ event, subLabel }: {
 
 function MobileField({ label, children, className }: { label: string; children: ReactNode; className?: string }) {
   return (
-    <div className="flex items-center justify-between gap-3 md:block">
-      <span className="text-[11px] font-semibold uppercase text-muted-foreground md:hidden">{label}</span>
+    <div className="flex items-start justify-between gap-3 xl:block">
+      <span className="text-[11px] font-semibold uppercase text-muted-foreground xl:hidden">{label}</span>
       <span className={cn("text-foreground", className)}>{children}</span>
     </div>
   );
@@ -769,4 +1019,30 @@ function MobileField({ label, children, className }: { label: string; children: 
 
 function StatusBadge({ label, className, testId }: { label: string; className: string; testId?: string }) {
   return <span className={cn("inline-flex w-max rounded-full px-2.5 py-1 text-xs font-semibold", className)} data-testid={testId}>{label}</span>;
+}
+
+function EventTypeBadge({ dict, eventType }: { dict: AppDictionary; eventType: DividendEventListItem["eventType"] }) {
+  return (
+    <span className={cn("inline-flex w-max rounded-full border px-2.5 py-1 text-xs font-semibold", eventTypeBadgeClassName(eventType))}>
+      {dividendEventTypeLabel(dict, eventType)}
+    </span>
+  );
+}
+
+function HighlightValueLine({ label, value, tone = "default" }: { label: string; value: string; tone?: "default" | "muted" | "warning" }) {
+  return (
+    <div className="flex items-start justify-between gap-3 text-sm">
+      <span className="text-muted-foreground">{label}</span>
+      <span className={cn("text-right font-medium", tone === "muted" ? "text-muted-foreground" : tone === "warning" ? "text-amber-700" : "text-foreground")}>{value}</span>
+    </div>
+  );
+}
+
+function StackedValueLine({ label, value, toneClassName }: { label: string; value: string; toneClassName?: string }) {
+  return (
+    <span className="block">
+      <span className="text-xs font-medium text-muted-foreground">{label}: </span>
+      <span className={cn("font-semibold text-foreground", toneClassName)}>{value}</span>
+    </span>
+  );
 }

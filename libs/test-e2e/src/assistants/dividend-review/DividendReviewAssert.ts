@@ -173,8 +173,7 @@ export class DividendReviewAssert extends BaseAssert {
 
   @Step()
   async tableHasAtLeastRows(minCount: number): Promise<void> {
-    const count = await this.el.rows.count();
-    expect(count).toBeGreaterThanOrEqual(minCount);
+    await expect.poll(async () => this.el.rows.count()).toBeGreaterThanOrEqual(minCount);
   }
 
   @Step()

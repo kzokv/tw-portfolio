@@ -216,12 +216,12 @@ test.describe("ai connectors and sharing", () => {
     await page.getByText("ChatGPT portfolio read").waitFor({ state: "visible" });
     await page.getByText("Manage accounts and fee settings").waitFor({ state: "visible" });
     await page.getByText("Create AI drafts").waitFor({ state: "visible" });
-    await page.getByText("Create, edit, and delete transactions").waitFor({ state: "visible" });
+    await page.getByText("Post, update, and delete confirmed transactions").waitFor({ state: "visible" });
 
     await page.getByRole("button", { name: "Delegate manager" }).click();
 
     const transactionWriteToggle = page.getByRole("checkbox", {
-      name: "Create, edit, and delete transactions",
+      name: "Post, update, and delete confirmed transactions",
     });
     await assertToggleChecked(transactionWriteToggle, "Transaction write");
   });

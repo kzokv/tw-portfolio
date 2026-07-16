@@ -11,7 +11,7 @@ import { Button } from "../ui/Button";
 import { AccountCreateForm } from "../../features/settings/components/AccountCreateForm";
 import { AccountsListSection } from "../../features/settings/components/AccountsListSection";
 import { createAccount } from "../../features/cash-ledger/services/cashLedgerService";
-import { renameAccount } from "../../features/settings/services/settingsService";
+import { patchFeeProfile, renameAccount } from "../../features/settings/services/settingsService";
 import { postJson } from "../../lib/api";
 import { clearContextCookie } from "../../lib/context";
 import type { FeeProfileDto } from "@vakwen/shared-types";
@@ -122,6 +122,52 @@ export function AccountsSettingsClient() {
       );
     },
     [],
+  );
+
+  const saveProfile = useCallback(
+    async (profileId: string) => {
+      const profile = profiles.find((entry) => entry.id === profileId);
+      if (!profile) {
+        throw new Error(`Fee profile ${profileId} was not found.`);
+      }
+      const authoritative = await patchFeeProfile(profileId, {
+        name: profile.name,
+        boardCommissionRate: profile.boardCommissionRate,
+        commissionDiscountPercent: profile.commissionDiscountPercent,
+        minimumCommissionAmount: profile.minimumCommissionAmount,
+        commissionCurrency: profile.commissionCurrency,
+        commissionRoundingMode: profile.commissionRoundingMode,
+        taxRoundingMode: profile.taxRoundingMode,
+        stockSellTaxRateBps: profile.stockSellTaxRateBps,
+        stockDayTradeTaxRateBps: profile.stockDayTradeTaxRateBps,
+        etfSellTaxRateBps: profile.etfSellTaxRateBps,
+        bondEtfSellTaxRateBps: profile.bondEtfSellTaxRateBps,
+        commissionChargeMode: profile.commissionChargeMode,
+      });
+      setProfiles((current) =>
+        current.map((entry) =>
+          entry.id === authoritative.id
+            ? {
+                ...entry,
+                name: authoritative.name,
+                boardCommissionRate: authoritative.boardCommissionRate,
+                commissionDiscountPercent: authoritative.commissionDiscountPercent,
+                minimumCommissionAmount: authoritative.minimumCommissionAmount,
+                commissionCurrency: authoritative.commissionCurrency,
+                commissionRoundingMode: authoritative.commissionRoundingMode,
+                taxRoundingMode: authoritative.taxRoundingMode,
+                stockSellTaxRateBps: authoritative.stockSellTaxRateBps,
+                stockDayTradeTaxRateBps: authoritative.stockDayTradeTaxRateBps,
+                etfSellTaxRateBps: authoritative.etfSellTaxRateBps,
+                bondEtfSellTaxRateBps: authoritative.bondEtfSellTaxRateBps,
+                commissionChargeMode: authoritative.commissionChargeMode,
+              }
+            : entry,
+        ),
+      );
+      await shellData.refreshPortfolioConfig();
+    },
+    [profiles, shellData],
   );
 
   // Phase 3d iter 2 (architect ruling) — Add profile fires POST /fee-profiles
@@ -304,6 +350,7 @@ export function AccountsSettingsClient() {
           onRenameAccount={handleRenameAccount}
           onAddProfileForAccount={addProfileForAccount}
           onUpdateProfileField={updateProfileField}
+          onSaveProfile={saveProfile}
           onRemoveProfileFromAccount={removeProfileFromAccount}
           onDuplicateProfilesFromAccount={duplicateProfilesFromAccount}
           onAddBinding={addBinding}

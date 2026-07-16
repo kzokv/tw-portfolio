@@ -80,6 +80,7 @@ describe("AccountsListSection", () => {
   let root: Root;
 
   const onUpdateAccountProfile = vi.fn();
+  const onSaveProfile = vi.fn(async () => undefined);
   const onRenameAccount = vi.fn(async () => undefined);
   const onAddProfileForAccount = vi.fn();
   const onUpdateProfileField = vi.fn();
@@ -116,6 +117,7 @@ describe("AccountsListSection", () => {
           profiles={profiles}
           feeProfileBindings={feeProfileBindings}
           activeLocale={activeLocale}
+          onSaveProfile={onSaveProfile}
           onUpdateAccountProfile={onUpdateAccountProfile}
           onRenameAccount={onRenameAccount}
           onAddProfileForAccount={onAddProfileForAccount}

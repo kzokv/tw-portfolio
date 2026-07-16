@@ -128,4 +128,29 @@ describe("AiInboxPanel", () => {
     expect(document.body.textContent).toContain("連接器來源");
     expect(document.body.textContent).toContain("開啟深層連結");
   });
+
+  it("renders deleted posted-transaction lineage as a terminal localized status", async () => {
+    const widget = buildMockTransactionDraftWidgetData();
+    mockFetchDraftBatch.mockResolvedValue({
+      batch: { ...widget.batch, deepLinkUrl: widget.deepLinkUrl ?? "/transactions?tab=ai-inbox" },
+      rows: widget.rows.map((row, index) => index === 0 ? {
+        ...row,
+        state: "confirmed" as const,
+        displayState: "posted_transaction_deleted" as const,
+        statusCopy: "Posted transaction deleted",
+        deletedPostedTransaction: {
+          deletedAt: "2026-07-16T10:00:00.000Z",
+          deletedByUserId: "user-1",
+          mutationRunId: "run-1",
+        },
+      } : row),
+      unsupportedItems: widget.unsupportedItems,
+      deepLinkUrl: widget.deepLinkUrl ?? "/transactions?tab=ai-inbox",
+    });
+
+    await act(async () => root.render(<AiInboxPanel locale="zh-TW" />));
+    await flushEffects();
+
+    expect(document.body.textContent).toContain("已刪除已送出交易");
+  });
 });

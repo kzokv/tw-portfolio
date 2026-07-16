@@ -324,21 +324,23 @@ test.describe("locked dividend browser coverage", () => {
       receivedCashAmount: 108,
     });
     await ticker.actions.navigateToTicker("7790");
-    const previewResponse = page.waitForResponse((response) => response.url().includes("/dividend-delete-preview"));
+    const previewResponse = page.waitForResponse((response) => response.url().includes("/portfolio/transactions/mutations/delete-preview"));
     await ticker.actions.clickDeleteOnRow("BUY");
     await ticker.assert.deleteDialogIsVisible();
     await dividendReview.assert.responseStatusIs(await previewResponse, 200);
     const deleteImpact = page.getByTestId("delete-dividend-impact");
     await deleteImpact.waitFor({ state: "visible" });
     await appShell.assert.mxAssertMatches(await deleteImpact.textContent(), /dividend|receipt|re-enter/i, "delete impact text");
-    await page.getByTestId("delete-dividend-reentry-warning").waitFor({ state: "visible" });
     await appShell.assert.mxAssertEqual(
       await page.getByTestId("delete-confirm-button").isEnabled(),
       true,
       "delete confirm button enabled",
     );
 
-    const confirmResponse = page.waitForResponse((response) => response.url().includes("/dividend-delete-confirm"));
+    const confirmResponse = page.waitForResponse((response) => (
+      response.url().includes("/portfolio/transactions/mutations/previews/")
+      && response.url().endsWith("/confirm")
+    ));
     await page.getByTestId("delete-confirm-button").click();
     await dividendReview.assert.responseStatusIs(await confirmResponse, 200);
     await ticker.assert.deleteDialogIsHidden();

@@ -1339,6 +1339,20 @@ export function TickerHistoryClient({
                   </p>
                 </div>
                 <div className="min-w-0 rounded-2xl bg-muted/40 px-4 py-3">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.avgCostLabel}</p>
+                  <p className={metricValueClassName(
+                    detailsState.position.quantity > 0 && detailsState.position.averageCost != null
+                      ? formatCurrencyAmount(detailsState.position.averageCost, currency, locale)
+                      : dict.tickerHistory.noHoldingData,
+                    dict.tickerHistory.noHoldingData,
+                    true,
+                  )}>
+                    {detailsState.position.quantity > 0 && detailsState.position.averageCost != null
+                      ? formatCurrencyAmount(detailsState.position.averageCost, currency, locale)
+                      : dict.tickerHistory.noHoldingData}
+                  </p>
+                </div>
+                <div className="min-w-0 rounded-2xl bg-muted/40 px-4 py-3">
                   <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.tickerHistory.unrealizedPnlLabel}</p>
                   <p className={metricValueClassName(
                     detailsState.position.unrealizedPnl != null
@@ -1934,6 +1948,8 @@ export function TickerHistoryClient({
         }}
         preview={mutations.editPreview}
         isLoading={mutations.isEditPreviewLoading}
+        isSubmitting={mutations.isEditSubmitting}
+        onConfirm={mutations.confirmEdit}
         dict={dict}
         locale={locale}
       />

@@ -7,6 +7,7 @@ import { formatCurrencyAmount, formatNumber, formatPercent } from "../../lib/uti
 import { DashboardLoading } from "../dashboard/DashboardLoading";
 import { DashboardHoldingsPreview } from "../dashboard/DashboardHoldingsPreview";
 import { DividendsSection } from "../dashboard/DividendsSection";
+import { PORTFOLIO_HOLDINGS_CONTEXT_KEY } from "../holdings/holdingsPreferenceHelpers";
 import { useAppShellData } from "../layout/AppShellDataContext";
 import { useCardLayoutResetCount } from "../layout/CardLayoutResetContext";
 import { getRouteLoadingLabels } from "../layout/i18n";
@@ -53,7 +54,7 @@ export function PortfolioClient({
   const effectiveReportingCurrency = resolvePortfolioReportingCurrency(portfolio.data, seedReportingCurrency);
   const resetCount = useCardLayoutResetCount("portfolio");
   const { allocationBasis, setAllocationBasis } = useHoldingAllocationBasis();
-  const [holdingsTableStyle, setHoldingsTableStyle] = useState<"dashboard" | "portfolio">("portfolio");
+  const [holdingsStyle, setHoldingsStyle] = useState<"portfolio" | "dashboard">("portfolio");
   const [isRefreshingCloses, setIsRefreshingCloses] = useState(false);
   const [closeRefreshError, setCloseRefreshError] = useState("");
   const firstSignalRef = useRef(true);
@@ -289,54 +290,60 @@ export function PortfolioClient({
           switch (slug) {
             case "holdings-table":
               return (
-                <div className="grid min-w-0 max-w-full grid-cols-[minmax(0,1fr)] gap-3 overflow-hidden" data-testid="portfolio-holdings-style-shell">
-                  <div className="flex w-full min-w-0 max-w-full flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <span className="text-sm font-medium text-muted-foreground">{dict.holdings.layoutStyleLabel}</span>
-                    <ToggleGroup
-                      type="single"
-                      aria-label={dict.holdings.layoutStyleLabel}
-                      value={holdingsTableStyle}
-                      onValueChange={(value) => {
-                        if (value === "dashboard" || value === "portfolio") setHoldingsTableStyle(value);
-                      }}
-                      className="w-full flex-wrap justify-start sm:w-auto"
-                      data-testid="portfolio-holdings-style-control"
-                    >
-                      <ToggleGroupItem value="dashboard" data-testid="portfolio-holdings-style-dashboard">
-                        {dict.holdings.layoutStyleCompact}
-                      </ToggleGroupItem>
-                      <ToggleGroupItem value="portfolio" data-testid="portfolio-holdings-style-portfolio">
-                        {dict.holdings.layoutStyleDetailed}
-                      </ToggleGroupItem>
-                    </ToggleGroup>
-                  </div>
-                  {holdingsTableStyle === "dashboard" ? (
-                    <DashboardHoldingsPreview
-                      fxRates={portfolio.data.fxRates ?? []}
-                      groups={holdingGroups}
-                      locale={locale}
-	                      reportingCurrency={effectiveReportingCurrency}
-	                      quoteRefreshVersion={portfolio.quoteRefreshVersion}
+                <div className="grid min-w-0 max-w-full grid-cols-[minmax(0,1fr)] gap-3 pl-2 pt-2" data-testid="portfolio-holdings-style-shell">
+                  <div className="w-full space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                        {dict.holdings.layoutStyleLabel}
+                      </div>
+                      <ToggleGroup
+                        type="single"
+                        value={holdingsStyle}
+                        data-testid="portfolio-holdings-style-control"
+                        onValueChange={(value) => {
+                          if (value === "portfolio" || value === "dashboard") setHoldingsStyle(value);
+                        }}
+                        className="flex-wrap justify-start"
+                      >
+                        <ToggleGroupItem value="dashboard" data-testid="portfolio-holdings-style-dashboard">
+                          {dict.holdings.layoutStyleCompact}
+                        </ToggleGroupItem>
+                        <ToggleGroupItem value="portfolio" data-testid="portfolio-holdings-style-portfolio">
+                          {dict.holdings.layoutStyleDetailed}
+                        </ToggleGroupItem>
+                      </ToggleGroup>
+                    </div>
+                    {holdingsStyle === "portfolio" ? (
+                      <HoldingsTable
+                        holdings={portfolio.data.holdings}
+                        holdingGroups={holdingGroups}
+                        instruments={portfolio.data.instruments}
+                        accounts={portfolio.data.accounts}
+                        dict={dict}
+                        locale={locale}
+                        recomputingSymbols={mutations.recomputingSymbols}
+                        showFreshnessBadge={!isSharedContext}
+                        showAdminActivityLinks={sessionUserRole === "admin" && !isSharedContext}
+                        quoteRefreshVersion={portfolio.quoteRefreshVersion}
+                        allocationBasis={allocationBasis}
+                        onAllocationBasisChange={setAllocationBasis}
+                        settingsContextKey={PORTFOLIO_HOLDINGS_CONTEXT_KEY}
+                        enableSelectionWorkflow
+                        enableLayoutStyleToggle
+                      />
+                    ) : (
+                      <DashboardHoldingsPreview
+                        groups={holdingGroups}
+                        fxRates={portfolio.data.fxRates}
+                        locale={locale}
+                        reportingCurrency={effectiveReportingCurrency}
+                        quoteRefreshVersion={portfolio.quoteRefreshVersion}
+                        showAdminActivityLinks={sessionUserRole === "admin" && !isSharedContext}
                         isRefreshing={portfolio.isRefreshing}
-                        onRefresh={refreshPrices}
-	                      showAdminActivityLinks={sessionUserRole === "admin" && !isSharedContext}
-	                    />
-                  ) : (
-                    <HoldingsTable
-                      holdings={portfolio.data.holdings}
-                      holdingGroups={holdingGroups}
-                      instruments={portfolio.data.instruments}
-                      accounts={portfolio.data.accounts}
-                      dict={dict}
-                      locale={locale}
-                      recomputingSymbols={mutations.recomputingSymbols}
-                      showFreshnessBadge={!isSharedContext}
-                      showAdminActivityLinks={sessionUserRole === "admin" && !isSharedContext}
-                      quoteRefreshVersion={portfolio.quoteRefreshVersion}
-                      allocationBasis={allocationBasis}
-                      onAllocationBasisChange={setAllocationBasis}
-                    />
-                  )}
+                        onRefresh={() => { void portfolio.refresh(); }}
+                      />
+                    )}
+                  </div>
                 </div>
               );
             case "dividends-section":

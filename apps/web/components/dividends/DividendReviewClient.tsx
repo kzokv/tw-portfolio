@@ -15,7 +15,7 @@ import type {
   MarketCode,
 } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
-import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../lib/utils";
+import { cn, formatCurrencyAmount, formatDateLabel } from "../../lib/utils";
 import { useEventStream } from "../../hooks/useEventStream";
 import { useIsSmallScreen } from "../../lib/hooks/use-small-screen";
 import { updateDividendReconciliation } from "../../features/dividends/services/dividendService";
@@ -24,6 +24,13 @@ import { getRouteDtoContextScope } from "../../lib/routeDtoCache";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { clearDividendReviewDrawerDetailCache, DividendReviewDrawer } from "./DividendReviewDrawer";
+import {
+  dividendEventTypeLabel,
+  formatDividendRatio,
+  formatDividendShares,
+  isStockDividendEvent,
+  stockRatioStateLabel,
+} from "../../features/dividends/presentation";
 import {
   resolvePresetDates,
   type DatePreset,
@@ -171,6 +178,70 @@ function expectedNetAmount(entry: DividendReviewRowSummaryDto): number {
 function actualNetAmount(entry: DividendReviewRowSummaryDto): number {
   if (entry.actualNetAmount != null) return entry.actualNetAmount;
   return entry.receivedCashAmount - nhiAmount(entry) - bankFeeAmount(entry) - otherDeductionAmount(entry);
+}
+
+function eventTypeBadgeClassName(eventType: DividendReviewRowSummaryDto["eventType"]): string {
+  switch (eventType) {
+    case "STOCK":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "CASH_AND_STOCK":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    default:
+      return "border-sky-200 bg-sky-50 text-sky-700";
+  }
+}
+
+function isPendingStockPosting(entry: DividendReviewRowSummaryDto): boolean {
+  return isStockDividendEvent(entry.eventType) && (entry.rowKind === "expected" || entry.postingStatus === "expected");
+}
+
+function stockVarianceAmount(entry: DividendReviewRowSummaryDto): number | null {
+  if (!isStockDividendEvent(entry.eventType) || isPendingStockPosting(entry)) return null;
+  return entry.receivedStockQuantity - entry.expectedStockQuantity;
+}
+
+function ratioToneClassName(entry: DividendReviewRowSummaryDto): string {
+  if (entry.expectedStockCalcState === "needs_action" || entry.stockDistributionRatioState === "unresolved") {
+    return "text-amber-700";
+  }
+  if (entry.stockDistributionRatioState === "derived_non_authoritative") {
+    return "text-muted-foreground";
+  }
+  return "text-foreground";
+}
+
+function stockRatioDisplay(entry: DividendReviewRowSummaryDto, dict: AppDictionary, locale: LocaleCode): string {
+  if (!isStockDividendEvent(entry.eventType)) return dict.dividends.unavailable;
+  if (entry.stockDistributionRatio == null) {
+    return stockRatioStateLabel(dict, entry.stockDistributionRatioState, entry.expectedStockCalcState);
+  }
+  return `${formatDividendRatio(entry.stockDistributionRatio, locale)} · ${stockRatioStateLabel(dict, entry.stockDistributionRatioState, entry.expectedStockCalcState)}`;
+}
+
+function stockExpectedDisplay(entry: DividendReviewRowSummaryDto, dict: AppDictionary, locale: LocaleCode): string {
+  if (!isStockDividendEvent(entry.eventType)) return dict.dividends.unavailable;
+  return formatDividendShares(entry.expectedStockQuantity, locale, dict);
+}
+
+function stockReceivedDisplay(entry: DividendReviewRowSummaryDto, dict: AppDictionary, locale: LocaleCode): string {
+  if (!isStockDividendEvent(entry.eventType)) return dict.dividends.unavailable;
+  if (isPendingStockPosting(entry)) return dict.dividends.pending;
+  return formatDividendShares(entry.receivedStockQuantity, locale, dict);
+}
+
+function stockVarianceDisplay(entry: DividendReviewRowSummaryDto, dict: AppDictionary, locale: LocaleCode): string {
+  const variance = stockVarianceAmount(entry);
+  if (variance == null) return dict.dividends.unavailable;
+  const prefix = variance > 0 ? "+" : "";
+  return `${prefix}${formatDividendShares(variance, locale, dict)}`;
+}
+
+function stockVarianceClassName(entry: DividendReviewRowSummaryDto): string {
+  const variance = stockVarianceAmount(entry);
+  if (variance == null) return "text-muted-foreground";
+  if (variance > 0) return "text-emerald-700";
+  if (variance < 0) return "text-destructive";
+  return "text-emerald-700";
 }
 
 function parseInitialPreset(searchParams: URLSearchParams): DatePreset {
@@ -981,8 +1052,16 @@ export function DividendReviewClient({
                           <p className="truncate text-xs text-muted-foreground">{entry.tickerName}</p>
                         ) : null}
                         <p className="text-xs text-muted-foreground">{accountNameById.get(entry.accountId) ?? entry.accountId}</p>
+                        <div className="mt-2">
+                          <span className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-[10px] font-semibold", eventTypeBadgeClassName(entry.eventType))}>
+                            {dividendEventTypeLabel(dict, entry.eventType)}
+                          </span>
+                        </div>
                       </div>
-                      <span className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-[10px] uppercase tracking-[0.14em]", statusBadgeClassName(entry.reconciliationStatus))}>
+                      <span
+                        className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-[10px] uppercase tracking-[0.14em]", statusBadgeClassName(entry.reconciliationStatus))}
+                        data-testid={`dividend-review-status-${entry.id}`}
+                      >
                         {statusLabel(dict, entry.reconciliationStatus)}
                       </span>
                     </div>
@@ -990,6 +1069,10 @@ export function DividendReviewClient({
                       <div>
                         <dt className="text-muted-foreground">{dict.dividends.review.table.paymentDate}</dt>
                         <dd className="font-medium text-foreground">{entry.paymentDate ? formatDateLabel(entry.paymentDate, locale) : "—"}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">{dict.dividends.review.table.eventType}</dt>
+                        <dd className="font-medium text-foreground">{dividendEventTypeLabel(dict, entry.eventType)}</dd>
                       </div>
                       <div>
                         <dt className="text-muted-foreground">{dict.dividends.review.table.expected}</dt>
@@ -1024,12 +1107,24 @@ export function DividendReviewClient({
                         <dd className={cn("font-medium", variance !== 0 ? "text-amber-600" : "text-muted-foreground")}>{variance !== 0 ? formatCurrencyAmount(variance, entry.cashCurrency, locale) : "—"}</dd>
                       </div>
                       <div>
+                        <dt className="text-muted-foreground">{dict.dividends.review.table.expectedStock}</dt>
+                        <dd className="font-medium text-foreground">{stockExpectedDisplay(entry, dict, locale)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">{dict.dividends.review.table.ratioState}</dt>
+                        <dd className={cn("font-medium", ratioToneClassName(entry))}>{stockRatioDisplay(entry, dict, locale)}</dd>
+                      </div>
+                      <div>
                         <dt className="text-muted-foreground">{dict.dividends.review.table.stockReceived}</dt>
-                        <dd className="font-medium text-foreground">{entry.receivedStockQuantity > 0 ? formatNumber(entry.receivedStockQuantity, locale) : "—"}</dd>
+                        <dd className={cn("font-medium", isPendingStockPosting(entry) ? "text-amber-700" : "text-foreground")}>{stockReceivedDisplay(entry, dict, locale)}</dd>
+                      </div>
+                      <div>
+                        <dt className="text-muted-foreground">{dict.dividends.review.table.stockVariance}</dt>
+                        <dd className={cn("font-medium", stockVarianceClassName(entry))}>{stockVarianceDisplay(entry, dict, locale)}</dd>
                       </div>
                       <div>
                         <dt className="text-muted-foreground">{dict.dividends.review.table.cashInLieu}</dt>
-                        <dd className="font-medium text-foreground">{cashInLieuAmount(entry) > 0 ? formatCurrencyAmount(cashInLieuAmount(entry), entry.cashCurrency, locale) : "—"}</dd>
+                        <dd className="font-medium text-foreground">{cashInLieuAmount(entry) > 0 ? formatCurrencyAmount(cashInLieuAmount(entry), entry.cashCurrency, locale) : dict.dividends.unavailable}</dd>
                       </div>
                     </dl>
                     {entry.rowKind !== "expected" && entry.reconciliationStatus === "open" && (
@@ -1105,6 +1200,7 @@ export function DividendReviewClient({
                   <SortHeader label={dict.dividends.review.table.paymentDate} field="paymentDate" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} sticky />
                   <SortHeader label={dict.dividends.review.table.ticker} field="ticker" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
                   <SortHeader label={dict.dividends.review.table.account} field="account" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
+                  <th className="px-4 py-3 text-left text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.dividends.review.table.eventType}</th>
                   <SortHeader label={dict.dividends.review.table.expected} field="expectedGrossAmount" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
                   <SortHeader label={dict.dividends.review.table.received} field="receivedCashAmount" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
                   <SortHeader label={dict.dividends.review.table.nhi} field="nhiAmount" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
@@ -1112,7 +1208,10 @@ export function DividendReviewClient({
                   <SortHeader label={dict.dividends.review.table.otherDeduction} field="otherDeductionAmount" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
                   <SortHeader label={dict.dividends.review.table.expectedNet} field="expectedNetAmount" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
                   <SortHeader label={dict.dividends.review.table.actualNet} field="actualNetAmount" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
+                  <th className="px-4 py-3 text-left text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.dividends.review.table.expectedStock}</th>
+                  <th className="px-4 py-3 text-left text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.dividends.review.table.ratioState}</th>
                   <th className="px-4 py-3 text-left text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.dividends.review.table.stockReceived}</th>
+                  <th className="px-4 py-3 text-left text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.dividends.review.table.stockVariance}</th>
                   <th className="px-4 py-3 text-left text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.dividends.review.table.cashInLieu}</th>
                   <SortHeader label={dict.dividends.review.table.variance} field="varianceAmount" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
                   <SortHeader label={dict.dividends.review.table.status} field="reconciliationStatus" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
@@ -1123,12 +1222,12 @@ export function DividendReviewClient({
                 {isLoading ? (
                   Array.from({ length: Math.min(filters.limit, 5) }, (_, index) => (
                     <tr key={`skeleton-${index}`} className="h-14 animate-pulse border-b border-border" data-testid="review-row-skeleton">
-                      <td colSpan={15} className="bg-muted/40" />
+                      <td colSpan={19} className="bg-muted/40" />
                     </tr>
                   ))
                 ) : displayEntries.length === 0 ? (
                   <tr>
-                    <td colSpan={15} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                    <td colSpan={19} className="px-4 py-10 text-center text-sm text-muted-foreground">
                       {dict.dividends.review.chart.noData}
                     </td>
                   </tr>
@@ -1163,6 +1262,11 @@ export function DividendReviewClient({
                           ) : null}
                         </td>
                         <td className="px-4 py-3 text-sm text-muted-foreground">{accountNameById.get(entry.accountId) ?? entry.accountId}</td>
+                        <td className="px-4 py-3 text-sm">
+                          <span className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-[10px] font-semibold", eventTypeBadgeClassName(entry.eventType))}>
+                            {dividendEventTypeLabel(dict, entry.eventType)}
+                          </span>
+                        </td>
                         <td className="px-4 py-3 text-sm text-foreground">
                           {formatCurrencyAmount(expectedGrossAmount(entry), entry.cashCurrency, locale)}
                         </td>
@@ -1185,16 +1289,30 @@ export function DividendReviewClient({
                           {formatCurrencyAmount(actualNetAmount(entry), entry.cashCurrency, locale)}
                         </td>
                         <td className="px-4 py-3 text-sm text-foreground">
-                          {entry.receivedStockQuantity > 0 ? formatNumber(entry.receivedStockQuantity, locale) : "—"}
+                          {stockExpectedDisplay(entry, dict, locale)}
+                        </td>
+                        <td className={cn("px-4 py-3 text-sm", ratioToneClassName(entry))}>
+                          {stockRatioDisplay(entry, dict, locale)}
                         </td>
                         <td className="px-4 py-3 text-sm text-foreground">
-                          {cashInLieuAmount(entry) > 0 ? formatCurrencyAmount(cashInLieuAmount(entry), entry.cashCurrency, locale) : "—"}
+                          <span className={cn(isPendingStockPosting(entry) ? "text-amber-700" : "text-foreground")}>
+                            {stockReceivedDisplay(entry, dict, locale)}
+                          </span>
+                        </td>
+                        <td className={cn("px-4 py-3 text-sm font-medium", stockVarianceClassName(entry))}>
+                          {stockVarianceDisplay(entry, dict, locale)}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-foreground">
+                          {cashInLieuAmount(entry) > 0 ? formatCurrencyAmount(cashInLieuAmount(entry), entry.cashCurrency, locale) : dict.dividends.unavailable}
                         </td>
                         <td className={cn("px-4 py-3 text-sm", variance !== 0 ? "text-amber-600 font-medium" : "text-muted-foreground")}>
                           {variance !== 0 ? formatCurrencyAmount(variance, entry.cashCurrency, locale) : "—"}
                         </td>
                         <td className="px-4 py-3">
-                          <span className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-[10px] uppercase tracking-[0.14em]", statusBadgeClassName(entry.reconciliationStatus))}>
+                          <span
+                            className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-[10px] uppercase tracking-[0.14em]", statusBadgeClassName(entry.reconciliationStatus))}
+                            data-testid={`dividend-review-status-${entry.id}`}
+                          >
                             {statusLabel(dict, entry.reconciliationStatus)}
                           </span>
                         </td>

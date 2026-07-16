@@ -3,22 +3,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   LocaleCode,
+  PostedTransactionMutationPreviewDto,
+  PostedTransactionMutationRunDto,
   TransactionHistoryItemDto,
-  PreviewImpactResponse,
-  RecomputeCompleteEvent,
-  RecomputeFailedEvent,
-  SnapshotsGeneratedEvent,
 } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { ApiError } from "../../../lib/api";
-import { buildRouteDtoCacheTag, clearRouteDtoCacheByTags } from "../../../lib/routeDtoCache";
-import { useEventStream } from "../../../hooks/useEventStream";
+import { clearRouteDtoCacheByTags, buildRouteDtoCacheTag } from "../../../lib/routeDtoCache";
 import {
-  previewImpact,
-  previewDividendDelete,
-  deleteTransaction,
-  patchTransaction,
-  type DividendDeletePreviewResponse,
+  confirmPostedTransactionMutation,
+  getPostedTransactionMutationRun,
+  previewPostedTransactionDeleteBatch,
+  previewPostedTransactionUpdateBatch,
 } from "../services/transactionMutationService";
 
 export interface TransactionPatch {
@@ -36,57 +32,52 @@ interface UseTransactionMutationsOptions {
   locale: LocaleCode;
   dict: AppDictionary;
   refresh: () => Promise<void>;
-  onSnapshotsGenerated?: (event: SnapshotsGeneratedEvent) => void;
   onDeleteAccepted?: (transactionId: string) => void;
 }
 
+interface PendingEditRequest {
+  patch: TransactionPatch;
+  transactionId: string;
+}
+
 export interface UseTransactionMutationsResult {
-  // Delete flow
   deleteTarget: TransactionHistoryItemDto | null;
-  deletePreview: PreviewImpactResponse | null;
-  deleteDividendPreview: DividendDeletePreviewResponse | null;
+  deletePreview: PostedTransactionMutationPreviewDto | null;
+  deleteDividendPreview: null;
   isDeletePreviewLoading: boolean;
   isDeleteSubmitting: boolean;
   isDeleteDialogOpen: boolean;
   startDelete: (transaction: TransactionHistoryItemDto) => void;
   confirmDelete: () => Promise<void>;
   cancelDelete: () => void;
-
-  // Edit flow
   editingId: string | null;
   startEdit: (id: string) => void;
   cancelEdit: () => void;
   submitEdit: (transactionId: string, patch: TransactionPatch) => Promise<void>;
-
-  // Edit preview (negative lots block)
-  editPreview: PreviewImpactResponse | null;
+  editPreview: PostedTransactionMutationPreviewDto | null;
   isEditPreviewOpen: boolean;
   isEditPreviewLoading: boolean;
+  isEditSubmitting: boolean;
+  confirmEdit: () => Promise<void>;
   cancelEditPreview: () => void;
-
-  // Fee confirmation
-  feeConfirmTarget: { transactionId: string; patch: TransactionPatch } | null;
+  feeConfirmTarget: null;
   isFeeConfirmOpen: boolean;
   confirmFeeRecalc: () => Promise<void>;
   keepManualFees: () => Promise<void>;
-
-  // Loading state
   recomputingIds: Set<string>;
   recomputingSymbols: Set<string>;
-
-  // Feedback
   message: string;
   errorMessage: string;
   setMessage: (msg: string) => void;
   setErrorMessage: (msg: string) => void;
 }
 
-const SAFETY_NET_MS = 10_000;
-const REFRESHABLE_DELETE_PREVIEW_CODES = new Set([
-  "dividend_destructive_preview_expired",
-  "dividend_destructive_preview_stale",
-  "dividend_destructive_preview_fingerprint_mismatch",
-  "dividend_destructive_preview_row_drift",
+const RUN_POLL_MS = 1_500;
+const TERMINAL_REBUILD_STATUSES = new Set(["completed", "partially_failed", "failed"]);
+const DELETE_MUTATION_REASON = "User requested a posted transaction deletion from ticker history.";
+const REFRESHABLE_MUTATION_PREVIEW_CODES = new Set([
+  "posted_transaction_mutation_preview_expired",
+  "posted_transaction_mutation_preview_stale",
 ]);
 export const MUTATION_ROUTE_CACHE_TAGS = [
   buildRouteDtoCacheTag("route", "dashboard-primary"),
@@ -97,178 +88,180 @@ export const MUTATION_ROUTE_CACHE_TAGS = [
   buildRouteDtoCacheTag("route", "transactions-primary"),
 ];
 
+function extractRunError(run: PostedTransactionMutationRunDto, fallback: string): string {
+  if (run.errors[0]?.message) return run.errors[0].message;
+  if (run.blockers[0]) return run.blockers[0];
+  if (run.warnings[0] && run.rebuildStatus === "partially_failed") return run.warnings[0];
+  return fallback;
+}
+
+function toUpdatePatch(patch: TransactionPatch) {
+  return {
+    tradeDate: patch.date,
+    quantity: patch.quantity,
+    unitPrice: patch.price,
+    side: patch.side,
+    commissionAmount: patch.commissionAmount,
+    taxAmount: patch.taxAmount,
+    feeOverrideMode: patch.confirmFeeRecalculation
+      ? "recalculate"
+      : "preserve_recorded",
+  } as const;
+}
+
 export function useTransactionMutations({
+  locale: _locale,
   dict,
   refresh,
-  onSnapshotsGenerated,
   onDeleteAccepted,
 }: UseTransactionMutationsOptions): UseTransactionMutationsResult {
-  // Delete flow state
   const [deleteTarget, setDeleteTarget] = useState<TransactionHistoryItemDto | null>(null);
-  const [deletePreview, setDeletePreview] = useState<PreviewImpactResponse | null>(null);
-  const [deleteDividendPreview, setDeleteDividendPreview] = useState<DividendDeletePreviewResponse | null>(null);
+  const [deletePreview, setDeletePreview] = useState<PostedTransactionMutationPreviewDto | null>(null);
   const [isDeletePreviewLoading, setIsDeletePreviewLoading] = useState(false);
   const [isDeleteSubmitting, setIsDeleteSubmitting] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const deleteSubmittingRef = useRef(false);
 
-  // Edit flow state
   const [editingId, setEditingId] = useState<string | null>(null);
-
-  // Edit preview state (negative lots confirmation before PATCH)
-  const [editPreview, setEditPreview] = useState<PreviewImpactResponse | null>(null);
+  const [pendingEditRequest, setPendingEditRequest] = useState<PendingEditRequest | null>(null);
+  const [editPreview, setEditPreview] = useState<PostedTransactionMutationPreviewDto | null>(null);
   const [isEditPreviewOpen, setIsEditPreviewOpen] = useState(false);
   const [isEditPreviewLoading, setIsEditPreviewLoading] = useState(false);
+  const [isEditSubmitting, setIsEditSubmitting] = useState(false);
 
-  // Fee confirmation state
-  const [feeConfirmTarget, setFeeConfirmTarget] = useState<{ transactionId: string; patch: TransactionPatch } | null>(null);
-
-  // Loading state: track recomputing transaction IDs and account:symbol pairs
   const [recomputingIds, setRecomputingIds] = useState<Set<string>>(new Set());
   const [recomputingSymbols, setRecomputingSymbols] = useState<Set<string>>(new Set());
-
-  // Feedback
   const [message, setMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
-
-  // Stable ref for recomputingSymbols key (for timeout effect)
-  const recomputingSymbolsKey = useMemo(
-    () => JSON.stringify([...recomputingSymbols].sort()),
-    [recomputingSymbols],
-  );
 
   const refreshRef = useRef(refresh);
   refreshRef.current = refresh;
   const dictRef = useRef(dict);
   dictRef.current = dict;
-  const onSnapshotsGeneratedRef = useRef(onSnapshotsGenerated);
-  onSnapshotsGeneratedRef.current = onSnapshotsGenerated;
-  const onDeleteAcceptedRef = useRef(onDeleteAccepted);
-  onDeleteAcceptedRef.current = onDeleteAccepted;
-  const recomputingSymbolsRef = useRef(recomputingSymbols);
-  recomputingSymbolsRef.current = recomputingSymbols;
+  const pollTimersRef = useRef<Map<string, number>>(new Map());
+  const recomputingSymbolsKey = useMemo(() => JSON.stringify([...recomputingSymbols].sort()), [recomputingSymbols]);
 
-  const sseDeliveredRef = useRef(false);
-  const safetyNetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Helper: add recomputing state
   const addRecomputing = useCallback((transactionId: string, accountId: string, ticker: string) => {
     clearRouteDtoCacheByTags(MUTATION_ROUTE_CACHE_TAGS);
-    setRecomputingIds((prev) => new Set([...prev, transactionId]));
-    setRecomputingSymbols((prev) => new Set([...prev, `${accountId}:${ticker}`]));
+    setRecomputingIds((prev) => new Set(prev).add(transactionId));
+    setRecomputingSymbols((prev) => new Set(prev).add(`${accountId}:${ticker}`));
   }, []);
 
-  // Helper: remove recomputing state by symbol key
-  const removeRecomputingBySymbol = useCallback((key: string) => {
-    setRecomputingSymbols((prev) => {
+  const removeRecomputing = useCallback((transactionId: string, accountId: string, ticker: string) => {
+    setRecomputingIds((prev) => {
       const next = new Set(prev);
-      next.delete(key);
+      next.delete(transactionId);
       return next;
     });
-    // Clear all IDs (simplified — in a real scenario we'd track id→key mapping)
-    // Since recompute events include accountId+symbol, we clear IDs that could match
-    setRecomputingIds(new Set());
+    setRecomputingSymbols((prev) => {
+      const next = new Set(prev);
+      next.delete(`${accountId}:${ticker}`);
+      return next;
+    });
   }, []);
 
-  const clearAllRecomputing = useCallback(() => {
-    setRecomputingIds(new Set());
-    setRecomputingSymbols(new Set());
-  }, []);
-
-  const refreshAndReportSuccess = useCallback((successMessage: string) => {
-    void refreshRef.current()
-      .then(() => {
-        setMessage(successMessage);
-        setErrorMessage("");
-      })
-      .catch((err: unknown) => {
-        setMessage("");
-        setErrorMessage(err instanceof Error ? err.message : "Refresh failed");
-      });
-  }, []);
-
-  // Disable guard — check if symbol is recomputing
-  const isSymbolRecomputing = useCallback(
-    (accountId: string, ticker: string) => recomputingSymbols.has(`${accountId}:${ticker}`),
-    [recomputingSymbols],
-  );
-
-  // --- Delete flow ---
-  const startDelete = useCallback(
-    (transaction: TransactionHistoryItemDto) => {
-      if (isSymbolRecomputing(transaction.accountId, transaction.ticker)) return;
-      setDeleteTarget(transaction);
-      setDeletePreview(null);
-      setDeleteDividendPreview(null);
-      setIsDeletePreviewLoading(true);
-      setIsDeleteDialogOpen(true);
-      setMessage("");
+  const finishRun = useCallback(async (
+    run: PostedTransactionMutationRunDto,
+    transactionId: string,
+    accountId: string,
+    ticker: string,
+  ) => {
+    if (!TERMINAL_REBUILD_STATUSES.has(run.rebuildStatus)) return false;
+    removeRecomputing(transactionId, accountId, ticker);
+    if (run.rebuildStatus === "completed" && run.status !== "failed") {
+      await refreshRef.current();
+      setMessage(dictRef.current.mutations.recomputeCompleteMessage);
       setErrorMessage("");
+      return true;
+    }
+    setMessage("");
+    setErrorMessage(extractRunError(run, dictRef.current.mutations.recomputeExhaustedMessage));
+    return true;
+  }, [removeRecomputing]);
 
-      previewImpact(transaction.id, "delete")
-        .then(async (impactPreview) => {
-          setDeletePreview(impactPreview);
-          if (impactPreview.negativeLots.wouldOccur) {
-            setIsDeletePreviewLoading(false);
-            return;
-          }
+  const pollRun = useCallback(async (
+    runId: string,
+    transactionId: string,
+    accountId: string,
+    ticker: string,
+  ) => {
+    const current = await getPostedTransactionMutationRun(runId);
+    const done = await finishRun(current, transactionId, accountId, ticker);
+    if (done) return;
+    setMessage(dictRef.current.mutations.recomputeRetryMessage);
+    const timer = window.setTimeout(() => {
+      void pollRun(runId, transactionId, accountId, ticker);
+    }, RUN_POLL_MS);
+    pollTimersRef.current.set(runId, timer);
+  }, [finishRun]);
 
-          const dividendPreview = await previewDividendDelete(transaction.id);
-          setDeleteDividendPreview(dividendPreview);
-          setIsDeletePreviewLoading(false);
-        })
-        .catch((err: Error) => {
-          setIsDeletePreviewLoading(false);
-          setErrorMessage(err.message);
-          setIsDeleteDialogOpen(false);
-        });
-    },
-    [isSymbolRecomputing],
-  );
+  const handleConfirmedRun = useCallback(async (
+    run: PostedTransactionMutationRunDto,
+    transactionId: string,
+    accountId: string,
+    ticker: string,
+  ) => {
+    addRecomputing(transactionId, accountId, ticker);
+    if (await finishRun(run, transactionId, accountId, ticker)) return;
+    setMessage(run.rebuildStatus === "running" ? dictRef.current.mutations.recomputeRetryMessage : dictRef.current.mutations.safetyNetMessage);
+    setErrorMessage("");
+    void pollRun(run.runId, transactionId, accountId, ticker);
+  }, [addRecomputing, finishRun, pollRun]);
 
-  const cancelDelete = useCallback(() => {
-    if (deleteSubmittingRef.current) return;
+  const resetDeleteState = useCallback(() => {
     setIsDeleteDialogOpen(false);
     setDeleteTarget(null);
     setDeletePreview(null);
-    setDeleteDividendPreview(null);
+    setIsDeletePreviewLoading(false);
+    setIsDeleteSubmitting(false);
+  }, []);
+
+  const startDelete = useCallback((transaction: TransactionHistoryItemDto) => {
+    setDeleteTarget(transaction);
+    setDeletePreview(null);
+    setIsDeletePreviewLoading(true);
+    setIsDeleteDialogOpen(true);
+    setMessage("");
+    setErrorMessage("");
+    void previewPostedTransactionDeleteBatch(
+      DELETE_MUTATION_REASON,
+      [{ transactionId: transaction.id }],
+    ).then((preview) => {
+      setDeletePreview(preview);
+      setIsDeletePreviewLoading(false);
+    }).catch((err: unknown) => {
+      setIsDeletePreviewLoading(false);
+      setErrorMessage(err instanceof Error ? err.message : "Delete preview failed");
+      setIsDeleteDialogOpen(false);
+    });
   }, []);
 
   const confirmDelete = useCallback(async () => {
-    if (!deleteTarget || !deleteDividendPreview || deleteSubmittingRef.current) return;
-    deleteSubmittingRef.current = true;
+    if (!deleteTarget || !deletePreview || isDeleteSubmitting) return;
     setIsDeleteSubmitting(true);
     setMessage("");
     setErrorMessage("");
-
     try {
-      await deleteTransaction(deleteTarget.id, {
-        previewId: deleteDividendPreview.preview.previewId,
-        previewVersion: deleteDividendPreview.preview.previewVersion,
-        fingerprint: deleteDividendPreview.preview.fingerprint,
+      const run = await confirmPostedTransactionMutation(deletePreview.previewId, {
+        previewVersion: deletePreview.previewVersion,
+        operation: deletePreview.operation,
+        fingerprint: deletePreview.fingerprint,
+        confirmationSummary: deletePreview.confirmationSummary,
+        confirmationDigest: deletePreview.confirmationDigest,
       });
-      onDeleteAcceptedRef.current?.(deleteTarget.id);
-      addRecomputing(deleteTarget.id, deleteTarget.accountId, deleteTarget.ticker);
+      onDeleteAccepted?.(deleteTarget.id);
+      resetDeleteState();
       setEditingId(null);
-      setIsDeleteDialogOpen(false);
       setMessage(dictRef.current.mutations.deleteSuccessMessage);
-      setDeleteTarget(null);
-      setDeletePreview(null);
-      setDeleteDividendPreview(null);
+      await handleConfirmedRun(run, deleteTarget.id, deleteTarget.accountId, deleteTarget.ticker);
     } catch (err: unknown) {
-      if (err instanceof ApiError && err.code && REFRESHABLE_DELETE_PREVIEW_CODES.has(err.code)) {
+      if (err instanceof ApiError && err.code && REFRESHABLE_MUTATION_PREVIEW_CODES.has(err.code)) {
         setIsDeletePreviewLoading(true);
-        setDeletePreview(null);
-        setDeleteDividendPreview(null);
         try {
-          const impactPreview = await previewImpact(deleteTarget.id, "delete");
-          if (impactPreview.negativeLots.wouldOccur) {
-            setDeletePreview(impactPreview);
-          } else {
-            const dividendPreview = await previewDividendDelete(deleteTarget.id);
-            setDeletePreview(impactPreview);
-            setDeleteDividendPreview(dividendPreview);
-          }
+          const refreshedPreview = await previewPostedTransactionDeleteBatch(
+            DELETE_MUTATION_REASON,
+            [{ transactionId: deleteTarget.id }],
+          );
+          setDeletePreview(refreshedPreview);
           setMessage(dictRef.current.mutations.deletePreviewRefreshed);
           setErrorMessage("");
         } catch (refreshError: unknown) {
@@ -280,216 +273,111 @@ export function useTransactionMutations({
         setErrorMessage(err instanceof Error ? err.message : "Delete failed");
       }
     } finally {
-      deleteSubmittingRef.current = false;
       setIsDeleteSubmitting(false);
     }
-  }, [deleteDividendPreview, deleteTarget, addRecomputing]);
+  }, [deletePreview, deleteTarget, handleConfirmedRun, isDeleteSubmitting, onDeleteAccepted, resetDeleteState]);
 
-  // --- Edit flow ---
-  const startEdit = useCallback(
-    (id: string) => {
-      // We don't have the full transaction here, but the caller can check
-      // recomputingIds before calling. This is a simpler guard.
-      setEditingId(id);
-      setMessage("");
-      setErrorMessage("");
-    },
-    [],
-  );
+  const cancelDelete = useCallback(() => {
+    if (isDeleteSubmitting) return;
+    resetDeleteState();
+  }, [isDeleteSubmitting, resetDeleteState]);
+
+  const startEdit = useCallback((id: string) => {
+    setEditingId(id);
+    setPendingEditRequest(null);
+    setEditPreview(null);
+    setIsEditPreviewOpen(false);
+    setMessage("");
+    setErrorMessage("");
+  }, []);
 
   const cancelEdit = useCallback(() => {
     setEditingId(null);
-    setFeeConfirmTarget(null);
+    setPendingEditRequest(null);
+    setEditPreview(null);
+    setIsEditPreviewOpen(false);
+    setIsEditPreviewLoading(false);
   }, []);
 
-  // Internal: execute the PATCH (called after preview check passes or user confirms)
-  const executePatch = useCallback(
-    async (transactionId: string, patch: TransactionPatch) => {
-      try {
-        const patchBody: Record<string, unknown> = {};
-        if (patch.date !== undefined) patchBody.date = patch.date;
-        if (patch.quantity !== undefined) patchBody.quantity = patch.quantity;
-        if (patch.price !== undefined) patchBody.price = patch.price;
-        if (patch.side !== undefined) patchBody.side = patch.side;
-        if (patch.commissionAmount !== undefined) patchBody.commissionAmount = patch.commissionAmount;
-        if (patch.taxAmount !== undefined) patchBody.taxAmount = patch.taxAmount;
-        if (patch.confirmFeeRecalculation) patchBody.confirmFeeRecalculation = true;
-        if (patch.keepManualFees) patchBody.keepManualFees = true;
+  const submitEdit = useCallback(async (transactionId: string, patch: TransactionPatch) => {
+    setPendingEditRequest({ transactionId, patch });
+    setEditPreview(null);
+    setIsEditPreviewLoading(true);
+    setIsEditPreviewOpen(true);
+    setMessage("");
+    setErrorMessage("");
+    try {
+      const preview = await previewPostedTransactionUpdateBatch(
+        "User confirmed a posted transaction update from ticker history.",
+        [{ transactionId, patch: toUpdatePatch(patch) }],
+      );
+      setEditPreview(preview);
+    } catch (err: unknown) {
+      setIsEditPreviewOpen(false);
+      setErrorMessage(err instanceof Error ? err.message : "Update preview failed");
+    } finally {
+      setIsEditPreviewLoading(false);
+    }
+  }, []);
 
-        const result = await patchTransaction(transactionId, patchBody);
-
-        if ("requiresFeeConfirmation" in result && result.requiresFeeConfirmation) {
-          setFeeConfirmTarget({ transactionId, patch });
-          return;
-        }
-
-        // Success — result is PatchTransactionResponse
-        const patchResult = result as { accountId: string; ticker: string };
-        setMessage(dictRef.current.mutations.editSuccessMessage);
-        setEditingId(null);
-        addRecomputing(transactionId, patchResult.accountId, patchResult.ticker);
-      } catch (err: unknown) {
-        setErrorMessage(err instanceof Error ? err.message : "Edit failed");
-      }
-    },
-    [addRecomputing],
-  );
-
-  const submitEdit = useCallback(
-    async (transactionId: string, patch: TransactionPatch) => {
-      // If side or quantity changed, preview for negative lots before patching
-      if (patch.side !== undefined || patch.quantity !== undefined) {
-        setIsEditPreviewLoading(true);
-        setIsEditPreviewOpen(true);
-        setEditPreview(null);
-        setMessage("");
-        setErrorMessage("");
-
-        try {
-          const preview = await previewImpact(transactionId, "patch", {
-            side: patch.side,
-            quantity: patch.quantity,
-            price: patch.price,
-            date: patch.date,
-          });
-          setEditPreview(preview);
-          setIsEditPreviewLoading(false);
-
-          // No negative lots — proceed directly without showing dialog
-          if (!preview.negativeLots.wouldOccur) {
-            setIsEditPreviewOpen(false);
-            await executePatch(transactionId, patch);
-            return;
-          }
-          // Negative lots — dialog stays open (hard-blocked, cancel only)
-        } catch (err: Error | unknown) {
-          setIsEditPreviewLoading(false);
-          setIsEditPreviewOpen(false);
-          setErrorMessage(err instanceof Error ? err.message : "Preview failed");
-        }
-        return;
-      }
-
-      // No side/quantity change — patch directly (date/price-only edits)
-      await executePatch(transactionId, patch);
-    },
-    [executePatch],
-  );
+  const confirmEdit = useCallback(async () => {
+    if (!pendingEditRequest || !editPreview || isEditSubmitting) return;
+    const transactionId = pendingEditRequest.transactionId;
+    const item = editPreview.page.items.find((candidate) => candidate.transactionId === transactionId);
+    const before = item?.before;
+    if (!before) {
+      setErrorMessage("Update preview did not include the requested transaction.");
+      return;
+    }
+    setIsEditSubmitting(true);
+    setMessage("");
+    setErrorMessage("");
+    try {
+      const run = await confirmPostedTransactionMutation(editPreview.previewId, {
+        previewVersion: editPreview.previewVersion,
+        operation: editPreview.operation,
+        fingerprint: editPreview.fingerprint,
+        confirmationSummary: editPreview.confirmationSummary,
+        confirmationDigest: editPreview.confirmationDigest,
+      });
+      setEditingId(null);
+      setPendingEditRequest(null);
+      setEditPreview(null);
+      setIsEditPreviewOpen(false);
+      setMessage(dictRef.current.mutations.editSuccessMessage);
+      await handleConfirmedRun(run, transactionId, before.accountId, before.ticker);
+    } catch (err: unknown) {
+      setErrorMessage(err instanceof Error ? err.message : "Edit failed");
+    } finally {
+      setIsEditSubmitting(false);
+    }
+  }, [editPreview, handleConfirmedRun, isEditSubmitting, pendingEditRequest]);
 
   const cancelEditPreview = useCallback(() => {
-    setIsEditPreviewOpen(false);
+    if (isEditSubmitting) return;
+    setPendingEditRequest(null);
     setEditPreview(null);
-    setEditingId(null); // Exit edit mode entirely when negative lots block is dismissed
+    setIsEditPreviewOpen(false);
+    setIsEditPreviewLoading(false);
+    setEditingId(null);
+  }, [isEditSubmitting]);
+
+  useEffect(() => () => {
+    for (const timer of pollTimersRef.current.values()) {
+      clearTimeout(timer);
+    }
+    pollTimersRef.current.clear();
   }, []);
 
-  // --- Fee confirmation ---
-  const isFeeConfirmOpen = feeConfirmTarget !== null;
-
-  const confirmFeeRecalc = useCallback(async () => {
-    if (!feeConfirmTarget) return;
-    const { transactionId, patch } = feeConfirmTarget;
-    setFeeConfirmTarget(null);
-    await submitEdit(transactionId, { ...patch, confirmFeeRecalculation: true });
-  }, [feeConfirmTarget, submitEdit]);
-
-  const keepManualFees = useCallback(async () => {
-    if (!feeConfirmTarget) return;
-    const { transactionId, patch } = feeConfirmTarget;
-    setFeeConfirmTarget(null);
-    await submitEdit(transactionId, { ...patch, keepManualFees: true });
-  }, [feeConfirmTarget, submitEdit]);
-
-  // --- SSE integration ---
-  const handleSSEEvent = useCallback(
-    (data: unknown) => {
-      const markMutationEventDelivered = () => {
-        sseDeliveredRef.current = true;
-        if (safetyNetTimerRef.current !== null) {
-          clearTimeout(safetyNetTimerRef.current);
-          safetyNetTimerRef.current = null;
-        }
-      };
-
-      const event = data as RecomputeCompleteEvent | RecomputeFailedEvent | SnapshotsGeneratedEvent;
-
-      if (event.type === "snapshots_generated") {
-        clearRouteDtoCacheByTags(MUTATION_ROUTE_CACHE_TAGS);
-        onSnapshotsGeneratedRef.current?.(event);
-        const matchedScopeKeys = event.trigger === "dividend_destructive_replay"
-          ? (event.scopes ?? [])
-            .map((scope) => `${scope.accountId}:${scope.ticker}`)
-            .filter((key) => recomputingSymbolsRef.current.has(key))
-          : [];
-        if (matchedScopeKeys.length > 0) {
-          markMutationEventDelivered();
-          for (const key of matchedScopeKeys) removeRecomputingBySymbol(key);
-          if (event.status === "ok") {
-            refreshAndReportSuccess(dictRef.current.mutations.recomputeCompleteMessage);
-          } else {
-            setMessage("");
-            setErrorMessage(event.error ?? dictRef.current.mutations.recomputeExhaustedMessage);
-          }
-        }
-        return;
-      }
-
-      const recomputeEvent = event as RecomputeCompleteEvent | RecomputeFailedEvent;
-      const key = `${recomputeEvent.accountId}:${recomputeEvent.ticker}`;
-      if (!recomputingSymbolsRef.current.has(key)) return;
-      markMutationEventDelivered();
-
-      if (recomputeEvent.type === "recompute_complete") {
-        removeRecomputingBySymbol(key);
-        refreshAndReportSuccess(dictRef.current.mutations.recomputeCompleteMessage);
-      }
-
-      if (recomputeEvent.type === "recompute_failed") {
-        if (!recomputeEvent.retriesExhausted) {
-          setMessage(dictRef.current.mutations.recomputeRetryMessage);
-        } else {
-          removeRecomputingBySymbol(key);
-          setErrorMessage(dictRef.current.mutations.recomputeExhaustedMessage);
-          setMessage("");
-        }
-      }
-    },
-    [refreshAndReportSuccess, removeRecomputingBySymbol],
-  );
-
-  useEventStream({
-    eventTypes: ["recompute_complete", "recompute_failed", "snapshots_generated"],
-    onEvent: handleSSEEvent,
-    enabled: true,
-  });
-
-  // --- Safety net timer ---
-  // If SSE delivers nothing within SAFETY_NET_MS, assume the event was lost or
-  // SSE is disconnected. Refresh data, clear loading, show neutral message.
   useEffect(() => {
-    if (recomputingSymbols.size === 0) return;
-
-    sseDeliveredRef.current = false;
-    safetyNetTimerRef.current = setTimeout(() => {
-      if (sseDeliveredRef.current) return; // Defensive: SSE already handled
-      console.warn("[useTransactionMutations] SSE silent for recompute — safety net fired", {
-        symbols: [...recomputingSymbols],
-      });
-      clearAllRecomputing();
-      refreshAndReportSuccess(dictRef.current.mutations.safetyNetMessage);
-    }, SAFETY_NET_MS);
-
-    return () => {
-      if (safetyNetTimerRef.current !== null) {
-        clearTimeout(safetyNetTimerRef.current);
-        safetyNetTimerRef.current = null;
-      }
-    };
-  }, [recomputingSymbolsKey, clearAllRecomputing, refreshAndReportSuccess]);
+    if (recomputingSymbolsKey === "[]") return;
+    clearRouteDtoCacheByTags(MUTATION_ROUTE_CACHE_TAGS);
+  }, [recomputingSymbolsKey]);
 
   return {
     deleteTarget,
     deletePreview,
-    deleteDividendPreview,
+    deleteDividendPreview: null,
     isDeletePreviewLoading,
     isDeleteSubmitting,
     isDeleteDialogOpen,
@@ -503,11 +391,13 @@ export function useTransactionMutations({
     editPreview,
     isEditPreviewOpen,
     isEditPreviewLoading,
+    isEditSubmitting,
+    confirmEdit,
     cancelEditPreview,
-    feeConfirmTarget,
-    isFeeConfirmOpen,
-    confirmFeeRecalc,
-    keepManualFees,
+    feeConfirmTarget: null,
+    isFeeConfirmOpen: false,
+    confirmFeeRecalc: async () => {},
+    keepManualFees: async () => {},
     recomputingIds,
     recomputingSymbols,
     message,

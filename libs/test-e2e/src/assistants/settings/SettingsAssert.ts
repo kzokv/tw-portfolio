@@ -157,6 +157,13 @@ export class SettingsAssert extends BaseAssert {
     await expect(select).not.toHaveValue("");
   }
 
+  @Step()
+  async selectedProfileDiscountValueIs(accountId: string, expectedValue: string): Promise<void> {
+    const profileId = await this.el.accountsList.accountProfileSelect(accountId).inputValue();
+    if (!profileId) throw new Error(`Account ${accountId} has no selected fee profile`);
+    await expect(this.el.accountsList.profileDiscountInput(profileId)).toHaveValue(expectedValue);
+  }
+
   // --- Monitored Symbols ---
 
   @Step()

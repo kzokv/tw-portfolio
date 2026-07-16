@@ -61,9 +61,10 @@ const EMPTY_EDIT_DRAFT: EditDraft = {
   sourceSnippet: "",
 };
 
-function stateClassName(state: DraftRow["state"]): string {
+function stateClassName(state: NonNullable<DraftRow["displayState"]>): string {
   if (state === "ready") return "border-emerald-200 bg-emerald-50 text-emerald-700";
   if (state === "confirmed") return "border-indigo-200 bg-indigo-50 text-indigo-700";
+  if (state === "posted_transaction_deleted") return "border-slate-300 bg-slate-100 text-slate-700";
   if (state === "excluded" || state === "rejected") return "border-slate-200 bg-slate-50 text-slate-600";
   if (state === "unsupported") return "border-amber-200 bg-amber-50 text-amber-700";
   return "border-rose-200 bg-rose-50 text-rose-700";
@@ -74,6 +75,7 @@ function compactState(state: string, locale: LocaleCode): string {
     const labels: Record<string, string> = {
       ready: "可送出",
       confirmed: "已確認",
+      posted_transaction_deleted: "已刪除已送出交易",
       excluded: "已排除",
       rejected: "已拒絕",
       unsupported: "不支援",
@@ -81,6 +83,7 @@ function compactState(state: string, locale: LocaleCode): string {
     };
     return labels[state] ?? state.replace(/_/g, " ");
   }
+  if (state === "posted_transaction_deleted") return aiInboxCopy[locale].postedTransactionDeleted;
   return state.replace(/_/g, " ");
 }
 
@@ -559,8 +562,8 @@ export function AiInboxPanel({ initialBatchId, initialContextId, locale, permiss
                             </TableCell>
                             <TableCell className="font-medium">{row.rowNumber}</TableCell>
                             <TableCell>
-                              <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-xs capitalize", stateClassName(row.state))}>
-                                {compactState(row.state, locale)}
+                              <span className={cn("inline-flex rounded-full border px-2 py-0.5 text-xs capitalize", stateClassName(row.displayState ?? row.state))}>
+                                {compactState(row.displayState ?? row.state, locale)}
                               </span>
                             </TableCell>
                             <TableCell className="min-w-[190px]">

@@ -116,9 +116,10 @@ function buildEditDraftPatch(draft: EditDraft): EditDraftPatch {
   return patch;
 }
 
-function stateClassName(state: TransactionDraftRowDto["state"]): string {
+function stateClassName(state: NonNullable<TransactionDraftRowDto["displayState"]>): string {
   if (state === "ready") return "border-emerald-200 bg-emerald-50 text-emerald-700";
   if (state === "confirmed") return "border-indigo-200 bg-indigo-50 text-indigo-700";
+  if (state === "posted_transaction_deleted") return "border-slate-300 bg-slate-100 text-slate-700";
   if (state === "excluded" || state === "rejected") return "border-slate-200 bg-slate-100 text-slate-600";
   if (state === "unsupported" || state === "needs_clarification") return "border-amber-200 bg-amber-50 text-amber-700";
   return "border-rose-200 bg-rose-50 text-rose-700";
@@ -713,10 +714,10 @@ export function ChatGptTransactionDraftWidget({
                                 <TableCell>{row.tradeDate ?? "-"}</TableCell>
                                 <TableCell>
                                   <span
-                                    className={cn("inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold capitalize", stateClassName(row.state))}
+                                    className={cn("inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold capitalize", stateClassName(row.displayState ?? row.state))}
                                     data-testid={`chatgpt-widget-row-state-${row.id}`}
                                   >
-                                    {compactState(row.state, resolvedLocale)}
+                                    {compactState(row.displayState ?? row.state, resolvedLocale)}
                                   </span>
                                 </TableCell>
                                 <TableCell className="text-right">
