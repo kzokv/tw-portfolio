@@ -291,7 +291,11 @@ function applyUpdatePatch(trade: BookedTradeEvent, patch: TradeEventPatch): { ol
   }
   if (patch.quantity !== undefined) trade.quantity = patch.quantity;
   if (patch.price !== undefined) trade.unitPrice = patch.price;
-  if (patch.side !== undefined) trade.type = patch.side;
+  if (patch.side !== undefined) {
+    trade.type = patch.side;
+    delete trade.realizedPnlAmount;
+    delete trade.realizedPnlCurrency;
+  }
   if (patch.isDayTrade !== undefined) trade.isDayTrade = patch.isDayTrade;
   if (patch.commissionAmount !== undefined) trade.commissionAmount = patch.commissionAmount;
   if (patch.taxAmount !== undefined) trade.taxAmount = patch.taxAmount;

@@ -144,6 +144,61 @@ describe("posted transaction mutation service", () => {
     await expect(persistence.getPostedTransactionMutationPreview(simulated.previewId)).resolves.toBeNull();
   });
 
+  it("clears stale realized P&L when changing a posted sell to a buy", async () => {
+    const persistence = new MemoryPersistence();
+    await seedTrade(persistence);
+    const store = await persistence.loadStore("user-1");
+    createTransaction(store, "user-1", {
+      id: "trade-sell-to-buy",
+      accountId: "acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      quantity: 4,
+      unitPrice: 110,
+      priceCurrency: "TWD",
+      tradeDate: "2026-01-03",
+      commissionAmount: 0,
+      taxAmount: 0,
+      feesSource: "MANUAL",
+      type: "SELL",
+      isDayTrade: false,
+    });
+    const persistedSell = store.accounting.facts.tradeEvents.find(({ id }) => id === "trade-sell-to-buy");
+    if (!persistedSell) throw new Error("Expected seeded sell");
+    persistedSell.realizedPnlAmount = 40;
+    persistedSell.realizedPnlCurrency = "TWD";
+    await persistence.saveStore(store);
+
+    const preview = await previewPostedTransactionUpdateBatch(persistence, {
+      ownerUserId: "user-1",
+      actorUserId: "user-1",
+      reason: "Correct sell side to buy",
+      appBaseUrl: "http://localhost",
+      items: [{ transactionId: "trade-sell-to-buy", patch: { side: "BUY" } }],
+    });
+    expect(preview.summary.realizedPnlDelta).toBe(-40);
+
+    await confirmPostedTransactionMutation(persistence, {
+      ownerUserId: "user-1",
+      actorUserId: "user-1",
+      appBaseUrl: "http://localhost",
+      confirmation: {
+        previewId: preview.previewId,
+        previewVersion: preview.previewVersion,
+        operation: "update",
+        fingerprint: preview.fingerprint,
+        confirmationSummary: preview.confirmationSummary,
+        confirmationDigest: preview.confirmationDigest,
+      },
+    });
+
+    const committed = await persistence.loadStore("user-1");
+    const committedTrade = committed.accounting.facts.tradeEvents.find(({ id }) => id === "trade-sell-to-buy");
+    expect(committedTrade?.type).toBe("BUY");
+    expect(committedTrade).not.toHaveProperty("realizedPnlAmount");
+    expect(committedTrade).not.toHaveProperty("realizedPnlCurrency");
+  });
+
   it("rejects a preview when accounting changes while its store snapshot is loading", async () => {
     class RacingMemoryPersistence extends MemoryPersistence {
       private armed = false;
