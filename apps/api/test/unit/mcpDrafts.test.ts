@@ -533,6 +533,11 @@ describe("mcp draft services", () => {
       deletedByUserId: "user-1",
       mutationRunId: "run-1",
     });
+    const confirmedAggregate = await app.persistence.getAiTransactionDraftBatch(created.batch.id);
+    await app.persistence.saveAiTransactionDraftRow({
+      ...confirmedAggregate!.rows[0]!,
+      confirmedTradeEventId: null,
+    });
 
     const detail = await getTransactionDraftBatch(
       { app, requestContext: createRequestContext() },
@@ -541,6 +546,7 @@ describe("mcp draft services", () => {
 
     expect(detail.rows[0]).toMatchObject({
       state: "confirmed",
+      confirmedTradeEventId: null,
       deletedPostedTransaction: {
         deletedAt: "2026-07-16T10:00:00.000Z",
         deletedByUserId: "user-1",

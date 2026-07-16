@@ -47,7 +47,7 @@ The final diff was checked against both locked scope documents. All product step
 
 ## Codex Review Follow-up
 
-Codex review on PR #290 identified actionable issues across twelve review rounds:
+Codex review on PR #290 identified actionable issues across thirteen review rounds:
 
 1. The new mutation preview and confirmation routes were present in the delegated capability matrix but absent from `SHARED_CONTEXT_WRITE_ROUTE_KEYS`. All three routes now enter the shared-context capability guard, and a table-driven integration test proves viewers without `transaction:write` receive `shared_capability_required` before route handling.
 2. The legacy transaction impact response derived `negativeLots.wouldOccur` only from final open quantity. It now treats canonical replay blockers as authoritative, so an intermediate negative position is reported even when a later buy restores the final quantity to zero.
@@ -72,6 +72,7 @@ Codex review on PR #290 identified actionable issues across twelve review rounds
 21. The portfolio compact holdings view inherited the dashboard top-holdings preference context. It now explicitly uses the portfolio holdings context, keeping dashboard and portfolio column, limit, and layout settings isolated.
 22. SELL-to-BUY mutation replay retained the original sell's realized P&L fields because replay only assigns those fields to sells. Side changes now clear derived realized P&L before replay, so previews and committed accounting reflect the corrected BUY.
 23. Restrictive mutation actor foreign keys could block hard purge for owners or delegates with mutation history. An append-only migration now cascades actor-authored mutation artifacts and the preview-to-run chain, with Postgres coverage for purging a delegate without deleting the portfolio owner.
+24. Postgres account rewrites cleared AI draft rows' confirmed trade links through the `ON DELETE SET NULL` foreign key, including links for trades immediately reinserted by the rewrite. Rewrites now capture and restore links for retained trades after reinsertion, while genuinely deleted trades resolve their durable mutation lineage by draft-row ID so deletion status remains visible without weakening referential integrity.
 
 Follow-up evidence:
 
@@ -121,6 +122,9 @@ Follow-up evidence:
 - The first twelfth-round managed run exposed a non-idempotent replacement-constraint name; migration `107` now drops legacy and replacement names before re-adding each cascade.
 - Twelfth-round API integration TypeScript, changed-file ESLint, and `git diff --check`: passed.
 - Twelfth-round `npm run test:integration:full:host`: 103 files passed; 1,054 tests passed, 1 skipped.
+- Thirteenth-round AI draft service tests: 13 passed, including deleted-lineage lookup after the confirmed trade foreign key becomes null.
+- Thirteenth-round API TypeScript, changed-file ESLint, and `git diff --check`: passed.
+- The thirteenth-round managed Postgres run passed 102 of 103 files and 1,053 tests before the new regression rejected an unsupported control ticker in its fixture. The control trade was changed to supported ticker `2330`; the focused managed Postgres mutation file then passed 1/1 and verifies both retained-link restoration and deleted-lineage lookup by draft-row ID.
 
 ## Waiver
 

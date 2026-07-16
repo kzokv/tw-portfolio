@@ -3674,6 +3674,7 @@ export interface Persistence {
   listPostedTransactionMutationDeletedDraftLineage(
     ownerUserId: string,
     tradeEventIds: readonly string[],
+    draftRowIds?: readonly string[],
   ): Promise<PostedTransactionMutationDeletedDraftLineageRecord[]>;
 
   // Currency wallet snapshots (KZO-165) — minimal aggregator stub. WAC + FX is KZO-166.

@@ -67,6 +67,18 @@ describePostgres("posted transaction mutation replay persistence (postgres integ
       type: "BUY",
       isDayTrade: false,
     });
+    createTransaction(store, ownerUserId, {
+      id: "pg-trade-2",
+      accountId: store.accounts[0]!.id,
+      ticker: "2330",
+      marketCode: "TW",
+      quantity: 5,
+      unitPrice: 200,
+      priceCurrency: "TWD",
+      tradeDate: "2026-01-03",
+      type: "BUY",
+      isDayTrade: false,
+    });
     await persistence.saveStore(store);
     await persistence.saveAiTransactionDraftBatch({
       id: "pg-batch-1",
@@ -75,7 +87,7 @@ describePostgres("posted transaction mutation replay persistence (postgres integ
       sourceChannel: "mcp",
       status: "open",
       version: 1,
-      rowCount: 1,
+      rowCount: 2,
       unsupportedCount: 0,
     });
     await persistence.saveAiTransactionDraftRow({
@@ -102,6 +114,32 @@ describePostgres("posted transaction mutation replay persistence (postgres integ
       feesSource: "CALCULATED",
       confirmedTradeEventId: "pg-trade-1",
       confirmedAt: "2026-01-02T00:00:00.000Z",
+      confirmedByUserId: ownerUserId,
+    });
+    await persistence.saveAiTransactionDraftRow({
+      id: "pg-row-2",
+      batchId: "pg-batch-1",
+      ownerUserId,
+      rowNumber: 2,
+      state: "confirmed",
+      version: 1,
+      accountId: store.accounts[0]!.id,
+      accountNameInput: store.accounts[0]!.name,
+      tradeType: "BUY",
+      ticker: "2330",
+      marketCode: "TW",
+      quantity: 5,
+      unitPrice: 200,
+      priceCurrency: "TWD",
+      tradeDate: "2026-01-03",
+      tradeTimestamp: "2026-01-03T00:00:00.000Z",
+      bookingSequence: 1,
+      isDayTrade: false,
+      commissionAmount: 0,
+      taxAmount: 0,
+      feesSource: "CALCULATED",
+      confirmedTradeEventId: "pg-trade-2",
+      confirmedAt: "2026-01-03T00:00:00.000Z",
       confirmedByUserId: ownerUserId,
     });
 
@@ -164,5 +202,20 @@ describePostgres("posted transaction mutation replay persistence (postgres integ
       rowId: "pg-row-1",
       mutationRunId: run.runId,
     }]);
+    await expect(persistence.listPostedTransactionMutationDeletedDraftLineage(
+      ownerUserId,
+      [],
+      ["pg-row-1"],
+    )).resolves.toMatchObject([{
+      tradeEventId: "pg-trade-1",
+      rowId: "pg-row-1",
+      mutationRunId: run.runId,
+    }]);
+
+    const updatedDraftBatch = await persistence.getAiTransactionDraftBatch("pg-batch-1");
+    expect(updatedDraftBatch?.rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "pg-row-1", confirmedTradeEventId: null }),
+      expect.objectContaining({ id: "pg-row-2", confirmedTradeEventId: "pg-trade-2" }),
+    ]));
   });
 });

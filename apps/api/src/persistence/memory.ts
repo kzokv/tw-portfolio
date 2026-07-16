@@ -5013,11 +5013,14 @@ export class MemoryPersistence implements Persistence {
   async listPostedTransactionMutationDeletedDraftLineage(
     ownerUserId: string,
     tradeEventIds: readonly string[],
+    draftRowIds: readonly string[] = [],
   ): Promise<import("./types.js").PostedTransactionMutationDeletedDraftLineageRecord[]> {
-    return tradeEventIds
-      .map((tradeEventId) => this.postedTransactionMutationDeletedDraftLineage.get(tradeEventId))
-      .filter((record): record is import("./types.js").PostedTransactionMutationDeletedDraftLineageRecord =>
-        Boolean(record && record.ownerUserId === ownerUserId))
+    const tradeEventIdSet = new Set(tradeEventIds);
+    const draftRowIdSet = new Set(draftRowIds);
+    return [...this.postedTransactionMutationDeletedDraftLineage.values()]
+      .filter((record) =>
+        record.ownerUserId === ownerUserId
+        && (tradeEventIdSet.has(record.tradeEventId) || draftRowIdSet.has(record.rowId)))
       .map((record) => structuredClone(record));
   }
 

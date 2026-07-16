@@ -14042,7 +14042,20 @@ export class PostgresPersistence implements Persistence {
     accountIds: string[],
   ): Promise<void> {
     const accountIdSet = new Set(accountIds);
+    let confirmedDraftTradeLinks: Array<{ row_id: string; confirmed_trade_event_id: string }> = [];
     if (accountIds.length) {
+      const confirmedDraftTradeLinkResult = await client.query<{
+        row_id: string;
+        confirmed_trade_event_id: string;
+      }>(
+        `SELECT draft_row.id AS row_id, draft_row.confirmed_trade_event_id
+           FROM ai_transaction_draft_rows AS draft_row
+           JOIN trade_events AS trade ON trade.id = draft_row.confirmed_trade_event_id
+          WHERE trade.user_id = $1
+            AND trade.account_id = ANY($2::text[])`,
+        [userId, accountIds],
+      );
+      confirmedDraftTradeLinks = confirmedDraftTradeLinkResult.rows;
       await client.query(
         `DELETE FROM cash_ledger_entries
           WHERE user_id = $1
@@ -14227,6 +14240,26 @@ export class PostgresPersistence implements Persistence {
           tx.bookedAt ?? new Date(`${tx.tradeDate}T00:00:00.000Z`).toISOString(),
           tx.reversalOfTradeEventId ?? null,
           tx.feesSource ?? "CALCULATED",
+        ],
+      );
+    }
+
+    const retainedTradeEventIds = new Set(
+      accounting.facts.tradeEvents
+        .filter((trade) => accountIdSet.has(trade.accountId))
+        .map((trade) => trade.id),
+    );
+    const retainedDraftTradeLinks = confirmedDraftTradeLinks.filter((link) =>
+      retainedTradeEventIds.has(link.confirmed_trade_event_id));
+    if (retainedDraftTradeLinks.length > 0) {
+      await client.query(
+        `UPDATE ai_transaction_draft_rows AS draft_row
+            SET confirmed_trade_event_id = restored.trade_event_id
+           FROM unnest($1::text[], $2::text[]) AS restored(row_id, trade_event_id)
+          WHERE draft_row.id = restored.row_id`,
+        [
+          retainedDraftTradeLinks.map((link) => link.row_id),
+          retainedDraftTradeLinks.map((link) => link.confirmed_trade_event_id),
         ],
       );
     }
@@ -19865,8 +19898,9 @@ export class PostgresPersistence implements Persistence {
   async listPostedTransactionMutationDeletedDraftLineage(
     ownerUserId: string,
     tradeEventIds: readonly string[],
+    draftRowIds: readonly string[] = [],
   ): Promise<import("./types.js").PostedTransactionMutationDeletedDraftLineageRecord[]> {
-    if (tradeEventIds.length === 0) return [];
+    if (tradeEventIds.length === 0 && draftRowIds.length === 0) return [];
     const result = await this.pool.query<{
       trade_event_id: string;
       owner_user_id: string;
@@ -19878,10 +19912,13 @@ export class PostgresPersistence implements Persistence {
     }>(
       `SELECT trade_event_id, owner_user_id, batch_id, row_id,
               deleted_at::text, deleted_by_user_id, mutation_run_id
-         FROM posted_transaction_mutation_deleted_draft_lineage
+        FROM posted_transaction_mutation_deleted_draft_lineage
         WHERE owner_user_id = $1
-          AND trade_event_id = ANY($2::text[])`,
-      [ownerUserId, tradeEventIds],
+          AND (
+            trade_event_id = ANY($2::text[])
+            OR row_id = ANY($3::text[])
+          )`,
+      [ownerUserId, tradeEventIds, draftRowIds],
     );
     return result.rows.map((row) => ({
       tradeEventId: row.trade_event_id,

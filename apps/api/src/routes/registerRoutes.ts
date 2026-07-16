@@ -1524,17 +1524,20 @@ async function toTransactionDraftDetailDto(
   app: FastifyInstance,
   aggregate: AiTransactionDraftBatchAggregate,
 ): Promise<TransactionDraftBatchDetailDto & { deepLinkUrl: string }> {
-  const deletedDraftLineageByTradeId = new Map(
-    (await app.persistence.listPostedTransactionMutationDeletedDraftLineage(
-      aggregate.batch.ownerUserId,
-      aggregate.rows.flatMap((row) => row.confirmedTradeEventId ? [row.confirmedTradeEventId] : []),
-    )).map((lineage) => [lineage.tradeEventId, lineage] as const),
+  const deletedDraftLineages = await app.persistence.listPostedTransactionMutationDeletedDraftLineage(
+    aggregate.batch.ownerUserId,
+    aggregate.rows.flatMap((row) => row.confirmedTradeEventId ? [row.confirmedTradeEventId] : []),
+    aggregate.rows.map((row) => row.id),
   );
+  const deletedDraftLineageByTradeId = new Map(deletedDraftLineages.map((lineage) => [lineage.tradeEventId, lineage] as const));
+  const deletedDraftLineageByRowId = new Map(deletedDraftLineages.map((lineage) => [lineage.rowId, lineage] as const));
   return {
     batch: toTransactionDraftBatchDto(app, aggregate.batch),
     rows: aggregate.rows.map((row) => toTransactionDraftRowDto({
       ...row,
-      deletedPostedTransaction: row.confirmedTradeEventId ? deletedDraftLineageByTradeId.get(row.confirmedTradeEventId) ?? null : null,
+      deletedPostedTransaction: (
+        row.confirmedTradeEventId ? deletedDraftLineageByTradeId.get(row.confirmedTradeEventId) : undefined
+      ) ?? deletedDraftLineageByRowId.get(row.id) ?? null,
     })),
     unsupportedItems: aggregate.unsupportedItems.map(toTransactionDraftUnsupportedDto),
     deepLinkUrl: buildAiDraftDeepLink(app, aggregate.batch.id, aggregate.batch.ownerUserId),
