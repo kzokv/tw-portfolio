@@ -613,6 +613,40 @@ describe("transaction mutations (delete + edit)", () => {
       expect(body.negativeLots.ticker).toBe("2330");
     });
 
+    it("detects an intermediate negative position even when the final quantity is nonnegative", async () => {
+      const firstBuy = await createTrade(app, {
+        quantity: 10,
+        unitPrice: 100,
+        tradeDate: "2026-01-01",
+      });
+      await createTrade(app, {
+        quantity: 5,
+        unitPrice: 130,
+        tradeDate: "2026-01-02",
+        type: "SELL" as TransactionType,
+      });
+      await createTrade(app, {
+        quantity: 5,
+        unitPrice: 110,
+        tradeDate: "2026-01-03",
+      });
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/portfolio/transactions/${firstBuy.id}/preview-impact?action=delete`,
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({
+        negativeLots: {
+          wouldOccur: true,
+          resultingQuantity: 0,
+          ticker: "2330",
+        },
+      });
+      expect(res.json().blockers).toHaveLength(1);
+    });
+
     it("no negative lots when safe delete", async () => {
       await createTrade(app, { quantity: 10, unitPrice: 100 });
       const secondBuy = await createTrade(app, {

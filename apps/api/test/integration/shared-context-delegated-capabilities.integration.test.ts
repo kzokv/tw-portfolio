@@ -306,6 +306,62 @@ describe("shared-context delegated capabilities", () => {
     expect(runLink.json()).toMatchObject({ runId, previewId: preview.previewId });
   });
 
+  it("[shared transaction mutation]: viewer without transaction:write cannot preview or confirm mutations", async () => {
+    const { viewerUserId } = await createViewerShare(["portfolio:mcp_read"]);
+    const headers = {
+      "x-user-id": viewerUserId,
+      "x-user-role": "viewer",
+      "x-context-user-id": "user-1",
+    };
+    const requests = [
+      {
+        url: "/portfolio/transactions/mutations/update-preview",
+        payload: {
+          reason: "Unauthorized correction attempt",
+          items: [{ transactionId: "shared-guard-trade", patch: { quantity: 2 } }],
+        },
+        routeKey: "POST /portfolio/transactions/mutations/update-preview",
+      },
+      {
+        url: "/portfolio/transactions/mutations/delete-preview",
+        payload: {
+          reason: "Unauthorized deletion attempt",
+          items: [{ transactionId: "shared-guard-trade" }],
+        },
+        routeKey: "POST /portfolio/transactions/mutations/delete-preview",
+      },
+      {
+        url: "/portfolio/transactions/mutations/previews/shared-guard-preview/confirm",
+        payload: {
+          previewVersion: 1,
+          operation: "update",
+          fingerprint: "shared-guard-fingerprint",
+          confirmationSummary: "Unauthorized confirmation attempt",
+          confirmationDigest: "shared-guard-digest",
+        },
+        routeKey: "POST /portfolio/transactions/mutations/previews/:previewId/confirm",
+      },
+    ] as const;
+
+    for (const request of requests) {
+      const response = await app.inject({
+        method: "POST",
+        url: request.url,
+        headers,
+        payload: request.payload,
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json()).toMatchObject({
+        error: "shared_capability_required",
+        metadata: {
+          requiredCapability: "transaction:write",
+          routeKey: request.routeKey,
+        },
+      });
+    }
+  });
+
   it("[shared dividend write]: viewer with dividend:write can post and reconcile owner dividend entries", async () => {
     const { viewerUserId } = await createViewerShare(["portfolio:mcp_read", "dividend:write"]);
     await seedSharedDividendForOwner();

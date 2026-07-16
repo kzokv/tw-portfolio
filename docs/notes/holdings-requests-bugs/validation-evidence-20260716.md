@@ -44,6 +44,20 @@ Additional checks:
 
 The final diff was checked against both locked scope documents. All product steps have implementation and test evidence, no out-of-scope bulk web authoring was added, and no compatibility path retains persist-before-replay transaction mutation behavior.
 
+## Codex Review Follow-up
+
+Codex review on PR #290 identified two actionable route-level issues:
+
+1. The new mutation preview and confirmation routes were present in the delegated capability matrix but absent from `SHARED_CONTEXT_WRITE_ROUTE_KEYS`. All three routes now enter the shared-context capability guard, and a table-driven integration test proves viewers without `transaction:write` receive `shared_capability_required` before route handling.
+2. The legacy transaction impact response derived `negativeLots.wouldOccur` only from final open quantity. It now treats canonical replay blockers as authoritative, so an intermediate negative position is reported even when a later buy restores the final quantity to zero.
+
+Follow-up evidence:
+
+- `npx vitest run test/integration/shared-context-delegated-capabilities.integration.test.ts test/integration/transaction-mutations.integration.test.ts`: 56 passed.
+- `npx eslint apps/api/src/routes/registerRoutes.ts apps/api/test/integration/shared-context-delegated-capabilities.integration.test.ts apps/api/test/integration/transaction-mutations.integration.test.ts`: passed.
+- `npx tsc --noEmit -p apps/api/tsconfig.json && npx tsc --noEmit -p apps/api/test/integration/tsconfig.json`: passed.
+- `npm run test --prefix apps/api`: 201 files passed, 49 skipped; 2,085 tests passed, 473 skipped.
+
 ## Waiver
 
 No Linear ticket was provided. The user-approved publication path is:

@@ -866,6 +866,9 @@ const SHARED_CONTEXT_WRITE_ROUTE_KEYS = new Set([
   "PATCH /portfolio/transactions/:tradeEventId",
   "POST /portfolio/transactions/:tradeEventId/dividend-delete-preview",
   "POST /portfolio/transactions/:tradeEventId/dividend-delete-confirm",
+  "POST /portfolio/transactions/mutations/update-preview",
+  "POST /portfolio/transactions/mutations/delete-preview",
+  "POST /portfolio/transactions/mutations/previews/:previewId/confirm",
   "POST /portfolio/dividends/postings",
   "POST /portfolio/accounts/:accountId/purge-rebuild-preview",
   "POST /portfolio/accounts/:accountId/purge-rebuild-confirm",
@@ -5906,7 +5909,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           holdingSnapshots,
         },
         negativeLots: {
-          wouldOccur: resultingQuantity < 0,
+          wouldOccur: resultingQuantity < 0 || preview.blockers.length > 0,
           resultingQuantity,
           ticker: trade.ticker,
         },
@@ -5922,7 +5925,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           holdingSnapshots,
         },
         negativeLots: {
-          wouldOccur: resultingQuantity < 0,
+          wouldOccur: true,
           resultingQuantity,
           ticker: trade.ticker,
         },
