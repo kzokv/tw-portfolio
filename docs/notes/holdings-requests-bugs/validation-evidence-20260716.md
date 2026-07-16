@@ -46,7 +46,7 @@ The final diff was checked against both locked scope documents. All product step
 
 ## Codex Review Follow-up
 
-Codex review on PR #290 identified actionable issues across five review rounds:
+Codex review on PR #290 identified actionable issues across six review rounds:
 
 1. The new mutation preview and confirmation routes were present in the delegated capability matrix but absent from `SHARED_CONTEXT_WRITE_ROUTE_KEYS`. All three routes now enter the shared-context capability guard, and a table-driven integration test proves viewers without `transaction:write` receive `shared_capability_required` before route handling.
 2. The legacy transaction impact response derived `negativeLots.wouldOccur` only from final open quantity. It now treats canonical replay blockers as authoritative, so an intermediate negative position is reported even when a later buy restores the final quantity to zero.
@@ -59,6 +59,8 @@ Codex review on PR #290 identified actionable issues across five review rounds:
 9. Leaving all-tickers mode from an inline row control retained only the clicked ticker. The custom selection now starts from the current universe and removes the clicked ticker, preserving every other holding.
 10. The delete confirmation dialog labeled monetary and quantity deltas as cash-entry and lot-allocation row counts. Localized copy now presents formatted cash-balance and holdings-quantity changes explicitly.
 11. The legacy DELETE alias accepted only the new mutation preview storage after the canonical mutation rollout, even though its adjacent legacy preview endpoint still issued dividend-destructive preview IDs. The alias now preserves both flows: canonical mutation previews use the new mutation path, while legacy preview IDs use the original dividend-destructive confirmation and response.
+12. Shared dividend-impact update and delete previews could persist a durable preview before the route verified `dividend:write`. Batch previews and the legacy PATCH bridge now run a non-persisting canonical simulation first, reject unauthorized dividend impact, and create durable preview records only after authorization succeeds.
+13. Shared mutation preview and run deep links omitted the portfolio owner, so opening a link outside the existing browser context could request the delegate's own portfolio. Generated paths and absolute URLs now include `?as=<owner>`, and both server-rendered pages validate and forward that owner context on their initial API fetch.
 
 Follow-up evidence:
 
@@ -78,6 +80,11 @@ Follow-up evidence:
 - Fifth-round transaction-mutation integration tests: 43 passed, including the legacy dividend-preview then DELETE sequence.
 - Fifth-round API source/integration TypeScript and changed-file ESLint checks: passed.
 - Fifth-round `npm run test --prefix apps/api`: 201 files passed, 49 skipped; 2,089 tests passed, 473 skipped.
+- Sixth-round transaction-mutation and shared-context integration tests: 43 and 15 passed after correcting the legacy PATCH fixture to leave one eligible buy before moving it past the ex-date.
+- Sixth-round mutation preview/run page tests: 3 passed.
+- Sixth-round API source/integration TypeScript, web TypeScript, changed-file ESLint, and `git diff --check`: passed.
+- Sixth-round `npm run test --prefix apps/api`: 201 files passed, 49 skipped; 2,089 tests passed, 473 skipped.
+- Sixth-round `npm run test --prefix apps/web`: 86 component/app files with 583 tests passed, followed by 80 feature/lib files with 534 tests passed.
 
 ## Waiver
 

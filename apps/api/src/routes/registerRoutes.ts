@@ -5785,7 +5785,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     let result;
     try {
-      const preview = await previewPostedTransactionUpdateBatch(app.persistence, {
+      const previewInput = {
         ownerUserId: userId,
         actorUserId: identity.sessionUserId,
         reason: "User requested posted transaction correction",
@@ -5800,16 +5800,22 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
             isDayTrade: body.isDayTrade,
             commissionAmount: body.commissionAmount,
             taxAmount: body.taxAmount,
-            feeOverrideMode: body.confirmFeeRecalculation ? "recalculate" : "preserve_recorded",
+            feeOverrideMode: body.confirmFeeRecalculation
+              ? "recalculate" as const
+              : "preserve_recorded" as const,
           },
         }],
-      });
-      if (preview.summary.deletedDividendCount > 0 || preview.summary.reopenedDividendCount > 0) {
-        requireDelegatedDividendWriteForHistoryRewrite(
-          sharedContext,
-          "PATCH /portfolio/transactions/:tradeEventId",
-        );
+      };
+      if (sharedContext && !sharedContext.shareCapabilities.includes("dividend:write")) {
+        const simulation = await simulatePostedTransactionUpdateBatch(app.persistence, previewInput);
+        if (simulation.summary.deletedDividendCount > 0 || simulation.summary.reopenedDividendCount > 0) {
+          requireDelegatedDividendWriteForHistoryRewrite(
+            sharedContext,
+            "PATCH /portfolio/transactions/:tradeEventId",
+          );
+        }
       }
+      const preview = await previewPostedTransactionUpdateBatch(app.persistence, previewInput);
       result = await confirmPostedTransactionMutation(app.persistence, {
         ownerUserId: userId,
         actorUserId: identity.sessionUserId,
@@ -5986,13 +5992,24 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       }).strict()).min(1),
     }).parse(req.body);
     const identity = resolveUserId(req, app.oauthConfig?.sessionSecret);
-    return previewPostedTransactionUpdateBatch(app.persistence, {
+    const previewInput = {
       ownerUserId: identity.contextUserId,
       actorUserId: identity.sessionUserId,
       items: body.items,
       reason: body.reason,
       appBaseUrl: app.appBaseUrl,
-    });
+    };
+    const sharedContext = await resolveActiveSharedCapabilityContext(req);
+    if (sharedContext && !sharedContext.shareCapabilities.includes("dividend:write")) {
+      const simulation = await simulatePostedTransactionUpdateBatch(app.persistence, previewInput);
+      if (simulation.summary.deletedDividendCount > 0 || simulation.summary.reopenedDividendCount > 0) {
+        requireDelegatedDividendWriteForHistoryRewrite(
+          sharedContext,
+          "POST /portfolio/transactions/mutations/update-preview",
+        );
+      }
+    }
+    return previewPostedTransactionUpdateBatch(app.persistence, previewInput);
   });
 
   app.post("/portfolio/transactions/mutations/delete-preview", async (req) => {
@@ -6004,13 +6021,24 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       }).strict()).min(1),
     }).parse(req.body);
     const identity = resolveUserId(req, app.oauthConfig?.sessionSecret);
-    return previewPostedTransactionDeleteBatch(app.persistence, {
+    const previewInput = {
       ownerUserId: identity.contextUserId,
       actorUserId: identity.sessionUserId,
       items: body.items,
       reason: body.reason,
       appBaseUrl: app.appBaseUrl,
-    });
+    };
+    const sharedContext = await resolveActiveSharedCapabilityContext(req);
+    if (sharedContext && !sharedContext.shareCapabilities.includes("dividend:write")) {
+      const simulation = await simulatePostedTransactionDeleteBatch(app.persistence, previewInput);
+      if (simulation.summary.deletedDividendCount > 0 || simulation.summary.reopenedDividendCount > 0) {
+        requireDelegatedDividendWriteForHistoryRewrite(
+          sharedContext,
+          "POST /portfolio/transactions/mutations/delete-preview",
+        );
+      }
+    }
+    return previewPostedTransactionDeleteBatch(app.persistence, previewInput);
   });
 
   app.get("/portfolio/transactions/mutations/previews/:previewId", async (req) => {

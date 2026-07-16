@@ -279,7 +279,19 @@ describe("shared-context delegated capabilities", () => {
       fingerprint: string;
       confirmationSummary: string;
       confirmationDigest: string;
+      deepLinks: {
+        previewPath: string;
+        transactionPath: string;
+        previewUrl: string;
+      };
     }>();
+    expect(preview.deepLinks).toMatchObject({
+      previewPath: `/transactions/mutations/previews/${preview.previewId}?as=user-1`,
+      transactionPath: "/transactions?as=user-1",
+    });
+    expect(preview.deepLinks.previewUrl.endsWith(
+      `/transactions/mutations/previews/${preview.previewId}?as=user-1`,
+    )).toBe(true);
 
     const previewLink = await app.inject({
       method: "GET",
@@ -301,7 +313,17 @@ describe("shared-context delegated capabilities", () => {
       },
     });
     expect(confirmed.statusCode).toBe(200);
-    const runId = confirmed.json<{ runId: string }>().runId;
+    const run = confirmed.json<{
+      runId: string;
+      deepLinks: { previewPath: string; runPath: string; transactionPath: string; runUrl: string };
+    }>();
+    const runId = run.runId;
+    expect(run.deepLinks).toMatchObject({
+      previewPath: `/transactions/mutations/previews/${preview.previewId}?as=user-1`,
+      runPath: `/transactions/mutations/runs/${runId}?as=user-1`,
+      transactionPath: "/transactions?as=user-1",
+    });
+    expect(run.deepLinks.runUrl.endsWith(`/transactions/mutations/runs/${runId}?as=user-1`)).toBe(true);
 
     const runLink = await app.inject({
       method: "GET",
@@ -368,9 +390,10 @@ describe("shared-context delegated capabilities", () => {
     }
   });
 
-  it("[shared transaction mutation]: update confirmation that changes dividends requires dividend:write", async () => {
+  it("[shared transaction mutation]: dividend-impact previews require dividend:write before persistence", async () => {
     const { viewerUserId } = await createViewerShare(["portfolio:mcp_read", "transaction:write"]);
     await seedSharedDividendForOwner();
+    const savePreview = vi.spyOn(app.persistence, "savePostedTransactionMutationPreview");
     const headers = {
       "x-user-id": viewerUserId,
       "x-user-role": "viewer",
@@ -388,38 +411,62 @@ describe("shared-context delegated capabilities", () => {
         ],
       },
     });
-    expect(previewResponse.statusCode).toBe(200);
-    const preview = previewResponse.json<{
-      previewId: string;
-      previewVersion: number;
-      operation: "update";
-      fingerprint: string;
-      confirmationSummary: string;
-      confirmationDigest: string;
-      summary: { deletedDividendCount: number; reopenedDividendCount: number };
-    }>();
-    expect(preview.summary.deletedDividendCount + preview.summary.reopenedDividendCount).toBeGreaterThan(0);
-
-    const confirmation = await app.inject({
-      method: "POST",
-      url: `/portfolio/transactions/mutations/previews/${preview.previewId}/confirm`,
-      headers,
-      payload: {
-        previewVersion: preview.previewVersion,
-        operation: preview.operation,
-        fingerprint: preview.fingerprint,
-        confirmationSummary: preview.confirmationSummary,
-        confirmationDigest: preview.confirmationDigest,
-      },
-    });
-    expect(confirmation.statusCode).toBe(403);
-    expect(confirmation.json()).toMatchObject({
+    expect(previewResponse.statusCode).toBe(403);
+    expect(previewResponse.json()).toMatchObject({
       error: "shared_capability_required",
       metadata: {
         requiredCapability: "dividend:write",
-        routeKey: "POST /portfolio/transactions/mutations/previews/:previewId/confirm",
+        routeKey: "POST /portfolio/transactions/mutations/update-preview",
       },
     });
+    expect(savePreview).not.toHaveBeenCalled();
+
+    const deletePreview = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions/mutations/delete-preview",
+      headers,
+      payload: {
+        reason: "Remove delegated dividend-eligible transactions",
+        items: [
+          { transactionId: "shared-dividend-buy-1" },
+          { transactionId: "shared-dividend-buy-2" },
+        ],
+      },
+    });
+    expect(deletePreview.statusCode).toBe(403);
+    expect(deletePreview.json()).toMatchObject({
+      error: "shared_capability_required",
+      metadata: {
+        requiredCapability: "dividend:write",
+        routeKey: "POST /portfolio/transactions/mutations/delete-preview",
+      },
+    });
+    expect(savePreview).not.toHaveBeenCalled();
+
+    const ownerStore = await app.persistence.loadStore("user-1");
+    ownerStore.accounting.facts.tradeEvents = ownerStore.accounting.facts.tradeEvents.filter(
+      (trade) => trade.id !== "shared-dividend-buy-2",
+    );
+    await app.persistence.saveStore(ownerStore);
+    await replayPositionHistory(app.persistence, "user-1", "acc-1", "2330", { marketCode: "TW" });
+
+    const legacyPatch = await app.inject({
+      method: "PATCH",
+      url: "/portfolio/transactions/shared-dividend-buy-1",
+      headers,
+      payload: {
+        date: "2026-02-02",
+      },
+    });
+    expect(legacyPatch.statusCode).toBe(403);
+    expect(legacyPatch.json()).toMatchObject({
+      error: "shared_capability_required",
+      metadata: {
+        requiredCapability: "dividend:write",
+        routeKey: "PATCH /portfolio/transactions/:tradeEventId",
+      },
+    });
+    expect(savePreview).not.toHaveBeenCalled();
   });
 
   it("[shared dividend write]: viewer with dividend:write can post and reconcile owner dividend entries", async () => {

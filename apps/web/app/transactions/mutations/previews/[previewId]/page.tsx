@@ -11,12 +11,17 @@ import type { ProfileWithImpersonationDto } from "../../../../../features/profil
 
 interface PostedTransactionMutationPreviewPageProps {
   params: Promise<{ previewId: string }>;
+  searchParams: Promise<{ as?: string | string[] }>;
 }
 
 export default async function PostedTransactionMutationPreviewPage({
   params,
+  searchParams,
 }: PostedTransactionMutationPreviewPageProps) {
-  const { previewId } = await params;
+  const [{ previewId }, query] = await Promise.all([params, searchParams]);
+  const contextOwnerId = typeof query.as === "string" && /^[A-Za-z0-9._:-]{1,200}$/.test(query.as)
+    ? query.as
+    : null;
   const [session, profile, sidebarOpen, settings, initialPreview] = await Promise.all([
     requireSession(),
     getJson<ProfileWithImpersonationDto>("/profile", { contextScope: "session" }),
@@ -24,6 +29,9 @@ export default async function PostedTransactionMutationPreviewPage({
     getJson<UserSettings>("/settings", { contextScope: "session" }).catch(() => null),
     getJson<PostedTransactionMutationPreviewDto>(
       `/portfolio/transactions/mutations/previews/${encodeURIComponent(previewId)}`,
+      contextOwnerId
+        ? { contextScope: "session", headers: { "x-context-user-id": contextOwnerId } }
+        : undefined,
     ),
   ]);
   const locale = settings?.locale ?? "en";

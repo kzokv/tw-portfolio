@@ -991,6 +991,19 @@ function buildPreviewDto(
   });
   const offset = query?.offset ?? 0;
   const limit = Math.min(query?.limit ?? INITIAL_PREVIEW_PAGE_LIMIT, 200);
+  const previewPath = withPortfolioContext(
+    `/transactions/mutations/previews/${encodeURIComponent(preview.id)}`,
+    preview.ownerUserId,
+    preview.actorUserId,
+  );
+  const runPath = preview.confirmedRunId
+    ? withPortfolioContext(
+        `/transactions/mutations/runs/${encodeURIComponent(preview.confirmedRunId)}`,
+        preview.ownerUserId,
+        preview.actorUserId,
+      )
+    : null;
+  const transactionPath = withPortfolioContext("/transactions", preview.ownerUserId, preview.actorUserId);
   return {
     previewId: preview.id,
     previewVersion: preview.version,
@@ -1028,13 +1041,18 @@ function buildPreviewDto(
       offset,
     },
     deepLinks: {
-      previewPath: `/transactions/mutations/previews/${encodeURIComponent(preview.id)}`,
-      runPath: preview.confirmedRunId ? `/transactions/mutations/runs/${encodeURIComponent(preview.confirmedRunId)}` : null,
-      transactionPath: "/transactions",
-      previewUrl: `${appBaseUrl}/transactions/mutations/previews/${encodeURIComponent(preview.id)}`,
-      runUrl: preview.confirmedRunId ? `${appBaseUrl}/transactions/mutations/runs/${encodeURIComponent(preview.confirmedRunId)}` : null,
+      previewPath,
+      runPath,
+      transactionPath,
+      previewUrl: `${appBaseUrl}${previewPath}`,
+      runUrl: runPath ? `${appBaseUrl}${runPath}` : null,
     },
   };
+}
+
+function withPortfolioContext(path: string, ownerUserId: string, actorUserId: string | null | undefined): string {
+  if (!actorUserId || actorUserId === ownerUserId) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}as=${encodeURIComponent(ownerUserId)}`;
 }
 
 function isIdenticalConfirmationRetry(
@@ -1365,6 +1383,17 @@ function mapRunFromReplay(
         errorMessage: scope.errorMessage ?? null,
         replayRunId: scope.replayRunId ?? null,
       }));
+  const previewPath = withPortfolioContext(
+    `/transactions/mutations/previews/${encodeURIComponent(run.previewId)}`,
+    run.ownerUserId,
+    run.actorUserId,
+  );
+  const runPath = withPortfolioContext(
+    `/transactions/mutations/runs/${encodeURIComponent(run.id)}`,
+    run.ownerUserId,
+    run.actorUserId,
+  );
+  const transactionPath = withPortfolioContext("/transactions", run.ownerUserId, run.actorUserId);
   return {
     runId: run.id,
     previewId: run.previewId,
@@ -1394,11 +1423,11 @@ function mapRunFromReplay(
       replayRunId: scope.replayRunId ?? null,
     })),
     deepLinks: {
-      previewPath: `/transactions/mutations/previews/${encodeURIComponent(run.previewId)}`,
-      runPath: `/transactions/mutations/runs/${encodeURIComponent(run.id)}`,
-      transactionPath: "/transactions",
-      previewUrl: `${appBaseUrl}/transactions/mutations/previews/${encodeURIComponent(run.previewId)}`,
-      runUrl: `${appBaseUrl}/transactions/mutations/runs/${encodeURIComponent(run.id)}`,
+      previewPath,
+      runPath,
+      transactionPath,
+      previewUrl: `${appBaseUrl}${previewPath}`,
+      runUrl: `${appBaseUrl}${runPath}`,
     },
   };
 }
