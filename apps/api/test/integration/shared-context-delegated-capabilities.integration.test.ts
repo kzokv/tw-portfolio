@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { InjectOptions, LightMyRequestResponse } from "fastify";
 import type { ShareCapability } from "@vakwen/shared-types";
 import { buildApp } from "../../src/app.js";
@@ -153,6 +153,7 @@ describe("shared-context delegated capabilities", () => {
 
   it("[shared transaction write]: viewer with transaction:write can create and patch owner transaction", async () => {
     const { viewerUserId } = await createViewerShare(["portfolio:mcp_read", "transaction:write"]);
+    const commitMutation = vi.spyOn(app.persistence, "commitPostedTransactionMutation");
 
     const created = await app.inject({
       method: "POST",
@@ -194,7 +195,12 @@ describe("shared-context delegated capabilities", () => {
       },
     });
     expect(patched.statusCode).toBe(202);
-
+    expect(commitMutation).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "user-1",
+      auditEntry: expect.objectContaining({ actorUserId: viewerUserId }),
+      run: expect.objectContaining({ actorUserId: viewerUserId }),
+      replayRun: expect.objectContaining({ sessionUserId: viewerUserId }),
+    }));
   });
 
   it("[shared transaction write]: viewer without transaction:write gets shared_capability_required", async () => {
@@ -360,6 +366,60 @@ describe("shared-context delegated capabilities", () => {
         },
       });
     }
+  });
+
+  it("[shared transaction mutation]: update confirmation that changes dividends requires dividend:write", async () => {
+    const { viewerUserId } = await createViewerShare(["portfolio:mcp_read", "transaction:write"]);
+    await seedSharedDividendForOwner();
+    const headers = {
+      "x-user-id": viewerUserId,
+      "x-user-role": "viewer",
+      "x-context-user-id": "user-1",
+    };
+    const previewResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions/mutations/update-preview",
+      headers,
+      payload: {
+        reason: "Move purchases beyond dividend eligibility",
+        items: [
+          { transactionId: "shared-dividend-buy-1", patch: { tradeDate: "2026-02-02" } },
+          { transactionId: "shared-dividend-buy-2", patch: { tradeDate: "2026-02-03" } },
+        ],
+      },
+    });
+    expect(previewResponse.statusCode).toBe(200);
+    const preview = previewResponse.json<{
+      previewId: string;
+      previewVersion: number;
+      operation: "update";
+      fingerprint: string;
+      confirmationSummary: string;
+      confirmationDigest: string;
+      summary: { deletedDividendCount: number; reopenedDividendCount: number };
+    }>();
+    expect(preview.summary.deletedDividendCount + preview.summary.reopenedDividendCount).toBeGreaterThan(0);
+
+    const confirmation = await app.inject({
+      method: "POST",
+      url: `/portfolio/transactions/mutations/previews/${preview.previewId}/confirm`,
+      headers,
+      payload: {
+        previewVersion: preview.previewVersion,
+        operation: preview.operation,
+        fingerprint: preview.fingerprint,
+        confirmationSummary: preview.confirmationSummary,
+        confirmationDigest: preview.confirmationDigest,
+      },
+    });
+    expect(confirmation.statusCode).toBe(403);
+    expect(confirmation.json()).toMatchObject({
+      error: "shared_capability_required",
+      metadata: {
+        requiredCapability: "dividend:write",
+        routeKey: "POST /portfolio/transactions/mutations/previews/:previewId/confirm",
+      },
+    });
   });
 
   it("[shared dividend write]: viewer with dividend:write can post and reconcile owner dividend entries", async () => {

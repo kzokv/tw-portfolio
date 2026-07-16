@@ -52,6 +52,9 @@ Codex review on PR #290 identified two actionable route-level issues:
 2. The legacy transaction impact response derived `negativeLots.wouldOccur` only from final open quantity. It now treats canonical replay blockers as authoritative, so an intermediate negative position is reported even when a later buy restores the final quantity to zero.
 3. Mutation impact quantity and cash deltas used unsigned display values. Item and summary impacts now use signed position effects and signed cash-ledger effects, including BUY cash outflows and SELL deletion reversals.
 4. The legacy GET impact route called durable preview creation. It now uses the same canonical simulation through non-persisting wrappers; durable records remain exclusive to the guarded mutation-preview POST routes.
+5. Shared update confirmations only checked `dividend:write` for delete operations. Both explicit confirmation and the legacy PATCH bridge now require `dividend:write` whenever preview impact deletes or reopens dividend state.
+6. The legacy shared PATCH bridge attributed mutation previews, runs, replay runs, and atomic audit records to the portfolio owner. It now uses the authenticated session actor while retaining the owner as portfolio context.
+7. The first dividend-authorization regression fixture exposed that superseded/reversed ledger rows were still counted as active preview impact. The active dividend summary now excludes those rows, and the corrected fixture proves an update that retires eligibility is blocked without `dividend:write`.
 
 Follow-up evidence:
 
@@ -62,6 +65,9 @@ Follow-up evidence:
 - Second-round focused mutation tests: 68 passed.
 - Second-round API TypeScript and ESLint checks: passed.
 - Second-round `npm run test --prefix apps/api`: 201 files passed, 49 skipped; 2,087 tests passed, 473 skipped.
+- Third-round focused mutation/shared-context tests: 69 passed.
+- Third-round API TypeScript and ESLint checks: passed.
+- Third-round `npm run test --prefix apps/api`: 201 files passed, 49 skipped; 2,088 tests passed, 473 skipped.
 
 ## Waiver
 

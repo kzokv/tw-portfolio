@@ -5728,7 +5728,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.patch("/portfolio/transactions/:tradeEventId", async (req, reply) => {
     const { tradeEventId } = z.object({ tradeEventId: userScopedIdSchema }).parse(req.params);
     const body = patchTransactionSchema.parse(req.body);
-    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const identity = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const userId = identity.contextUserId;
+    const sharedContext = await resolveActiveSharedCapabilityContext(req);
 
     const trade = await app.persistence.getTradeEvent(userId, tradeEventId);
     if (!trade) throw routeError(404, "trade_event_not_found", "Trade event not found");
@@ -5762,7 +5764,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     try {
       const preview = await previewPostedTransactionUpdateBatch(app.persistence, {
         ownerUserId: userId,
-        actorUserId: userId,
+        actorUserId: identity.sessionUserId,
         reason: "User requested posted transaction correction",
         appBaseUrl: app.appBaseUrl,
         items: [{
@@ -5779,9 +5781,15 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           },
         }],
       });
+      if (preview.summary.deletedDividendCount > 0 || preview.summary.reopenedDividendCount > 0) {
+        requireDelegatedDividendWriteForHistoryRewrite(
+          sharedContext,
+          "PATCH /portfolio/transactions/:tradeEventId",
+        );
+      }
       result = await confirmPostedTransactionMutation(app.persistence, {
         ownerUserId: userId,
-        actorUserId: userId,
+        actorUserId: identity.sessionUserId,
         appBaseUrl: app.appBaseUrl,
         confirmation: {
           previewId: preview.previewId,
@@ -6013,7 +6021,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }).parse(req.body);
     const identity = resolveUserId(req, app.oauthConfig?.sessionSecret);
     const sharedContext = await resolveActiveSharedCapabilityContext(req);
-    if (body.operation === "delete" && sharedContext) {
+    if (sharedContext) {
       const preview = await getPostedTransactionMutationPreview(app.persistence, {
         ownerUserId: identity.contextUserId,
         actorUserId: identity.sessionUserId,

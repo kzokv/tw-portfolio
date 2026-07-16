@@ -429,8 +429,15 @@ function buildScopeDividendImpact(
   const dividendEventIds = new Set(store.marketData.dividendEvents
     .filter((event) => event.ticker === scope.ticker && (event.marketCode ?? scope.marketCode) === scope.marketCode)
     .map((event) => event.id));
+  const reversedLedgerEntryIds = new Set(store.accounting.facts.dividendLedgerEntries
+    .map((entry) => entry.reversalOfDividendLedgerEntryId)
+    .filter((entry): entry is string => Boolean(entry)));
   const ledgerRows = store.accounting.facts.dividendLedgerEntries.filter((entry) =>
-    entry.accountId === scope.accountId && dividendEventIds.has(entry.dividendEventId));
+    entry.accountId === scope.accountId
+    && dividendEventIds.has(entry.dividendEventId)
+    && !entry.reversalOfDividendLedgerEntryId
+    && !entry.supersededAt
+    && !reversedLedgerEntryIds.has(entry.id));
   return {
     ledgerIds: new Set(ledgerRows.map((entry) => entry.id)),
     openLedgerIds: new Set(ledgerRows
