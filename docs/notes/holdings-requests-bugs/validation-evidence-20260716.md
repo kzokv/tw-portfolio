@@ -47,7 +47,7 @@ The final diff was checked against both locked scope documents. All product step
 
 ## Codex Review Follow-up
 
-Codex review on PR #290 identified actionable issues across sixteen review rounds:
+Codex review on PR #290 identified actionable issues across seventeen review rounds:
 
 1. The new mutation preview and confirmation routes were present in the delegated capability matrix but absent from `SHARED_CONTEXT_WRITE_ROUTE_KEYS`. All three routes now enter the shared-context capability guard, and a table-driven integration test proves viewers without `transaction:write` receive `shared_capability_required` before route handling.
 2. The legacy transaction impact response derived `negativeLots.wouldOccur` only from final open quantity. It now treats canonical replay blockers as authoritative, so an intermediate negative position is reported even when a later buy restores the final quantity to zero.
@@ -77,6 +77,7 @@ Codex review on PR #290 identified actionable issues across sixteen review round
 26. Delegated AI draft creators still cascaded owner-owned draft batches during purge, conflicting with retained mutation lineage. Append-only migration `109` makes draft creator attribution nullable with `ON DELETE SET NULL`; DTO and persistence records expose anonymized creators as `null`, and memory persistence mirrors owner cascade versus delegated-creator anonymization.
 27. Deleted draft lineage used restrictive batch/row references that could block the simultaneous owner, batch, row, and lineage cascades during owner purge. Append-only migration `110` makes both lineage links cascade; the Postgres regression now purges the owner after the delegate and verifies the complete owner-owned chain is removed.
 28. Memory hard purge anonymized delegated draft creators but left owner-owned draft event actor IDs intact. Memory persistence now nulls draft-event owner/actor attribution just as the Postgres event foreign keys do, with aggregate-read coverage after purge.
+29. Memory owner purge deleted the AI draft event stream with the batch, while Postgres preserves independent audit events with nullable attribution. Memory now removes owner-owned batch content but retains and anonymizes its event stream; the regression verifies both retained audit events and cascading mutation artifacts.
 
 Follow-up evidence:
 
@@ -137,6 +138,7 @@ Follow-up evidence:
 - Fifteenth-round full repository typecheck, memory admin-management tests, changed-file ESLint, and `git diff --check`: passed.
 - Sixteenth-round managed admin-management file: 15 passed, including delegated actor anonymization, retained owner history, subsequent owner purge, seven exact FK delete modes, and migration reapplication.
 - Sixteenth-round memory admin-management tests, API integration TypeScript, changed-file ESLint, and `git diff --check`: passed; the memory aggregate verifies draft event actor anonymization.
+- Seventeenth-round memory admin-management tests verify delegated actor anonymization followed by owner purge, batch/mutation removal, and independent anonymized event retention.
 
 ## Waiver
 

@@ -7365,7 +7365,6 @@ export class MemoryPersistence implements Persistence {
         this.aiTransactionDraftBatches.delete(batchId);
         this.aiTransactionDraftRows.delete(batchId);
         this.aiTransactionDraftUnsupportedItems.delete(batchId);
-        this.aiTransactionDraftEvents.delete(batchId);
       } else if (batch.createdByUserId === userId) {
         batch.createdByUserId = null;
       }

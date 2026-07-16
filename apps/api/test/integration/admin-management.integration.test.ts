@@ -336,6 +336,19 @@ describe("hard-purge cascade", () => {
         actorUserId: null,
       })],
     });
+
+    await app.persistence.hardPurgeUser(ownerUserId, { actorUserId: "admin-actor" });
+
+    await expect(app.persistence.getAiTransactionDraftBatch("memory-purge-batch")).resolves.toBeNull();
+    await expect(app.persistence.listAiTransactionDraftEvents("memory-purge-batch")).resolves.toMatchObject([
+      {
+        id: "memory-purge-event",
+        ownerUserId: null,
+        actorUserId: null,
+      },
+    ]);
+    await expect(app.persistence.getPostedTransactionMutationPreview("memory-purge-preview")).resolves.toBeNull();
+    await expect(app.persistence.getPostedTransactionMutationRun("memory-purge-run")).resolves.toBeNull();
   });
 });
 
