@@ -410,6 +410,84 @@ describePostgres("hard-purge cascade — Postgres ON DELETE CASCADE", () => {
     expect(outbound.revoked).toEqual([]);
   });
 
+  it("posted transaction mutations — delegated actor purged → removes mutation chain without deleting owner", async () => {
+    const { userId: ownerId } = await persistence!.resolveOrCreateUser(
+      "google", "mutation-owner-sub", { email: "mutation-owner@example.com", name: "Mutation Owner" },
+    );
+    const { userId: delegateId } = await persistence!.resolveOrCreateUser(
+      "google", "mutation-delegate-sub", { email: "mutation-delegate@example.com", name: "Mutation Delegate" },
+    );
+    await pool.query(
+      `INSERT INTO posted_transaction_mutation_previews (
+         id, owner_user_id, actor_user_id, operation, status, version, reason,
+         confirmation_summary, confirmation_digest, fingerprint, batch_limit,
+         summary_json, warnings_json, blockers_json, errors_json,
+         affected_account_ids_json, affected_tickers_json, scopes_json,
+         account_revisions_json, final_accounting_json, replay_scopes_json,
+         created_at, expires_at
+       ) VALUES (
+         'purge-preview', $1, $2, 'update', 'ready', 1, 'Purge regression',
+         'Confirm purge regression', repeat('a', 64), repeat('b', 64), 50,
+         '{}'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+         '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+         '{}'::jsonb, '{}'::jsonb, '[]'::jsonb,
+         NOW(), NOW() + INTERVAL '30 minutes'
+       )`,
+      [ownerId, delegateId],
+    );
+    await pool.query(
+      `INSERT INTO posted_transaction_mutation_runs (
+         id, preview_id, owner_user_id, actor_user_id, operation, status, rebuild_status,
+         reason, warnings_json, blockers_json, errors_json, summary_json,
+         affected_account_ids_json, affected_tickers_json, scopes_json,
+         fingerprint, confirmation_digest, created_at
+       ) VALUES (
+         'purge-run', 'purge-preview', $1, $2, 'update', 'completed', 'completed',
+         'Purge regression', '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '{}'::jsonb,
+         '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+         repeat('b', 64), repeat('a', 64), NOW()
+       )`,
+      [ownerId, delegateId],
+    );
+
+    await expect(persistence!.hardPurgeUser(delegateId, { actorUserId: adminActorId })).resolves.toBeUndefined();
+
+    const remaining = await pool.query<{
+      owner_count: string;
+      delegate_count: string;
+      preview_count: string;
+      run_count: string;
+    }>(
+      `SELECT
+         (SELECT COUNT(*)::text FROM users WHERE id = $1) AS owner_count,
+         (SELECT COUNT(*)::text FROM users WHERE id = $2) AS delegate_count,
+         (SELECT COUNT(*)::text FROM posted_transaction_mutation_previews WHERE id = 'purge-preview') AS preview_count,
+         (SELECT COUNT(*)::text FROM posted_transaction_mutation_runs WHERE id = 'purge-run') AS run_count`,
+      [ownerId, delegateId],
+    );
+    expect(remaining.rows[0]).toEqual({
+      owner_count: "1",
+      delegate_count: "0",
+      preview_count: "0",
+      run_count: "0",
+    });
+
+    const constraints = await pool.query<{ conname: string; confdeltype: string }>(
+      `SELECT conname, confdeltype
+         FROM pg_constraint
+        WHERE conname = ANY($1::text[])
+        ORDER BY conname`,
+      [[
+        "fk_ptm_lineage_deleted_by",
+        "fk_ptm_previews_actor",
+        "fk_ptm_runs_actor",
+        "fk_ptm_runs_preview",
+      ]],
+    );
+    expect(constraints.rows).toHaveLength(4);
+    expect(constraints.rows.every(({ confdeltype }) => confdeltype === "c")).toBe(true);
+  });
+
   it("anonymous_share_tokens — owner purged → ON DELETE CASCADE removes token", async () => {
     const { userId: ownerId } = await persistence!.resolveOrCreateUser("google", "owner-sub", { email: "owner@example.com", name: "Owner" });
     const result = await persistence!.createAnonymousShareToken({
