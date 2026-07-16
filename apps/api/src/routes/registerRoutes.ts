@@ -5981,8 +5981,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         note: z.string().trim().max(500).optional(),
         patch: z.object({
           tradeDate: isoDateSchema.optional(),
-          quantity: z.number().positive().optional(),
-          unitPrice: z.number().positive().optional(),
+          quantity: z.number().int().positive().optional(),
+          unitPrice: z.number().positive().multipleOf(0.01).optional(),
           side: z.enum(["BUY", "SELL"]).optional(),
           isDayTrade: z.boolean().optional(),
           commissionAmount: z.number().min(0).optional(),

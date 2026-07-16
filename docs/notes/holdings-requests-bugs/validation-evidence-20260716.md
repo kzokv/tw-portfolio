@@ -47,7 +47,7 @@ The final diff was checked against both locked scope documents. All product step
 
 ## Codex Review Follow-up
 
-Codex review on PR #290 identified actionable issues across eight review rounds:
+Codex review on PR #290 identified actionable issues across nine review rounds:
 
 1. The new mutation preview and confirmation routes were present in the delegated capability matrix but absent from `SHARED_CONTEXT_WRITE_ROUTE_KEYS`. All three routes now enter the shared-context capability guard, and a table-driven integration test proves viewers without `transaction:write` receive `shared_capability_required` before route handling.
 2. The legacy transaction impact response derived `negativeLots.wouldOccur` only from final open quantity. It now treats canonical replay blockers as authoritative, so an intermediate negative position is reported even when a later buy restores the final quantity to zero.
@@ -67,6 +67,7 @@ Codex review on PR #290 identified actionable issues across eight review rounds:
 16. Transaction edits with protected manual or source-provided fees bypassed the existing fee recalculation choice. Quantity, price, and side changes now pause before preview and let the user explicitly recalculate or preserve the recorded fee amounts.
 17. Leaving holdings all-mode from a report-scoped table materialized only the visible report universe, which could silently drop holdings outside that view. The transition now fetches the full primary-portfolio holdings universe before persisting the custom selection.
 18. Synchronous mutation rebuilds refreshed account and portfolio state but omitted the currency wallet snapshot refresh performed by the worker path. Successful synchronous rebuilds now run the same best-effort wallet snapshot regeneration.
+19. Posted-mutation HTTP and MCP update schemas accepted fractional quantities and prices beyond database precision. Both boundaries now enforce positive integer quantities and positive prices in cent increments before a preview can be persisted.
 
 Follow-up evidence:
 
@@ -101,6 +102,9 @@ Follow-up evidence:
 - Eighth-round API source/integration TypeScript, web TypeScript, changed-file ESLint, and `git diff --check`: passed.
 - Eighth-round `npm run test --prefix apps/api`: 201 files passed, 49 skipped; 2,090 tests passed, 473 skipped.
 - Eighth-round `npm run test --prefix apps/web`: 86 component/app files with 585 tests passed, followed by 80 feature/lib files with 535 tests passed.
+- Ninth-round posted-transaction HTTP and MCP integration tests: 88 passed, including rejection of fractional quantities and sub-cent prices before preview persistence.
+- Ninth-round API source/integration TypeScript and changed-file ESLint checks: passed.
+- Ninth-round `npm run test --prefix apps/api`: 201 files passed, 49 skipped; 2,093 tests passed, 473 skipped.
 
 ## Waiver
 

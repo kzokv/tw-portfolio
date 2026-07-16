@@ -146,6 +146,28 @@ describe("transaction mutations (delete + edit)", () => {
     if (app) await app.close();
   });
 
+  describe("posted transaction mutation preview validation", () => {
+    it.each([
+      ["fractional quantity", { quantity: 1.5 }],
+      ["sub-cent unit price", { unitPrice: 10.123 }],
+    ])("rejects %s before persisting a preview", async (_label, patch) => {
+      const trade = await createTrade(app);
+      const savePreview = vi.spyOn(app.persistence, "savePostedTransactionMutationPreview");
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/portfolio/transactions/mutations/update-preview",
+        payload: {
+          reason: "Invalid precision regression",
+          items: [{ transactionId: trade.id, patch }],
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(savePreview).not.toHaveBeenCalled();
+    });
+  });
+
   // ─── Group 1: destructive transaction deletion ─────────────────────
 
   describe("transaction delete preview and confirm", () => {

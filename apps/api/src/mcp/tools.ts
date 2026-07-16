@@ -165,8 +165,8 @@ const importProvenanceSchema = z.object({
 
 const postedTransactionMutationUpdatePatchSchema = z.object({
   tradeDate: isoDateSchema.optional(),
-  quantity: z.number().positive().optional(),
-  unitPrice: z.number().positive().optional(),
+  quantity: z.number().int().positive().optional(),
+  unitPrice: z.number().positive().multipleOf(0.01).optional(),
   side: z.enum(["BUY", "SELL"]).optional(),
   isDayTrade: z.boolean().optional(),
   commissionAmount: z.number().min(0).optional(),

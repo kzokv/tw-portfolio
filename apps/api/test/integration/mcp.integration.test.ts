@@ -610,6 +610,26 @@ describe("mcp routes", () => {
     });
   });
 
+  it("constrains posted transaction mutation quantities and prices at the MCP boundary", () => {
+    const tool = listMcpToolDefinitions().find(({ name }) => name === "preview_update_posted_transactions");
+    expect(tool).toBeDefined();
+    const baseInput = {
+      portfolio: { label: "Self" },
+      reason: "Invalid precision regression",
+      items: [{ transactionId: "trade-1", patch: { quantity: 12 } }],
+    };
+
+    expect(tool!.inputSchema.safeParse(baseInput).success).toBe(true);
+    expect(tool!.inputSchema.safeParse({
+      ...baseInput,
+      items: [{ transactionId: "trade-1", patch: { quantity: 1.5 } }],
+    }).success).toBe(false);
+    expect(tool!.inputSchema.safeParse({
+      ...baseInput,
+      items: [{ transactionId: "trade-1", patch: { unitPrice: 10.123 } }],
+    }).success).toBe(false);
+  });
+
   it("requires fresh auth for high-risk MCP admin settings changes", async () => {
     const missingFreshAuth = await app.inject({
       method: "PATCH",
