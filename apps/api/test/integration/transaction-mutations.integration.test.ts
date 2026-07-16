@@ -580,6 +580,7 @@ describe("transaction mutations (delete + edit)", () => {
         type: "SELL" as TransactionType,
       });
 
+      const savePreview = vi.spyOn(app.persistence, "savePostedTransactionMutationPreview");
       const res = await app.inject({
         method: "GET",
         url: `/portfolio/transactions/${buy.id}/preview-impact?action=delete`,
@@ -590,6 +591,7 @@ describe("transaction mutations (delete + edit)", () => {
       expect(body.affectedRows.cashLedgerEntries).toBeGreaterThanOrEqual(1);
       expect(body.affectedRows.feePolicySnapshots).toBe(1);
       expect(body.negativeLots).toBeDefined();
+      expect(savePreview).not.toHaveBeenCalled();
     });
 
     it("detects negative lots for delete", async () => {

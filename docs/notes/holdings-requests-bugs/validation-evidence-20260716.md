@@ -50,6 +50,8 @@ Codex review on PR #290 identified two actionable route-level issues:
 
 1. The new mutation preview and confirmation routes were present in the delegated capability matrix but absent from `SHARED_CONTEXT_WRITE_ROUTE_KEYS`. All three routes now enter the shared-context capability guard, and a table-driven integration test proves viewers without `transaction:write` receive `shared_capability_required` before route handling.
 2. The legacy transaction impact response derived `negativeLots.wouldOccur` only from final open quantity. It now treats canonical replay blockers as authoritative, so an intermediate negative position is reported even when a later buy restores the final quantity to zero.
+3. Mutation impact quantity and cash deltas used unsigned display values. Item and summary impacts now use signed position effects and signed cash-ledger effects, including BUY cash outflows and SELL deletion reversals.
+4. The legacy GET impact route called durable preview creation. It now uses the same canonical simulation through non-persisting wrappers; durable records remain exclusive to the guarded mutation-preview POST routes.
 
 Follow-up evidence:
 
@@ -57,6 +59,9 @@ Follow-up evidence:
 - `npx eslint apps/api/src/routes/registerRoutes.ts apps/api/test/integration/shared-context-delegated-capabilities.integration.test.ts apps/api/test/integration/transaction-mutations.integration.test.ts`: passed.
 - `npx tsc --noEmit -p apps/api/tsconfig.json && npx tsc --noEmit -p apps/api/test/integration/tsconfig.json`: passed.
 - `npm run test --prefix apps/api`: 201 files passed, 49 skipped; 2,085 tests passed, 473 skipped.
+- Second-round focused mutation tests: 68 passed.
+- Second-round API TypeScript and ESLint checks: passed.
+- Second-round `npm run test --prefix apps/api`: 201 files passed, 49 skipped; 2,087 tests passed, 473 skipped.
 
 ## Waiver
 

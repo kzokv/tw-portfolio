@@ -294,12 +294,23 @@ function applyUpdatePatch(trade: BookedTradeEvent, patch: TradeEventPatch): { ol
   return { oldTradeDate };
 }
 
+function positionEffectForFacts(facts: PostedTransactionMutationTransactionFactsDto | null): number {
+  if (!facts) return 0;
+  return facts.side === "BUY" ? facts.quantity : -facts.quantity;
+}
+
+function cashEffectForFacts(facts: PostedTransactionMutationTransactionFactsDto | null): number {
+  if (!facts) return 0;
+  const settlementAmount = facts.settlementAmount ?? 0;
+  return facts.side === "BUY" ? -settlementAmount : settlementAmount;
+}
+
 function buildImpact(before: PostedTransactionMutationTransactionFactsDto | null, after: PostedTransactionMutationTransactionFactsDto | null): PostedTransactionMutationImpactSummaryDto {
   return {
-    quantityDelta: roundToDecimal((after?.quantity ?? 0) - (before?.quantity ?? 0), 8),
+    quantityDelta: roundToDecimal(positionEffectForFacts(after) - positionEffectForFacts(before), 8),
     costBasisDelta: roundToDecimal((after?.bookedCostAmount ?? 0) - (before?.bookedCostAmount ?? 0), 2),
     realizedPnlDelta: 0,
-    cashDelta: roundToDecimal((after?.settlementAmount ?? 0) - (before?.settlementAmount ?? 0), 2),
+    cashDelta: roundToDecimal(cashEffectForFacts(after) - cashEffectForFacts(before), 2),
     reopenedDividendCount: 0,
     deletedDividendCount: before && !after ? 1 : 0,
   };
@@ -520,14 +531,14 @@ function buildScopeImpactFromStores(
   const beforeDividends = buildScopeDividendImpact(beforeStore, scope);
   const afterDividends = buildScopeDividendImpact(afterStore, scope);
   return {
-    quantityDelta: roundToDecimal((afterFacts?.quantity ?? 0) - (beforeFacts?.quantity ?? 0), 8),
+    quantityDelta: roundToDecimal(positionEffectForFacts(afterFacts) - positionEffectForFacts(beforeFacts), 8),
     costBasisDelta: roundToDecimal((afterFacts?.bookedCostAmount ?? 0) - (beforeFacts?.bookedCostAmount ?? 0), 2),
     realizedPnlDelta: roundToDecimal(
       afterTrades.reduce((sum, trade) => sum + (trade.realizedPnlAmount ?? 0), 0)
         - beforeTrades.reduce((sum, trade) => sum + (trade.realizedPnlAmount ?? 0), 0),
       2,
     ),
-    cashDelta: roundToDecimal((afterFacts?.settlementAmount ?? 0) - (beforeFacts?.settlementAmount ?? 0), 2),
+    cashDelta: roundToDecimal(cashEffectForFacts(afterFacts) - cashEffectForFacts(beforeFacts), 2),
     reopenedDividendCount: [...afterDividends.openLedgerIds].filter((id) => !beforeDividends.openLedgerIds.has(id)).length,
     deletedDividendCount: [...beforeDividends.ledgerIds].filter((id) => !afterDividends.ledgerIds.has(id)).length,
   };
@@ -1062,34 +1073,70 @@ async function collectDeletedDraftLineage(
   return [...byTradeEventId.values()];
 }
 
-export async function previewPostedTransactionUpdateBatch(
+type PostedTransactionUpdatePreviewInput = {
+  ownerUserId: string;
+  actorUserId?: string;
+  items: readonly PostedTransactionMutationUpdateItemDto[];
+  reason: string;
+  appBaseUrl: string;
+};
+
+type PostedTransactionDeletePreviewInput = {
+  ownerUserId: string;
+  actorUserId?: string;
+  items: readonly PostedTransactionMutationDeleteItemDto[];
+  reason: string;
+  appBaseUrl: string;
+};
+
+async function preparePostedTransactionUpdateBatch(
   persistence: Persistence,
-  input: {
-    ownerUserId: string;
-    actorUserId?: string;
-    items: readonly PostedTransactionMutationUpdateItemDto[];
-    reason: string;
-    appBaseUrl: string;
-  },
-): Promise<PostedTransactionMutationPreviewDto> {
+  input: PostedTransactionUpdatePreviewInput,
+): Promise<PreviewResult> {
   const result = await simulateMutation(persistence, input.ownerUserId, "update", input.items, input.reason);
   result.record.actorUserId = input.actorUserId ?? input.ownerUserId;
+  return result;
+}
+
+async function preparePostedTransactionDeleteBatch(
+  persistence: Persistence,
+  input: PostedTransactionDeletePreviewInput,
+): Promise<PreviewResult> {
+  const result = await simulateMutation(persistence, input.ownerUserId, "delete", input.items, input.reason);
+  result.record.actorUserId = input.actorUserId ?? input.ownerUserId;
+  return result;
+}
+
+export async function simulatePostedTransactionUpdateBatch(
+  persistence: Persistence,
+  input: PostedTransactionUpdatePreviewInput,
+): Promise<PostedTransactionMutationPreviewDto> {
+  const result = await preparePostedTransactionUpdateBatch(persistence, input);
+  return buildPreviewDto(result.record, input.appBaseUrl);
+}
+
+export async function simulatePostedTransactionDeleteBatch(
+  persistence: Persistence,
+  input: PostedTransactionDeletePreviewInput,
+): Promise<PostedTransactionMutationPreviewDto> {
+  const result = await preparePostedTransactionDeleteBatch(persistence, input);
+  return buildPreviewDto(result.record, input.appBaseUrl);
+}
+
+export async function previewPostedTransactionUpdateBatch(
+  persistence: Persistence,
+  input: PostedTransactionUpdatePreviewInput,
+): Promise<PostedTransactionMutationPreviewDto> {
+  const result = await preparePostedTransactionUpdateBatch(persistence, input);
   await persistence.savePostedTransactionMutationPreview(result.record);
   return buildPreviewDto(result.record, input.appBaseUrl);
 }
 
 export async function previewPostedTransactionDeleteBatch(
   persistence: Persistence,
-  input: {
-    ownerUserId: string;
-    actorUserId?: string;
-    items: readonly PostedTransactionMutationDeleteItemDto[];
-    reason: string;
-    appBaseUrl: string;
-  },
+  input: PostedTransactionDeletePreviewInput,
 ): Promise<PostedTransactionMutationPreviewDto> {
-  const result = await simulateMutation(persistence, input.ownerUserId, "delete", input.items, input.reason);
-  result.record.actorUserId = input.actorUserId ?? input.ownerUserId;
+  const result = await preparePostedTransactionDeleteBatch(persistence, input);
   await persistence.savePostedTransactionMutationPreview(result.record);
   return buildPreviewDto(result.record, input.appBaseUrl);
 }

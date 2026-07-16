@@ -144,6 +144,8 @@ import {
   getPostedTransactionMutationRun,
   previewPostedTransactionDeleteBatch,
   previewPostedTransactionUpdateBatch,
+  simulatePostedTransactionDeleteBatch,
+  simulatePostedTransactionUpdateBatch,
 } from "../services/postedTransactionMutations.js";
 import { generateHoldingSnapshots, recomputeSnapshotsForTicker } from "../services/snapshotGeneration.js";
 import { generateCurrencyWalletSnapshots } from "../services/currencyWalletSnapshotGeneration.js";
@@ -5881,13 +5883,13 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const resultingQuantity = currentOpenQuantity + (nextSignedQuantity - currentSignedQuantity);
     try {
       const preview = query.action === "delete"
-        ? await previewPostedTransactionDeleteBatch(app.persistence, {
+        ? await simulatePostedTransactionDeleteBatch(app.persistence, {
             ownerUserId: userId,
             items: [{ transactionId: tradeEventId }],
             reason: "Preview posted transaction deletion impact",
             appBaseUrl: app.appBaseUrl,
           })
-        : await previewPostedTransactionUpdateBatch(app.persistence, {
+        : await simulatePostedTransactionUpdateBatch(app.persistence, {
             ownerUserId: userId,
             reason: "Preview posted transaction correction impact",
             appBaseUrl: app.appBaseUrl,

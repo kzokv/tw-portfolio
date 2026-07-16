@@ -7,6 +7,7 @@ import {
   getPostedTransactionMutationRun,
   previewPostedTransactionDeleteBatch,
   previewPostedTransactionUpdateBatch,
+  simulatePostedTransactionDeleteBatch,
 } from "../../src/services/postedTransactionMutations.js";
 import { createTransaction } from "../../src/services/portfolio.js";
 import { createDividendEvent } from "../../src/services/dividends.js";
@@ -73,6 +74,76 @@ async function seedConfirmedDraftRow(persistence: MemoryPersistence, tradeId: st
 }
 
 describe("posted transaction mutation service", () => {
+  it("reports signed holding and cash effects for BUY updates and SELL deletions", async () => {
+    const persistence = new MemoryPersistence();
+    const buyId = await seedTrade(persistence);
+
+    const buyUpdate = await previewPostedTransactionUpdateBatch(persistence, {
+      ownerUserId: "user-1",
+      actorUserId: "user-1",
+      reason: "Increase booked purchase",
+      appBaseUrl: "http://localhost",
+      items: [{ transactionId: buyId, patch: { quantity: 12 } }],
+    });
+    expect(buyUpdate.summary).toMatchObject({
+      quantityDelta: 2,
+      cashDelta: -200,
+    });
+    expect(buyUpdate.page.items[0]?.impacts).toMatchObject({
+      quantityDelta: 2,
+      cashDelta: -200,
+    });
+
+    const store = await persistence.loadStore("user-1");
+    createTransaction(store, "user-1", {
+      id: "trade-sell",
+      accountId: "acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      quantity: 4,
+      unitPrice: 110,
+      priceCurrency: "TWD",
+      tradeDate: "2026-01-03",
+      commissionAmount: 0,
+      taxAmount: 0,
+      feesSource: "MANUAL",
+      type: "SELL",
+      isDayTrade: false,
+    });
+    await persistence.saveStore(store);
+
+    const sellDelete = await previewPostedTransactionDeleteBatch(persistence, {
+      ownerUserId: "user-1",
+      actorUserId: "user-1",
+      reason: "Remove booked sale",
+      appBaseUrl: "http://localhost",
+      items: [{ transactionId: "trade-sell" }],
+    });
+    expect(sellDelete.summary).toMatchObject({
+      quantityDelta: 4,
+      cashDelta: -440,
+    });
+    expect(sellDelete.page.items[0]?.impacts).toMatchObject({
+      quantityDelta: 4,
+      cashDelta: -440,
+    });
+  });
+
+  it("can simulate deletion impact without persisting a durable preview", async () => {
+    const persistence = new MemoryPersistence();
+    const tradeId = await seedTrade(persistence);
+
+    const simulated = await simulatePostedTransactionDeleteBatch(persistence, {
+      ownerUserId: "user-1",
+      actorUserId: "user-1",
+      reason: "Read-only impact simulation",
+      appBaseUrl: "http://localhost",
+      items: [{ transactionId: tradeId }],
+    });
+
+    await expect(persistence.getPostedTransactionMutationPreview(simulated.previewId)).resolves.toBeNull();
+  });
+
   it("rejects a preview when accounting changes while its store snapshot is loading", async () => {
     class RacingMemoryPersistence extends MemoryPersistence {
       private armed = false;
