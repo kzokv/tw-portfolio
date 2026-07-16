@@ -1449,7 +1449,7 @@ function toTransactionDraftBatchDto(app: FastifyInstance, batch: AiTransactionDr
 function toTransactionDraftRowDto(row: AiTransactionDraftRowRecord & {
   deletedPostedTransaction?: {
     deletedAt: string;
-    deletedByUserId: string;
+    deletedByUserId: string | null;
     mutationRunId: string;
   } | null;
 }): TransactionDraftRowDto & {
@@ -1458,7 +1458,7 @@ function toTransactionDraftRowDto(row: AiTransactionDraftRowRecord & {
   note: string | null;
   deletedPostedTransaction: {
     deletedAt: string;
-    deletedByUserId: string;
+    deletedByUserId: string | null;
     mutationRunId: string;
   } | null;
 } {
@@ -1502,7 +1502,7 @@ function toTransactionDraftRowDto(row: AiTransactionDraftRowRecord & {
     note: string | null;
     deletedPostedTransaction: {
       deletedAt: string;
-      deletedByUserId: string;
+      deletedByUserId: string | null;
       mutationRunId: string;
     } | null;
   };

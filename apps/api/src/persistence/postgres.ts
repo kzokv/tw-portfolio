@@ -19660,7 +19660,7 @@ export class PostgresPersistence implements Persistence {
       this.pool.query<{
         id: string;
         owner_user_id: string;
-        actor_user_id: string;
+        actor_user_id: string | null;
         operation: import("./types.js").PostedTransactionMutationOperationRecord;
         status: import("./types.js").PostedTransactionMutationPreviewStatusRecord;
         version: number;
@@ -19815,7 +19815,7 @@ export class PostgresPersistence implements Persistence {
       id: string;
       preview_id: string;
       owner_user_id: string;
-      actor_user_id: string;
+      actor_user_id: string | null;
       operation: import("./types.js").PostedTransactionMutationOperationRecord;
       status: import("./types.js").PostedTransactionMutationRunStatusRecord;
       rebuild_status: import("./types.js").PostedTransactionMutationRebuildStatusRecord;
@@ -19907,7 +19907,7 @@ export class PostgresPersistence implements Persistence {
       batch_id: string;
       row_id: string;
       deleted_at: string;
-      deleted_by_user_id: string;
+      deleted_by_user_id: string | null;
       mutation_run_id: string;
     }>(
       `SELECT trade_event_id, owner_user_id, batch_id, row_id,

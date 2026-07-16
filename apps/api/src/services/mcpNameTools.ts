@@ -168,7 +168,7 @@ function formatDraftRow(row: AiTransactionDraftRowRecord, accountName: string | 
   const deletedPostedTransaction = (row as AiTransactionDraftRowRecord & {
     deletedPostedTransaction?: {
       deletedAt: string;
-      deletedByUserId: string;
+      deletedByUserId: string | null;
       mutationRunId: string;
     } | null;
   }).deletedPostedTransaction ?? null;

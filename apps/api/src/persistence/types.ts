@@ -2348,7 +2348,7 @@ export interface PostedTransactionMutationPreviewItemRecord {
 export interface PostedTransactionMutationPreviewRecord {
   id: string;
   ownerUserId: string;
-  actorUserId: string;
+  actorUserId: string | null;
   operation: PostedTransactionMutationOperationRecord;
   status: PostedTransactionMutationPreviewStatusRecord;
   version: number;
@@ -2391,7 +2391,7 @@ export interface PostedTransactionMutationRunRecord {
   id: string;
   previewId: string;
   ownerUserId: string;
-  actorUserId: string;
+  actorUserId: string | null;
   operation: PostedTransactionMutationOperationRecord;
   status: PostedTransactionMutationRunStatusRecord;
   rebuildStatus: PostedTransactionMutationRebuildStatusRecord;
@@ -2417,7 +2417,7 @@ export interface PostedTransactionMutationDeletedDraftLineageRecord {
   batchId: string;
   rowId: string;
   deletedAt: string;
-  deletedByUserId: string;
+  deletedByUserId: string | null;
   mutationRunId: string;
 }
 

@@ -7360,6 +7360,32 @@ export class MemoryPersistence implements Persistence {
       }
     }
 
+    const deletedMutationPreviewIds = new Set<string>();
+    for (const [previewId, preview] of this.postedTransactionMutationPreviews) {
+      if (preview.ownerUserId === userId) {
+        this.postedTransactionMutationPreviews.delete(previewId);
+        deletedMutationPreviewIds.add(previewId);
+      } else if (preview.actorUserId === userId) {
+        preview.actorUserId = null;
+      }
+    }
+    const deletedMutationRunIds = new Set<string>();
+    for (const [runId, run] of this.postedTransactionMutationRuns) {
+      if (run.ownerUserId === userId || deletedMutationPreviewIds.has(run.previewId)) {
+        this.postedTransactionMutationRuns.delete(runId);
+        deletedMutationRunIds.add(runId);
+      } else if (run.actorUserId === userId) {
+        run.actorUserId = null;
+      }
+    }
+    for (const [tradeEventId, lineage] of this.postedTransactionMutationDeletedDraftLineage) {
+      if (lineage.ownerUserId === userId || deletedMutationRunIds.has(lineage.mutationRunId)) {
+        this.postedTransactionMutationDeletedDraftLineage.delete(tradeEventId);
+      } else if (lineage.deletedByUserId === userId) {
+        lineage.deletedByUserId = null;
+      }
+    }
+
     // SET NULL on audit_log actor/target
     for (const entry of this.auditLog) {
       if (entry.actorUserId === userId) entry.actorUserId = null;

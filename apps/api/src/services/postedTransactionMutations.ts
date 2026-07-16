@@ -29,8 +29,8 @@ import { generateCurrencyWalletSnapshots } from "./currencyWalletSnapshotGenerat
 const PREVIEW_TTL_MS = 30 * 60 * 1000;
 const INITIAL_PREVIEW_PAGE_LIMIT = 50;
 
-function mutationActorCanAccess(ownerUserId: string, recordActorUserId: string, actorUserId?: string): boolean {
-  return !actorUserId || actorUserId === ownerUserId || actorUserId === recordActorUserId;
+function mutationActorCanAccess(ownerUserId: string, recordActorUserId: string | null, actorUserId?: string): boolean {
+  return !actorUserId || actorUserId === ownerUserId || (recordActorUserId !== null && actorUserId === recordActorUserId);
 }
 const MUTATION_REBUILD_MAX_ATTEMPTS = 3;
 

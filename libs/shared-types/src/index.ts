@@ -3526,7 +3526,7 @@ export interface TransactionDraftRowDto {
   confirmedAt: string | null;
   deletedPostedTransaction?: {
     deletedAt: string;
-    deletedByUserId: string;
+    deletedByUserId: string | null;
     mutationRunId: string;
   } | null;
   updatedAt: string;
