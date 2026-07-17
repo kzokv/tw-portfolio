@@ -2746,7 +2746,7 @@ describePostgres("postgres migrations", () => {
     ]);
   }, 15_000);
 
-  it("inline dividend calculation: post → persists the active calculation before linking the ledger", async () => {
+  it("inline dividend calculation: post → load → save preserves calculation history and ledger state", async () => {
     persistence = new PostgresPersistence({
       databaseUrl: databaseUrl!,
       redisUrl: redisUrl!,
@@ -2833,6 +2833,9 @@ describePostgres("postgres migrations", () => {
     posting.dividendLedgerEntry.expectedStockCalcState = "resolved";
     posting.dividendLedgerEntry.expectedStockDistributionRatio = 0.1;
     posting.dividendLedgerEntry.expectedStockParValueAmount = null;
+    posting.dividendLedgerEntry.cashReconciliationStatus = "matched";
+    posting.dividendLedgerEntry.stockReconciliationStatus = "variance";
+    posting.dividendLedgerEntry.stockReconciliationNote = "Broker credited 99 shares";
 
     await persistence.savePostedDividend(
       "user-1",
@@ -2841,14 +2844,42 @@ describePostgres("postgres migrations", () => {
       posting.dividendLedgerEntry.id,
     );
 
+    const reloaded = await persistence.loadStore("user-1");
+    expect(reloaded.accounting.facts.dividendCalculationVersions).toEqual([
+      expect.objectContaining({
+        id: calculationId,
+        userId: "user-1",
+        accountId: "user-1-acc-1",
+        dividendEventId: dividendEvent.id,
+        status: "confirmed",
+        providerAuthoritativeRatio: "0.100000000000",
+        ratio: "0.100000000000",
+        dividendLedgerEntryId: posting.dividendLedgerEntry.id,
+      }),
+    ]);
+    expect(reloaded.accounting.facts.dividendLedgerEntries).toEqual([
+      expect.objectContaining({
+        id: posting.dividendLedgerEntry.id,
+        activeCalculationId: calculationId,
+        expectedStockCalcState: "resolved",
+        cashReconciliationStatus: "matched",
+        stockReconciliationStatus: "variance",
+        stockReconciliationNote: "Broker credited 99 shares",
+      }),
+    ]);
+
+    await persistence.saveStore(reloaded);
+
     const linked = await pool.query<{
       active_calculation_id: string;
       dividend_ledger_entry_id: string;
       provider_authoritative_ratio: string;
+      is_active: boolean;
     }>(
       `SELECT ledger.active_calculation_id,
               calculation.dividend_ledger_entry_id,
-              calculation.provider_authoritative_ratio::text
+              calculation.provider_authoritative_ratio::text,
+              calculation.is_active
          FROM dividend_ledger_entries AS ledger
          JOIN dividend_event_calculation_versions AS calculation
            ON calculation.id = ledger.active_calculation_id
@@ -2858,6 +2889,7 @@ describePostgres("postgres migrations", () => {
       active_calculation_id: calculationId,
       dividend_ledger_entry_id: posting.dividendLedgerEntry.id,
       provider_authoritative_ratio: "0.100000000000",
+      is_active: true,
     }]);
   }, 15_000);
 

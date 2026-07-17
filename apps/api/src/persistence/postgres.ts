@@ -6852,6 +6852,7 @@ export class PostgresPersistence implements Persistence {
       lotsResult,
       actionsResult,
       dividendLedgerEntriesResult,
+      dividendCalculationVersionsResult,
       jobItemsResult,
     ] = await Promise.all([
       feeProfileIds.length
@@ -6915,11 +6916,29 @@ export class PostgresPersistence implements Persistence {
                     received_stock_quantity,
                     posting_status, reconciliation_status, version,
                     source_composition_status, reconciliation_note, booked_at,
+                    active_calculation_id, cash_reconciliation_status,
+                    stock_reconciliation_status, stock_reconciliation_note,
                     reversal_of_dividend_ledger_entry_id, superseded_at
              FROM dividend_ledger_entries
              WHERE account_id = ANY($1)
              ORDER BY booked_at, id`,
             [accountIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      accountIds.length
+        ? this.pool.query(
+            `SELECT id, user_id, account_id, dividend_event_id, prior_calculation_id,
+                    dividend_ledger_entry_id, calculation_version, calculation_status, method,
+                    provider_value, provider_unit, provider_source, provider_dataset,
+                    provider_authoritative_ratio, selected_par_value, custom_ratio,
+                    resolved_ratio, theoretical_shares, expected_whole_shares,
+                    fractional_remainder, requires_high_ratio_confirmation,
+                    confirmed_at, superseded_at, created_at, provenance
+             FROM dividend_event_calculation_versions
+             WHERE user_id = $1
+               AND account_id = ANY($2)
+             ORDER BY account_id, dividend_event_id, calculation_version, created_at, id`,
+            [userId, accountIds],
           )
         : Promise.resolve({ rows: [] }),
       jobIds.length
@@ -7106,6 +7125,10 @@ export class PostgresPersistence implements Persistence {
         row.expected_stock_distribution_ratio == null ? null : Number(row.expected_stock_distribution_ratio),
       expectedStockParValueAmount:
         row.expected_stock_par_value_amount == null ? null : Number(row.expected_stock_par_value_amount),
+      activeCalculationId: row.active_calculation_id ?? null,
+      cashReconciliationStatus: row.cash_reconciliation_status ?? undefined,
+      stockReconciliationStatus: row.stock_reconciliation_status ?? null,
+      stockReconciliationNote: row.stock_reconciliation_note ?? null,
       receivedCashAmount: receivedCashAmountByDividendLedgerId.get(row.id) ?? 0,
       receivedStockQuantity: Number(row.received_stock_quantity),
       postingStatus: row.posting_status,
@@ -7199,7 +7222,8 @@ export class PostgresPersistence implements Persistence {
           tradeEvents,
           cashLedgerEntries,
           dividendLedgerEntries,
-          dividendCalculationVersions: [],
+          dividendCalculationVersions: dividendCalculationVersionsResult.rows.map((row) =>
+            mapDividendCalculationVersionFactRow(row)),
           dividendDeductionEntries,
           dividendSourceLines,
           positionActions: actionsResult.rows.map((row) => mapPositionActionRow(row)),
@@ -23094,6 +23118,40 @@ function mapDividendCalculationVersionRow(
     priorCalculationId: row.prior_calculation_id == null ? null : String(row.prior_calculation_id),
     dividendLedgerEntryId: row.dividend_ledger_entry_id == null ? null : String(row.dividend_ledger_entry_id),
     drift,
+  };
+}
+
+function mapDividendCalculationVersionFactRow(
+  row: Record<string, unknown>,
+): DividendCalculationVersion {
+  const dto = mapDividendCalculationVersionRow(row);
+  const provenance = parseJsonRecord(row.provenance);
+  return {
+    id: dto.id,
+    userId: String(row.user_id),
+    accountId: dto.accountId,
+    dividendEventId: dto.dividendEventId,
+    calculationVersion: dto.calculationVersion,
+    status: dto.status,
+    method: dto.method,
+    providerValue: dto.provider.value,
+    providerUnit: dto.provider.unit,
+    providerSource: dto.provider.source,
+    providerDataset: dto.provider.dataset,
+    providerAuthoritativeRatio: dto.provider.authoritativeRatio,
+    selectedParValue: dto.selectedParValue,
+    customRatio: row.custom_ratio == null ? nullableString(provenance.customRatio) : String(row.custom_ratio),
+    ratio: dto.ratio,
+    theoreticalShares: dto.theoreticalShares,
+    expectedWholeShares: dto.expectedWholeShares,
+    fractionalRemainder: dto.fractionalRemainder,
+    requiresHighRatioConfirmation: dto.requiresHighRatioConfirmation,
+    confirmedAt: dto.confirmedAt,
+    supersededAt: dto.supersededAt,
+    priorCalculationId: dto.priorCalculationId,
+    dividendLedgerEntryId: dto.dividendLedgerEntryId,
+    drift: dto.drift,
+    createdAt: row.created_at == null ? undefined : normalizeDateTime(String(row.created_at)),
   };
 }
 
