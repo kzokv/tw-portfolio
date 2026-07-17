@@ -5778,7 +5778,8 @@ export class PostgresPersistence implements Persistence {
       await client.query("BEGIN");
       await this.assertOwnedDividendCalculationAccountTx(client, userId, input.accountId);
       const ledgerResult = await client.query(
-        `SELECT id, posting_status, received_stock_quantity, stock_reconciliation_status
+        `SELECT ledger.id, ledger.posting_status, ledger.received_stock_quantity,
+                ledger.stock_reconciliation_status
            FROM dividend_ledger_entries AS ledger
            JOIN accounts AS account
              ON account.id = ledger.account_id
@@ -13565,7 +13566,6 @@ export class PostgresPersistence implements Persistence {
              ON calc.user_id = account.user_id
             AND calc.account_id = ledger.account_id
             AND calc.dividend_event_id = ledger.dividend_event_id
-            AND calc.superseded_at IS NULL
             AND calc.calculation_status IN ('confirmed', 'amended')
           WHERE account.user_id = $1
             AND ledger.id = ANY($2::text[])
@@ -13582,7 +13582,9 @@ export class PostgresPersistence implements Persistence {
       if (row.id == null) continue;
       const ledgerId = String(row.ledger_id);
       const dto = mapDividendCalculationVersionRow(row);
-      if (!calculationByLedgerId.has(ledgerId)) calculationByLedgerId.set(ledgerId, dto);
+      if (row.superseded_at == null && !calculationByLedgerId.has(ledgerId)) {
+        calculationByLedgerId.set(ledgerId, dto);
+      }
       const history = calculationHistoryByLedgerId.get(ledgerId) ?? [];
       history.push(dto);
       calculationHistoryByLedgerId.set(ledgerId, history);

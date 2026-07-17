@@ -298,6 +298,99 @@ describePostgres("dividend read model parity", () => {
     fullStoreRead.mockRestore();
   });
 
+  it("[postgres dividend review detail]: amended calculation → retains superseded history", async () => {
+    const store = await persistence.loadStore("user-1");
+    const event = store.marketData.dividendEvents.find((candidate) => candidate.id === "event-01")!;
+    event.eventType = "STOCK";
+    event.cashDividendPerShare = 0;
+    event.stockDividendPerShare = 1;
+    event.stockDistributionAmountRaw = 1;
+    event.stockDistributionRatio = null;
+    event.stockDistributionRatioState = "unresolved";
+    event.stockProviderValueUnit = "TWD_PER_SHARE";
+    event.stockProviderSource = "finmind";
+    event.stockProviderDataset = "TaiwanStockDividend";
+
+    const ledger = store.accounting.facts.dividendLedgerEntries.find((candidate) => candidate.id === "ledger-01")!;
+    ledger.expectedCashAmount = 0;
+    ledger.expectedStockQuantity = 1;
+    ledger.receivedStockQuantity = 1;
+    ledger.expectedStockCalcState = "resolved";
+    ledger.stockReconciliationStatus = "matched";
+    ledger.activeCalculationId = "calculation-history-v1";
+    store.accounting.facts.dividendCalculationVersions.push({
+      id: "calculation-history-v1",
+      userId: "user-1",
+      accountId,
+      dividendEventId: event.id,
+      calculationVersion: 1,
+      status: "confirmed",
+      method: "custom_ratio",
+      providerValue: "1",
+      providerUnit: "TWD_PER_SHARE",
+      providerSource: "finmind",
+      providerDataset: "TaiwanStockDividend",
+      providerAuthoritativeRatio: null,
+      selectedParValue: null,
+      customRatio: "0.1",
+      ratio: "0.1",
+      theoreticalShares: "1",
+      expectedWholeShares: 1,
+      fractionalRemainder: "0",
+      requiresHighRatioConfirmation: false,
+      confirmedAt: "2026-02-01T09:00:00.000Z",
+      priorCalculationId: null,
+      dividendLedgerEntryId: ledger.id,
+      drift: null,
+      createdAt: "2026-02-01T09:00:00.000Z",
+    });
+    await persistence.saveStore(store);
+
+    const amended = await persistence.amendDividendCalculation("user-1", {
+      accountId,
+      dividendEventId: event.id,
+      dividendLedgerEntryId: ledger.id,
+      method: "custom_ratio",
+      customRatio: "0.2",
+      expectedActiveCalculationId: "calculation-history-v1",
+      expectedCalculationVersion: 1,
+      providerValue: "1",
+      providerUnit: "TWD_PER_SHARE",
+      providerSource: "finmind",
+      providerDataset: "TaiwanStockDividend",
+      providerAuthoritativeRatio: null,
+      ratio: "0.2",
+      theoreticalShares: "2",
+      expectedWholeShares: 2,
+      fractionalRemainder: "0",
+      requiresHighRatioConfirmation: false,
+      drift: null,
+      auditInput: {
+        actorUserId: "user-1",
+        metadata: { source: "postgres-history-regression" },
+      },
+    });
+
+    const detail = await persistence.getDividendReviewRowDetail("user-1", ledger.id);
+    expect(detail?.activeCalculation).toMatchObject({
+      id: amended.id,
+      status: "amended",
+      supersededAt: null,
+    });
+    expect(detail?.calculationHistory).toEqual([
+      expect.objectContaining({
+        id: amended.id,
+        status: "amended",
+        supersededAt: null,
+      }),
+      expect.objectContaining({
+        id: "calculation-history-v1",
+        status: "confirmed",
+        supersededAt: expect.any(String),
+      }),
+    ]);
+  });
+
   it("[postgres dividend review]: generated expectations → use replay-style eligibility and authoritative ratio state", async () => {
     const store = await persistence.loadStore("user-1");
     store.marketData.dividendEvents = [{

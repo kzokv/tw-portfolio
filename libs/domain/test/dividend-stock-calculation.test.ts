@@ -48,6 +48,26 @@ describe("dividend stock calculation", () => {
     });
   });
 
+  it("preserves exact whole-share boundaries for repeating derived ratios", () => {
+    expect(calculate({
+      eligibleQuantity: 3,
+      method: "derived_from_par_value",
+      providerValue: "1",
+      providerUnit: "TWD_PER_SHARE",
+      selectedParValue: "3",
+    })).toEqual({
+      method: "derived_from_par_value",
+      ratio: "0.333333333333",
+      providerValue: "1",
+      providerUnit: "TWD_PER_SHARE",
+      selectedParValue: "3",
+      theoreticalShares: "1",
+      expectedWholeShares: 1,
+      fractionalRemainder: "0",
+      requiresHighRatioConfirmation: false,
+    });
+  });
+
   it("uses a custom ratio without provider input", () => {
     expect(calculate({
       eligibleQuantity: 500,

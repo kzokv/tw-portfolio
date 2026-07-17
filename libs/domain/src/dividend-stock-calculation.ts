@@ -45,13 +45,13 @@ export function calculateDividendStockEntitlement(
   const customRatio = normalizeOptionalDecimal(input.customRatio);
   const providerUnit = input.providerUnit ?? null;
 
-  const ratio = resolveRatio(input.method, {
+  const calculation = resolveCalculation(input.method, eligibleQuantity, {
     providerValue,
     providerUnit,
     selectedParValue,
     customRatio,
   });
-  const theoreticalShares = multiplyDecimalByInteger(ratio, eligibleQuantity);
+  const { ratio, theoreticalShares } = calculation;
   const expectedWholeSharesBigInt = theoreticalShares.numerator / scaleFactor(theoreticalShares.scale);
 
   if (expectedWholeSharesBigInt > BigInt(Number.MAX_SAFE_INTEGER)) {
@@ -69,24 +69,34 @@ export function calculateDividendStockEntitlement(
     theoreticalShares: formatDecimal(theoreticalShares),
     expectedWholeShares: Number(expectedWholeSharesBigInt),
     fractionalRemainder: formatDecimal({ numerator: remainderNumerator, scale: theoreticalShares.scale }),
-    requiresHighRatioConfirmation: compareDecimal(ratio, { numerator: 1n, scale: 0 }) > 0,
+    requiresHighRatioConfirmation: calculation.requiresHighRatioConfirmation,
   };
 }
 
-function resolveRatio(
+function resolveCalculation(
   method: DividendStockCalculationMethod,
+  eligibleQuantity: bigint,
   input: {
     providerValue: ParsedDecimal | null;
     providerUnit: DividendStockProviderValueUnit | null;
     selectedParValue: ParsedDecimal | null;
     customRatio: ParsedDecimal | null;
   },
-): ParsedDecimal {
+): {
+  ratio: ParsedDecimal;
+  theoreticalShares: ParsedDecimal;
+  requiresHighRatioConfirmation: boolean;
+} {
   if (method === "provider_ratio") {
     if (input.providerUnit !== "RATIO") {
       throw new Error("provider_unit_incompatible");
     }
-    return requirePositiveDecimal(input.providerValue, "provider_value_must_be_finite_positive");
+    const ratio = requirePositiveDecimal(input.providerValue, "provider_value_must_be_finite_positive");
+    return {
+      ratio,
+      theoreticalShares: multiplyDecimalByInteger(ratio, eligibleQuantity),
+      requiresHighRatioConfirmation: compareDecimal(ratio, { numerator: 1n, scale: 0 }) > 0,
+    };
   }
 
   if (method === "derived_from_par_value") {
@@ -95,10 +105,23 @@ function resolveRatio(
     }
     const providerValue = requirePositiveDecimal(input.providerValue, "provider_value_must_be_finite_positive");
     const selectedParValue = requirePositiveDecimal(input.selectedParValue, "par_value_must_be_finite_positive");
-    return divideDecimal(providerValue, selectedParValue, MAX_SCALE);
+    return {
+      ratio: divideDecimal(providerValue, selectedParValue, MAX_SCALE),
+      theoreticalShares: divideDecimal(
+        multiplyDecimalByInteger(providerValue, eligibleQuantity),
+        selectedParValue,
+        MAX_SCALE,
+      ),
+      requiresHighRatioConfirmation: compareDecimal(providerValue, selectedParValue) > 0,
+    };
   }
 
-  return requirePositiveDecimal(input.customRatio, "ratio_must_be_positive");
+  const ratio = requirePositiveDecimal(input.customRatio, "ratio_must_be_positive");
+  return {
+    ratio,
+    theoreticalShares: multiplyDecimalByInteger(ratio, eligibleQuantity),
+    requiresHighRatioConfirmation: compareDecimal(ratio, { numerator: 1n, scale: 0 }) > 0,
+  };
 }
 
 function normalizeEligibleQuantity(value: number): bigint {
