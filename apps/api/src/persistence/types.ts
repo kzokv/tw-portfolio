@@ -1,5 +1,10 @@
 import type { BackfillStatus, CurrencyCode, InstrumentRef, InstrumentType, Lot, VerificationStatus } from "@vakwen/domain";
 import type {
+  AccountMarketDividendSettingsDto,
+  DividendCalculationAmendRequestDto,
+  DividendCalculationConfirmRequestDto,
+  DividendCalculationResetRequestDto,
+  DividendCalculationVersionDto,
   AiConnectorAccessKind,
   AiConnectorAccessResult,
   AiConnectorAuthMode,
@@ -401,6 +406,11 @@ export type AuditLogAction =
   | "account_soft_deleted"
   | "account_restored"
   | "account_hard_purged"
+  | "account_market_dividend_settings_updated"
+  | "dividend_calculation_confirmed"
+  | "dividend_calculation_reset"
+  | "dividend_calculation_amended"
+  | "dividend_stock_reconciliation_updated"
   | "dividend_destructive_preview_created"
   | "dividend_destructive_confirmed"
   | "dividend_destructive_failed"
@@ -1293,6 +1303,8 @@ export interface DividendLedgerListOptions {
 export interface DividendReviewListOptions extends Omit<DividendLedgerListOptions, "sortBy"> {
   sortBy: DividendReviewSortColumn;
   sourceComposition?: DividendReviewPrimaryQueryDto["sourceComposition"];
+  cashStatus?: DividendReviewPrimaryQueryDto["cashStatus"];
+  stockStatus?: DividendReviewPrimaryQueryDto["stockStatus"];
 }
 
 export type DividendReviewPrimaryResult = {
@@ -1356,13 +1368,13 @@ export type DividendReviewRowWithDetails = DividendLedgerEntryWithDetails & {
   stockDistributionRatio?: number | null;
   stockDistributionRatioState?: import("@vakwen/shared-types").StockDistributionRatioState;
   expectedStockCalcState?: import("@vakwen/shared-types").ExpectedStockCalcState;
-  nhiAmount?: number;
-  bankFeeAmount?: number;
-  otherDeductionAmount?: number;
-  expectedGrossAmount?: number;
-  expectedNetAmount?: number;
-  actualNetAmount?: number;
-  varianceAmount?: number;
+  nhiAmount?: number | null;
+  bankFeeAmount?: number | null;
+  otherDeductionAmount?: number | null;
+  expectedGrossAmount?: number | null;
+  expectedNetAmount?: number | null;
+  actualNetAmount?: number | null;
+  varianceAmount?: number | null;
   correctionMode?: "in_place" | "amend" | "reversal_replacement" | null;
   amendmentBlockedReason?: string | null;
   linkedPositionActionId?: string | null;
@@ -1372,11 +1384,19 @@ export type DividendReviewRowWithDetails = DividendLedgerEntryWithDetails & {
   premiumBaseAmount?: number | null;
   nhiPremiumBaseAmount?: number | null;
   portfolioCostBasisAddedAmount?: number | null;
+  calculationHistory?: DividendCalculationVersionDto[];
+  activeCalculation?: DividendCalculationVersionDto | null;
+  provider?: DividendCalculationVersionDto["provider"] | null;
+  stockVarianceQuantity?: number | null;
   snapshotRefreshStatus?: "idle" | "queued" | "running" | "complete" | "failed" | null;
 };
 
+export type DividendReviewResponseRowWithDetails = Omit<DividendReviewRowWithDetails, "expectedStockQuantity"> & {
+  expectedStockQuantity: number | null;
+};
+
 export interface DividendReviewListResult {
-  rows: DividendReviewRowWithDetails[];
+  rows: DividendReviewResponseRowWithDetails[];
   total: number;
   aggregates: DividendLedgerAggregates;
 }
@@ -2894,6 +2914,66 @@ export interface Persistence {
    * deleted. Memory backend is a no-op (returns 0).
    */
   purgeTerminalAnonymousShareTokens(olderThanMs: number): Promise<number>;
+  getAccountMarketDividendSettings(
+    userId: string,
+    accountId: string,
+    marketCode: MarketCode,
+  ): Promise<AccountMarketDividendSettingsDto>;
+  patchAccountMarketDividendSettings(
+    userId: string,
+    input: {
+      accountId: string;
+      marketCode: MarketCode;
+      fallbackParValue: string | null;
+      expectedVersion?: number;
+      auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+    },
+  ): Promise<AccountMarketDividendSettingsDto>;
+  getLatestDividendCalculation(
+    userId: string,
+    accountId: string,
+    dividendEventId: string,
+  ): Promise<DividendCalculationVersionDto | null>;
+  confirmDividendCalculation(
+    userId: string,
+    input: DividendCalculationConfirmRequestDto & {
+      providerValue: string | null;
+      providerUnit: "RATIO" | "TWD_PER_SHARE" | "UNKNOWN" | null;
+      providerSource: string | null;
+      providerDataset: string | null;
+      providerAuthoritativeRatio: string | null;
+      ratio: string;
+      theoreticalShares: string;
+      expectedWholeShares: number;
+      fractionalRemainder: string;
+      requiresHighRatioConfirmation: boolean;
+      drift: import("@vakwen/shared-types").DividendCalculationDriftDto | null;
+      auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+    },
+  ): Promise<DividendCalculationVersionDto>;
+  resetDividendCalculation(
+    userId: string,
+    input: DividendCalculationResetRequestDto & {
+      auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+    },
+  ): Promise<void>;
+  amendDividendCalculation(
+    userId: string,
+    input: DividendCalculationAmendRequestDto & {
+      providerValue: string | null;
+      providerUnit: "RATIO" | "TWD_PER_SHARE" | "UNKNOWN" | null;
+      providerSource: string | null;
+      providerDataset: string | null;
+      providerAuthoritativeRatio: string | null;
+      ratio: string;
+      theoreticalShares: string;
+      expectedWholeShares: number;
+      fractionalRemainder: string;
+      requiresHighRatioConfirmation: boolean;
+      drift: import("@vakwen/shared-types").DividendCalculationDriftDto | null;
+      auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+    },
+  ): Promise<DividendCalculationVersionDto>;
   loadStore(userId: string): Promise<Store>;
   /**
    * Load the narrow store shape required by first-paint portfolio/dashboard
@@ -2987,13 +3067,21 @@ export interface Persistence {
   getDividendReviewRowDetail(
     userId: string,
     dividendLedgerEntryId: string,
-  ): Promise<DividendReviewRowWithDetails | null>;
+  ): Promise<DividendReviewResponseRowWithDetails | null>;
   updateDividendReconciliationStatus(
     userId: string,
     dividendLedgerEntryId: string,
     status: DividendLedgerEntry["reconciliationStatus"],
     note?: string,
     expectedVersion?: number,
+  ): Promise<DividendLedgerEntry>;
+  updateDividendStockReconciliationStatus(
+    userId: string,
+    dividendLedgerEntryId: string,
+    status: NonNullable<DividendLedgerEntry["stockReconciliationStatus"]>,
+    note?: string | null,
+    expectedVersion?: number,
+    auditInput?: Omit<AuditLogInput, "action" | "targetUserId">,
   ): Promise<DividendLedgerEntry>;
   updatePostedCashDividend(userId: string, input: UpdatePostedCashDividendInput): Promise<DividendLedgerEntry>;
   /**

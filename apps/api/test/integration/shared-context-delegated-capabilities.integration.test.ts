@@ -1215,4 +1215,44 @@ describe("shared-context delegated capabilities", () => {
       ]),
     );
   });
+
+  it("[shared dividend read]: read-only viewer can preview provider provenance but cannot confirm", async () => {
+    await seedSharedDividendForOwner();
+    const { viewerUserId } = await createViewerShare(["portfolio:mcp_read"]);
+    const headers = {
+      "x-user-id": viewerUserId,
+      "x-user-role": "viewer",
+      "x-context-user-id": "user-1",
+    };
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/calculations/preview",
+      headers,
+      payload: {
+        accountId: "acc-1",
+        dividendEventId: "shared-dividend-write-event",
+        method: "provider_ratio",
+      },
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json()).toMatchObject({
+      providerUnit: "RATIO",
+      ratio: "0.1",
+      expectedWholeShares: 150,
+    });
+
+    const confirm = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/calculations/confirm",
+      headers: { ...headers, "idempotency-key": "read-only-confirm" },
+      payload: {
+        accountId: "acc-1",
+        dividendEventId: "shared-dividend-write-event",
+        method: "provider_ratio",
+        expectedActiveCalculationId: null,
+      },
+    });
+    expect(confirm.statusCode).toBe(403);
+  });
 });

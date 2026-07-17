@@ -39,6 +39,7 @@ const primary = (id: string): DividendReviewPrimaryDto => ({
     exDividendDate: "2026-06-01", paymentDate: "2026-07-01", cashCurrency: "TWD",
     eligibleQuantity: 1, expectedCashAmount: 1, receivedCashAmount: 0,
     expectedStockQuantity: 0, receivedStockQuantity: 0, postingStatus: "expected",
+    cashReconciliationStatus: "open", stockReconciliationStatus: null,
     reconciliationStatus: "open", sourceCompositionStatus: "unknown_pending_disclosure",
   }],
   total: 1,

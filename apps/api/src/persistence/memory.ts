@@ -7,10 +7,16 @@ import {
   roundToDecimal,
   type Lot,
 } from "@vakwen/domain";
-import { currencyFor, marketCodeFor, normalizeInstrumentSector } from "@vakwen/shared-types";
+import { currencyFor, marketCodeFor, normalizeInstrumentSector, type MarketCode as SharedMarketCode } from "@vakwen/shared-types";
 import type {
+  AccountMarketDividendSettingsDto,
   AiConnectorAccessResult,
   AiConnectorProvider,
+  DividendCalculationAmendRequestDto,
+  DividendCalculationConfirmRequestDto,
+  DividendCalculationDriftDto,
+  DividendCalculationResetRequestDto,
+  DividendCalculationVersionDto,
   DividendLedgerAggregates,
   DividendReviewFilterDto,
   DividendReviewPrimaryQueryDto,
@@ -33,6 +39,7 @@ import type {
   AccountingStore,
   BookedTradeEvent,
   CashLedgerEntry,
+  DividendCalculationVersion,
   InstrumentDef,
   LotAllocationProjection,
   MarketDataFacts,
@@ -676,6 +683,7 @@ export class MemoryPersistence implements Persistence {
    *  == empty preferences. Top-level merge semantics mirror the Postgres
    *  `||` / `- key[]` update shape (see design D3). */
   private readonly userPreferences = new Map<string, Record<string, unknown>>();
+  private readonly accountMarketDividendSettings = new Map<string, AccountMarketDividendSettingsDto>();
   /** KZO-177: provider health rows keyed by providerId. Pre-seeded in `init()`. */
   private readonly providerHealth = new Map<string, ProviderHealthRow>();
   /** KZO-177: provider error trail rows; auto-incrementing id stamped at insert. */
@@ -2301,6 +2309,316 @@ export class MemoryPersistence implements Persistence {
     return this._countActiveAnonymousShareTokens(ownerUserId);
   }
 
+  async getAccountMarketDividendSettings(
+    userId: string,
+    accountId: string,
+    marketCode: SharedMarketCode,
+  ): Promise<AccountMarketDividendSettingsDto> {
+    const store = await this.loadStore(userId);
+    const account = store.accounts.find((item) => item.id === accountId);
+    if (!account) {
+      throw routeError(404, "account_not_found", "Account not found");
+    }
+    if (marketCode !== marketCodeFor(account.defaultCurrency)) {
+      const defaultSettings: AccountMarketDividendSettingsDto = {
+        accountId,
+        marketCode,
+        version: 0,
+        fallbackParValue: null,
+        updatedAt: null,
+      };
+      return defaultSettings;
+    }
+    const existing = this.accountMarketDividendSettings.get(`${accountId}:${marketCode}`);
+    if (existing) return existing;
+    const defaultSettings: AccountMarketDividendSettingsDto = {
+      accountId,
+      marketCode,
+      version: 0,
+      fallbackParValue: null,
+      updatedAt: null,
+    };
+    return defaultSettings;
+  }
+
+  async patchAccountMarketDividendSettings(
+    userId: string,
+    input: {
+      accountId: string;
+      marketCode: SharedMarketCode;
+      fallbackParValue: string | null;
+      expectedVersion?: number;
+      auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+    },
+  ): Promise<AccountMarketDividendSettingsDto> {
+    const store = await this.loadStore(userId);
+    const account = store.accounts.find((item) => item.id === input.accountId);
+    if (!account) {
+      throw routeError(404, "account_not_found", "Account not found");
+    }
+    if (input.marketCode !== marketCodeFor(account.defaultCurrency)) {
+      throw routeError(400, "unsupported_dividend_settings_market", "Dividend settings market must match the account market.");
+    }
+    const key = `${input.accountId}:${input.marketCode}`;
+    const current: AccountMarketDividendSettingsDto = this.accountMarketDividendSettings.get(key) ?? {
+      accountId: input.accountId,
+      marketCode: input.marketCode,
+      version: 0,
+      fallbackParValue: null,
+      updatedAt: null,
+    };
+    if (input.expectedVersion !== undefined && input.expectedVersion !== current.version) {
+      throw routeError(409, "account_market_dividend_settings_version_conflict", "Dividend settings version conflict.");
+    }
+    const next: AccountMarketDividendSettingsDto = {
+      accountId: input.accountId,
+      marketCode: input.marketCode,
+      version: current.version + 1,
+      fallbackParValue: input.fallbackParValue,
+      updatedAt: new Date().toISOString(),
+    };
+    this.accountMarketDividendSettings.set(key, next);
+    await this.appendAuditLog({
+      ...input.auditInput,
+      action: "account_market_dividend_settings_updated",
+      targetUserId: userId,
+      metadata: {
+        ...(input.auditInput.metadata ?? {}),
+        accountId: input.accountId,
+        marketCode: input.marketCode,
+        fallbackParValue: input.fallbackParValue,
+      },
+    });
+    return next;
+  }
+
+  async getLatestDividendCalculation(
+    userId: string,
+    accountId: string,
+    dividendEventId: string,
+  ): Promise<DividendCalculationVersionDto | null> {
+    const store = await this.loadStore(userId);
+    assertOwnedDividendCalculationAccount(store, accountId);
+    const active = findActiveDividendCalculationVersion(store, accountId, dividendEventId);
+    return active ? mapDividendCalculationVersionDto(active) : null;
+  }
+
+  async confirmDividendCalculation(
+    userId: string,
+    input: DividendCalculationConfirmRequestDto & {
+      providerValue: string | null;
+      providerUnit: "RATIO" | "TWD_PER_SHARE" | "UNKNOWN" | null;
+      providerSource: string | null;
+      providerDataset: string | null;
+      providerAuthoritativeRatio: string | null;
+      ratio: string;
+      theoreticalShares: string;
+      expectedWholeShares: number;
+      fractionalRemainder: string;
+      requiresHighRatioConfirmation: boolean;
+      drift: DividendCalculationDriftDto | null;
+      auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+    },
+  ): Promise<DividendCalculationVersionDto> {
+    const store = await this.loadStore(userId);
+    assertOwnedDividendCalculationAccount(store, input.accountId);
+    const now = new Date().toISOString();
+    const currentActive = findActiveDividendCalculationVersion(store, input.accountId, input.dividendEventId);
+    assertDividendCalculationMutationExpectation(currentActive, input);
+    if (currentActive) currentActive.supersededAt = now;
+    const next: DividendCalculationVersion = {
+      id: randomUUID(),
+      userId,
+      accountId: input.accountId,
+      dividendEventId: input.dividendEventId,
+      calculationVersion: nextDividendCalculationVersionNumber(store, userId, input.accountId, input.dividendEventId),
+      status: "confirmed",
+      method: input.method,
+      providerValue: input.providerValue,
+      providerUnit: input.providerUnit,
+      providerSource: input.providerSource,
+      providerDataset: input.providerDataset,
+      providerAuthoritativeRatio: input.providerAuthoritativeRatio,
+      selectedParValue: input.selectedParValue ?? null,
+      customRatio: input.customRatio ?? null,
+      ratio: input.ratio,
+      theoreticalShares: input.theoreticalShares,
+      expectedWholeShares: input.expectedWholeShares,
+      fractionalRemainder: input.fractionalRemainder,
+      requiresHighRatioConfirmation: input.requiresHighRatioConfirmation,
+      confirmedAt: now,
+      supersededAt: undefined,
+      priorCalculationId: currentActive?.id ?? null,
+      dividendLedgerEntryId: null,
+      drift: input.drift,
+      createdAt: now,
+    };
+    store.accounting.facts.dividendCalculationVersions.push(next);
+    await this.appendAuditLog({
+      ...input.auditInput,
+      action: "dividend_calculation_confirmed",
+      targetUserId: userId,
+      metadata: {
+        ...(input.auditInput.metadata ?? {}),
+        mutation: "dividend_calculation_confirmed",
+        accountId: input.accountId,
+        dividendEventId: input.dividendEventId,
+        calculationId: next.id,
+      },
+    });
+    return mapDividendCalculationVersionDto(next);
+  }
+
+  async resetDividendCalculation(
+    userId: string,
+    input: DividendCalculationResetRequestDto & {
+      auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+    },
+  ): Promise<void> {
+    const store = await this.loadStore(userId);
+    assertOwnedDividendCalculationAccount(store, input.accountId);
+    const active = findActiveDividendCalculationVersion(store, input.accountId, input.dividendEventId);
+    assertDividendCalculationMutationExpectation(active, input);
+    if (!active) return;
+    const postedLedger = store.accounting.facts.dividendLedgerEntries.find(
+      (entry) =>
+        entry.accountId === input.accountId &&
+        entry.dividendEventId === input.dividendEventId &&
+        !entry.supersededAt &&
+        !entry.reversalOfDividendLedgerEntryId &&
+        entry.postingStatus !== "expected",
+    );
+    if (postedLedger) {
+      throw routeError(
+        409,
+        "dividend_calculation_reset_requires_unposted",
+        "Posted dividend expectations must be corrected with an amendment.",
+      );
+    }
+    const now = new Date().toISOString();
+    active.supersededAt = now;
+    store.accounting.facts.dividendCalculationVersions.push({
+      ...active,
+      id: randomUUID(),
+      calculationVersion: nextDividendCalculationVersionNumber(store, userId, input.accountId, input.dividendEventId),
+      status: "reset",
+      confirmedAt: null,
+      supersededAt: undefined,
+      priorCalculationId: active.id,
+      dividendLedgerEntryId: null,
+      drift: null,
+      createdAt: now,
+    });
+    await this.appendAuditLog({
+      ...input.auditInput,
+      action: "dividend_calculation_reset",
+      targetUserId: userId,
+      metadata: {
+        ...(input.auditInput.metadata ?? {}),
+        mutation: "dividend_calculation_reset",
+        accountId: input.accountId,
+        dividendEventId: input.dividendEventId,
+      },
+    });
+  }
+
+  async amendDividendCalculation(
+    userId: string,
+    input: DividendCalculationAmendRequestDto & {
+      providerValue: string | null;
+      providerUnit: "RATIO" | "TWD_PER_SHARE" | "UNKNOWN" | null;
+      providerSource: string | null;
+      providerDataset: string | null;
+      providerAuthoritativeRatio: string | null;
+      ratio: string;
+      theoreticalShares: string;
+      expectedWholeShares: number;
+      fractionalRemainder: string;
+      requiresHighRatioConfirmation: boolean;
+      drift: DividendCalculationDriftDto | null;
+      auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+    },
+  ): Promise<DividendCalculationVersionDto> {
+    const store = await this.loadStore(userId);
+    assertOwnedDividendCalculationAccount(store, input.accountId);
+    const ledgerEntry = store.accounting.facts.dividendLedgerEntries.find(
+      (entry) =>
+        entry.id === input.dividendLedgerEntryId &&
+        entry.accountId === input.accountId &&
+        entry.dividendEventId === input.dividendEventId &&
+        !entry.supersededAt &&
+        !entry.reversalOfDividendLedgerEntryId,
+    );
+    if (!ledgerEntry) {
+      throw routeError(404, "dividend_ledger_entry_not_found", "Dividend ledger entry not found");
+    }
+    if (ledgerEntry.postingStatus === "expected") {
+      throw routeError(
+        409,
+        "dividend_calculation_amend_requires_posted",
+        "Expectation-only amendments require a posted dividend receipt.",
+      );
+    }
+    const now = new Date().toISOString();
+    const currentActive = findActiveDividendCalculationVersion(store, input.accountId, input.dividendEventId);
+    assertDividendCalculationMutationExpectation(currentActive, input);
+    if (currentActive) currentActive.supersededAt = now;
+    const next: DividendCalculationVersion = {
+      id: randomUUID(),
+      userId,
+      accountId: input.accountId,
+      dividendEventId: input.dividendEventId,
+      calculationVersion: nextDividendCalculationVersionNumber(store, userId, input.accountId, input.dividendEventId),
+      status: "amended",
+      method: input.method,
+      providerValue: input.providerValue,
+      providerUnit: input.providerUnit,
+      providerSource: input.providerSource,
+      providerDataset: input.providerDataset,
+      providerAuthoritativeRatio: input.providerAuthoritativeRatio,
+      selectedParValue: input.selectedParValue ?? null,
+      customRatio: input.customRatio ?? null,
+      ratio: input.ratio,
+      theoreticalShares: input.theoreticalShares,
+      expectedWholeShares: input.expectedWholeShares,
+      fractionalRemainder: input.fractionalRemainder,
+      requiresHighRatioConfirmation: input.requiresHighRatioConfirmation,
+      confirmedAt: now,
+      supersededAt: undefined,
+      priorCalculationId: currentActive?.id ?? null,
+      dividendLedgerEntryId: ledgerEntry.id,
+      drift: input.drift,
+      createdAt: now,
+    };
+    store.accounting.facts.dividendCalculationVersions.push(next);
+    ledgerEntry.expectedStockQuantity = input.expectedWholeShares;
+    ledgerEntry.expectedStockCalcState = "resolved";
+    ledgerEntry.expectedStockDistributionRatio = Number(input.ratio);
+    ledgerEntry.expectedStockParValueAmount = input.selectedParValue == null ? null : Number(input.selectedParValue);
+    ledgerEntry.activeCalculationId = next.id;
+    ledgerEntry.stockReconciliationStatus =
+      ledgerEntry.stockReconciliationStatus === "explained"
+        ? "explained"
+        : deriveStockReconciliationStatusFromExpectation(
+            ledgerEntry.receivedStockQuantity,
+            input.expectedWholeShares,
+          );
+    await this.appendAuditLog({
+      ...input.auditInput,
+      action: "dividend_calculation_amended",
+      targetUserId: userId,
+      metadata: {
+        ...(input.auditInput.metadata ?? {}),
+        mutation: "dividend_calculation_amended",
+        accountId: input.accountId,
+        dividendEventId: input.dividendEventId,
+        calculationId: next.id,
+        dividendLedgerEntryId: ledgerEntry.id,
+      },
+    });
+    return mapDividendCalculationVersionDto(next);
+  }
+
   async purgeTerminalAnonymousShareTokens(_olderThanMs: number): Promise<number> {
     return 0;
   }
@@ -2483,6 +2801,7 @@ export class MemoryPersistence implements Persistence {
         tradeEvents: replaceAccountRows(current.facts.tradeEvents, accounting.facts.tradeEvents),
         cashLedgerEntries: replaceAccountRows(current.facts.cashLedgerEntries, accounting.facts.cashLedgerEntries),
         dividendLedgerEntries: replaceAccountRows(current.facts.dividendLedgerEntries, accounting.facts.dividendLedgerEntries),
+        dividendCalculationVersions: current.facts.dividendCalculationVersions,
         dividendDeductionEntries: [
           ...current.facts.dividendDeductionEntries.filter((row) => !selectedLedgerIds.has(row.dividendLedgerEntryId)),
           ...accounting.facts.dividendDeductionEntries.filter((row) => selectedNextLedgerIds.has(row.dividendLedgerEntryId)),
@@ -2720,28 +3039,43 @@ export class MemoryPersistence implements Persistence {
   }
 
   async getDividendReviewRowDetail(userId: string, dividendLedgerEntryId: string) {
-    const detailedEntry = await this.getDividendLedgerEntryWithDetails(userId, dividendLedgerEntryId);
-    if (!detailedEntry) return null;
-    const store = await this.loadStore(userId);
-    return enrichDividendReviewRows(store, [{
-      ...detailedEntry,
-      rowKind: "ledger" as const,
-      ticker: "",
-      tickerName: null,
-      marketCode: "TW" as const,
-      instrumentType: "STOCK" as const,
-      eventType: "CASH" as const,
-      exDividendDate: "",
-      paymentDate: null,
-      cashCurrency: "TWD" as const,
-    }])[0] ?? null;
+    const { rows, store } = await this.buildDividendReviewRows(userId, {});
+    const row = rows.find((candidate) => candidate.id === dividendLedgerEntryId && candidate.rowKind === "ledger");
+    if (!row) return null;
+    const detail = enrichDividendReviewRows(store, [row])[0] ?? null;
+    if (!detail) return null;
+    const calculationHistory = store.accounting.facts.dividendCalculationVersions
+      .filter((item) =>
+        item.userId === userId
+        && item.accountId === detail.accountId
+        && item.dividendEventId === detail.dividendEventId,
+      )
+      .sort(compareDividendCalculationVersionsDesc)
+      .map(mapDividendCalculationVersionDto);
+    detail.calculationHistory = calculationHistory;
+    detail.activeCalculation = calculationHistory.find(
+      (item) => item.status === "confirmed" || item.status === "amended",
+    ) ?? null;
+    detail.provider = detail.activeCalculation?.provider ?? null;
+    const expectedStockQuantity =
+      detail.eventType !== "CASH" && detail.expectedStockCalcState === "needs_action"
+        ? null
+        : detail.expectedStockQuantity;
+    return {
+      ...detail,
+      expectedStockQuantity,
+      stockVarianceQuantity:
+        detail.eventType !== "CASH" && expectedStockQuantity != null
+          ? detail.receivedStockQuantity - expectedStockQuantity
+          : null,
+    };
   }
 
   async updateDividendReconciliationStatus(
     userId: string,
     dividendLedgerEntryId: string,
     status: Store["accounting"]["facts"]["dividendLedgerEntries"][number]["reconciliationStatus"],
-    note?: string,
+    note?: string | null,
     expectedVersion?: number,
   ) {
     const entry = await this.findDividendLedgerEntryById(userId, dividendLedgerEntryId);
@@ -2766,6 +3100,56 @@ export class MemoryPersistence implements Persistence {
     entry.version += 1;
     entry.reconciliationNote = normalizedNote || entry.reconciliationNote;
 
+    return entry;
+  }
+
+  async updateDividendStockReconciliationStatus(
+    userId: string,
+    dividendLedgerEntryId: string,
+    status: NonNullable<Store["accounting"]["facts"]["dividendLedgerEntries"][number]["stockReconciliationStatus"]>,
+    note?: string | null,
+    expectedVersion?: number,
+    auditInput?: Omit<AuditLogInput, "action" | "targetUserId">,
+  ) {
+    const store = await this.loadStore(userId);
+    const entry = await this.findDividendLedgerEntryById(userId, dividendLedgerEntryId);
+    if (!entry) {
+      throw routeError(404, "dividend_ledger_entry_not_found", "Dividend ledger entry not found");
+    }
+    if (expectedVersion !== undefined && entry.version !== expectedVersion) {
+      throw routeError(409, "dividend_version_conflict", "Dividend has been updated by another request");
+    }
+    if (!["posted", "adjusted"].includes(entry.postingStatus)) {
+      throw routeError(409, "stock_reconciliation_requires_posted_status", "Dividend must be posted before stock reconciliation changes");
+    }
+    const event = store.marketData.dividendEvents.find((candidate) => candidate.id === entry.dividendEventId);
+    if (!event || event.eventType === "CASH") {
+      throw routeError(409, "stock_reconciliation_requires_stock_event", "Stock reconciliation is only available for stock-bearing dividends");
+    }
+    const normalizedNote = note?.trim();
+    if (status === "explained" && !normalizedNote) {
+      throw routeError(400, "stock_reconciliation_note_required", "A note is required when stock reconciliation stays explained");
+    }
+    entry.stockReconciliationStatus = status;
+    entry.stockReconciliationNote = note === undefined
+      ? (entry.stockReconciliationNote ?? null)
+      : (normalizedNote || null);
+    entry.version += 1;
+    if (auditInput) {
+      await this.appendAuditLog({
+        ...auditInput,
+        action: "dividend_stock_reconciliation_updated",
+        targetUserId: userId,
+        metadata: {
+          ...(auditInput.metadata ?? {}),
+          mutation: "dividend_stock_reconciliation_updated",
+          dividendLedgerEntryId,
+          dividendEventId: entry.dividendEventId,
+          accountId: entry.accountId,
+          stockReconciliationStatus: entry.stockReconciliationStatus,
+        },
+      });
+    }
     return entry;
   }
 
@@ -3238,13 +3622,20 @@ export class MemoryPersistence implements Persistence {
         actualNetAmount: receivedByLedgerId.get(entry.id) ?? 0,
         deductions: this.summarizeDividendDeductions(deductions),
       });
-          const stockEntitlement = resolveDividendStockEntitlement({
-            eligibleQuantity: entry.eligibleQuantity,
-            stockEntitlementRequired: event.eventType !== "CASH",
-            stockDistributionRatio: event.stockDistributionRatio ?? null,
-            stockDistributionRatioState: event.stockDistributionRatioState ?? "unresolved",
-          });
-      return [{
+      const stockEntitlement = resolveDividendStockEntitlement({
+        eligibleQuantity: entry.eligibleQuantity,
+        stockEntitlementRequired: event.eventType !== "CASH",
+        stockDistributionRatio: event.stockDistributionRatio ?? null,
+        stockDistributionRatioState: event.stockDistributionRatioState ?? "unresolved",
+      });
+      const activeCalculation = entry.activeCalculationId
+        ? store.accounting.facts.dividendCalculationVersions.find((item) =>
+            item.id === entry.activeCalculationId
+            && !item.supersededAt
+            && (item.status === "confirmed" || item.status === "amended"))
+          ?? findActiveDividendCalculationVersion(store, entry.accountId, entry.dividendEventId)
+        : findActiveDividendCalculationVersion(store, entry.accountId, entry.dividendEventId);
+      const row: DividendReviewRowWithDetails = {
         ...entry,
         rowKind: "ledger",
         ticker: event.ticker,
@@ -3260,9 +3651,17 @@ export class MemoryPersistence implements Persistence {
         sourceLines: store.accounting.facts.dividendSourceLines.filter(
           (line) => line.dividendLedgerEntryId === entry.id,
         ),
-        stockDistributionRatio: stockEntitlement.stockDistributionRatio,
+        expectedStockQuantity: activeCalculation?.expectedWholeShares ?? entry.expectedStockQuantity,
+        expectedStockDistributionRatio:
+          activeCalculation?.ratio == null ? entry.expectedStockDistributionRatio : Number(activeCalculation.ratio),
+        expectedStockParValueAmount:
+          activeCalculation?.selectedParValue == null
+            ? entry.expectedStockParValueAmount
+            : Number(activeCalculation.selectedParValue),
+        stockDistributionRatio:
+          activeCalculation?.ratio == null ? stockEntitlement.stockDistributionRatio : Number(activeCalculation.ratio),
         stockDistributionRatioState: stockEntitlement.stockDistributionRatioState,
-        expectedStockCalcState: stockEntitlement.expectedStockCalcState,
+        expectedStockCalcState: activeCalculation ? "resolved" : stockEntitlement.expectedStockCalcState,
         nhiAmount: cashReconciliation.deductions.nhiAmount,
         bankFeeAmount: cashReconciliation.deductions.bankFeeAmount,
         otherDeductionAmount: cashReconciliation.deductions.otherDeductionAmount,
@@ -3270,7 +3669,19 @@ export class MemoryPersistence implements Persistence {
         expectedNetAmount: cashReconciliation.expectedNetAmount,
         actualNetAmount: cashReconciliation.actualNetAmount,
         varianceAmount: cashReconciliation.varianceAmount,
-      }];
+        provider: {
+          value: event.stockProviderValue
+            ?? (event.stockDistributionAmountRaw == null ? null : String(event.stockDistributionAmountRaw)),
+          unit: event.stockProviderValueUnit ?? null,
+          source: event.stockProviderSource ?? null,
+          dataset: event.stockProviderDataset ?? null,
+          authoritativeRatio: event.stockProviderAuthoritativeRatio ?? null,
+        },
+        activeCalculation: activeCalculation ? mapDividendCalculationVersionDto(activeCalculation) : null,
+      };
+      if (opts.cashStatus && (row.cashReconciliationStatus ?? row.reconciliationStatus) !== opts.cashStatus) return [];
+      if (opts.stockStatus && deriveDividendReviewStockStatus(row) !== opts.stockStatus) return [];
+      return [row];
     });
 
     const expectedRows: DividendReviewRowWithDetails[] = [];
@@ -3317,7 +3728,8 @@ export class MemoryPersistence implements Persistence {
             stockDistributionRatio: event.stockDistributionRatio ?? null,
             stockDistributionRatioState: event.stockDistributionRatioState ?? "unresolved",
           });
-          expectedRows.push({
+          const activeCalculation = findActiveDividendCalculationVersion(store, account.id, event.id);
+          const row: DividendReviewRowWithDetails = {
             id: `expected:${account.id}:${event.id}`,
             rowKind: "expected",
             accountId: account.id,
@@ -3332,18 +3744,25 @@ export class MemoryPersistence implements Persistence {
             cashCurrency: event.cashDividendCurrency,
             eligibleQuantity,
             expectedCashAmount: cashReconciliation.expectedGrossAmount,
-            expectedStockQuantity: stockEntitlement.expectedStockQuantity,
+            expectedStockQuantity: activeCalculation?.expectedWholeShares ?? stockEntitlement.expectedStockQuantity,
             receivedCashAmount: 0,
             receivedStockQuantity: 0,
             postingStatus: "expected",
             reconciliationStatus: "open",
+            cashReconciliationStatus: "open",
             version: 0,
             sourceCompositionStatus: "unknown_pending_disclosure",
             deductions: [],
             sourceLines: [],
-            stockDistributionRatio: stockEntitlement.stockDistributionRatio,
+            activeCalculationId: activeCalculation?.id ?? null,
+            stockDistributionRatio:
+              activeCalculation?.ratio == null ? stockEntitlement.stockDistributionRatio : Number(activeCalculation.ratio),
             stockDistributionRatioState: stockEntitlement.stockDistributionRatioState,
-            expectedStockCalcState: stockEntitlement.expectedStockCalcState,
+            expectedStockCalcState: activeCalculation ? "resolved" : stockEntitlement.expectedStockCalcState,
+            expectedStockDistributionRatio:
+              activeCalculation?.ratio == null ? null : Number(activeCalculation.ratio),
+            expectedStockParValueAmount:
+              activeCalculation?.selectedParValue == null ? null : Number(activeCalculation.selectedParValue),
             nhiAmount: cashReconciliation.deductions.nhiAmount,
             bankFeeAmount: cashReconciliation.deductions.bankFeeAmount,
             otherDeductionAmount: cashReconciliation.deductions.otherDeductionAmount,
@@ -3351,7 +3770,19 @@ export class MemoryPersistence implements Persistence {
             expectedNetAmount: cashReconciliation.expectedNetAmount,
             actualNetAmount: cashReconciliation.actualNetAmount,
             varianceAmount: cashReconciliation.varianceAmount,
-          });
+            provider: {
+              value: event.stockProviderValue
+                ?? (event.stockDistributionAmountRaw == null ? null : String(event.stockDistributionAmountRaw)),
+              unit: event.stockProviderValueUnit ?? null,
+              source: event.stockProviderSource ?? null,
+              dataset: event.stockProviderDataset ?? null,
+              authoritativeRatio: event.stockProviderAuthoritativeRatio ?? null,
+            },
+            activeCalculation: activeCalculation ? mapDividendCalculationVersionDto(activeCalculation) : null,
+          };
+          if (opts.cashStatus && "open" !== opts.cashStatus) continue;
+          if (opts.stockStatus && deriveDividendReviewStockStatus(row) !== opts.stockStatus) continue;
+          expectedRows.push(row);
         }
       }
     }
@@ -3402,8 +3833,37 @@ export class MemoryPersistence implements Persistence {
     });
     const total = sorted.length;
     const startIndex = (opts.page - 1) * opts.limit;
+    const pageRows = sorted.slice(startIndex, startIndex + opts.limit);
+    const enrichedRowsById = new Map(
+      enrichDividendReviewRows(store, pageRows).map((row) => [row.id, row]),
+    );
+    const enrichedRows = pageRows.map((baseRow) => {
+      const enrichedRow = enrichedRowsById.get(baseRow.id);
+      if (!enrichedRow) return baseRow;
+      return {
+        ...baseRow,
+        expectedStockQuantity:
+          baseRow.eventType !== "CASH" && baseRow.expectedStockCalcState === "needs_action"
+            ? null
+            : baseRow.expectedStockQuantity,
+        correctionMode: enrichedRow.correctionMode,
+        amendmentBlockedReason: enrichedRow.amendmentBlockedReason,
+        linkedPositionActionId: enrichedRow.linkedPositionActionId ?? null,
+        linkedPositionActionStatus: enrichedRow.linkedPositionActionStatus ?? null,
+        cashInLieuAmount: enrichedRow.cashInLieuAmount ?? null,
+        parValueBaseAmount: enrichedRow.parValueBaseAmount ?? null,
+        premiumBaseAmount: enrichedRow.premiumBaseAmount ?? null,
+        nhiPremiumBaseAmount: enrichedRow.nhiPremiumBaseAmount ?? null,
+        portfolioCostBasisAddedAmount: enrichedRow.portfolioCostBasisAddedAmount ?? null,
+        snapshotRefreshStatus: enrichedRow.snapshotRefreshStatus ?? null,
+        stockVarianceQuantity:
+          baseRow.eventType !== "CASH" && baseRow.expectedStockCalcState !== "needs_action"
+            ? baseRow.receivedStockQuantity - baseRow.expectedStockQuantity
+            : null,
+      };
+    });
     return {
-      rows: enrichDividendReviewRows(store, sorted.slice(startIndex, startIndex + opts.limit)),
+      rows: enrichedRows,
       total,
       aggregates,
     };
@@ -3440,9 +3900,14 @@ export class MemoryPersistence implements Persistence {
       eligibleQuantity: row.eligibleQuantity,
       expectedCashAmount: row.expectedCashAmount,
       receivedCashAmount: row.receivedCashAmount,
-      expectedStockQuantity: row.expectedStockQuantity,
+      expectedStockQuantity: row.eventType !== "CASH" && row.expectedStockCalcState === "needs_action"
+        ? null
+        : row.expectedStockQuantity,
       receivedStockQuantity: row.receivedStockQuantity,
       postingStatus: row.postingStatus,
+      cashReconciliationStatus: row.reconciliationStatus,
+      stockReconciliationStatus: deriveDividendReviewStockStatus(row),
+      stockReconciliationNote: row.reconciliationStatus === "explained" ? (row.reconciliationNote ?? null) : null,
       reconciliationStatus: row.reconciliationStatus,
       sourceCompositionStatus: row.sourceCompositionStatus,
       expectedGrossAmount: row.expectedGrossAmount,
@@ -3456,7 +3921,13 @@ export class MemoryPersistence implements Persistence {
       stockDistributionRatioState: row.stockDistributionRatioState,
       expectedStockCalcState: row.expectedStockCalcState,
       expectedStockParValueAmount: row.expectedStockParValueAmount,
+      stockVarianceQuantity:
+        row.eventType !== "CASH" && row.expectedStockCalcState !== "needs_action"
+          ? row.receivedStockQuantity - row.expectedStockQuantity
+          : null,
       cashInLieuAmount: row.cashInLieuAmount,
+      provider: row.provider ?? null,
+      activeCalculation: row.activeCalculation ?? null,
     }));
     return {
       rows,
@@ -3524,6 +3995,7 @@ export class MemoryPersistence implements Persistence {
         providedCount: rows.filter((row) => row.sourceCompositionStatus === "provided").length,
         pendingCount: rows.filter((row) => row.sourceCompositionStatus === "unknown_pending_disclosure").length,
       },
+      hero: buildDividendReviewHeroAggregates(rows),
     };
     enrichment.phaseTimings = {
       dbMs,
@@ -9082,6 +9554,242 @@ function compareNumberByOrder(left: number, right: number, sortOrder: "asc" | "d
 function compareStringByOrder(left: string, right: string, sortOrder: "asc" | "desc"): number {
   const cmp = left.localeCompare(right);
   return sortOrder === "asc" ? cmp : -cmp;
+}
+
+function deriveDividendReviewStockStatus(row: {
+  eventType: DividendReviewRowWithDetails["eventType"];
+  postingStatus: DividendReviewRowWithDetails["postingStatus"];
+  expectedStockCalcState?: DividendReviewRowWithDetails["expectedStockCalcState"];
+  expectedStockQuantity: number;
+  receivedStockQuantity: number;
+  reconciliationStatus: DividendReviewRowWithDetails["reconciliationStatus"];
+}): DividendReviewRowSummaryDto["stockReconciliationStatus"] {
+  if (row.eventType === "CASH") return null;
+  if (row.expectedStockCalcState === "needs_action") return "needs_calculation";
+  if (row.postingStatus === "expected") return "pending_receipt";
+  if (row.reconciliationStatus === "explained") return "explained";
+  return row.receivedStockQuantity === row.expectedStockQuantity ? "matched" : "variance";
+}
+
+function assertOwnedDividendCalculationAccount(store: Store, accountId: string): void {
+  const account = store.accounts.find((item) => item.id === accountId);
+  if (!account) {
+    throw routeError(404, "account_not_found", "Account not found");
+  }
+}
+
+function findActiveDividendCalculationVersion(
+  store: Store,
+  accountId: string,
+  dividendEventId: string,
+): DividendCalculationVersion | null {
+  return [...store.accounting.facts.dividendCalculationVersions]
+    .filter(
+      (item) =>
+        item.accountId === accountId &&
+        item.dividendEventId === dividendEventId &&
+        !item.supersededAt &&
+        (item.status === "confirmed" || item.status === "amended"),
+    )
+    .sort(compareDividendCalculationVersionsDesc)[0] ?? null;
+}
+
+function nextDividendCalculationVersionNumber(
+  store: Store,
+  userId: string,
+  accountId: string,
+  dividendEventId: string,
+): number {
+  return [...store.accounting.facts.dividendCalculationVersions]
+    .filter(
+      (item) =>
+        item.userId === userId &&
+        item.accountId === accountId &&
+        item.dividendEventId === dividendEventId,
+    )
+    .reduce((max, item) => Math.max(max, item.calculationVersion), 0) + 1;
+}
+
+function compareDividendCalculationVersionsDesc(
+  left: DividendCalculationVersion,
+  right: DividendCalculationVersion,
+): number {
+  return right.calculationVersion - left.calculationVersion
+    || Date.parse(right.createdAt ?? "1970-01-01T00:00:00.000Z")
+      - Date.parse(left.createdAt ?? "1970-01-01T00:00:00.000Z")
+    || right.id.localeCompare(left.id);
+}
+
+function assertDividendCalculationMutationExpectation(
+  currentActive: DividendCalculationVersion | null,
+  input: {
+    expectedActiveCalculationId?: string | null;
+    expectedCalculationVersion?: number | null;
+  },
+): void {
+  const actualActiveCalculationId = currentActive?.id ?? null;
+  const actualCalculationVersion = currentActive?.calculationVersion ?? null;
+  if (input.expectedActiveCalculationId === undefined && input.expectedCalculationVersion === undefined) {
+    throw routeError(
+      400,
+      "dividend_calculation_expectation_required",
+      "expectedActiveCalculationId or expectedCalculationVersion is required.",
+    );
+  }
+  if (
+    input.expectedActiveCalculationId !== undefined
+    && input.expectedActiveCalculationId !== actualActiveCalculationId
+  ) {
+    throw routeError(
+      409,
+      "dividend_calculation_conflict",
+      "The active dividend calculation changed. Refresh and retry.",
+      { actualActiveCalculationId, actualCalculationVersion },
+    );
+  }
+  if (
+    input.expectedCalculationVersion !== undefined
+    && (input.expectedCalculationVersion ?? null) !== actualCalculationVersion
+  ) {
+    throw routeError(
+      409,
+      "dividend_calculation_conflict",
+      "The active dividend calculation changed. Refresh and retry.",
+      { actualActiveCalculationId, actualCalculationVersion },
+    );
+  }
+}
+
+function mapDividendCalculationVersionDto(
+  version: DividendCalculationVersion,
+): DividendCalculationVersionDto {
+  return {
+    id: version.id,
+    accountId: version.accountId,
+    dividendEventId: version.dividendEventId,
+    calculationVersion: version.calculationVersion,
+    status: version.status,
+    method: version.method,
+    provider: {
+      value: version.providerValue ?? null,
+      unit: version.providerUnit ?? null,
+      source: version.providerSource ?? null,
+      dataset: version.providerDataset ?? null,
+      authoritativeRatio: version.providerAuthoritativeRatio ?? null,
+    },
+    ratio: version.ratio,
+    selectedParValue: version.selectedParValue ?? null,
+    theoreticalShares: version.theoreticalShares,
+    expectedWholeShares: version.expectedWholeShares ?? null,
+    fractionalRemainder: version.fractionalRemainder ?? null,
+    requiresHighRatioConfirmation: version.requiresHighRatioConfirmation,
+    confirmedAt: version.confirmedAt ?? null,
+    supersededAt: version.supersededAt ?? null,
+    priorCalculationId: version.priorCalculationId ?? null,
+    dividendLedgerEntryId: version.dividendLedgerEntryId ?? null,
+    drift: version.drift ?? null,
+  };
+}
+
+function deriveStockReconciliationStatusFromExpectation(
+  receivedStockQuantity: number,
+  expectedWholeShares: number,
+): DividendReviewRowSummaryDto["stockReconciliationStatus"] {
+  if (expectedWholeShares <= 0) return receivedStockQuantity > 0 ? "variance" : "pending_receipt";
+  if (receivedStockQuantity === 0) return "pending_receipt";
+  return receivedStockQuantity === expectedWholeShares ? "matched" : "variance";
+}
+
+function buildDividendReviewHeroAggregates(
+  rows: readonly DividendReviewRowWithDetails[],
+): import("@vakwen/shared-types").DividendReviewHeroAggregatesDto {
+  const expectedByTicker = new Map<string, {
+    marketCode: SharedMarketCode;
+    ticker: string;
+    expectedWholeShares: number | null;
+    receivedShares: number | null;
+    unresolvedEventCount: number;
+  }>();
+  const receivedByTicker = new Map<string, {
+    marketCode: SharedMarketCode;
+    ticker: string;
+    expectedWholeShares: number | null;
+    receivedShares: number | null;
+    unresolvedEventCount: number;
+  }>();
+  let needsCalculationCount = 0;
+  let cashAttentionCount = 0;
+  let stockAttentionCount = 0;
+  let needsAttentionCount = 0;
+
+  for (const row of rows) {
+    const cashNeedsAttention = row.cashReconciliationStatus === "open" || row.cashReconciliationStatus === "explained";
+    if (cashNeedsAttention) {
+      cashAttentionCount += 1;
+    }
+    const stockStatus = deriveDividendReviewStockStatus(row);
+    if (stockStatus === "needs_calculation") needsCalculationCount += 1;
+    const stockNeedsAttention = Boolean(stockStatus && stockStatus !== "matched");
+    if (stockNeedsAttention) stockAttentionCount += 1;
+    if (cashNeedsAttention || stockNeedsAttention) needsAttentionCount += 1;
+    if (row.eventType === "CASH") continue;
+    const key = `${row.marketCode}:${row.ticker}`;
+    const expectedBucket = expectedByTicker.get(key) ?? {
+      marketCode: row.marketCode as SharedMarketCode,
+      ticker: row.ticker,
+      expectedWholeShares: 0,
+      receivedShares: null,
+      unresolvedEventCount: 0,
+    };
+    if (row.expectedStockCalcState === "needs_action" || row.expectedStockQuantity == null) {
+      expectedBucket.expectedWholeShares = expectedBucket.expectedWholeShares === 0 ? null : expectedBucket.expectedWholeShares;
+      expectedBucket.unresolvedEventCount += 1;
+    } else {
+      expectedBucket.expectedWholeShares = (expectedBucket.expectedWholeShares ?? 0) + row.expectedStockQuantity;
+    }
+    expectedByTicker.set(key, expectedBucket);
+
+    const receivedBucket = receivedByTicker.get(key) ?? {
+      marketCode: row.marketCode as SharedMarketCode,
+      ticker: row.ticker,
+      expectedWholeShares: null,
+      receivedShares: 0,
+      unresolvedEventCount: 0,
+    };
+    receivedBucket.receivedShares = (receivedBucket.receivedShares ?? 0) + row.receivedStockQuantity;
+    if (row.expectedStockCalcState === "needs_action" || row.expectedStockQuantity == null) {
+      receivedBucket.unresolvedEventCount += 1;
+    }
+    receivedByTicker.set(key, receivedBucket);
+  }
+
+  const sortTickerAggregates = (
+    items: Iterable<{
+      marketCode: SharedMarketCode;
+      ticker: string;
+      expectedWholeShares: number | null;
+      receivedShares: number | null;
+      unresolvedEventCount: number;
+    }>,
+  ) => [...items].sort((left, right) =>
+    left.marketCode.localeCompare(right.marketCode)
+    || left.ticker.localeCompare(right.ticker)
+  );
+
+  const expectedSorted = sortTickerAggregates(expectedByTicker.values());
+  const receivedSorted = sortTickerAggregates(receivedByTicker.values());
+  return {
+    expectedStockTickers: expectedSorted,
+    expectedStockTopTickers: expectedSorted.slice(0, 3),
+    expectedStockRemainingTickerCount: Math.max(0, expectedSorted.length - 3),
+    receivedStockTickers: receivedSorted,
+    receivedStockTopTickers: receivedSorted.slice(0, 3),
+    receivedStockRemainingTickerCount: Math.max(0, receivedSorted.length - 3),
+    needsCalculationCount,
+    cashAttentionCount,
+    stockAttentionCount,
+    needsAttentionCount,
+  };
 }
 
 function compareDividendReviewRows(

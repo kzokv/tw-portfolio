@@ -6,7 +6,7 @@ vi.mock("../../../lib/api", () => ({
   postJson: vi.fn(),
 }));
 
-import { getJson } from "../../../lib/api";
+import { getJson, patchJson } from "../../../lib/api";
 import {
   fetchDividendCalendarSnapshot,
   fetchDividendDailyHighlights,
@@ -14,6 +14,7 @@ import {
   fetchDividendReviewPrimary,
   fetchDividendLedgerReview,
   fetchDividendLedgerEntry,
+  updateDividendStockReconciliation,
 } from "../../../features/dividends/services/dividendService";
 
 describe("dividendService calendar snapshot", () => {
@@ -91,6 +92,8 @@ describe("dividendService calendar snapshot", () => {
       fromPaymentDate: "2026-01-01",
       toPaymentDate: "2026-12-31",
       sourceComposition: "pending" as const,
+      cashStatus: "explained" as const,
+      stockStatus: "variance" as const,
       sortBy: "varianceAmount" as const,
       sortOrder: "asc" as const,
       page: 2,
@@ -101,12 +104,12 @@ describe("dividendService calendar snapshot", () => {
 
     expect(getJson).toHaveBeenNthCalledWith(
       1,
-      "/portfolio/dividends/review/primary?fromPaymentDate=2026-01-01&toPaymentDate=2026-12-31&sourceComposition=pending&sortBy=varianceAmount&sortOrder=asc&page=2&limit=25",
+      "/portfolio/dividends/review/primary?fromPaymentDate=2026-01-01&toPaymentDate=2026-12-31&cashStatus=explained&stockStatus=variance&sourceComposition=pending&sortBy=varianceAmount&sortOrder=asc&page=2&limit=25",
       { signal },
     );
     expect(getJson).toHaveBeenNthCalledWith(
       2,
-      "/portfolio/dividends/review/enrichment?fromPaymentDate=2026-01-01&toPaymentDate=2026-12-31&sourceComposition=pending",
+      "/portfolio/dividends/review/enrichment?fromPaymentDate=2026-01-01&toPaymentDate=2026-12-31&cashStatus=explained&stockStatus=variance&sourceComposition=pending",
       { signal },
     );
   });
@@ -120,6 +123,36 @@ describe("dividendService calendar snapshot", () => {
     expect(getJson).toHaveBeenCalledWith(
       "/portfolio/dividends/postings/ledger%2F1",
       { signal },
+    );
+  });
+
+  it("updates stock reconciliation with status, explanation, and optimistic version", async () => {
+    vi.mocked(patchJson).mockResolvedValueOnce({ ledgerEntry: { id: "ledger-1", version: 4, stockReconciliationStatus: "explained" } });
+
+    await expect(updateDividendStockReconciliation("ledger/1", {
+      status: "explained",
+      note: "Broker confirmed fractional settlement.",
+      expectedVersion: 3,
+    })).resolves.toMatchObject({ id: "ledger-1", version: 4, stockReconciliationStatus: "explained" });
+
+    expect(patchJson).toHaveBeenCalledWith(
+      "/portfolio/dividends/postings/ledger%2F1/stock-reconciliation",
+      { status: "explained", note: "Broker confirmed fractional settlement.", expectedVersion: 3 },
+    );
+  });
+
+  it("forwards an explicit null stock reconciliation note when the explanation is cleared", async () => {
+    vi.mocked(patchJson).mockResolvedValueOnce({ ledgerEntry: { id: "ledger-1", version: 5, stockReconciliationStatus: "variance", stockReconciliationNote: null } });
+
+    await expect(updateDividendStockReconciliation("ledger/1", {
+      status: "variance",
+      note: null,
+      expectedVersion: 4,
+    })).resolves.toMatchObject({ id: "ledger-1", version: 5, stockReconciliationStatus: "variance", stockReconciliationNote: null });
+
+    expect(patchJson).toHaveBeenCalledWith(
+      "/portfolio/dividends/postings/ledger%2F1/stock-reconciliation",
+      { status: "variance", note: null, expectedVersion: 4 },
     );
   });
 });

@@ -1,8 +1,15 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import type { AccountDto, LocaleCode } from "@vakwen/shared-types";
+import type { AccountDto, LocaleCode, MarketCode } from "@vakwen/shared-types";
+
+vi.mock("../../../../features/dividends/services/dividendCalculationService", () => ({
+  fetchAccountMarketDividendSettings: vi.fn(),
+  patchAccountMarketDividendSettings: vi.fn(),
+}));
+
 import { AccountsListSection } from "../../../../features/settings/components/AccountsListSection";
+import { fetchAccountMarketDividendSettings } from "../../../../features/dividends/services/dividendCalculationService";
 import type {
   SettingsAccountBindingModel,
   SettingsProfileModel,
@@ -73,6 +80,7 @@ interface RenderOptions {
   profiles?: SettingsProfileModel[];
   feeProfileBindings?: SettingsSecurityBindingModel[];
   activeLocale?: LocaleCode;
+  focusedDividendSettings?: { accountId: string; marketCode: MarketCode } | null;
 }
 
 describe("AccountsListSection", () => {
@@ -95,6 +103,13 @@ describe("AccountsListSection", () => {
     document.body.appendChild(container);
     root = createRoot(container);
     vi.clearAllMocks();
+    vi.mocked(fetchAccountMarketDividendSettings).mockImplementation(async (accountId, marketCode) => ({
+      accountId,
+      marketCode,
+      version: 0,
+      fallbackParValue: null,
+      updatedAt: null,
+    }));
   });
 
   afterEach(() => {
@@ -108,6 +123,7 @@ describe("AccountsListSection", () => {
     profiles = [buildProfile()],
     feeProfileBindings = [],
     activeLocale = "en",
+    focusedDividendSettings = null,
   }: RenderOptions = {}) {
     act(() => {
       root.render(
@@ -128,6 +144,7 @@ describe("AccountsListSection", () => {
           onUpdateBinding={onUpdateBinding}
           onRemoveBinding={onRemoveBinding}
           dict={dict}
+          focusedDividendSettings={focusedDividendSettings}
         />,
       );
     });
@@ -353,5 +370,30 @@ describe("AccountsListSection", () => {
     expect(container.querySelector('[data-testid="accounts-card-acc-2"]')).toBeTruthy();
     expect(container.querySelector('[data-testid="settings-account-profile-acc-1"]')).toBeNull();
     expect(container.querySelector('[data-testid="settings-account-profile-acc-2"]')).toBeTruthy();
+  });
+
+  it("expands and focuses the exact account-market dividend settings deep link", async () => {
+    render({
+      accounts: [
+        buildAccount({ id: "acc-1", defaultCurrency: "TWD" }),
+        buildAccount({ id: "acc-2", defaultCurrency: "USD", feeProfileId: "fp-2" }),
+      ],
+      accountDrafts: [
+        buildBinding({ id: "acc-1" }),
+        buildBinding({ id: "acc-2", feeProfileId: "fp-2" }),
+      ],
+      profiles: [
+        buildProfile({ id: "fp-1", accountId: "acc-1" }),
+        buildProfile({ id: "fp-2", accountId: "acc-2", commissionCurrency: "USD" }),
+      ],
+      focusedDividendSettings: { accountId: "acc-1", marketCode: "TW" },
+    });
+
+    await act(async () => undefined);
+
+    const target = container.querySelector('[data-testid="dividend-settings-section-acc-1-TW"]');
+    expect(target).toBeTruthy();
+    expect(target?.getAttribute("tabindex")).toBe("-1");
+    expect(container.querySelector('[data-testid="settings-account-profile-acc-2"]')).toBeNull();
   });
 });

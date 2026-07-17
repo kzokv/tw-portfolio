@@ -99,12 +99,12 @@ export class DividendReviewPage extends BasePage<TDividendReviewElements> {
 
       // Filter bar — dropdowns and inputs
       tickerInput: this.locate("filter-ticker", "Ticker Input"),
-      statusSelect: this.locate("filter-status", "Status Select"),
+      statusSelect: this.locate("filter-cash-status", "Cash Status Select"),
       accountSelect: this.locate("filter-account", "Account Select"),
 
       // Stats tiles
       statTiles: this.locate("stat-tiles", "Stats Tiles"),
-      statOpenItems: this.locate("stat-open-items", "Open Items Tile"),
+      statOpenItems: this.locate("stat-needs-attention", "Needs Attention Tile"),
 
       // Charts
       chartsContainer: this.locate("dividend-review-charts", "Charts Container"),
@@ -115,7 +115,7 @@ export class DividendReviewPage extends BasePage<TDividendReviewElements> {
       // Table (desktop)
       table: this.locate("review-table", "Dividend Review Table"),
       rows: this.withDescription(
-        this.scope.locator('[data-testid^="review-row-"]:not([data-testid="review-row-skeleton"])'),
+        this.scope.locator('[data-testid^="review-row-"]:not([data-testid="review-row-skeleton"]):not([data-testid$="-open"])'),
         "Dividend Review Rows",
       ),
       rowSkeletons: this.locate("review-row-skeleton", "Dividend Review Row Skeletons"),

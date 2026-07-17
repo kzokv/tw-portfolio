@@ -4,5 +4,6 @@ export * from "./fee.js";
 export * from "./lot.js";
 export * from "./classifyInstrument.js";
 export * from "./dividend-bookkeeping.js";
+export * from "./dividend-stock-calculation.js";
 export * from "./dividend-deductions.js";
 export * from "./performanceRange.js";

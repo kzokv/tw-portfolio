@@ -210,17 +210,17 @@ test.describe("sharing delegated capabilities", () => {
     await appShell.assert.appIsReady();
 
     await appShell.actions.openSettingsSection("accounts");
-    await page.getByTestId("accounts-permission-back").waitFor({ state: "visible" });
-    await page.getByTestId("accounts-permission-self").waitFor({ state: "visible" });
+    const accountCreateForm = page.getByTestId("account-create-form");
+    await accountCreateForm.waitFor({ state: "visible" });
     await appShell.assert.mxAssertEqual(
-      await page.getByTestId("account-create-form").count(),
-      0,
-      "account create form is hidden without account:manage",
+      await page.getByTestId("account-create-submit").isDisabled(),
+      true,
+      "account create form is read-only without account:manage",
     );
     await appShell.assert.mxAssertEqual(
-      await page.getByTestId(`account-delete-btn-${account.id}`).count(),
-      0,
-      "account delete button is hidden without account:manage",
+      await page.getByTestId(`account-delete-btn-${account.id}`).isDisabled(),
+      true,
+      "account delete button is disabled without account:manage",
     );
 
     await updateActiveShareCapabilities(shareId, testUser.userId, ["portfolio:mcp_read", "account:manage"]);

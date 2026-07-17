@@ -14,6 +14,14 @@ function taipeiDateParts(): { date: string; month: string } {
   return { date: `${year}-${month}-${value("day")}`, month: `${year}-${month}` };
 }
 
+function seededEventId(seedBody: Record<string, unknown>): string {
+  const dividendEvent = seedBody.dividendEvent as { id?: string } | undefined;
+  if (!dividendEvent?.id) {
+    throw new Error("seeded dividend event id was missing");
+  }
+  return dividendEvent.id;
+}
+
 test.describe("locked dividend browser coverage", () => {
   test("[dividend overview]: daily and needs-action data → one card shows market-local today and only three prioritized rows on desktop and mobile", async ({
     appShell,
@@ -348,6 +356,179 @@ test.describe("locked dividend browser coverage", () => {
       await page.getByTestId("transaction-row").filter({ hasText: "BUY" }).count(),
       0,
       "deleted BUY transaction row count",
+    );
+  });
+
+  test("[dividend calculation settings]: posting drawer deep link → focused TW fallback saves in a new tab and return refresh preserves unsaved receipt input", async ({
+    appShell,
+    dividends,
+    page,
+    request,
+    testUser,
+  }) => {
+    const settingsUrl = new URL("/accounts/acc-1/dividend-settings/TW", TestEnv.apiBaseUrl).href;
+    const currentSettingsResponse = await request.get(settingsUrl, {
+      headers: { "x-user-id": testUser.userId },
+    });
+    const currentSettings = await currentSettingsResponse.json() as { version: number };
+    const clearResponse = await request.patch(settingsUrl, {
+      headers: { "content-type": "application/json", "x-user-id": testUser.userId },
+      data: { expectedVersion: currentSettings.version, fallbackParValue: null },
+    });
+    await appShell.assert.mxAssertEqual(clearResponse.ok(), true, await clearResponse.text());
+
+    const seedBody = await dividends.arrange.seedDividendEvent({
+      ticker: "2887",
+      eventType: "STOCK",
+      exDividendDate: "2026-08-05",
+      paymentDate: "2026-08-20",
+      cashDividendPerShare: 0,
+      stockDividendPerShare: 1,
+      stockDistributionAmountRaw: 1,
+      stockDistributionRatio: null,
+      stockDistributionRatioState: "unresolved",
+      stockProviderValueUnit: "TWD_PER_SHARE",
+      stockProviderSource: "finmind",
+      stockProviderDataset: "TaiwanStockDividend",
+    });
+    const eventId = seededEventId(seedBody);
+
+    await appShell.actions.navigateToRoute("/dividends?month=2026-08");
+    await dividends.assert.calendarLoaded();
+    await dividends.actions.openPostingDrawerForEvent(eventId);
+    await dividends.assert.drawerIsVisible();
+
+    await page.getByTestId("dividend-received-stock").fill("155");
+    await page.getByText(/Par value|面額/i).first().click();
+    await appShell.assert.mxAssertEqual(
+      await page.getByTestId("dividend-calculation-par-value").inputValue(),
+      "",
+      "dividend calculation par value starts empty",
+    );
+
+    await page.context().route("**/events/stream", async (route) => {
+      await route.abort();
+    });
+    const popupPromise = page.waitForEvent("popup");
+    await page.getByTestId("dividend-calculation-settings-link").click();
+    const popup = await popupPromise;
+    await popup.waitForLoadState("domcontentloaded");
+    await popup.bringToFront();
+
+    const focusedSection = popup.getByTestId("dividend-settings-section-acc-1-TW");
+    await focusedSection.waitFor({ state: "visible" });
+    await popup.waitForFunction(
+      () => document.activeElement?.getAttribute("data-testid") === "dividend-settings-section-acc-1-TW",
+    );
+
+    await popup.getByTestId("dividend-settings-edit-acc-1-TW").click();
+    await popup.getByTestId("dividend-settings-par-value-acc-1-TW").fill("10");
+    const saveResponse = popup.waitForResponse((response) => (
+      response.request().method() === "PATCH"
+      && response.url().endsWith("/accounts/acc-1/dividend-settings/TW")
+    ));
+    await popup.getByTestId("dividend-settings-save-acc-1-TW").click();
+    await appShell.assert.mxAssertEqual((await saveResponse).ok(), true, "dividend settings save response");
+    await popup.getByTestId("dividend-settings-edit-acc-1-TW").waitFor({ state: "visible" });
+    await appShell.assert.mxAssertMatches(
+      await focusedSection.textContent(),
+      /TWD 10/,
+      "focused dividend settings text",
+    );
+
+    const refreshResponse = page.waitForResponse((response) => (
+      response.request().method() === "GET"
+      && response.url().endsWith("/accounts/acc-1/dividend-settings/TW")
+    ));
+    await page.bringToFront();
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await appShell.assert.mxAssertEqual((await refreshResponse).ok(), true, "dividend settings refresh response");
+    await page.waitForFunction(() => (
+      (document.querySelector('[data-testid="dividend-calculation-par-value"]') as HTMLInputElement | null)?.value === "10"
+    ));
+    await appShell.assert.mxAssertEqual(
+      await page.getByTestId("dividend-received-stock").inputValue(),
+      "155",
+      "unsaved received stock input preserved",
+    );
+    await appShell.assert.mxAssertEqual(
+      await page.getByTestId("dividend-calculation-par-value").inputValue(),
+      "10",
+      "refreshed calculation par value",
+    );
+
+    const previewResponse = page.waitForResponse((response) =>
+      response.request().method() === "POST"
+      && response.url().includes("/portfolio/dividends/calculations/preview"));
+    await page.getByTestId("dividend-calculation-preview").click();
+    await appShell.assert.mxAssertTruthy((await previewResponse).ok(), "dividend calculation preview response ok");
+    await appShell.assert.mxAssertMatches(
+      await page.getByTestId("dividend-calculation-result").textContent(),
+      /100/,
+      "dividend calculation preview result",
+    );
+  });
+
+  test("[dividend review a11y]: labeled filters and keyboard row activation → drawer opens on desktop and mobile", async ({
+    dividendReview,
+    page,
+  }) => {
+    const posted = await dividendReview.arrange.seedPostedDividend({
+      ticker: "2886",
+      eventType: "STOCK",
+      exDividendDate: "2026-07-15",
+      paymentDate: "2026-08-20",
+      cashDividendPerShare: 0,
+      stockDividendPerShare: 0.1,
+      receivedCashAmount: 0,
+      receivedStockQuantity: 150,
+      deductions: [],
+      sourceCompositionStatus: "unknown_pending_disclosure",
+      sourceLines: [],
+    });
+
+    await dividendReview.actions.navigateToReviewWithParams("ticker=2886");
+    await dividendReview.assert.pageLoaded();
+    await dividendReview.assert.mxAssertMatches(
+      await page.getByTestId("filter-ticker").evaluate((element) => (element as HTMLInputElement).labels?.[0]?.textContent ?? ""),
+      /ticker/i,
+      "ticker filter accessible label",
+    );
+    await dividendReview.assert.mxAssertMatches(
+      await page.getByTestId("filter-account").evaluate((element) => (element as HTMLSelectElement).labels?.[0]?.textContent ?? ""),
+      /account/i,
+      "account filter accessible label",
+    );
+    await dividendReview.assert.mxAssertMatches(
+      await page.getByTestId("filter-cash-status").evaluate((element) => (element as HTMLSelectElement).labels?.[0]?.textContent ?? ""),
+      /cash status/i,
+      "cash status filter accessible label",
+    );
+    await dividendReview.assert.mxAssertMatches(
+      await page.getByTestId("filter-stock-status").evaluate((element) => (element as HTMLSelectElement).labels?.[0]?.textContent ?? ""),
+      /stock status/i,
+      "stock status filter accessible label",
+    );
+
+    const row = page.getByTestId(`review-row-${posted.dividendLedgerEntryId}`);
+    await dividendReview.assert.mxAssertEqual(await row.getAttribute("role"), null, "review row has no nested button role");
+    const openButton = page.getByTestId(`review-row-${posted.dividendLedgerEntryId}-open`);
+    await openButton.focus();
+    await page.keyboard.press("Enter");
+    await dividendReview.assert.drawerIsVisible();
+    await dividendReview.actions.closeDrawer();
+    await dividendReview.assert.drawerIsHidden();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await dividendReview.actions.navigateToReviewWithParams("ticker=2886");
+    const mobileRow = page.getByTestId(`review-row-${posted.dividendLedgerEntryId}-open`);
+    await mobileRow.focus();
+    await page.keyboard.press("Enter");
+    await dividendReview.assert.drawerIsVisible();
+    await dividendReview.assert.mxAssertEqual(
+      await page.getByTestId("dividend-received-stock").inputValue(),
+      "150",
+      "mobile review drawer received stock value",
     );
   });
 });

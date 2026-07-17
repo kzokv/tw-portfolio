@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AppDictionary } from "../../lib/i18n";
 import { formatCurrencyAmount, formatNumber } from "../../lib/utils";
 import type { LocaleCode } from "@vakwen/shared-types";
@@ -13,11 +13,14 @@ import type {
   DividendDeductionInput,
   DividendDeductionType,
   DividendPostingPayload,
+  ReviewedDividendPostingCalculation,
   DividendReconciliationStatus,
   DividendSourceLineInput,
 } from "../../features/dividends/types";
 import { SourceCompositionTab } from "./SourceCompositionTab";
 import type { DividendSourceBucket } from "@vakwen/shared-types";
+import { DividendCalculationPanel } from "../../features/dividends/components/DividendCalculationPanel";
+import { useOptionalAppShellData } from "../layout/AppShellDataContext";
 
 interface DividendPostingFormProps {
   row: DividendCalendarRow;
@@ -26,6 +29,15 @@ interface DividendPostingFormProps {
   onDirtyChange?: (dirty: boolean) => void;
   onCancel: () => void;
   onSaved: () => Promise<void> | void;
+  onCalculationChanged?: () => Promise<void> | void;
+}
+
+interface DividendPostingFormState {
+  receivedCashAmount: number;
+  receivedStockQuantity: number;
+  deductions: DividendDeductionInput[];
+  sourceCompositionStatus: DividendPostingPayload["sourceCompositionStatus"];
+  sourceLines: DividendSourceLineInput[];
 }
 
 const DEDUCTION_TYPES: DividendDeductionType[] = [
@@ -69,6 +81,7 @@ function roundTwd(value: number): number {
 }
 
 function authoritativeStockPremiumBase(row: DividendCalendarRow): number | null {
+  if (row.event.expectedStockQuantity == null) return null;
   if (row.event.expectedStockQuantity <= 0) return 0;
   const parValuePerShare = row.event.parValuePerShare;
   if (parValuePerShare == null || !Number.isFinite(parValuePerShare) || parValuePerShare <= 0) {
@@ -199,16 +212,19 @@ export function DividendPostingForm({
   onDirtyChange,
   onCancel,
   onSaved,
+  onCalculationChanged,
 }: DividendPostingFormProps) {
+  const expectedStockQuantity = row.ledgerEntry?.expectedStockQuantity ?? row.event.expectedStockQuantity;
+  const shellData = useOptionalAppShellData();
   const isEditMode = Boolean(row.ledgerEntry);
   const defaultDeductions = useMemo(
     () => (!isEditMode ? buildDefaultDeductions(row) : []),
     [isEditMode, row],
   );
   const cashPerShare = useMemo(() => cashPerShareFromEvent(row), [row]);
-  const initialFormState = useMemo(() => ({
+  const initialFormState = useMemo<DividendPostingFormState>(() => ({
     receivedCashAmount: row.ledgerEntry?.receivedCashAmount ?? row.event.expectedCashAmount,
-    receivedStockQuantity: row.ledgerEntry?.receivedStockQuantity ?? row.event.expectedStockQuantity,
+    receivedStockQuantity: row.ledgerEntry?.receivedStockQuantity ?? expectedStockQuantity ?? 0,
     deductions: row.ledgerEntry?.deductions.map((entry) => ({ ...entry }))
       ?? defaultDeductions.map((entry) => ({ ...entry })),
     // New postings always start in "unknown_pending_disclosure" mode — users
@@ -218,7 +234,7 @@ export function DividendPostingForm({
     sourceCompositionStatus: row.ledgerEntry?.sourceCompositionStatus
       ?? "unknown_pending_disclosure",
     sourceLines: row.ledgerEntry?.sourceLines.map((entry) => ({ ...entry })) ?? [],
-  }), [defaultDeductions, row]);
+  }), [defaultDeductions, expectedStockQuantity, row]);
 
   const [receivedCashAmount, setReceivedCashAmount] = useState(initialFormState.receivedCashAmount);
   const [receivedStockQuantity, setReceivedStockQuantity] = useState(initialFormState.receivedStockQuantity);
@@ -226,6 +242,7 @@ export function DividendPostingForm({
   const [sourceCompositionStatus, setSourceCompositionStatus] = useState(initialFormState.sourceCompositionStatus);
   const [sourceLines, setSourceLines] = useState<DividendSourceLineInput[]>(initialFormState.sourceLines);
   const [formError, setFormError] = useState("");
+  const [reviewedCalculation, setReviewedCalculation] = useState<ReviewedDividendPostingCalculation | null>(null);
 
   const reconcileBaseline = useMemo(
     () => ({
@@ -241,17 +258,47 @@ export function DividendPostingForm({
   const [reconcileError, setReconcileError] = useState("");
   const [isReconcileSaving, setIsReconcileSaving] = useState(false);
 
+  const formIdentity = `${row.key}:${row.ledgerEntry?.id ?? "new"}`;
+  const currentFormDraftRef = useRef(initialFormState);
+  currentFormDraftRef.current = {
+    receivedCashAmount,
+    receivedStockQuantity,
+    deductions,
+    sourceCompositionStatus,
+    sourceLines,
+  };
+  const previousFormIdentityRef = useRef(formIdentity);
+  const previousInitialFormStateRef = useRef(initialFormState);
+  const currentReconcileDraftRef = useRef(reconcileBaseline);
+  currentReconcileDraftRef.current = { status: reconcileStatus, note: reconcileNote };
+  const previousReconcileBaselineRef = useRef(reconcileBaseline);
+
   useEffect(() => {
-    setReceivedCashAmount(initialFormState.receivedCashAmount);
-    setReceivedStockQuantity(initialFormState.receivedStockQuantity);
-    setDeductions(initialFormState.deductions);
-    setSourceCompositionStatus(initialFormState.sourceCompositionStatus);
-    setSourceLines(initialFormState.sourceLines);
-    setFormError("");
-    setReconcileStatus(reconcileBaseline.status);
-    setReconcileNote(reconcileBaseline.note);
-    setReconcileError("");
-  }, [initialFormState, reconcileBaseline]);
+    const identityChanged = previousFormIdentityRef.current !== formIdentity;
+    const formWasUnchanged = JSON.stringify(currentFormDraftRef.current)
+      === JSON.stringify(previousInitialFormStateRef.current);
+    const reconcileWasUnchanged = JSON.stringify(currentReconcileDraftRef.current)
+      === JSON.stringify(previousReconcileBaselineRef.current);
+
+    if (identityChanged || formWasUnchanged) {
+      setReceivedCashAmount(initialFormState.receivedCashAmount);
+      setReceivedStockQuantity(initialFormState.receivedStockQuantity);
+      setDeductions(initialFormState.deductions);
+      setSourceCompositionStatus(initialFormState.sourceCompositionStatus);
+      setSourceLines(initialFormState.sourceLines);
+      setFormError("");
+    }
+    if (identityChanged || reconcileWasUnchanged) {
+      setReconcileStatus(reconcileBaseline.status);
+      setReconcileNote(reconcileBaseline.note);
+      setReconcileError("");
+    }
+    if (identityChanged) setReviewedCalculation(null);
+
+    previousFormIdentityRef.current = formIdentity;
+    previousInitialFormStateRef.current = initialFormState;
+    previousReconcileBaselineRef.current = reconcileBaseline;
+  }, [formIdentity, initialFormState, reconcileBaseline]);
 
   const { errorMessage, isSubmitting, submit } = useDividendPosting({
     versionConflictMessage: dict.dividends.form.error.versionConflict,
@@ -325,13 +372,25 @@ export function DividendPostingForm({
     && stockRatioState === "authoritative"
     && stockDistributionRatio != null,
   );
+  const hasExpectedStockQuantity = expectedStockQuantity != null;
   const needsStockRatioAction = Boolean(
     showStockField
-    && (expectedStockCalcState === "needs_action" || !hasAuthoritativeStockRatio),
+    && (expectedStockCalcState === "needs_action" || !hasAuthoritativeStockRatio || !hasExpectedStockQuantity),
   );
   const postingStatus = row.ledgerEntry?.postingStatus;
   const showReconcileSection =
     isEditMode && (postingStatus === "posted" || postingStatus === "adjusted");
+  const canManageAccountDefaults = shellData === null
+    || !shellData.isSharedContext
+    || shellData.sharedContextPermissions.canManageAccounts;
+  const canWriteCalculations = shellData === null
+    || !shellData.isSharedContext
+    || shellData.sharedContextPermissions.canWriteDividends;
+  const initialCalculationMethod = hasAuthoritativeStockRatio
+    ? "provider_ratio" as const
+    : row.event.marketCode === "TW"
+      ? "derived_from_par_value" as const
+      : "custom_ratio" as const;
 
   useEffect(() => {
     onDirtyChange?.(isDirty);
@@ -377,6 +436,7 @@ export function DividendPostingForm({
         : [],
       dividendLedgerEntryId: row.ledgerEntry?.id,
       expectedVersion: row.ledgerEntry?.version,
+      calculation: row.ledgerEntry ? undefined : reviewedCalculation?.calculation,
     };
 
     const result = await submit(payload);
@@ -457,17 +517,19 @@ export function DividendPostingForm({
           </p>
         </div>
         <div className="rounded-2xl border border-slate-200/90 bg-slate-50/85 p-3">
-          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{dict.dividends.form.receivedStockQty}</p>
-          <p className="mt-2 text-base font-semibold text-slate-950">
-            {showStockField ? formatNumber(row.event.expectedStockQuantity, locale) : "—"}
+          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">{dict.dividends.form.expectedStock}</p>
+            <p className="mt-2 text-base font-semibold text-slate-950" data-testid="dividend-expected-stock-value">
+            {showStockField && !needsStockRatioAction && expectedStockQuantity != null
+              ? formatNumber(expectedStockQuantity, locale)
+              : dict.dividends.unavailable}
           </p>
           <p className="mt-1 text-xs text-slate-500">
             {showStockField
-              ? hasAuthoritativeStockRatio
+              ? hasAuthoritativeStockRatio && expectedStockQuantity != null
                 ? formatTemplate(dict.dividends.form.expectedStockFormula, {
                   quantity: formatNumber(row.event.eligibleQuantity, locale),
                   ratio: formatRatio(stockDistributionRatio ?? 0, locale),
-                  total: formatNumber(row.event.expectedStockQuantity, locale),
+                  total: formatNumber(expectedStockQuantity, locale),
                 })
                 : formatTemplate(dict.dividends.form.expectedStockFormulaUnresolved, {
                   quantity: formatNumber(row.event.eligibleQuantity, locale),
@@ -597,11 +659,11 @@ export function DividendPostingForm({
               onChange={(event) => setReceivedStockQuantity(Number(event.target.value))}
               disabled={!canEditStockField}
             />
-            {row.event.expectedStockQuantity > 0 && row.event.eligibleQuantity > 0 ? (
+            {expectedStockQuantity != null && expectedStockQuantity > 0 && row.event.eligibleQuantity > 0 ? (
               <p className="text-xs text-slate-500" data-testid="dividend-received-stock-hint">
                 {formatTemplate(dict.dividends.form.receivedStockHint, {
                   quantity: formatNumber(row.event.eligibleQuantity, locale),
-                  total: formatNumber(row.event.expectedStockQuantity, locale),
+                  total: formatNumber(expectedStockQuantity, locale),
                 })}
               </p>
             ) : null}
@@ -804,7 +866,7 @@ export function DividendPostingForm({
       ) : null}
 
       <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-4">
-        <Button type="submit" disabled={isSubmitting} data-testid="dividend-save">
+        <Button type="submit" disabled={isSubmitting || reviewedCalculation?.canSubmit === false} data-testid="dividend-save">
           {isSubmitting ? dict.feedback.loadingDashboard : dict.dividends.action.save}
         </Button>
       </div>
@@ -884,6 +946,24 @@ export function DividendPostingForm({
     <div className="space-y-6" data-testid="dividend-posting-form-container">
       {headerBlock}
       {expectedSummaryBlock}
+      {showStockField ? (
+        <DividendCalculationPanel
+          accountId={row.event.accountId}
+          dividendEventId={row.event.id}
+          marketCode={row.event.marketCode}
+          initialMethod={initialCalculationMethod}
+          canManageAccountDefaults={canManageAccountDefaults}
+          canWriteCalculations={canWriteCalculations}
+          dividendLedgerEntryId={row.ledgerEntry?.id ?? null}
+          onCalculationChanged={onCalculationChanged ?? onSaved}
+          onReviewedCalculationChange={setReviewedCalculation}
+          initialProvider={row.ledgerEntry?.provider ?? row.event.provider}
+          activeCalculation={row.ledgerEntry?.activeCalculation ?? row.event.activeCalculation}
+          calculationHistory={row.ledgerEntry?.calculationHistory ?? row.event.calculationHistory}
+          dict={dict}
+          locale={locale}
+        />
+      ) : null}
       {amountsFormBlock}
       {showReconcileSection ? reconcileSection : null}
       <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-4">

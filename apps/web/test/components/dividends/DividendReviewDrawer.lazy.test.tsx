@@ -11,13 +11,14 @@ import { getDictionary } from "../../../lib/i18n";
 
 vi.mock("../../../features/dividends/services/dividendService", () => ({
   fetchDividendLedgerEntry: vi.fn(),
+  updateDividendStockReconciliation: vi.fn(),
 }));
 
 vi.mock("../../../components/dividends/DividendPostingForm", () => ({
   DividendPostingForm: () => <div data-testid="posting-form" />,
 }));
 
-import { fetchDividendLedgerEntry } from "../../../features/dividends/services/dividendService";
+import { fetchDividendLedgerEntry, updateDividendStockReconciliation } from "../../../features/dividends/services/dividendService";
 
 const dict = getDictionary("en");
 const row: DividendReviewRowSummaryDto = {
@@ -25,7 +26,8 @@ const row: DividendReviewRowSummaryDto = {
   ticker: "2330", tickerName: "TSMC", marketCode: "TW", instrumentType: "STOCK", eventType: "CASH",
   exDividendDate: "2026-06-01", paymentDate: "2026-07-01", cashCurrency: "TWD", eligibleQuantity: 10,
   expectedCashAmount: 100, receivedCashAmount: 90, expectedStockQuantity: 0, receivedStockQuantity: 0,
-  postingStatus: "posted", reconciliationStatus: "open", sourceCompositionStatus: "provided",
+  postingStatus: "posted", cashReconciliationStatus: "open", stockReconciliationStatus: null,
+  reconciliationStatus: "open", sourceCompositionStatus: "provided",
 };
 
 beforeAll(() => {
@@ -49,7 +51,7 @@ describe("DividendReviewDrawer lazy detail", () => {
     container.remove();
   });
 
-  function render(entry: DividendReviewRowSummaryDto | null) {
+  function render(entry: DividendReviewRowSummaryDto | null, allowMutations = true) {
     root.render(
       <DividendReviewDrawer
         entry={entry}
@@ -58,6 +60,7 @@ describe("DividendReviewDrawer lazy detail", () => {
         locale="en"
         onClose={vi.fn()}
         onSaved={vi.fn()}
+        allowMutations={allowMutations}
       />,
     );
   }
@@ -85,6 +88,210 @@ describe("DividendReviewDrawer lazy detail", () => {
     const guidance = document.querySelector("[data-testid='dividend-removal-guidance']");
     expect(guidance?.textContent).toContain("amendment or a reversal and replacement");
     expect(guidance?.textContent).not.toContain("Delete dividend");
+  });
+
+  it("shows unresolved expected stock as unavailable while retaining a factual 150-share receipt", async () => {
+    const stockRow: DividendReviewRowSummaryDto = {
+      ...row,
+      ticker: "2886",
+      eventType: "STOCK",
+      expectedStockQuantity: 0,
+      receivedStockQuantity: 150,
+      expectedStockCalcState: "needs_action",
+      stockDistributionRatioState: "unresolved",
+    };
+    vi.mocked(fetchDividendLedgerEntry).mockResolvedValue({
+      ...stockRow,
+      deductions: [],
+      sourceLines: [],
+    } as never);
+
+    act(() => render(stockRow));
+    await act(async () => {});
+
+    expect(document.querySelector("[data-testid='review-drawer-stock-details']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='review-drawer-expected-stock']")?.textContent).toContain("—");
+    expect(document.querySelector("[data-testid='review-drawer-received-stock']")?.textContent).toContain("150");
+  });
+
+  it("shows stock provider provenance to read-only reviewers", async () => {
+    const stockRow: DividendReviewRowSummaryDto = {
+      ...row,
+      eventType: "STOCK",
+      expectedStockQuantity: 150,
+      receivedStockQuantity: 150,
+      stockDistributionRatioState: "authoritative",
+    };
+    vi.mocked(fetchDividendLedgerEntry).mockResolvedValue({
+      ...stockRow,
+      provider: {
+        value: "0.15",
+        unit: "RATIO",
+        source: "finmind",
+        dataset: "TaiwanStockDividend",
+        authoritativeRatio: "0.15",
+      },
+      deductions: [],
+      sourceLines: [],
+    } as never);
+
+    act(() => render(stockRow, false));
+    await act(async () => {});
+
+    expect(document.querySelector("[data-testid='posting-form']")).toBeNull();
+    expect(document.querySelector("[data-testid='dividend-calculation-provider']")?.textContent).toContain("finmind");
+    expect(document.querySelector("[data-testid='dividend-calculation-provider']")?.textContent).toContain("TaiwanStockDividend");
+    expect(document.querySelector("[data-testid='dividend-calculation-preview']")).toBeNull();
+  });
+
+  it("shows provider provenance for an expected-only read row without a ledger detail request", async () => {
+    const expectedStockRow: DividendReviewRowSummaryDto = {
+      ...row,
+      rowKind: "expected",
+      id: "expected:acc-1:event-1",
+      version: 0,
+      eventType: "STOCK",
+      postingStatus: "expected",
+      expectedStockQuantity: null,
+      expectedStockCalcState: "needs_action",
+      stockDistributionRatioState: "unresolved",
+      provider: {
+        value: "1",
+        unit: "TWD_PER_SHARE",
+        source: "finmind",
+        dataset: "TaiwanStockDividend",
+        authoritativeRatio: null,
+      },
+    };
+
+    act(() => render(expectedStockRow, false));
+    await act(async () => {});
+
+    expect(fetchDividendLedgerEntry).not.toHaveBeenCalled();
+    expect(document.querySelector("[data-testid='dividend-calculation-provider']")?.textContent).toContain("1");
+    expect(document.querySelector("[data-testid='dividend-calculation-provider']")?.textContent).toContain("TWD_PER_SHARE");
+    expect(document.querySelector("[data-testid='dividend-calculation-provider']")?.textContent).toContain("finmind");
+  });
+
+  it("validates and saves a stock reconciliation explanation with optimistic versioning", async () => {
+    const stockRow: DividendReviewRowSummaryDto = {
+      ...row,
+      eventType: "STOCK",
+      stockReconciliationStatus: "variance",
+      expectedStockQuantity: 100,
+      receivedStockQuantity: 150,
+    };
+    const detail = { ...stockRow, stockReconciliationNote: null, deductions: [], sourceLines: [] };
+    const updated = { ...detail, version: 4, stockReconciliationStatus: "explained" as const, stockReconciliationNote: "Broker confirmed the variance." };
+    const onSaved = vi.fn();
+    vi.mocked(fetchDividendLedgerEntry).mockResolvedValue(detail as never);
+    vi.mocked(updateDividendStockReconciliation).mockResolvedValue(updated as never);
+
+    act(() => {
+      root.render(
+        <DividendReviewDrawer entry={stockRow} cacheScope="session:a:context:self" dict={dict} locale="en" onClose={vi.fn()} onSaved={onSaved} />,
+      );
+    });
+    await act(async () => {});
+
+    const status = document.querySelector<HTMLSelectElement>("[data-testid='stock-reconciliation-status']")!;
+    await act(async () => {
+      status.value = "explained";
+      status.dispatchEvent(new Event("change", { bubbles: true }));
+      document.querySelector<HTMLButtonElement>("[data-testid='stock-reconciliation-save']")?.click();
+    });
+    expect(document.querySelector("[role='alert']")?.textContent).toContain("required");
+    expect(updateDividendStockReconciliation).not.toHaveBeenCalled();
+
+    const note = document.querySelector<HTMLTextAreaElement>("[data-testid='stock-reconciliation-note']")!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      setter?.call(note, "Broker confirmed the variance.");
+      note.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>("[data-testid='stock-reconciliation-save']")?.click();
+    });
+
+    expect(updateDividendStockReconciliation).toHaveBeenCalledWith("ledger-1", {
+      status: "explained",
+      note: "Broker confirmed the variance.",
+      expectedVersion: 3,
+    });
+    expect(onSaved).toHaveBeenCalledTimes(1);
+    expect(document.querySelector("[role='status']")?.textContent).toContain("saved");
+  });
+
+  it("sends an explicit null note when clearing an existing stock reconciliation explanation", async () => {
+    const stockRow: DividendReviewRowSummaryDto = {
+      ...row,
+      eventType: "STOCK",
+      stockReconciliationStatus: "variance",
+      expectedStockQuantity: 100,
+      receivedStockQuantity: 150,
+    };
+    const detail = {
+      ...stockRow,
+      stockReconciliationNote: "Old broker explanation",
+      deductions: [],
+      sourceLines: [],
+    };
+    const updated = {
+      ...detail,
+      version: 4,
+      stockReconciliationStatus: "variance" as const,
+      stockReconciliationNote: null,
+    };
+    vi.mocked(fetchDividendLedgerEntry).mockResolvedValue(detail as never);
+    vi.mocked(updateDividendStockReconciliation).mockResolvedValue(updated as never);
+
+    act(() => render(stockRow));
+    await act(async () => {});
+
+    const note = document.querySelector<HTMLTextAreaElement>("[data-testid='stock-reconciliation-note']")!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      setter?.call(note, "   ");
+      note.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>("[data-testid='stock-reconciliation-save']")?.click();
+    });
+
+    expect(updateDividendStockReconciliation).toHaveBeenCalledWith("ledger-1", {
+      status: "variance",
+      note: null,
+      expectedVersion: 3,
+    });
+    expect(document.querySelector("[role='status']")?.textContent).toContain("saved");
+  });
+
+  it("keeps stock reconciliation pending and retryable after a save error", async () => {
+    const stockRow: DividendReviewRowSummaryDto = {
+      ...row,
+      eventType: "STOCK",
+      stockReconciliationStatus: "variance",
+      expectedStockQuantity: 100,
+      receivedStockQuantity: 150,
+    };
+    vi.mocked(fetchDividendLedgerEntry).mockResolvedValue({ ...stockRow, deductions: [], sourceLines: [] } as never);
+    let rejectSave!: (reason?: unknown) => void;
+    vi.mocked(updateDividendStockReconciliation).mockReturnValue(new Promise((_resolve, reject) => { rejectSave = reject; }));
+
+    act(() => render(stockRow));
+    await act(async () => {});
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>("[data-testid='stock-reconciliation-save']")?.click();
+    });
+
+    const save = document.querySelector<HTMLButtonElement>("[data-testid='stock-reconciliation-save']");
+    expect(save?.getAttribute("aria-busy")).toBe("true");
+    await act(async () => {
+      rejectSave(new Error("version conflict"));
+    });
+
+    expect(document.querySelector("[role='alert']")?.textContent).toContain("Could not save");
+    expect(save?.disabled).toBe(false);
   });
 
   it("guides generated ledger rows through the underlying transaction workflow", async () => {

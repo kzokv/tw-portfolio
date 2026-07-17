@@ -55,6 +55,9 @@ export interface CreateDividendEventInput {
   cashDividendCurrency: string;
   stockDividendPerShare: number;
   stockDistributionAmountRaw?: number | null;
+  stockProviderValueUnit?: "RATIO" | "TWD_PER_SHARE" | "UNKNOWN" | null;
+  stockProviderSource?: string | null;
+  stockProviderDataset?: string | null;
   stockDistributionRatio?: number | null;
   stockDistributionRatioState?: StockDistributionRatioState;
   stockParValueAmount?: number | null;
@@ -216,6 +219,9 @@ export function createDividendEvent(store: Store, input: CreateDividendEventInpu
       input.stockDistributionAmountRaw === undefined
         ? input.stockDividendPerShare
         : input.stockDistributionAmountRaw,
+    stockProviderValueUnit: input.stockProviderValueUnit ?? null,
+    stockProviderSource: input.stockProviderSource ?? input.source,
+    stockProviderDataset: input.stockProviderDataset ?? null,
     stockDistributionRatio:
       input.stockDistributionRatio === undefined
         ? (input.stockDividendPerShare > 0 ? input.stockDividendPerShare : null)

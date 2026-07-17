@@ -1,6 +1,9 @@
 import type { CurrencyCode, FeeProfile, InstrumentRef, InstrumentType, Lot, MarketCode } from "@vakwen/domain";
 import type {
   AccountDto,
+  DividendCalculationDriftDto,
+  DividendStockCalculationMethod,
+  DividendStockProviderValueUnit,
   DividendCashReconciliationDto,
   DividendSourceLine,
   ExpectedStockCalcState,
@@ -118,6 +121,11 @@ export interface DividendEvent {
   cashDividendCurrency: CurrencyCode;
   stockDividendPerShare: number;
   stockDistributionAmountRaw?: number | null;
+  stockProviderValue?: string | null;
+  stockProviderValueUnit?: DividendStockProviderValueUnit | null;
+  stockProviderSource?: string | null;
+  stockProviderDataset?: string | null;
+  stockProviderAuthoritativeRatio?: string | null;
   stockDistributionRatio?: number | null;
   stockDistributionRatioState?: StockDistributionRatioState;
   stockParValueAmount?: number | null;
@@ -132,6 +140,7 @@ export interface DividendEvent {
 
 export type DividendPostingStatus = "expected" | "posted" | "adjusted";
 export type DividendReconciliationStatus = "open" | "matched" | "explained" | "resolved";
+export type DividendStockReconciliationStatus = "needs_calculation" | "pending_receipt" | "matched" | "variance" | "explained";
 
 export interface DividendLedgerEntry {
   id: string;
@@ -143,6 +152,12 @@ export interface DividendLedgerEntry {
   expectedStockCalcState?: ExpectedStockCalcState;
   expectedStockDistributionRatio?: number | null;
   expectedStockParValueAmount?: number | null;
+  activeCalculationId?: string | null;
+  cashReconciliationStatus?: DividendReconciliationStatus;
+  stockReconciliationStatus?: DividendStockReconciliationStatus | null;
+  stockReconciliationNote?: string | null;
+  legacyReconciliationStatus?: DividendReconciliationStatus | null;
+  legacyReconciliationNote?: string | null;
   receivedCashAmount: number;
   receivedStockQuantity: number;
   postingStatus: DividendPostingStatus;
@@ -154,6 +169,34 @@ export interface DividendLedgerEntry {
   reversalOfDividendLedgerEntryId?: string;
   supersededAt?: string;
   bookedAt?: string;
+}
+
+export interface DividendCalculationVersion {
+  id: string;
+  userId: string;
+  accountId: string;
+  dividendEventId: string;
+  calculationVersion: number;
+  status: "preview" | "confirmed" | "reset" | "amended";
+  method: DividendStockCalculationMethod;
+  providerValue?: string | null;
+  providerUnit?: DividendStockProviderValueUnit | null;
+  providerSource?: string | null;
+  providerDataset?: string | null;
+  providerAuthoritativeRatio?: string | null;
+  selectedParValue?: string | null;
+  customRatio?: string | null;
+  ratio: string;
+  theoreticalShares: string;
+  expectedWholeShares: number | null;
+  fractionalRemainder: string | null;
+  requiresHighRatioConfirmation: boolean;
+  confirmedAt?: string | null;
+  supersededAt?: string | null;
+  priorCalculationId?: string | null;
+  dividendLedgerEntryId?: string | null;
+  drift?: DividendCalculationDriftDto | null;
+  createdAt?: string;
 }
 export type DividendDeductionType =
   | "NHI_SUPPLEMENTAL_PREMIUM"
@@ -292,6 +335,7 @@ export interface AccountingFacts {
   tradeEvents: BookedTradeEvent[];
   cashLedgerEntries: CashLedgerEntry[];
   dividendLedgerEntries: DividendLedgerEntry[];
+  dividendCalculationVersions: DividendCalculationVersion[];
   dividendDeductionEntries: DividendDeductionEntry[];
   dividendSourceLines: DividendSourceLine[];
   positionActions: PositionAction[];

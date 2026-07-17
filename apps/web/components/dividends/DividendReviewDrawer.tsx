@@ -1,19 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type {
   DividendReviewRowDetailDto,
   DividendReviewRowSummaryDto,
+  DividendStockReconciliationStatus,
   LocaleCode,
 } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatNumber } from "../../lib/utils";
 import type { DividendCalendarRow, DividendLedgerEntryDetails } from "../../features/dividends/types";
 import { Card } from "../ui/Card";
+import { Button } from "../ui/Button";
 import { Drawer } from "../ui/Drawer";
 import { DividendPostingForm } from "./DividendPostingForm";
-import { fetchDividendLedgerEntry } from "../../features/dividends/services/dividendService";
+import { DividendCalculationPanel } from "../../features/dividends/components/DividendCalculationPanel";
+import { fetchDividendLedgerEntry, updateDividendStockReconciliation } from "../../features/dividends/services/dividendService";
 
 const drawerDetailCache = new Map<string, DividendReviewRowDetailDto>();
 
@@ -115,6 +118,127 @@ function linkedPositionActionStatusLabel(dict: AppDictionary, status: DividendLe
   }
 }
 
+function cashStatusLabel(dict: AppDictionary, status: DividendLedgerEntryDetails["reconciliationStatus"]): string {
+  switch (status) {
+    case "open": return dict.dividends.form.reconciliation.statusOpen;
+    case "matched": return dict.dividends.form.reconciliation.statusMatched;
+    case "explained": return dict.dividends.form.reconciliation.statusExplained;
+    case "resolved": return dict.dividends.form.reconciliation.statusResolved;
+  }
+}
+
+function stockStatusLabel(dict: AppDictionary, status: NonNullable<DividendLedgerEntryDetails["stockReconciliationStatus"]>): string {
+  switch (status) {
+    case "needs_calculation": return dict.dividends.review.filter.stockNeedsCalculation;
+    case "pending_receipt": return dict.dividends.review.filter.stockPendingReceipt;
+    case "matched": return dict.dividends.form.reconciliation.statusMatched;
+    case "variance": return dict.dividends.review.filter.stockVariance;
+    case "explained": return dict.dividends.form.reconciliation.statusExplained;
+  }
+}
+
+const STOCK_RECONCILIATION_STATUSES: DividendStockReconciliationStatus[] = [
+  "needs_calculation",
+  "pending_receipt",
+  "matched",
+  "variance",
+  "explained",
+];
+
+function StockReconciliationEditor({
+  detail,
+  dict,
+  onUpdated,
+}: {
+  detail: DividendLedgerEntryDetails;
+  dict: AppDictionary;
+  onUpdated: (next: DividendReviewRowDetailDto) => Promise<void> | void;
+}) {
+  const [status, setStatus] = useState<DividendStockReconciliationStatus>(detail.stockReconciliationStatus ?? "needs_calculation");
+  const [note, setNote] = useState(detail.stockReconciliationNote ?? "");
+  const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    setStatus(detail.stockReconciliationStatus ?? "needs_calculation");
+    setNote(detail.stockReconciliationNote ?? "");
+    setError("");
+    setSaved(false);
+  }, [detail.id, detail.stockReconciliationNote, detail.stockReconciliationStatus, detail.version]);
+
+  async function save() {
+    if (isSaving) return;
+    const normalizedNote = note.trim();
+    if (status === "explained" && normalizedNote.length === 0) {
+      setError(dict.dividends.review.drawer.stockReconciliationNoteRequired);
+      setSaved(false);
+      return;
+    }
+    setIsSaving(true);
+    setError("");
+    setSaved(false);
+    try {
+      const nextNote = normalizedNote.length > 0 ? normalizedNote : null;
+      const next = await updateDividendStockReconciliation(detail.id, {
+        status,
+        note: nextNote,
+        expectedVersion: detail.version,
+      });
+      await onUpdated(next);
+      setSaved(true);
+    } catch {
+      setError(dict.dividends.review.drawer.stockReconciliationError);
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
+  return (
+    <Card className="space-y-3 rounded-lg border border-slate-200 bg-white p-4 shadow-none" data-testid="stock-reconciliation-editor">
+      <div>
+        <h4 className="text-sm font-semibold text-slate-950">{dict.dividends.review.drawer.stockReconciliationTitle}</h4>
+        <p className="mt-1 text-xs leading-5 text-slate-600">{dict.dividends.review.drawer.stockReconciliationDescription}</p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="space-y-1 text-xs text-slate-600">
+          <span>{dict.dividends.review.drawer.stockReconciliationStatus}</span>
+          <select
+            value={status}
+            onChange={(event) => { setStatus(event.target.value as DividendStockReconciliationStatus); setSaved(false); setError(""); }}
+            disabled={isSaving}
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+            data-testid="stock-reconciliation-status"
+          >
+            {STOCK_RECONCILIATION_STATUSES.map((candidate) => <option key={candidate} value={candidate}>{stockStatusLabel(dict, candidate)}</option>)}
+          </select>
+        </label>
+        <label className="space-y-1 text-xs text-slate-600">
+          <span>{dict.dividends.review.drawer.stockReconciliationNote}</span>
+          <textarea
+            value={note}
+            onChange={(event) => { setNote(event.target.value); setSaved(false); setError(""); }}
+            disabled={isSaving}
+            maxLength={500}
+            rows={3}
+            placeholder={dict.dividends.review.drawer.stockReconciliationNotePlaceholder}
+            className="w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
+            aria-invalid={Boolean(error)}
+            data-testid="stock-reconciliation-note"
+          />
+        </label>
+      </div>
+      {error ? <p className="text-xs text-rose-700" role="alert">{error}</p> : null}
+      {saved ? <p className="text-xs text-emerald-700" role="status">{dict.dividends.review.drawer.stockReconciliationSaved}</p> : null}
+      <div className="flex justify-end">
+        <Button type="button" onClick={() => void save()} disabled={isSaving} aria-busy={isSaving} data-testid="stock-reconciliation-save">
+          {isSaving ? dict.dividends.review.drawer.stockReconciliationSaving : dict.dividends.review.drawer.stockReconciliationSave}
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
 export function buildDividendCalendarRowFromEntry(entry: DividendLedgerEntryDetails): DividendCalendarRow {
   const isLedgerRow = entry.rowKind !== "expected" && entry.postingStatus !== "expected";
   return {
@@ -137,6 +261,9 @@ export function buildDividendCalendarRowFromEntry(entry: DividendLedgerEntryDeta
       stockDistributionRatioState: entry.stockDistributionRatioState ?? "unresolved",
       eligibleQuantity: entry.eligibleQuantity,
       parValuePerShare: entry.expectedStockParValueAmount ?? entry.parValueAmount ?? null,
+      provider: entry.provider,
+      activeCalculation: entry.activeCalculation,
+      calculationHistory: entry.calculationHistory,
       hasPostedLedgerEntry: isLedgerRow,
       dividendLedgerEntryId: isLedgerRow ? entry.id : null,
     },
@@ -222,6 +349,25 @@ export function DividendReviewDrawer({
     return () => controller.abort();
   }, [cacheScope, entry, retryVersion]);
 
+  const refreshDetailAndReview = useCallback(async () => {
+    if (!entry || entry.rowKind === "expected") {
+      await onSaved();
+      return;
+    }
+    const next = await fetchDividendLedgerEntry(entry.id);
+    drawerDetailCache.clear();
+    drawerDetailCache.set(drawerDetailCacheKey(cacheScope, next), next);
+    setDetail(next);
+    await onSaved();
+  }, [cacheScope, entry, onSaved]);
+
+  const applyStockReconciliationUpdate = useCallback(async (next: DividendReviewRowDetailDto) => {
+    drawerDetailCache.clear();
+    drawerDetailCache.set(drawerDetailCacheKey(cacheScope, next), next);
+    setDetail(next);
+    await onSaved();
+  }, [cacheScope, onSaved]);
+
   function closeWithConfirm() {
     if (isDirty && typeof window !== "undefined") {
       const confirmed = window.confirm(dict.dividends.form.unsavedChangesConfirm);
@@ -258,6 +404,16 @@ export function DividendReviewDrawer({
         </div>
       ) : detail && drawerRow ? (
         <div className="grid gap-4">
+          <Card className="rounded-lg border border-slate-200 bg-white p-4 shadow-none" data-testid="review-drawer-reconciliation-statuses">
+            <dl className="grid gap-3 sm:grid-cols-2">
+              {detail.eventType !== "STOCK" ? <DrawerMetric label={dict.dividends.review.filter.cashStatus} value={cashStatusLabel(dict, detail.cashReconciliationStatus ?? detail.reconciliationStatus)} /> : null}
+              {detail.eventType !== "CASH" ? <DrawerMetric label={dict.dividends.review.filter.stockStatus} value={detail.stockReconciliationStatus ? stockStatusLabel(dict, detail.stockReconciliationStatus) : dict.dividends.unavailable} /> : null}
+            </dl>
+            {detail.stockReconciliationNote ? <p className="mt-3 text-sm leading-6 text-slate-600">{detail.stockReconciliationNote}</p> : null}
+          </Card>
+          {allowMutations && isPostedLedgerEntry && detail.eventType !== "CASH" ? (
+            <StockReconciliationEditor detail={detail} dict={dict} onUpdated={applyStockReconciliationUpdate} />
+          ) : null}
           <Card className="rounded-lg border border-slate-200 bg-white p-4 shadow-none">
             <div className="grid gap-3 md:grid-cols-3">
               <DrawerMetric label={dict.dividends.review.table.expected} value={formatCurrencyAmount(expectedGrossAmount(detail), detail.cashCurrency, locale)} />
@@ -289,15 +445,28 @@ export function DividendReviewDrawer({
               {dict.dividends.review.drawer.openTickerTransactions}
             </Link>
           </Card>
-          {(detail.receivedStockQuantity > 0 || cashInLieuAmount(detail) > 0) ? (
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.95fr)]">
+          {(detail.eventType === "STOCK" || detail.eventType === "CASH_AND_STOCK" || cashInLieuAmount(detail) > 0) ? (
+            <div
+              className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(280px,0.95fr)]"
+              data-testid="review-drawer-stock-details"
+            >
               <div className="grid gap-3 sm:grid-cols-2">
                 <DrawerMetric label={dict.dividends.review.drawer.eligibleShares} value={formatNumber(detail.eligibleQuantity, locale)} />
                 <DrawerMetric label={dict.dividends.review.drawer.receivedShares} value={formatNumber(detail.receivedStockQuantity, locale)} />
                 <DrawerMetric label={dict.dividends.review.drawer.portfolioCostAdded} value={formatCurrencyAmount(detail.portfolioCostBasisAddedAmount ?? 0, detail.cashCurrency, locale)} />
                 <DrawerMetric label={dict.dividends.review.drawer.parValueBase} value={detail.parValueBaseAmount != null ? formatCurrencyAmount(detail.parValueBaseAmount, detail.cashCurrency, locale) : "—"} />
-                <DrawerMetric label={dict.dividends.review.drawer.expectedStock} value={formatNumber(detail.expectedStockQuantity, locale)} />
-                <DrawerMetric label={dict.dividends.review.drawer.receivedStock} value={formatNumber(detail.receivedStockQuantity, locale)} />
+                <DrawerMetric
+                  label={dict.dividends.review.drawer.expectedStock}
+                  value={detail.expectedStockQuantity == null || detail.expectedStockCalcState === "needs_action" || detail.stockDistributionRatioState === "unresolved"
+                    ? dict.dividends.unavailable
+                    : formatNumber(detail.expectedStockQuantity, locale)}
+                  testId="review-drawer-expected-stock"
+                />
+                <DrawerMetric
+                  label={dict.dividends.review.drawer.receivedStock}
+                  value={formatNumber(detail.receivedStockQuantity, locale)}
+                  testId="review-drawer-received-stock"
+                />
                 <DrawerMetric label={dict.dividends.review.drawer.cashInLieu} value={cashInLieuAmount(detail) > 0 ? formatCurrencyAmount(cashInLieuAmount(detail), detail.cashCurrency, locale) : "—"} />
                 <DrawerMetric label={dict.dividends.review.drawer.nhiPremiumBase} value={premiumBaseAmount(detail) != null ? formatCurrencyAmount(premiumBaseAmount(detail) ?? 0, detail.cashCurrency, locale) : "—"} />
               </div>
@@ -346,6 +515,7 @@ export function DividendReviewDrawer({
               dict={dict}
               locale={locale}
               onDirtyChange={setIsDirty}
+              onCalculationChanged={refreshDetailAndReview}
               onCancel={closeWithConfirm}
               onSaved={async () => {
                 await onSaved();
@@ -354,9 +524,29 @@ export function DividendReviewDrawer({
               }}
             />
           ) : (
-            <Card className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-none">
-              <p className="text-sm text-slate-700">{readOnlyMessage ?? "Read-only"}</p>
-            </Card>
+            <div className="grid gap-4">
+              {detail.eventType !== "CASH" ? (
+                <DividendCalculationPanel
+                  accountId={detail.accountId}
+                  dividendEventId={detail.dividendEventId}
+                  marketCode={detail.marketCode}
+                  initialMethod={detail.stockDistributionRatioState === "authoritative"
+                    ? "provider_ratio"
+                    : detail.marketCode === "TW" ? "derived_from_par_value" : "custom_ratio"}
+                  canManageAccountDefaults={false}
+                  canWriteCalculations={false}
+                  dividendLedgerEntryId={isPostedLedgerEntry ? detail.id : null}
+                  initialProvider={detail.provider}
+                  activeCalculation={detail.activeCalculation}
+                  calculationHistory={detail.calculationHistory}
+                  dict={dict}
+                  locale={locale}
+                />
+              ) : null}
+              <Card className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-none">
+                <p className="text-sm text-slate-700">{readOnlyMessage ?? "Read-only"}</p>
+              </Card>
+            </div>
           )}
         </div>
       ) : null}
@@ -364,9 +554,9 @@ export function DividendReviewDrawer({
   );
 }
 
-function DrawerMetric({ label, value }: { label: string; value: string }) {
+function DrawerMetric({ label, value, testId }: { label: string; value: string; testId?: string }) {
   return (
-    <div className="rounded-md border border-border/70 px-4 py-3">
+    <div className="rounded-md border border-border/70 px-4 py-3" data-testid={testId}>
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="mt-2 text-base font-semibold text-foreground">{value}</p>
     </div>

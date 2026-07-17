@@ -1,16 +1,20 @@
 import { resolvePresetDates, type DatePreset } from "./dividendReviewUtils";
 import type {
   DividendReviewPageLimit,
+  DividendCashReconciliationStatus,
   DividendReviewPostingStatus,
   DividendReviewPrimaryQueryDto,
   DividendReviewReconciliationStatus,
   DividendReviewSortColumn,
+  DividendStockReconciliationStatus,
   MarketCode,
 } from "@vakwen/shared-types";
 import type { DividendQuery } from "../../features/dividends/services/dividendService";
 
 const REVIEW_PAGE_SIZE_VALUES = [10, 25, 50] as const;
 const DEFAULT_REVIEW_PAGE_SIZE = 10;
+const CASH_STATUSES: DividendCashReconciliationStatus[] = ["open", "matched", "explained", "resolved"];
+const STOCK_STATUSES: DividendStockReconciliationStatus[] = ["needs_calculation", "pending_receipt", "matched", "variance", "explained"];
 
 export type DividendsSearchParamsRecord = Record<string, string | string[] | undefined>;
 
@@ -111,6 +115,10 @@ export function searchParamsToReviewQuery(
   const marketCode = getValue(searchParams, "marketCode");
   const accountId = getValue(searchParams, "accountId");
   const sourceComposition = getValue(searchParams, "sourceComposition") === "pending" ? "pending" : undefined;
+  const requestedCashStatus = getValue(searchParams, "cashStatus");
+  const cashStatus = CASH_STATUSES.find((candidate) => candidate === requestedCashStatus);
+  const requestedStockStatus = getValue(searchParams, "stockStatus");
+  const stockStatus = STOCK_STATUSES.find((candidate) => candidate === requestedStockStatus);
 
   let postingStatus: DividendReviewPostingStatus | undefined;
   let reconciliationStatus: DividendReviewReconciliationStatus | undefined;
@@ -128,6 +136,8 @@ export function searchParamsToReviewQuery(
     ticker: ticker || undefined,
     marketCode: marketCode as MarketCode | undefined,
     accountId: accountId || undefined,
+    ...(cashStatus ? { cashStatus } : {}),
+    ...(stockStatus ? { stockStatus } : {}),
     ...(postingStatus ? { postingStatus } : {}),
     ...(reconciliationStatus ? { reconciliationStatus } : {}),
     ...(excludeExpected ? { excludeExpected } : {}),

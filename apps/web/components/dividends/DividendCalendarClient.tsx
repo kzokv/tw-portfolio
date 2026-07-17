@@ -10,6 +10,7 @@ import { useEventStream } from "../../hooks/useEventStream";
 import {
   fetchDividendCalendarSnapshot,
   fetchDividendDailyHighlights,
+  fetchDividendLedgerEntry,
   type DividendQuery,
   updateDividendReconciliation,
 } from "../../features/dividends/services/dividendService";
@@ -33,6 +34,7 @@ import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { Drawer } from "../ui/Drawer";
 import { DividendPostingForm } from "./DividendPostingForm";
+import { DividendCalculationPanel } from "../../features/dividends/components/DividendCalculationPanel";
 import { DIVIDENDS_LEDGER_ONLY_PARAMS } from "./dividendsTabsUtils";
 import { useOptionalAppShellData } from "../layout/AppShellDataContext";
 import { clearDividendReviewCaches } from "../../features/dividends/dividendReviewCache";
@@ -130,8 +132,11 @@ function calculateGrossAmount(ledgerEntry: DividendLedgerEntryDetails | null): n
 function hasVariance(row: DividendCalendarRow): boolean {
   if (!row.ledgerEntry) return false;
   const grossAmount = calculateGrossAmount(row.ledgerEntry) ?? 0;
+  const stockExpectedUnavailable = row.ledgerEntry.expectedStockCalcState === "needs_action"
+    || row.ledgerEntry.stockDistributionRatioState === "unresolved";
   return grossAmount !== row.ledgerEntry.expectedCashAmount
-    || row.ledgerEntry.receivedStockQuantity !== row.ledgerEntry.expectedStockQuantity;
+    || (!stockExpectedUnavailable
+      && row.ledgerEntry.receivedStockQuantity !== row.ledgerEntry.expectedStockQuantity);
 }
 
 function resolveBadge(row: DividendCalendarRow): CalendarBadge {
@@ -432,12 +437,19 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
     {},
   );
   const expectedStockRows = rows
-    .filter((row) => isStockDividendEvent(row.event.eventType))
+    .filter((row) => {
+      if (!isStockDividendEvent(row.event.eventType)) return false;
+      const calcState = row.ledgerEntry?.expectedStockCalcState
+        ?? (row.event.stockDistributionRatioState === "unresolved" ? "needs_action" : "resolved");
+      return calcState !== "needs_action"
+        && row.event.stockDistributionRatioState !== "unresolved"
+        && row.event.expectedStockQuantity != null;
+    })
     .map((row) => ({
       marketCode: row.event.marketCode,
       ticker: row.event.ticker,
       tickerName: row.event.tickerName,
-      quantity: row.event.expectedStockQuantity,
+      quantity: row.event.expectedStockQuantity as number,
     }));
   const receivedStockRows = receiptRows
     .filter((row) => row.ledgerEntry && isStockDividendEvent(row.ledgerEntry.eventType))
@@ -479,6 +491,13 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
   function openDrawer(row: DividendCalendarRow) {
     setDrawerRow(row);
     setIsDrawerDirty(false);
+    if (row.ledgerEntry) {
+      void fetchDividendLedgerEntry(row.ledgerEntry.id)
+        .then((next) => {
+          setDrawerRow((current) => current?.key === row.key ? { ...current, ledgerEntry: next } : current);
+        })
+        .catch(() => undefined);
+    }
   }
 
   return (
@@ -628,7 +647,17 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
             ) : (
               <div className="divide-y divide-border border-t border-border px-4">
                 {prioritizedActionRows.slice(0, 3).map((row) => (
-                  <ActionRow key={row.key} row={row} dict={dict} locale={locale} activeMonthKey={activeMonthKey} pending={pendingRowKey === row.key} onOpen={canWriteDividends ? () => openDrawer(row) : undefined} onMarkMatched={canWriteDividends ? () => void handleMarkMatched(row) : undefined} />
+                  <ActionRow
+                    key={row.key}
+                    row={row}
+                    dict={dict}
+                    locale={locale}
+                    activeMonthKey={activeMonthKey}
+                    pending={pendingRowKey === row.key}
+                    canWrite={canWriteDividends}
+                    onOpen={canWriteDividends || isStockDividendEvent(row.event.eventType) ? () => openDrawer(row) : undefined}
+                    onMarkMatched={canWriteDividends ? () => void handleMarkMatched(row) : undefined}
+                  />
                 ))}
               </div>
             )}
@@ -656,7 +685,16 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
           ) : (
             <div className="divide-y divide-border border-t border-border xl:border-t-0">
               {rows.map((row) => (
-                <EventRow key={row.key} row={row} dict={dict} locale={locale} pending={pendingRowKey === row.key} onOpen={canWriteDividends ? () => openDrawer(row) : undefined} onMarkMatched={canWriteDividends ? () => void handleMarkMatched(row) : undefined} />
+                <EventRow
+                  key={row.key}
+                  row={row}
+                  dict={dict}
+                  locale={locale}
+                  pending={pendingRowKey === row.key}
+                  canWrite={canWriteDividends}
+                  onOpen={canWriteDividends || isStockDividendEvent(row.event.eventType) ? () => openDrawer(row) : undefined}
+                  onMarkMatched={canWriteDividends ? () => void handleMarkMatched(row) : undefined}
+                />
               ))}
             </div>
           )}
@@ -677,7 +715,13 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
         ) : (
           <div className="divide-y divide-border border-t border-border xl:border-t-0">
             {receiptRows.slice(0, 6).map((row) => (
-              <ReceiptRow key={row.key} row={row} dict={dict} locale={locale} onOpen={canWriteDividends ? () => openDrawer(row) : undefined} />
+              <ReceiptRow
+                key={row.key}
+                row={row}
+                dict={dict}
+                locale={locale}
+                onOpen={canWriteDividends || isStockDividendEvent(row.event.eventType) ? () => openDrawer(row) : undefined}
+              />
             ))}
           </div>
         )}
@@ -703,6 +747,13 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
             dict={dict}
             locale={locale}
             onDirtyChange={setIsDrawerDirty}
+            onCalculationChanged={async () => {
+              if (drawerRow.ledgerEntry) {
+                const next = await fetchDividendLedgerEntry(drawerRow.ledgerEntry.id);
+                setDrawerRow((current) => current?.key === drawerRow.key ? { ...current, ledgerEntry: next } : current);
+              }
+              await refreshSnapshot(query, activeMonthKey);
+            }}
             onCancel={() => {
               if (isDrawerDirty && typeof window !== "undefined") {
                 const confirmed = window.confirm(dict.dividends.form.unsavedChangesConfirm);
@@ -718,9 +769,29 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
             }}
           />
         ) : drawerRow ? (
-          <Card className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-none">
-            <p className="text-sm text-slate-700">{dict.tickerHistory.noWritePermission}</p>
-          </Card>
+          <div className="grid gap-4">
+            {drawerRow.event.eventType !== "CASH" ? (
+              <DividendCalculationPanel
+                accountId={drawerRow.event.accountId}
+                dividendEventId={drawerRow.event.id}
+                marketCode={drawerRow.event.marketCode}
+                initialMethod={(drawerRow.ledgerEntry?.stockDistributionRatioState ?? drawerRow.event.stockDistributionRatioState) === "authoritative"
+                  ? "provider_ratio"
+                  : drawerRow.event.marketCode === "TW" ? "derived_from_par_value" : "custom_ratio"}
+                canManageAccountDefaults={false}
+                canWriteCalculations={false}
+                dividendLedgerEntryId={drawerRow.ledgerEntry?.id ?? null}
+                initialProvider={drawerRow.ledgerEntry?.provider}
+                activeCalculation={drawerRow.ledgerEntry?.activeCalculation}
+                calculationHistory={drawerRow.ledgerEntry?.calculationHistory}
+                dict={dict}
+                locale={locale}
+              />
+            ) : null}
+            <Card className="rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-none">
+              <p className="text-sm text-slate-700">{dict.tickerHistory.noWritePermission}</p>
+            </Card>
+          </div>
         ) : null}
       </Drawer>
     </div>
@@ -814,7 +885,9 @@ function TodayHighlightRow({
           <>
             <HighlightValueLine
               label={dict.dividends.overview.expectedStockLabel}
-              value={formatDividendShares(event.expectedStockQuantity, locale, dict)}
+              value={stockDistributionRatioState === "unresolved" || event.expectedStockQuantity == null
+                ? dict.dividends.unavailable
+                : formatDividendShares(event.expectedStockQuantity, locale, dict)}
             />
             <HighlightValueLine
               label={dict.dividends.overview.ratioLabel}
@@ -830,7 +903,7 @@ function TodayHighlightRow({
   );
 }
 
-function EventRow({ row, dict, locale, pending, onOpen, onMarkMatched }: { row: DividendCalendarRow; dict: AppDictionary; locale: LocaleCode; pending: boolean; onOpen?: () => void; onMarkMatched?: () => void }) {
+function EventRow({ row, dict, locale, pending, canWrite, onOpen, onMarkMatched }: { row: DividendCalendarRow; dict: AppDictionary; locale: LocaleCode; pending: boolean; canWrite: boolean; onOpen?: () => void; onMarkMatched?: () => void }) {
   const badge = resolveBadge(row);
   const grossAmount = calculateGrossAmount(row.ledgerEntry);
   const ratio = row.ledgerEntry?.stockDistributionRatio ?? row.event.stockDistributionRatio;
@@ -860,7 +933,9 @@ function EventRow({ row, dict, locale, pending, onOpen, onMarkMatched }: { row: 
             <>
               <StackedValueLine
                 label={dict.dividends.overview.expectedStockLabel}
-                value={formatDividendShares(row.event.expectedStockQuantity, locale, dict)}
+                value={stockCalcState === "needs_action" || ratioState === "unresolved" || row.event.expectedStockQuantity == null
+                  ? dict.dividends.unavailable
+                  : formatDividendShares(row.event.expectedStockQuantity, locale, dict)}
               />
               <StackedValueLine
                 label={dict.dividends.overview.ratioLabel}
@@ -892,8 +967,17 @@ function EventRow({ row, dict, locale, pending, onOpen, onMarkMatched }: { row: 
             </Button>
           ) : null}
           {onOpen ? (
-            <Button size="sm" variant={row.ledgerEntry ? "secondary" : "default"} onClick={onOpen} data-testid={row.ledgerEntry ? `dividend-edit-${row.event.id}` : `dividend-post-${row.event.id}`}>
-              {row.ledgerEntry ? dict.dividends.action.edit : dict.dividends.action.postDividend}
+            <Button
+              size="sm"
+              variant={canWrite && !row.ledgerEntry ? "default" : "secondary"}
+              onClick={onOpen}
+              data-testid={canWrite
+                ? row.ledgerEntry ? `dividend-edit-${row.event.id}` : `dividend-post-${row.event.id}`
+                : `dividend-view-details-${row.event.id}`}
+            >
+              {canWrite
+                ? row.ledgerEntry ? dict.dividends.action.edit : dict.dividends.action.postDividend
+                : dict.dividends.action.viewDetails}
             </Button>
           ) : null}
         </div>
@@ -902,7 +986,7 @@ function EventRow({ row, dict, locale, pending, onOpen, onMarkMatched }: { row: 
   );
 }
 
-function ActionRow({ row, dict, locale, activeMonthKey, pending, onOpen, onMarkMatched }: { row: DividendCalendarRow; dict: AppDictionary; locale: LocaleCode; activeMonthKey: string; pending: boolean; onOpen?: () => void; onMarkMatched?: () => void }) {
+function ActionRow({ row, dict, locale, activeMonthKey, pending, canWrite, onOpen, onMarkMatched }: { row: DividendCalendarRow; dict: AppDictionary; locale: LocaleCode; activeMonthKey: string; pending: boolean; canWrite: boolean; onOpen?: () => void; onMarkMatched?: () => void }) {
   const sourceGap = row.ledgerEntry?.sourceCompositionStatus === "unknown_pending_disclosure";
   const badge = sourceGap ? null : resolveBadge(row);
   const stockIssue = stockIssueLabel(dict, row);
@@ -930,7 +1014,12 @@ function ActionRow({ row, dict, locale, activeMonthKey, pending, onOpen, onMarkM
           <span>{dict.dividends.overview.expectedCashLabel}: {formatCurrencyAmount(row.event.expectedCashAmount, row.event.cashDividendCurrency, locale)}</span>
         ) : null}
         {isStockDividendEvent(row.event.eventType) ? (
-          <span>{dict.dividends.overview.expectedStockLabel}: {formatDividendShares(row.event.expectedStockQuantity, locale, dict)}</span>
+          <span>
+            {dict.dividends.overview.expectedStockLabel}: {stockCalcState === "needs_action" || ratioState === "unresolved"
+              || row.event.expectedStockQuantity == null
+              ? dict.dividends.unavailable
+              : formatDividendShares(row.event.expectedStockQuantity, locale, dict)}
+          </span>
         ) : null}
         {isStockDividendEvent(row.event.eventType) ? (
           <span className={ratioToneClassName(ratioState, stockCalcState)}>
@@ -945,7 +1034,13 @@ function ActionRow({ row, dict, locale, activeMonthKey, pending, onOpen, onMarkM
         {row.ledgerEntry?.reconciliationStatus === "open" && onMarkMatched ? (
           <Button size="sm" disabled={pending} onClick={onMarkMatched}>{dict.dividends.action.markMatched}</Button>
         ) : null}
-        {onOpen ? <Button size="sm" variant="secondary" onClick={onOpen}>{row.ledgerEntry ? dict.dividends.action.edit : dict.dividends.action.postDividend}</Button> : null}
+        {onOpen ? (
+          <Button size="sm" variant="secondary" onClick={onOpen}>
+            {canWrite
+              ? row.ledgerEntry ? dict.dividends.action.edit : dict.dividends.action.postDividend
+              : dict.dividends.action.viewDetails}
+          </Button>
+        ) : null}
         <Link className="inline-flex min-h-8 items-center rounded-md border border-border px-3 text-xs font-semibold text-foreground hover:bg-muted" href={reviewHref(monthBounds(parseMonthKey(row.event.paymentDate?.slice(0, 7) ?? monthKey(new Date()))), activeMonthKey, row.event.ticker, row.event.marketCode)}>
           {dict.dividends.overview.openReview}
         </Link>

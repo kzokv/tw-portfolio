@@ -239,6 +239,115 @@ export type DividendSourceBucket =
 export type SourceCompositionStatus = "provided" | "unknown_pending_disclosure";
 export type StockDistributionRatioState = "authoritative" | "derived_non_authoritative" | "unresolved";
 export type ExpectedStockCalcState = "resolved" | "needs_action";
+export type DividendStockCalculationMethod = "provider_ratio" | "derived_from_par_value" | "custom_ratio";
+export type DividendStockProviderValueUnit = "RATIO" | "TWD_PER_SHARE" | "UNKNOWN";
+export type DividendCashReconciliationStatus = "open" | "matched" | "explained" | "resolved";
+export type DividendStockReconciliationStatus = "needs_calculation" | "pending_receipt" | "matched" | "variance" | "explained";
+
+export interface DividendProviderValueDto {
+  value: string | null;
+  unit: DividendStockProviderValueUnit | null;
+  source: string | null;
+  dataset: string | null;
+  authoritativeRatio: string | null;
+}
+
+export interface DividendCalculationDriftDto {
+  hasDrift: boolean;
+  previousProviderValue: string | null;
+  previousProviderUnit: DividendStockProviderValueUnit | null;
+  currentProviderValue: string | null;
+  currentProviderUnit: DividendStockProviderValueUnit | null;
+  previousAuthoritativeRatio: string | null;
+  currentAuthoritativeRatio: string | null;
+}
+
+export interface DividendCalculationVersionDto {
+  id: string;
+  accountId: string;
+  dividendEventId: string;
+  calculationVersion: number;
+  status: "preview" | "confirmed" | "reset" | "amended";
+  method: DividendStockCalculationMethod;
+  provider: DividendProviderValueDto;
+  ratio: string;
+  selectedParValue: string | null;
+  theoreticalShares: string;
+  expectedWholeShares: number | null;
+  fractionalRemainder: string | null;
+  requiresHighRatioConfirmation: boolean;
+  confirmedAt: string | null;
+  supersededAt: string | null;
+  priorCalculationId: string | null;
+  dividendLedgerEntryId: string | null;
+  drift: DividendCalculationDriftDto | null;
+}
+
+export interface AccountMarketDividendSettingsDto {
+  accountId: string;
+  marketCode: MarketCode;
+  version: number;
+  fallbackParValue: string | null;
+  updatedAt: string | null;
+}
+
+export interface AccountMarketDividendSettingsPatchDto {
+  expectedVersion?: number;
+  fallbackParValue: string | null;
+}
+
+export interface DividendCalculationPreviewRequestDto {
+  accountId: string;
+  dividendEventId: string;
+  method: DividendStockCalculationMethod;
+  selectedParValue?: string | null;
+  customRatio?: string | null;
+}
+
+export interface DividendCalculationConfirmRequestDto extends DividendCalculationPreviewRequestDto {
+  expectedActiveCalculationId?: string | null;
+  expectedCalculationVersion?: number | null;
+  acknowledgeHighRatio?: boolean;
+  acknowledgeDrift?: boolean;
+}
+
+export interface DividendCalculationResetRequestDto {
+  accountId: string;
+  dividendEventId: string;
+  expectedActiveCalculationId?: string | null;
+  expectedCalculationVersion?: number | null;
+}
+
+export interface DividendCalculationAmendRequestDto extends DividendCalculationConfirmRequestDto {
+  dividendLedgerEntryId: string;
+}
+
+export interface DividendStockReconciliationUpdateDto {
+  status: DividendStockReconciliationStatus;
+  note?: string;
+  expectedVersion?: number;
+}
+
+export interface DividendCalculationPreviewDto {
+  accountId: string;
+  dividendEventId: string;
+  marketCode: MarketCode;
+  eligibleQuantity: number;
+  method: DividendStockCalculationMethod;
+  providerValue: string | null;
+  providerUnit: DividendStockProviderValueUnit | null;
+  providerSource: string | null;
+  providerDataset: string | null;
+  providerAuthoritativeRatio: string | null;
+  ratio: string;
+  selectedParValue: string | null;
+  theoreticalShares: string;
+  expectedWholeShares: number;
+  fractionalRemainder: string;
+  requiresHighRatioConfirmation: boolean;
+  drift?: DividendCalculationDriftDto | null;
+  activeCalculation?: DividendCalculationVersionDto | null;
+}
 
 export interface TypedDividendDeductionsDto {
   nhiAmount: number;
@@ -273,13 +382,15 @@ export type DividendReviewPageLimit = 10 | 25 | 50;
 
 export type DividendReviewSourceCompositionFilter = "pending";
 export type DividendReviewPostingStatus = "expected" | "posted" | "adjusted";
-export type DividendReviewReconciliationStatus = "open" | "matched" | "explained" | "resolved";
 export type DividendReviewSortOrder = "asc" | "desc";
+export type DividendReviewReconciliationStatus = DividendCashReconciliationStatus;
 
 export interface DividendReviewFilterDto {
   fromPaymentDate?: string;
   toPaymentDate?: string;
   accountId?: string;
+  cashStatus?: DividendCashReconciliationStatus;
+  stockStatus?: DividendStockReconciliationStatus;
   reconciliationStatus?: DividendReviewReconciliationStatus;
   postingStatus?: DividendReviewPostingStatus;
   excludeExpected?: boolean;
@@ -313,9 +424,12 @@ export interface DividendReviewRowSummaryDto {
   eligibleQuantity: number;
   expectedCashAmount: number;
   receivedCashAmount: number;
-  expectedStockQuantity: number;
+  expectedStockQuantity: number | null;
   receivedStockQuantity: number;
   postingStatus: DividendReviewPostingStatus;
+  cashReconciliationStatus: DividendCashReconciliationStatus;
+  stockReconciliationStatus: DividendStockReconciliationStatus | null;
+  stockReconciliationNote?: string | null;
   reconciliationStatus: DividendReviewReconciliationStatus;
   sourceCompositionStatus: SourceCompositionStatus;
   expectedGrossAmount?: number | null;
@@ -329,7 +443,10 @@ export interface DividendReviewRowSummaryDto {
   stockDistributionRatioState?: StockDistributionRatioState | null;
   expectedStockCalcState?: ExpectedStockCalcState | null;
   expectedStockParValueAmount?: number | null;
+  stockVarianceQuantity?: number | null;
   cashInLieuAmount?: number | null;
+  provider?: DividendProviderValueDto | null;
+  activeCalculation?: DividendCalculationVersionDto | null;
 }
 
 export interface DividendReviewDeductionDto {
@@ -355,6 +472,9 @@ export interface DividendReviewDeductionDto {
 
 export interface DividendReviewRowDetailDto extends DividendReviewRowSummaryDto {
   reconciliationNote?: string | null;
+  provider?: DividendProviderValueDto | null;
+  activeCalculation?: DividendCalculationVersionDto | null;
+  calculationHistory?: DividendCalculationVersionDto[];
   bookedAt?: string;
   correctionMode?: "in_place" | "amend" | "reversal_replacement" | null;
   amendmentBlockedReason?: string | null;
@@ -402,10 +522,32 @@ export interface DividendReviewSourceCompositionSummaryDto {
   pendingCount: number;
 }
 
+export interface DividendReviewTickerSharesAggregateDto {
+  marketCode: MarketCode;
+  ticker: string;
+  expectedWholeShares: number | null;
+  receivedShares: number | null;
+  unresolvedEventCount: number;
+}
+
+export interface DividendReviewHeroAggregatesDto {
+  expectedStockTickers: DividendReviewTickerSharesAggregateDto[];
+  expectedStockTopTickers: DividendReviewTickerSharesAggregateDto[];
+  expectedStockRemainingTickerCount: number;
+  receivedStockTickers: DividendReviewTickerSharesAggregateDto[];
+  receivedStockTopTickers: DividendReviewTickerSharesAggregateDto[];
+  receivedStockRemainingTickerCount: number;
+  needsCalculationCount: number;
+  needsAttentionCount: number;
+  cashAttentionCount: number;
+  stockAttentionCount: number;
+}
+
 export interface DividendReviewEnrichmentDto {
   aggregates: DividendLedgerAggregates;
   nhiRollup: DividendReviewNhiRollupDto;
   sourceComposition: DividendReviewSourceCompositionSummaryDto;
+  hero?: DividendReviewHeroAggregatesDto;
 }
 
 export interface DividendReviewCompatibilityDto {
@@ -5335,4 +5477,5 @@ export interface DividendLedgerAggregates {
   openCount: number;
   byMonth: Record<string, CurrencyExpectedReceived>;
   byTicker: Record<string, CurrencyExpectedReceived>;
+  hero?: DividendReviewHeroAggregatesDto;
 }
