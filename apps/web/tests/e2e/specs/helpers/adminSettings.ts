@@ -58,3 +58,19 @@ export async function readAppConfig(actorUserId: string): Promise<{
     };
   });
 }
+
+export async function readMcpSettings(actorUserId: string): Promise<{
+  postedTransactionMutationBatchLimit: number;
+}> {
+  return withFreshContext(async (ctx) => {
+    const response = await ctx.get(new URL("/admin/mcp/settings", TestEnv.apiBaseUrl).href, {
+      headers: { "x-user-id": actorUserId },
+    });
+    if (!response.ok()) {
+      throw new Error(
+        `GET /admin/mcp/settings failed: ${response.status()} ${await response.text()}`,
+      );
+    }
+    return (await response.json()) as { postedTransactionMutationBatchLimit: number };
+  });
+}

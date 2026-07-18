@@ -575,6 +575,30 @@ describePostgres("postgres migrations", () => {
     });
   });
 
+  it("persists the posted transaction mutation batch limit alongside oauth policy fields", async () => {
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    const updated = await persistence.saveAiConnectorPolicySettings({
+      postedTransactionMutationBatchLimit: 125,
+      oauthPublicIssuer: "https://issuer.example.test",
+      oauthRedirectUriAllowlist: ["https://app.example.test/callback"],
+    });
+
+    expect(updated.postedTransactionMutationBatchLimit).toBe(125);
+    expect(updated.oauthPublicIssuer).toBe("https://issuer.example.test");
+    expect(updated.oauthRedirectUriAllowlist).toEqual(["https://app.example.test/callback"]);
+
+    await expect(persistence.getAiConnectorPolicySettings()).resolves.toMatchObject({
+      postedTransactionMutationBatchLimit: 125,
+      oauthPublicIssuer: "https://issuer.example.test",
+      oauthRedirectUriAllowlist: ["https://app.example.test/callback"],
+    });
+  });
+
   it("ignores blank legacy migration checksums when verifying applied migrations", async () => {
     const manifest = await migrationManifestPromise;
 
@@ -2722,6 +2746,153 @@ describePostgres("postgres migrations", () => {
     ]);
   }, 15_000);
 
+  it("inline dividend calculation: post → load → save preserves calculation history and ledger state", async () => {
+    persistence = new PostgresPersistence({
+      databaseUrl: databaseUrl!,
+      redisUrl: redisUrl!,
+    });
+    await persistence.init();
+
+    const store = await persistence.loadStore("user-1");
+    const seededBuy = createTransaction(store, "user-1", {
+      id: "trade-inline-calculation-buy",
+      accountId: "user-1-acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      quantity: 1_000,
+      unitPrice: 100,
+      priceCurrency: "TWD",
+      tradeDate: "2026-01-15",
+      tradeTimestamp: "2026-01-15T09:00:00.000Z",
+      commissionAmount: 0,
+      taxAmount: 0,
+      type: "BUY",
+      isDayTrade: false,
+    });
+    await persistence.savePostedTrade("user-1", store.accounting, seededBuy.id);
+
+    const dividendEvent = createDividendEvent(store, {
+      id: "dividend-event-inline-calculation",
+      ticker: "2330",
+      eventType: "STOCK",
+      exDividendDate: "2026-07-15",
+      paymentDate: "2026-08-20",
+      cashDividendPerShare: 0,
+      cashDividendCurrency: "TWD",
+      stockDividendPerShare: 1,
+      stockDistributionAmountRaw: 1,
+      stockDistributionRatio: null,
+      stockDistributionRatioState: "unresolved",
+      stockProviderValueUnit: "RATIO",
+      stockParValueAmount: null,
+      stockParValueCurrency: null,
+      source: "finmind",
+    });
+    dividendEvent.stockProviderValue = "1";
+    dividendEvent.stockProviderSource = "finmind";
+    dividendEvent.stockProviderDataset = "TaiwanStockDividend";
+    dividendEvent.stockProviderAuthoritativeRatio = "0.1";
+    const posting = postDividend(store, "user-1", {
+      id: "dividend-ledger-inline-calculation",
+      accountId: "user-1-acc-1",
+      dividendEventId: dividendEvent.id,
+      receivedCashAmount: 0,
+      receivedStockQuantity: 100,
+      deductions: [],
+    });
+    const calculationId = "dividend-calculation-inline-confirmed";
+    const now = new Date().toISOString();
+    store.accounting.facts.dividendCalculationVersions.push({
+      id: calculationId,
+      userId: "user-1",
+      accountId: "user-1-acc-1",
+      dividendEventId: dividendEvent.id,
+      calculationVersion: 1,
+      status: "confirmed",
+      method: "provider_ratio",
+      providerValue: "1",
+      providerUnit: "RATIO",
+      providerSource: "finmind",
+      providerDataset: "TaiwanStockDividend",
+      providerAuthoritativeRatio: "0.1",
+      selectedParValue: null,
+      customRatio: null,
+      ratio: "0.1",
+      theoreticalShares: "100",
+      expectedWholeShares: 100,
+      fractionalRemainder: "0",
+      requiresHighRatioConfirmation: false,
+      confirmedAt: now,
+      priorCalculationId: null,
+      dividendLedgerEntryId: null,
+      drift: null,
+      createdAt: now,
+    });
+    posting.dividendLedgerEntry.activeCalculationId = calculationId;
+    posting.dividendLedgerEntry.expectedStockQuantity = 100;
+    posting.dividendLedgerEntry.expectedStockCalcState = "resolved";
+    posting.dividendLedgerEntry.expectedStockDistributionRatio = 0.1;
+    posting.dividendLedgerEntry.expectedStockParValueAmount = null;
+    posting.dividendLedgerEntry.cashReconciliationStatus = "matched";
+    posting.dividendLedgerEntry.stockReconciliationStatus = "variance";
+    posting.dividendLedgerEntry.stockReconciliationNote = "Broker credited 99 shares";
+
+    await persistence.savePostedDividend(
+      "user-1",
+      store.accounting,
+      store.marketData,
+      posting.dividendLedgerEntry.id,
+    );
+
+    const reloaded = await persistence.loadStore("user-1");
+    expect(reloaded.accounting.facts.dividendCalculationVersions).toEqual([
+      expect.objectContaining({
+        id: calculationId,
+        userId: "user-1",
+        accountId: "user-1-acc-1",
+        dividendEventId: dividendEvent.id,
+        status: "confirmed",
+        providerAuthoritativeRatio: "0.100000000000",
+        ratio: "0.100000000000",
+        dividendLedgerEntryId: posting.dividendLedgerEntry.id,
+      }),
+    ]);
+    expect(reloaded.accounting.facts.dividendLedgerEntries).toEqual([
+      expect.objectContaining({
+        id: posting.dividendLedgerEntry.id,
+        activeCalculationId: calculationId,
+        expectedStockCalcState: "resolved",
+        cashReconciliationStatus: "matched",
+        stockReconciliationStatus: "variance",
+        stockReconciliationNote: "Broker credited 99 shares",
+      }),
+    ]);
+
+    await persistence.saveStore(reloaded);
+
+    const linked = await pool.query<{
+      active_calculation_id: string;
+      dividend_ledger_entry_id: string;
+      provider_authoritative_ratio: string;
+      is_active: boolean;
+    }>(
+      `SELECT ledger.active_calculation_id,
+              calculation.dividend_ledger_entry_id,
+              calculation.provider_authoritative_ratio::text,
+              calculation.is_active
+         FROM dividend_ledger_entries AS ledger
+         JOIN dividend_event_calculation_versions AS calculation
+           ON calculation.id = ledger.active_calculation_id
+        WHERE ledger.id = 'dividend-ledger-inline-calculation'`,
+    );
+    expect(linked.rows).toEqual([{
+      active_calculation_id: calculationId,
+      dividend_ledger_entry_id: posting.dividendLedgerEntry.id,
+      provider_authoritative_ratio: "0.100000000000",
+      is_active: true,
+    }]);
+  }, 15_000);
+
   it("rejects overwriting an already-posted dividend ledger entry in place", async () => {
     persistence = new PostgresPersistence({
       databaseUrl: databaseUrl!,
@@ -4772,6 +4943,441 @@ describePostgres("postgres migrations", () => {
       seededFrom: "provider_error_trail_incident_backfill",
       sourceSymbol: "005930",
     });
+  });
+
+  it("KZO-232: migration 112 backfills stock-provider units only for confirmed TW FinMind dividend provenance and reruns cleanly", async () => {
+    const before112 = await getNumberedMigrationsBefore("112_dividend_calculation_status_split_and_provider_normalization.sql");
+    await applyMigrationFiles(before112);
+
+    await pool.query(
+      `INSERT INTO market_data.dividend_events (
+         id, ticker, market_code, event_type, ex_dividend_date, payment_date,
+         cash_dividend_per_share, stock_dividend_per_share, cash_dividend_currency, source, ingested_at,
+         raw_provider_data, stock_distribution_amount_raw, stock_distribution_ratio, stock_distribution_ratio_state
+       ) VALUES
+         (
+           'finmind-provenance', '2330', 'TW', 'STOCK', DATE '2026-07-01', DATE '2026-08-01',
+           0, 0.5, 'TWD', 'finmind', CURRENT_TIMESTAMP,
+           '{"CashEarningsDistribution":0,"StockEarningsDistribution":0.5}'::jsonb,
+           0.5, NULL, 'unresolved'
+         ),
+         (
+           'unknown-source', '2330', 'TW', 'STOCK', DATE '2026-07-02', DATE '2026-08-02',
+           0, 0.5, 'TWD', 'manual', CURRENT_TIMESTAMP,
+           '{"CashEarningsDistribution":0,"StockEarningsDistribution":0.5}'::jsonb,
+           0.5, NULL, 'unresolved'
+         ),
+         (
+           'finmind-unconfirmed', '2330', 'TW', 'STOCK', DATE '2026-07-03', DATE '2026-08-03',
+           0, 0.5, 'TWD', 'finmind', CURRENT_TIMESTAMP,
+           '{"other":"shape"}'::jsonb,
+           0.5, NULL, 'unresolved'
+         )`,
+    );
+
+    await applyMigrationFiles(["112_dividend_calculation_status_split_and_provider_normalization.sql"]);
+    await applyMigrationFiles(["112_dividend_calculation_status_split_and_provider_normalization.sql"]);
+
+    const result = await pool.query<{
+      id: string;
+      stock_provider_value_unit: string | null;
+      stock_provider_source: string | null;
+      stock_provider_dataset: string | null;
+      stock_provider_value: string | null;
+    }>(
+      `SELECT id, stock_provider_value_unit, stock_provider_source, stock_provider_dataset, stock_provider_value::text
+         FROM market_data.dividend_events
+        WHERE id IN ('finmind-provenance', 'unknown-source', 'finmind-unconfirmed')
+        ORDER BY id`,
+    );
+
+    expect(result.rows).toEqual([
+      {
+        id: "finmind-provenance",
+        stock_provider_value_unit: "TWD_PER_SHARE",
+        stock_provider_source: "finmind",
+        stock_provider_dataset: "TaiwanStockDividend",
+        stock_provider_value: "0.500000000000",
+      },
+      {
+        id: "finmind-unconfirmed",
+        stock_provider_value_unit: "UNKNOWN",
+        stock_provider_source: "finmind",
+        stock_provider_dataset: null,
+        stock_provider_value: "0.500000000000",
+      },
+      {
+        id: "unknown-source",
+        stock_provider_value_unit: "UNKNOWN",
+        stock_provider_source: "manual",
+        stock_provider_dataset: null,
+        stock_provider_value: "0.500000000000",
+      },
+    ]);
+
+    const auditCheck = await pool.query<{ definition: string }>(
+      `SELECT pg_get_constraintdef(oid) AS definition
+         FROM pg_constraint
+        WHERE conname = 'audit_log_action_check'
+          AND conrelid = 'audit_log'::regclass`,
+    );
+    expect(auditCheck.rows[0]?.definition).toContain("dividend_stock_reconciliation_updated");
+  });
+
+  it("KZO-232: calculation-version tenant and active-link invariants reject invalid rows", async () => {
+    await applyNumberedMigrations();
+
+    await pool.query(
+      `INSERT INTO users (id, email, locale, cost_basis_method, quote_poll_interval_seconds)
+       VALUES
+         ('kzo232-user', 'kzo232@example.com', 'en', 'WEIGHTED_AVERAGE', 10),
+         ('kzo232-other-user', 'kzo232-other@example.com', 'en', 'WEIGHTED_AVERAGE', 10)`,
+    );
+    await seedAccountWithFeeProfilePost042({
+      userId: "kzo232-user",
+      accountId: "kzo232-acc",
+      accountName: "KZO 232 Account",
+      feeProfileId: "kzo232-fp",
+    });
+    await seedAccountWithFeeProfilePost042({
+      userId: "kzo232-other-user",
+      accountId: "kzo232-other-acc",
+      accountName: "KZO 232 Other Account",
+      feeProfileId: "kzo232-other-fp",
+    });
+
+    await pool.query(
+      `INSERT INTO market_data.dividend_events (
+         id, ticker, market_code, event_type, ex_dividend_date, payment_date,
+         cash_dividend_per_share, stock_dividend_per_share, cash_dividend_currency, source, ingested_at,
+         stock_distribution_amount_raw, stock_distribution_ratio_state
+       ) VALUES
+         (
+           'kzo232-event-1', '2330', 'TW', 'STOCK', DATE '2026-07-10', DATE '2026-08-10',
+           0, 0.5, 'TWD', 'finmind', CURRENT_TIMESTAMP, 0.5, 'unresolved'
+         ),
+         (
+           'kzo232-event-2', '2330', 'TW', 'STOCK', DATE '2026-07-11', DATE '2026-08-11',
+           0, 0.5, 'TWD', 'finmind', CURRENT_TIMESTAMP, 0.5, 'unresolved'
+         )`,
+    );
+
+    await pool.query(
+      `INSERT INTO dividend_ledger_entries (
+         id, account_id, dividend_event_id, eligible_quantity, expected_cash_amount, expected_stock_quantity,
+         received_stock_quantity, posting_status, reconciliation_status, version,
+         source_composition_status, booked_at
+       ) VALUES
+         (
+           'kzo232-ledger-1', 'kzo232-acc', 'kzo232-event-1', 1000, 0, 100,
+           0, 'expected', 'open', 1, 'provided', CURRENT_TIMESTAMP
+         ),
+         (
+           'kzo232-ledger-2', 'kzo232-acc', 'kzo232-event-2', 1000, 0, 100,
+           0, 'expected', 'open', 1, 'provided', CURRENT_TIMESTAMP
+         )`,
+    );
+
+    await pool.query(
+      `INSERT INTO dividend_event_calculation_versions (
+         id, user_id, account_id, dividend_event_id, prior_calculation_id, dividend_ledger_entry_id,
+         calculation_version, calculation_status, method, provider_value, provider_unit, provider_source,
+         provider_dataset, selected_par_value, custom_ratio, resolved_ratio, theoretical_shares,
+         expected_whole_shares, fractional_remainder, requires_high_ratio_confirmation,
+         confirmed_at, created_at, provenance, is_active
+       ) VALUES (
+         'kzo232-calc-1', 'kzo232-user', 'kzo232-acc', 'kzo232-event-1', NULL, 'kzo232-ledger-1',
+         1, 'confirmed', 'derived_from_par_value', 0.5, 'TWD_PER_SHARE', 'finmind',
+         'TaiwanStockDividend', 10, NULL, 0.05, 50,
+         50, 0, FALSE,
+         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '{}'::jsonb, TRUE
+       )`,
+    );
+
+    await expect(
+      pool.query(
+        `INSERT INTO dividend_event_calculation_versions (
+           id, user_id, account_id, dividend_event_id, prior_calculation_id, dividend_ledger_entry_id,
+           calculation_version, calculation_status, method, provider_value, provider_unit, provider_source,
+           provider_dataset, selected_par_value, custom_ratio, resolved_ratio, theoretical_shares,
+           expected_whole_shares, fractional_remainder, requires_high_ratio_confirmation,
+           confirmed_at, created_at, provenance, is_active
+         ) VALUES (
+           'kzo232-calc-2', 'kzo232-user', 'kzo232-acc', 'kzo232-event-2', 'kzo232-calc-1', 'kzo232-ledger-2',
+           2, 'confirmed', 'derived_from_par_value', 0.5, 'TWD_PER_SHARE', 'finmind',
+           'TaiwanStockDividend', 10, NULL, 0.05, 50,
+           50, 0, FALSE,
+           CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '{}'::jsonb, TRUE
+         )`,
+      ),
+    ).rejects.toThrow(/prior_scope_mismatch/);
+
+    await expect(
+      pool.query(
+        `INSERT INTO dividend_event_calculation_versions (
+           id, user_id, account_id, dividend_event_id, prior_calculation_id, dividend_ledger_entry_id,
+           calculation_version, calculation_status, method, provider_value, provider_unit, provider_source,
+           provider_dataset, selected_par_value, custom_ratio, resolved_ratio, theoretical_shares,
+           expected_whole_shares, fractional_remainder, requires_high_ratio_confirmation,
+           confirmed_at, created_at, provenance, is_active
+         ) VALUES (
+           'kzo232-cross-tenant-calc', 'kzo232-other-user', 'kzo232-acc', 'kzo232-event-1', NULL, NULL,
+           2, 'confirmed', 'derived_from_par_value', 0.5, 'TWD_PER_SHARE', 'finmind',
+           'TaiwanStockDividend', 10, NULL, 0.05, 50,
+           50, 0, FALSE,
+           CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '{}'::jsonb, FALSE
+         )`,
+      ),
+    ).rejects.toThrow(/fk_dividend_event_calculation_versions_account_user/);
+
+    await expect(
+      pool.query(
+        `UPDATE dividend_ledger_entries
+            SET active_calculation_id = 'kzo232-calc-1'
+          WHERE id = 'kzo232-ledger-2'`,
+      ),
+    ).rejects.toThrow(/active_calculation_scope_mismatch/);
+
+    await pool.query(
+      `INSERT INTO dividend_event_calculation_versions (
+         id, user_id, account_id, dividend_event_id, prior_calculation_id, dividend_ledger_entry_id,
+         calculation_version, calculation_status, method, provider_value, provider_unit, provider_source,
+         provider_dataset, selected_par_value, custom_ratio, resolved_ratio, theoretical_shares,
+         expected_whole_shares, fractional_remainder, requires_high_ratio_confirmation,
+         confirmed_at, created_at, provenance, is_active
+       ) VALUES (
+         'kzo232-inactive-calc', 'kzo232-user', 'kzo232-acc', 'kzo232-event-2', NULL, NULL,
+         1, 'confirmed', 'derived_from_par_value', 0.5, 'TWD_PER_SHARE', 'finmind',
+         'TaiwanStockDividend', 10, NULL, 0.05, 50,
+         50, 0, FALSE,
+         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '{}'::jsonb, FALSE
+       )`,
+    );
+
+    await expect(
+      pool.query(
+        `UPDATE dividend_ledger_entries
+            SET active_calculation_id = 'kzo232-inactive-calc'
+          WHERE id = 'kzo232-ledger-2'`,
+      ),
+    ).rejects.toThrow(/active_calculation_not_active/);
+
+    await pool.query(
+      `UPDATE dividend_ledger_entries
+          SET active_calculation_id = 'kzo232-calc-1'
+        WHERE id = 'kzo232-ledger-1'`,
+    );
+
+    await expect(
+      pool.query(
+        `UPDATE dividend_event_calculation_versions
+            SET is_active = FALSE,
+                superseded_at = CURRENT_TIMESTAMP
+        WHERE id = 'kzo232-calc-1'`,
+      ),
+    ).rejects.toThrow(/inactive_ledger_active_link/);
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `UPDATE dividend_event_calculation_versions
+            SET is_active = FALSE,
+                superseded_at = CURRENT_TIMESTAMP
+          WHERE id = 'kzo232-calc-1'`,
+      );
+      await client.query(
+        `INSERT INTO dividend_event_calculation_versions (
+           id, user_id, account_id, dividend_event_id, prior_calculation_id, dividend_ledger_entry_id,
+           calculation_version, calculation_status, method, provider_value, provider_unit, provider_source,
+           provider_dataset, selected_par_value, custom_ratio, resolved_ratio, theoretical_shares,
+           expected_whole_shares, fractional_remainder, requires_high_ratio_confirmation,
+           confirmed_at, created_at, provenance, is_active
+         ) VALUES (
+           'kzo232-amended-calc', 'kzo232-user', 'kzo232-acc', 'kzo232-event-1', 'kzo232-calc-1', 'kzo232-ledger-1',
+           2, 'amended', 'derived_from_par_value', 0.5, 'TWD_PER_SHARE', 'finmind',
+           'TaiwanStockDividend', 10, NULL, 0.05, 50,
+           50, 0, FALSE,
+           CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, '{"snapshot":"preserved"}'::jsonb, TRUE
+         )`,
+      );
+      await client.query(
+        `UPDATE dividend_ledger_entries
+            SET active_calculation_id = 'kzo232-amended-calc'
+          WHERE id = 'kzo232-ledger-1'`,
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    const activeLink = await pool.query<{
+      active_calculation_id: string;
+      old_is_active: boolean;
+      old_superseded_at: Date | null;
+    }>(
+      `SELECT dle.active_calculation_id,
+              old_calc.is_active AS old_is_active,
+              old_calc.superseded_at AS old_superseded_at
+         FROM dividend_ledger_entries AS dle
+         JOIN dividend_event_calculation_versions AS old_calc
+           ON old_calc.id = 'kzo232-calc-1'
+        WHERE dle.id = 'kzo232-ledger-1'`,
+    );
+    expect(activeLink.rows[0]).toMatchObject({
+      active_calculation_id: "kzo232-amended-calc",
+      old_is_active: false,
+      old_superseded_at: expect.any(Date),
+    });
+  });
+
+  it("KZO-232: account-market settings optimistic version is atomic under concurrent Postgres writes", async () => {
+    await applyNumberedMigrations();
+    persistence = new PostgresPersistence({ databaseUrl: databaseUrl!, redisUrl: redisUrl! });
+    await persistence.init();
+    const { userId } = await persistence.resolveOrCreateUser("google", "kzo232-settings-race-sub", {
+      email: "kzo232-settings-race@example.com",
+      name: "KZO 232 Settings Race",
+    });
+    const store = await persistence.loadStore(userId);
+    const account = store.accounts.find((item) => item.defaultCurrency === "TWD");
+    if (!account) throw new Error("expected TWD account");
+
+    const mutation = (fallbackParValue: string) => persistence!.patchAccountMarketDividendSettings(userId, {
+      accountId: account.id,
+      marketCode: "TW",
+      fallbackParValue,
+      expectedVersion: 0,
+      auditInput: { actorUserId: userId, metadata: { source: "settings-race-test" } },
+    });
+    const results = await Promise.allSettled([mutation("10"), mutation("20")]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    expect(rejected?.reason).toMatchObject({
+      statusCode: 409,
+      code: "account_market_dividend_settings_version_conflict",
+    });
+    const settings = await persistence.getAccountMarketDividendSettings(userId, account.id, "TW");
+    expect(settings.version).toBe(1);
+    expect(["10", "20"]).toContain(settings.fallbackParValue);
+  });
+
+  it("KZO-232: mismatched account market → rejects Postgres dividend settings write", async () => {
+    await applyNumberedMigrations();
+    persistence = new PostgresPersistence({ databaseUrl: databaseUrl!, redisUrl: redisUrl! });
+    await persistence.init();
+    const { userId } = await persistence.resolveOrCreateUser("google", "kzo232-settings-market-sub", {
+      email: "kzo232-settings-market@example.com",
+      name: "KZO 232 Settings Market",
+    });
+    const store = await persistence.loadStore(userId);
+    const account = store.accounts.find((item) => item.defaultCurrency === "TWD");
+    if (!account) throw new Error("expected TWD account");
+
+    await expect(
+      persistence.patchAccountMarketDividendSettings(userId, {
+        accountId: account.id,
+        marketCode: "US",
+        fallbackParValue: "10",
+        expectedVersion: 0,
+        auditInput: { actorUserId: userId, metadata: { source: "settings-market-test" } },
+      }),
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      code: "unsupported_dividend_settings_market",
+    });
+
+    const persisted = await pool.query(
+      `SELECT 1
+         FROM account_market_dividend_settings
+        WHERE account_id = $1 AND market_code = 'US'`,
+      [account.id],
+    );
+    expect(persisted.rowCount).toBe(0);
+  });
+
+  it("KZO-232: audit failure → rolls back Postgres dividend settings mutation", async () => {
+    await applyNumberedMigrations();
+    persistence = new PostgresPersistence({ databaseUrl: databaseUrl!, redisUrl: redisUrl! });
+    await persistence.init();
+    const { userId } = await persistence.resolveOrCreateUser("google", "kzo232-settings-audit-sub", {
+      email: "kzo232-settings-audit@example.com",
+      name: "KZO 232 Settings Audit",
+    });
+    const store = await persistence.loadStore(userId);
+    const account = store.accounts.find((item) => item.defaultCurrency === "TWD");
+    if (!account) throw new Error("expected TWD account");
+    await pool.query(
+      `ALTER TABLE audit_log
+         ADD CONSTRAINT audit_log_reject_settings_test
+         CHECK (action <> 'account_market_dividend_settings_updated')`,
+    );
+
+    await expect(
+      persistence.patchAccountMarketDividendSettings(userId, {
+        accountId: account.id,
+        marketCode: "TW",
+        fallbackParValue: "10",
+        expectedVersion: 0,
+        auditInput: { actorUserId: userId, metadata: { source: "settings-audit-test" } },
+      }),
+    ).rejects.toThrow(/audit_log_reject_settings_test/);
+
+    const persisted = await pool.query(
+      `SELECT 1
+         FROM account_market_dividend_settings
+        WHERE account_id = $1 AND market_code = 'TW'`,
+      [account.id],
+    );
+    expect(persisted.rowCount).toBe(0);
+  });
+
+  it("KZO-232: Postgres store round-trips normalized dividend provider provenance", async () => {
+    await applyNumberedMigrations();
+    persistence = new PostgresPersistence({ databaseUrl: databaseUrl!, redisUrl: redisUrl! });
+    await persistence.init();
+    const { userId } = await persistence.resolveOrCreateUser("google", "kzo232-provider-roundtrip-sub", {
+      email: "kzo232-provider-roundtrip@example.com",
+      name: "KZO 232 Provider Roundtrip",
+    });
+    const store = await persistence.loadStore(userId);
+    store.marketData.dividendEvents.push({
+      id: "kzo232-normalized-provider-event",
+      ticker: "2330",
+      marketCode: "TW",
+      eventType: "STOCK",
+      exDividendDate: "2026-07-15",
+      paymentDate: "2026-08-20",
+      cashDividendPerShare: 0,
+      cashDividendCurrency: "TWD",
+      stockDividendPerShare: 0.25,
+      stockDistributionAmountRaw: 0.25,
+      stockProviderValue: "0.250000000000",
+      stockProviderValueUnit: "RATIO",
+      stockProviderSource: "normalized-test",
+      stockProviderDataset: "NormalizedDividendDataset",
+      stockProviderAuthoritativeRatio: "0.250000000000",
+      stockDistributionRatio: 0.25,
+      stockDistributionRatioState: "authoritative",
+      stockParValueAmount: null,
+      stockParValueCurrency: null,
+      source: "legacy-source",
+    });
+    await persistence.saveStore(store);
+
+    const reloaded = await persistence.loadStore(userId);
+    expect(reloaded.marketData.dividendEvents.find((event) => event.id === "kzo232-normalized-provider-event"))
+      .toMatchObject({
+        stockProviderValue: "0.250000000000",
+        stockProviderValueUnit: "RATIO",
+        stockProviderSource: "normalized-test",
+        stockProviderDataset: "NormalizedDividendDataset",
+        stockProviderAuthoritativeRatio: "0.250000000000",
+      });
   });
 
   it("KZO-210: pending invite capabilities materialize onto the share grant", async () => {

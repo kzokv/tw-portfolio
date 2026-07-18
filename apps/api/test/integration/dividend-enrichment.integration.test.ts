@@ -46,7 +46,7 @@ describePostgres("dividend enrichment columns", () => {
     await pool.end();
   });
 
-  it("upsertDividendEvents writes all 4 new columns", async () => {
+  it("upsertDividendEvents writes normalized provider metadata columns", async () => {
     const rawData = { stock_id: "2330", year: "2024", CashEarningsDistribution: 2.5, extra: true };
     const count = await upsertDividendEvents(pool, [
       {
@@ -55,18 +55,26 @@ describePostgres("dividend enrichment columns", () => {
         exDividendDate: "2025-06-15",
         paymentDate: "2025-07-15",
         cashDividendPerShare: 2.5,
-        stockDividendPerShare: 0,
+        stockDividendPerShare: 0.5,
         fiscalYearPeriod: "2024",
         announcementDate: "2025-05-01",
         totalDistributionShares: 25933632588,
         rawProviderData: rawData,
+        stockDistributionAmountRaw: 0.5,
+        stockProviderValue: 0.5,
+        stockProviderValueUnit: "TWD_PER_SHARE",
+        stockProviderSource: "finmind",
+        stockProviderDataset: "TaiwanStockDividend",
+        stockProviderAuthoritativeRatio: null,
       },
     ]);
     expect(count).toBe(1);
 
     // Verify JSONB contents via raw SQL — cast DATE to TEXT to avoid JS timezone issues
     const { rows } = await pool.query(
-      `SELECT fiscal_year_period, announcement_date::text, total_distribution_shares, raw_provider_data
+      `SELECT fiscal_year_period, announcement_date::text, total_distribution_shares, raw_provider_data,
+              stock_distribution_amount_raw, stock_provider_value, stock_provider_value_unit,
+              stock_provider_source, stock_provider_dataset, stock_provider_authoritative_ratio
        FROM market_data.dividend_events
        WHERE ticker = '2330' AND ex_dividend_date = '2025-06-15'`,
     );
@@ -75,6 +83,12 @@ describePostgres("dividend enrichment columns", () => {
     expect(rows[0].announcement_date).toBe("2025-05-01");
     expect(Number(rows[0].total_distribution_shares)).toBe(25933632588);
     expect(rows[0].raw_provider_data).toEqual(rawData);
+    expect(String(rows[0].stock_distribution_amount_raw)).toBe("0.500000");
+    expect(String(rows[0].stock_provider_value)).toBe("0.500000000000");
+    expect(rows[0].stock_provider_value_unit).toBe("TWD_PER_SHARE");
+    expect(rows[0].stock_provider_source).toBe("finmind");
+    expect(rows[0].stock_provider_dataset).toBe("TaiwanStockDividend");
+    expect(rows[0].stock_provider_authoritative_ratio).toBeNull();
   });
 
   it("upsertDividendEvents with null enrichment columns", async () => {
@@ -110,8 +124,13 @@ describePostgres("dividend enrichment columns", () => {
         exDividendDate: "2025-06-15",
         paymentDate: "2025-07-15",
         cashDividendPerShare: 2.5,
-        stockDividendPerShare: 0,
+        stockDividendPerShare: 0.5,
         rawProviderData: { version: 1 },
+        stockDistributionAmountRaw: 0.5,
+        stockProviderValue: 0.5,
+        stockProviderValueUnit: "TWD_PER_SHARE",
+        stockProviderSource: "finmind",
+        stockProviderDataset: "TaiwanStockDividend",
       },
     ]);
 
@@ -122,15 +141,21 @@ describePostgres("dividend enrichment columns", () => {
         exDividendDate: "2025-06-15",
         paymentDate: "2025-07-15",
         cashDividendPerShare: 2.5,
-        stockDividendPerShare: 0,
+        stockDividendPerShare: 0.75,
         rawProviderData: { version: 2, newField: true },
+        stockDistributionAmountRaw: 0.75,
+        stockProviderValue: 0.75,
+        stockProviderValueUnit: "TWD_PER_SHARE",
+        stockProviderSource: "finmind",
+        stockProviderDataset: "TaiwanStockDividend",
       },
     ]);
 
     const { rows } = await pool.query(
-      `SELECT raw_provider_data FROM market_data.dividend_events WHERE ticker = '2330'`,
+      `SELECT raw_provider_data, stock_provider_value FROM market_data.dividend_events WHERE ticker = '2330'`,
     );
     expect(rows[0].raw_provider_data).toEqual({ version: 2, newField: true });
+    expect(String(rows[0].stock_provider_value)).toBe("0.750000000000");
   });
 
   it("upsertDividendEvents deduplicates batch entries with the same derived key", async () => {

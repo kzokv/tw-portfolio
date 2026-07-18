@@ -22,7 +22,15 @@ import {
   type ImpersonationCookieIdentity,
   type SessionIdentity,
 } from "../auth/googleOAuth.js";
-import { calculateBuyFees, calculateSellFees, classifyInstrument, resolveRangeBounds, roundToDecimal, type FeeProfile } from "@vakwen/domain";
+import {
+  calculateBuyFees,
+  calculateDividendStockEntitlement,
+  calculateSellFees,
+  classifyInstrument,
+  resolveRangeBounds,
+  roundToDecimal,
+  type FeeProfile,
+} from "@vakwen/domain";
 import type {
   AccountDefaultCurrency,
   AiConnectorAccessKind,
@@ -64,6 +72,7 @@ import {
   dashboardPerformanceRangesSchema,
   densityModeSchema,
   holdingAllocationBasisSchema,
+  holdingsSelectionPreferenceSchema,
   holdingsTableSettingsPreferenceSchema,
   priceColorConventionSchema,
   themeAccentSchema,
@@ -105,6 +114,7 @@ import {
   buildDividendEventListItems,
   buildDividendLedgerEntryDetails,
   createDividendEvent,
+  deriveEligibleQuantity,
   postDividend,
   preparePostedCashDividendUpdate,
   resolveDividendEventMarketCode,
@@ -136,6 +146,16 @@ import {
 } from "../services/mcpConnectorLifecycle.js";
 import { confirmRecompute, previewRecompute } from "../services/recompute.js";
 import { replayPositionHistory, scheduleReplayWithRetry } from "../services/replayPositionHistory.js";
+import {
+  confirmPostedTransactionMutation,
+  dispatchPostedTransactionMutationRebuild,
+  getPostedTransactionMutationPreview,
+  getPostedTransactionMutationRun,
+  previewPostedTransactionDeleteBatch,
+  previewPostedTransactionUpdateBatch,
+  simulatePostedTransactionDeleteBatch,
+  simulatePostedTransactionUpdateBatch,
+} from "../services/postedTransactionMutations.js";
 import { generateHoldingSnapshots, recomputeSnapshotsForTicker } from "../services/snapshotGeneration.js";
 import { generateCurrencyWalletSnapshots } from "../services/currencyWalletSnapshotGeneration.js";
 import { ReadPathTiming } from "../services/readPathTiming.js";
@@ -201,6 +221,7 @@ import type {
   AnonymousShareTokenRecord,
   PendingShareInviteRecord,
   Persistence,
+  AuditLogInput,
   SnapshotTradeInput,
   ShareGrantRecord,
   UserRole,
@@ -485,6 +506,38 @@ const dividendSourceLineSchema = z.object({
   note: z.string().trim().min(1).max(200).optional(),
 });
 
+function isPositiveDecimalWithinPrecision(
+  value: string,
+  maxIntegerDigits: number,
+  maxFractionDigits: number,
+): boolean {
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(value);
+  if (!match) return false;
+  const integerDigits = (match[1] ?? "").replace(/^0+(?=\d)/, "");
+  const fractionDigits = match[2] ?? "";
+  return integerDigits.length <= maxIntegerDigits
+    && fractionDigits.length <= maxFractionDigits
+    && /[1-9]/.test(value);
+}
+
+function positiveDecimalTextSchema(
+  fieldName: string,
+  maxIntegerDigits: number,
+  maxFractionDigits: number,
+) {
+  return z.string().trim().superRefine((value, ctx) => {
+    if (!isPositiveDecimalWithinPrecision(value, maxIntegerDigits, maxFractionDigits)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${fieldName} must be a positive decimal with at most ${maxIntegerDigits} integer and ${maxFractionDigits} fractional digits`,
+      });
+    }
+  });
+}
+
+const selectedParValueSchema = positiveDecimalTextSchema("selectedParValue", 14, 6);
+const customRatioSchema = positiveDecimalTextSchema("customRatio", 8, 12);
+
 const dividendPostingSchema = z
   .object({
     accountId: userScopedIdSchema,
@@ -496,6 +549,13 @@ const dividendPostingSchema = z
     sourceCompositionStatus: z.enum(["provided", "unknown_pending_disclosure"]).default("unknown_pending_disclosure"),
     dividendLedgerEntryId: userScopedIdSchema.optional(),
     expectedVersion: z.number().int().positive().optional(),
+    calculation: z.object({
+      method: z.enum(["provider_ratio", "derived_from_par_value", "custom_ratio"]),
+      selectedParValue: selectedParValueSchema.nullable().optional(),
+      customRatio: customRatioSchema.nullable().optional(),
+      acknowledgeHighRatio: z.boolean().optional(),
+      acknowledgeDrift: z.boolean().optional(),
+    }).optional(),
   })
   .superRefine((value, ctx) => {
     if (value.dividendLedgerEntryId && value.expectedVersion === undefined) {
@@ -550,6 +610,8 @@ const dividendReviewQuerySchema = z.object({
   fromPaymentDate: isoDateSchema.optional(),
   toPaymentDate: isoDateSchema.optional(),
   accountId: userScopedIdSchema.optional(),
+  cashStatus: z.enum(["open", "matched", "explained", "resolved"]).optional(),
+  stockStatus: z.enum(["needs_calculation", "pending_receipt", "matched", "variance", "explained"]).optional(),
   reconciliationStatus: z.enum(["open", "matched", "explained", "resolved"]).optional(),
   postingStatus: z.enum(["expected", "posted", "adjusted"]).optional(),
   excludeExpected: z.enum(["true", "false"]).transform((value) => value === "true").optional(),
@@ -619,6 +681,67 @@ const dividendReconciliationSchema = z.object({
   status: z.enum(["open", "matched", "explained", "resolved"]),
   note: z.string().trim().max(500).optional(),
 });
+
+const dividendStockReconciliationSchema = z.object({
+  status: z.enum(["needs_calculation", "pending_receipt", "matched", "variance", "explained"]),
+  note: z.string().trim().max(500).nullable().optional(),
+  expectedVersion: z.number().int().positive().optional(),
+});
+
+const dividendSettingsPatchSchema = z.object({
+  expectedVersion: z.number().int().nonnegative().optional(),
+  fallbackParValue: selectedParValueSchema.nullable(),
+});
+
+const dividendCalculationPreviewSchema = z.object({
+  accountId: userScopedIdSchema,
+  dividendEventId: userScopedIdSchema,
+  method: z.enum(["provider_ratio", "derived_from_par_value", "custom_ratio"]),
+  selectedParValue: selectedParValueSchema.nullable().optional(),
+  customRatio: customRatioSchema.nullable().optional(),
+});
+
+const dividendCalculationExpectationFields = {
+  expectedActiveCalculationId: userScopedIdSchema.nullable().optional(),
+  expectedCalculationVersion: z.number().int().positive().nullable().optional(),
+} as const;
+
+function requireDividendCalculationExpectation(
+  value: {
+    expectedActiveCalculationId?: string | null;
+    expectedCalculationVersion?: number | null;
+  },
+  ctx: z.RefinementCtx,
+): void {
+  if (value.expectedActiveCalculationId === undefined && value.expectedCalculationVersion === undefined) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "expectedActiveCalculationId or expectedCalculationVersion is required",
+      path: ["expectedActiveCalculationId"],
+    });
+  }
+}
+
+const dividendCalculationConfirmSchema = z.object({
+  ...dividendCalculationPreviewSchema.shape,
+  ...dividendCalculationExpectationFields,
+  acknowledgeHighRatio: z.boolean().optional(),
+  acknowledgeDrift: z.boolean().optional(),
+}).superRefine(requireDividendCalculationExpectation);
+
+const dividendCalculationResetSchema = z.object({
+  accountId: userScopedIdSchema,
+  dividendEventId: userScopedIdSchema,
+  ...dividendCalculationExpectationFields,
+}).superRefine(requireDividendCalculationExpectation);
+
+const dividendCalculationAmendSchema = z.object({
+  ...dividendCalculationPreviewSchema.shape,
+  ...dividendCalculationExpectationFields,
+  acknowledgeHighRatio: z.boolean().optional(),
+  acknowledgeDrift: z.boolean().optional(),
+  dividendLedgerEntryId: userScopedIdSchema,
+}).superRefine(requireDividendCalculationExpectation);
 
 const cashLedgerEntryTypes = [
   "TRADE_SETTLEMENT_IN",
@@ -771,6 +894,7 @@ const WRITER_ROLE_ROUTE_KEYS = new Set([
   "PATCH /profile",
   "POST /accounts",
   "PATCH /accounts/:id",
+  "PATCH /accounts/:id/dividend-settings/:marketCode",
   "POST /fx-transfers",
   "PATCH /fx-transfers/:id",
   "POST /fx-transfers/:id/reverse",
@@ -783,10 +907,17 @@ const WRITER_ROLE_ROUTE_KEYS = new Set([
   "PATCH /portfolio/transactions/:tradeEventId",
   "POST /portfolio/transactions/:tradeEventId/dividend-delete-preview",
   "POST /portfolio/transactions/:tradeEventId/dividend-delete-confirm",
+  "POST /portfolio/transactions/mutations/update-preview",
+  "POST /portfolio/transactions/mutations/delete-preview",
+  "POST /portfolio/transactions/mutations/previews/:previewId/confirm",
   "POST /portfolio/dividends/postings",
+  "POST /portfolio/dividends/calculations/confirm",
+  "POST /portfolio/dividends/calculations/reset",
+  "POST /portfolio/dividends/calculations/amend",
   "POST /portfolio/accounts/:accountId/purge-rebuild-preview",
   "POST /portfolio/accounts/:accountId/purge-rebuild-confirm",
   "PATCH /portfolio/dividends/postings/:dividendLedgerEntryId/reconciliation",
+  "PATCH /portfolio/dividends/postings/:dividendLedgerEntryId/stock-reconciliation",
   "POST /corporate-actions",
   "POST /portfolio/snapshots/generate",
   "POST /portfolio/refresh-closes",
@@ -839,6 +970,7 @@ const SHARED_CONTEXT_WRITE_ROUTE_KEYS = new Set([
   "PUT /settings/fee-config",
   "POST /accounts",
   "PATCH /accounts/:id",
+  "PATCH /accounts/:id/dividend-settings/:marketCode",
   "DELETE /accounts/:id",
   "POST /accounts/:id/restore",
   "POST /accounts/:id/purge",
@@ -854,10 +986,17 @@ const SHARED_CONTEXT_WRITE_ROUTE_KEYS = new Set([
   "PATCH /portfolio/transactions/:tradeEventId",
   "POST /portfolio/transactions/:tradeEventId/dividend-delete-preview",
   "POST /portfolio/transactions/:tradeEventId/dividend-delete-confirm",
+  "POST /portfolio/transactions/mutations/update-preview",
+  "POST /portfolio/transactions/mutations/delete-preview",
+  "POST /portfolio/transactions/mutations/previews/:previewId/confirm",
   "POST /portfolio/dividends/postings",
+  "POST /portfolio/dividends/calculations/confirm",
+  "POST /portfolio/dividends/calculations/reset",
+  "POST /portfolio/dividends/calculations/amend",
   "POST /portfolio/accounts/:accountId/purge-rebuild-preview",
   "POST /portfolio/accounts/:accountId/purge-rebuild-confirm",
   "PATCH /portfolio/dividends/postings/:dividendLedgerEntryId/reconciliation",
+  "PATCH /portfolio/dividends/postings/:dividendLedgerEntryId/stock-reconciliation",
   "POST /corporate-actions",
   "POST /share-tokens",
   "DELETE /share-tokens/:id",
@@ -886,6 +1025,7 @@ const SHARED_CONTEXT_WRITE_CAPABILITY_MATRIX: Readonly<Record<string, ShareCapab
   "PUT /settings/fee-config": "account:manage",
   "POST /accounts": "account:manage",
   "PATCH /accounts/:id": "account:manage",
+  "PATCH /accounts/:id/dividend-settings/:marketCode": "account:manage",
   "DELETE /accounts/:id": "account:manage",
   "POST /accounts/:id/restore": "account:manage",
   "POST /fee-profiles": "account:manage",
@@ -897,10 +1037,17 @@ const SHARED_CONTEXT_WRITE_CAPABILITY_MATRIX: Readonly<Record<string, ShareCapab
   "PATCH /portfolio/transactions/:tradeEventId": "transaction:write",
   "POST /portfolio/transactions/:tradeEventId/dividend-delete-preview": "transaction:write",
   "POST /portfolio/transactions/:tradeEventId/dividend-delete-confirm": "transaction:write",
+  "POST /portfolio/transactions/mutations/update-preview": "transaction:write",
+  "POST /portfolio/transactions/mutations/delete-preview": "transaction:write",
+  "POST /portfolio/transactions/mutations/previews/:previewId/confirm": "transaction:write",
   "POST /portfolio/dividends/postings": "dividend:write",
+  "POST /portfolio/dividends/calculations/confirm": "dividend:write",
+  "POST /portfolio/dividends/calculations/reset": "dividend:write",
+  "POST /portfolio/dividends/calculations/amend": "dividend:write",
   "POST /portfolio/accounts/:accountId/purge-rebuild-preview": "transaction:write",
   "POST /portfolio/accounts/:accountId/purge-rebuild-confirm": "transaction:write",
   "PATCH /portfolio/dividends/postings/:dividendLedgerEntryId/reconciliation": "dividend:write",
+  "PATCH /portfolio/dividends/postings/:dividendLedgerEntryId/stock-reconciliation": "dividend:write",
   "POST /ai/transactions/confirm": "transaction:write",
   "POST /ai/transaction-drafts/:batchId/confirm": "transaction:write",
   "PATCH /ai/transaction-drafts/:batchId/rows/:rowId": "transaction_draft:edit",
@@ -1426,16 +1573,30 @@ function toTransactionDraftBatchDto(app: FastifyInstance, batch: AiTransactionDr
   };
 }
 
-function toTransactionDraftRowDto(row: AiTransactionDraftRowRecord): TransactionDraftRowDto & {
+function toTransactionDraftRowDto(row: AiTransactionDraftRowRecord & {
+  deletedPostedTransaction?: {
+    deletedAt: string;
+    deletedByUserId: string | null;
+    mutationRunId: string;
+  } | null;
+}): TransactionDraftRowDto & {
   tradeTimestamp: string | null;
   bookingSequence: number | null;
   note: string | null;
+  deletedPostedTransaction: {
+    deletedAt: string;
+    deletedByUserId: string | null;
+    mutationRunId: string;
+  } | null;
 } {
+  const lineage = row.deletedPostedTransaction ?? null;
   return {
     id: row.id,
     batchId: row.batchId,
     rowNumber: row.rowNumber,
     state: row.state,
+    displayState: lineage ? "posted_transaction_deleted" : row.state,
+    statusCopy: lineage ? "Posted transaction deleted" : row.state === "confirmed" ? "Posted transaction confirmed" : row.state,
     version: row.version,
     accountId: row.accountId,
     accountName: row.accountNameInput,
@@ -1460,7 +1621,17 @@ function toTransactionDraftRowDto(row: AiTransactionDraftRowRecord): Transaction
     warnings: row.warnings,
     confirmedTradeEventId: row.confirmedTradeEventId,
     confirmedAt: row.confirmedAt,
+    deletedPostedTransaction: lineage,
     updatedAt: row.updatedAt,
+  } as TransactionDraftRowDto & {
+    tradeTimestamp: string | null;
+    bookingSequence: number | null;
+    note: string | null;
+    deletedPostedTransaction: {
+      deletedAt: string;
+      deletedByUserId: string | null;
+      mutationRunId: string;
+    } | null;
   };
 }
 
@@ -1476,13 +1647,25 @@ function toTransactionDraftUnsupportedDto(item: AiTransactionDraftUnsupportedIte
   };
 }
 
-function toTransactionDraftDetailDto(
+async function toTransactionDraftDetailDto(
   app: FastifyInstance,
   aggregate: AiTransactionDraftBatchAggregate,
-): TransactionDraftBatchDetailDto & { deepLinkUrl: string } {
+): Promise<TransactionDraftBatchDetailDto & { deepLinkUrl: string }> {
+  const deletedDraftLineages = await app.persistence.listPostedTransactionMutationDeletedDraftLineage(
+    aggregate.batch.ownerUserId,
+    aggregate.rows.flatMap((row) => row.confirmedTradeEventId ? [row.confirmedTradeEventId] : []),
+    aggregate.rows.map((row) => row.id),
+  );
+  const deletedDraftLineageByTradeId = new Map(deletedDraftLineages.map((lineage) => [lineage.tradeEventId, lineage] as const));
+  const deletedDraftLineageByRowId = new Map(deletedDraftLineages.map((lineage) => [lineage.rowId, lineage] as const));
   return {
     batch: toTransactionDraftBatchDto(app, aggregate.batch),
-    rows: aggregate.rows.map(toTransactionDraftRowDto),
+    rows: aggregate.rows.map((row) => toTransactionDraftRowDto({
+      ...row,
+      deletedPostedTransaction: (
+        row.confirmedTradeEventId ? deletedDraftLineageByTradeId.get(row.confirmedTradeEventId) : undefined
+      ) ?? deletedDraftLineageByRowId.get(row.id) ?? null,
+    })),
     unsupportedItems: aggregate.unsupportedItems.map(toTransactionDraftUnsupportedDto),
     deepLinkUrl: buildAiDraftDeepLink(app, aggregate.batch.id, aggregate.batch.ownerUserId),
   };
@@ -1585,6 +1768,28 @@ async function appendDelegatedWriteAudit(
       "delegated write audit append failed",
     );
   }
+}
+
+function requireIdempotencyKey(req: FastifyRequest): string {
+  const idempotencyKey = req.headers["idempotency-key"];
+  if (!idempotencyKey || Array.isArray(idempotencyKey)) {
+    throw routeError(400, "idempotency_key_required", "idempotency-key header required");
+  }
+  return idempotencyKey;
+}
+
+async function buildPortfolioAuditInput(
+  req: FastifyRequest,
+  routeKeyValue: string,
+): Promise<Pick<AuditLogInput, "actorUserId" | "ipAddress" | "metadata">> {
+  return {
+    actorUserId: requireSessionUserId(req),
+    ipAddress: req.ip,
+    metadata: {
+      routeKey: routeKeyValue,
+      ...(await buildDelegatedAuditMetadata(req)),
+    },
+  };
 }
 
 function requireWebDraftCapability(context: McpResolvedContext, capability: ShareCapability): void {
@@ -2208,6 +2413,10 @@ function mapTransactionHistoryItem(
   accountById: ReadonlyMap<string, { id: string; name: string }>,
   buildRealizedPnlBreakdown: (trade: Transaction) => TransactionHistoryItemDto["realizedPnlBreakdown"],
 ): TransactionHistoryItemDto {
+  const grossTradeValueAmount = roundToDecimal(trade.quantity * trade.unitPrice, 2);
+  const settlementAmount = trade.type === "BUY"
+    ? roundToDecimal(grossTradeValueAmount + trade.commissionAmount + trade.taxAmount, 2)
+    : roundToDecimal(grossTradeValueAmount - trade.commissionAmount - trade.taxAmount, 2);
   return {
     id: trade.id,
     accountId: trade.accountId,
@@ -2222,8 +2431,12 @@ function mapTransactionHistoryItem(
     tradeDate: trade.tradeDate,
     tradeTimestamp: trade.tradeTimestamp ?? null,
     bookingSequence: trade.bookingSequence ?? null,
+    grossTradeValueAmount,
     commissionAmount: trade.commissionAmount,
     taxAmount: trade.taxAmount,
+    settlementAmount,
+    settlementAvailable: true,
+    bookedCostAmount: trade.type === "BUY" ? settlementAmount : null,
     isDayTrade: trade.isDayTrade,
     realizedPnlAmount: trade.realizedPnlAmount ?? null,
     realizedPnlCurrency: trade.realizedPnlCurrency ?? null,
@@ -3344,6 +3557,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         cashDividendPerShare: z.number().nonnegative().default(0),
         cashDividendCurrency: currencyCodeSchema.default("TWD"),
         stockDividendPerShare: z.number().nonnegative().default(0),
+        stockDistributionAmountRaw: z.number().nonnegative().nullable().optional(),
+        stockProviderValueUnit: z.enum(["RATIO", "TWD_PER_SHARE", "UNKNOWN"]).nullable().optional(),
+        stockProviderSource: z.string().nullable().optional(),
+        stockProviderDataset: z.string().nullable().optional(),
+        stockDistributionRatio: z.number().nonnegative().nullable().optional(),
+        stockDistributionRatioState: z.enum(["authoritative", "derived_non_authoritative", "unresolved"]).optional(),
+        stockParValueAmount: z.number().nonnegative().nullable().optional(),
+        stockParValueCurrency: currencyCodeSchema.nullable().optional(),
         source: z.string().default("e2e_seed_dividend_event"),
         eligibleQuantity: z.number().int().nonnegative().default(1000),
         tradeDate: isoDateSchema.optional(),
@@ -3388,6 +3609,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       cashDividendPerShare: body.cashDividendPerShare,
       cashDividendCurrency: body.cashDividendCurrency,
       stockDividendPerShare: body.stockDividendPerShare,
+      stockDistributionAmountRaw: body.stockDistributionAmountRaw,
+      stockProviderValueUnit: body.stockProviderValueUnit,
+      stockProviderSource: body.stockProviderSource,
+      stockProviderDataset: body.stockProviderDataset,
+      stockDistributionRatio: body.stockDistributionRatio,
+      stockDistributionRatioState: body.stockDistributionRatioState,
+      stockParValueAmount: body.stockParValueAmount,
+      stockParValueCurrency: body.stockParValueCurrency,
       source: body.source,
     });
 
@@ -4112,6 +4341,9 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       holdingsTableSettings: z
         .union([holdingsTableSettingsPreferenceSchema, z.null()])
         .optional(),
+      holdingsSelection: z
+        .union([holdingsSelectionPreferenceSchema, z.null()])
+        .optional(),
       adminMarketDataTableSettings: z
         .union([adminMarketDataTableSettingsPreferenceSchema, z.null()])
         .optional(),
@@ -4716,7 +4948,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       )
       .parse(req.body);
 
-    const { store } = await loadUserStore(app, req);
+    const { userId, store } = await loadUserStore(app, req);
 
     const account = store.accounts.find((item) => item.id === params.id);
     if (!account) throw routeError(404, "account_not_found", `Account ${params.id} was not found.`);
@@ -4753,6 +4985,29 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           "Cannot change default currency: account has existing cash entries or trade events. Open a new account or contact support.",
         );
       }
+      const previousMarketCode = marketCodeFor(account.defaultCurrency);
+      const nextMarketCode = marketCodeFor(body.defaultCurrency);
+      if (previousMarketCode !== nextMarketCode) {
+        const currentSettings = await app.persistence.getAccountMarketDividendSettings(userId, account.id, previousMarketCode);
+        if (currentSettings.fallbackParValue !== null) {
+          await app.persistence.patchAccountMarketDividendSettings(userId, {
+            accountId: account.id,
+            marketCode: previousMarketCode,
+            fallbackParValue: null,
+            expectedVersion: currentSettings.version,
+            auditInput: {
+              actorUserId: userId,
+              ipAddress: req.ip,
+              metadata: {
+                routeKey: "PATCH /accounts/:id",
+                mutation: "account_currency_change_cleared_dividend_fallback",
+                previousMarketCode,
+                nextMarketCode,
+              },
+            },
+          });
+        }
+      }
       account.defaultCurrency = body.defaultCurrency;
     }
     if (body.accountType !== undefined) {
@@ -4769,6 +5024,31 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       changedFields: Object.keys(body),
     });
     return account;
+  });
+
+  app.get("/accounts/:id/dividend-settings/:marketCode", async (req) => {
+    const params = z.object({
+      id: userScopedIdSchema,
+      marketCode: z.enum(MARKET_CODES),
+    }).parse(req.params);
+    const { contextUserId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    return app.persistence.getAccountMarketDividendSettings(contextUserId, params.id, params.marketCode);
+  });
+
+  app.patch("/accounts/:id/dividend-settings/:marketCode", async (req) => {
+    const params = z.object({
+      id: userScopedIdSchema,
+      marketCode: z.enum(MARKET_CODES),
+    }).parse(req.params);
+    const body = dividendSettingsPatchSchema.parse(req.body);
+    const { contextUserId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    return app.persistence.patchAccountMarketDividendSettings(contextUserId, {
+      accountId: params.id,
+      marketCode: params.marketCode,
+      fallbackParValue: body.fallbackParValue,
+      expectedVersion: body.expectedVersion,
+      auditInput: await buildPortfolioAuditInput(req, "PATCH /accounts/:id/dividend-settings/:marketCode"),
+    });
   });
 
   // ── ui-enhancement — account lifecycle routes ────────────────────────────
@@ -5381,6 +5661,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     quantity: z.number().int().positive().optional(),
     price: z.number().positive().multipleOf(0.01).optional(),
     side: z.enum(["BUY", "SELL"]).optional(),
+    isDayTrade: z.boolean().optional(),
     commissionAmount: bookedChargeFieldSchema("Commission").optional(),
     taxAmount: bookedChargeFieldSchema("Tax").optional(),
     confirmFeeRecalculation: z.boolean().optional(),
@@ -5391,6 +5672,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       || data.quantity !== undefined
       || data.price !== undefined
       || data.side !== undefined
+      || data.isDayTrade !== undefined
       || data.commissionAmount !== undefined
       || data.taxAmount !== undefined,
     { message: "At least one field must be provided" },
@@ -5486,6 +5768,10 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     });
   }
 
+  function isRouteErrorCode(error: unknown, code: string): error is Error & { code: string } {
+    return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === code;
+  }
+
   app.post("/portfolio/transactions/:tradeEventId/dividend-delete-preview", async (req) => {
     const { tradeEventId } = z.object({ tradeEventId: userScopedIdSchema }).parse(req.params);
     const body = destructivePreviewReasonSchema.parse(req.body);
@@ -5549,25 +5835,82 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       sharedContext,
       "DELETE /portfolio/transactions/:tradeEventId",
     );
-    const result = await confirmTradeDividendDeletion(app.persistence, {
+    const actorUserId = sharedContext?.sessionUserId ?? userId;
+    const mutationPreview = await app.persistence.getPostedTransactionMutationPreview(body.previewId);
+    if (!mutationPreview) {
+      const result = await confirmTradeDividendDeletion(app.persistence, {
+        ownerUserId: userId,
+        actorUserId,
+        previewId: body.previewId,
+        previewVersion: body.previewVersion,
+        fingerprint: body.fingerprint,
+        tradeEventId,
+        ipAddress: req.ip,
+      });
+      scheduleDestructiveSnapshotRebuild(userId, result.operation.replayScopes);
+      await appendDelegatedWriteAudit(app, req, {
+        mutation: "dividend_trade_delete_confirmed",
+        routeKey: "DELETE /portfolio/transactions/:tradeEventId",
+        previewId: body.previewId,
+        accountId: result.preview.accountId,
+        tradeEventId: result.preview.targetTradeEventId,
+      });
+      reply.code(200);
+      return result;
+    }
+    const preview = await getPostedTransactionMutationPreview(app.persistence, {
       ownerUserId: userId,
-      actorUserId: sharedContext?.sessionUserId ?? userId,
+      actorUserId,
       previewId: body.previewId,
-      previewVersion: body.previewVersion,
-      fingerprint: body.fingerprint,
-      tradeEventId,
-      ipAddress: req.ip,
+      appBaseUrl: app.appBaseUrl,
     });
-    scheduleDestructiveSnapshotRebuild(userId, result.operation.replayScopes);
+    if (
+      preview.operation !== "delete"
+      || preview.page.total !== 1
+      || preview.page.items[0]?.transactionId !== tradeEventId
+    ) {
+      throw routeError(
+        409,
+        "posted_transaction_mutation_target_mismatch",
+        "The deletion preview does not match the transaction in this request.",
+      );
+    }
+    const result = await confirmPostedTransactionMutation(app.persistence, {
+      ownerUserId: userId,
+      actorUserId,
+      appBaseUrl: app.appBaseUrl,
+      confirmation: {
+        previewId: body.previewId,
+        previewVersion: body.previewVersion,
+        operation: "delete",
+        fingerprint: body.fingerprint,
+        confirmationSummary: preview.confirmationSummary,
+        confirmationDigest: preview.confirmationDigest,
+      },
+    }, { eventBus: app.eventBus });
+    await dispatchPostedTransactionMutationRebuild(app.persistence, {
+      ownerUserId: userId,
+      runId: result.runId,
+      boss: app.boss ?? undefined,
+      eventBus: app.eventBus,
+    });
     await appendDelegatedWriteAudit(app, req, {
       mutation: "dividend_trade_delete_confirmed",
       routeKey: "DELETE /portfolio/transactions/:tradeEventId",
       previewId: body.previewId,
-      accountId: result.preview.accountId,
-      tradeEventId: result.preview.targetTradeEventId,
+      accountId: preview.page.items[0]?.before?.accountId ?? null,
+      tradeEventId,
     });
     reply.code(200);
-    return result;
+    return {
+      accountId: preview.page.items[0]?.before?.accountId ?? null,
+      ticker: preview.page.items[0]?.before?.ticker ?? null,
+      deletedTradeEventId: tradeEventId,
+      deletedChildRows: {
+        cashLedgerEntries: Math.abs(result.summary.cashDelta) > 0 ? 1 : 0,
+        lotAllocations: 0,
+      },
+    };
   });
 
   app.post("/portfolio/accounts/:accountId/purge-rebuild-preview", async (req) => {
@@ -5624,85 +5967,119 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
   app.patch("/portfolio/transactions/:tradeEventId", async (req, reply) => {
     const { tradeEventId } = z.object({ tradeEventId: userScopedIdSchema }).parse(req.params);
     const body = patchTransactionSchema.parse(req.body);
-    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const identity = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const userId = identity.contextUserId;
+    const sharedContext = await resolveActiveSharedCapabilityContext(req);
 
     const trade = await app.persistence.getTradeEvent(userId, tradeEventId);
     if (!trade) throw routeError(404, "trade_event_not_found", "Trade event not found");
-
-    // Build patch
-    const patch: import("../persistence/types.js").TradeEventPatch = {};
-    const changedFields: string[] = [];
-
-    if (body.date !== undefined && body.date !== trade.tradeDate) {
-      patch.date = body.date;
-      changedFields.push("date");
-    }
-    if (body.quantity !== undefined && body.quantity !== trade.quantity) {
-      patch.quantity = body.quantity;
-      changedFields.push("quantity");
-    }
-    if (body.price !== undefined && body.price !== trade.unitPrice) {
-      patch.price = body.price;
-      changedFields.push("price");
-    }
-    if (body.side !== undefined && body.side !== trade.type) {
-      patch.side = body.side;
-      changedFields.push("side");
-    }
-    if (body.commissionAmount !== undefined && body.commissionAmount !== trade.commissionAmount) {
-      patch.commissionAmount = body.commissionAmount;
-      patch.feesSource = "MANUAL";
-      changedFields.push("commissionAmount");
-    }
-    if (body.taxAmount !== undefined && body.taxAmount !== trade.taxAmount) {
-      patch.taxAmount = body.taxAmount;
-      patch.feesSource = "MANUAL";
-      changedFields.push("taxAmount");
+    const changedFields = Object.entries({
+      date: body.date !== undefined && body.date !== trade.tradeDate,
+      quantity: body.quantity !== undefined && body.quantity !== trade.quantity,
+      price: body.price !== undefined && body.price !== trade.unitPrice,
+      side: body.side !== undefined && body.side !== trade.type,
+      isDayTrade: body.isDayTrade !== undefined && body.isDayTrade !== trade.isDayTrade,
+      commissionAmount: body.commissionAmount !== undefined && body.commissionAmount !== trade.commissionAmount,
+      taxAmount: body.taxAmount !== undefined && body.taxAmount !== trade.taxAmount,
+    }).filter(([, changed]) => changed).map(([field]) => field);
+    const feeSensitiveChange = changedFields.some((field) =>
+      field === "quantity" || field === "price" || field === "isDayTrade");
+    if (
+      feeSensitiveChange
+      && !body.keepManualFees
+      && !body.confirmFeeRecalculation
+      && body.commissionAmount === undefined
+      && body.taxAmount === undefined
+      && (trade.feesSource === "MANUAL" || trade.feesSource === "SOURCE_PROVIDED")
+    ) {
+      reply.code(200);
+      return {
+        requiresFeeConfirmation: true,
+        tradeEventId,
+      };
     }
 
-    if (changedFields.length === 0) {
-      throw routeError(400, "no_changes", "No fields changed");
-    }
-
-    // Fee recalculation check
-    const feeFieldsChanged = changedFields.includes("quantity") || changedFields.includes("price");
-    const explicitFeeOverride = body.commissionAmount !== undefined || body.taxAmount !== undefined;
-    if (feeFieldsChanged) {
-      const feesSource = trade.feesSource ?? "CALCULATED";
-      const hasProtectedRecordedFees = feesSource === "MANUAL" || feesSource === "SOURCE_PROVIDED";
-
-      if (!explicitFeeOverride && hasProtectedRecordedFees && !body.confirmFeeRecalculation && !body.keepManualFees) {
-        return reply.code(200).send({ requiresFeeConfirmation: true, tradeEventId });
+    let result;
+    try {
+      const previewInput = {
+        ownerUserId: userId,
+        actorUserId: identity.sessionUserId,
+        reason: "User requested posted transaction correction",
+        appBaseUrl: app.appBaseUrl,
+        items: [{
+          transactionId: tradeEventId,
+          patch: {
+            tradeDate: body.date,
+            quantity: body.quantity,
+            unitPrice: body.price,
+            side: body.side,
+            isDayTrade: body.isDayTrade,
+            commissionAmount: body.commissionAmount,
+            taxAmount: body.taxAmount,
+            feeOverrideMode: body.confirmFeeRecalculation
+              ? "recalculate" as const
+              : "preserve_recorded" as const,
+          },
+        }],
+      };
+      if (sharedContext && !sharedContext.shareCapabilities.includes("dividend:write")) {
+        const simulation = await simulatePostedTransactionUpdateBatch(app.persistence, previewInput);
+        if (simulation.summary.deletedDividendCount > 0 || simulation.summary.reopenedDividendCount > 0) {
+          requireDelegatedDividendWriteForHistoryRewrite(
+            sharedContext,
+            "PATCH /portfolio/transactions/:tradeEventId",
+          );
+        }
       }
-
-      if (explicitFeeOverride) {
-        patch.feesSource = "MANUAL";
-      } else if (hasProtectedRecordedFees && body.keepManualFees) {
-        // Keep existing recorded fees and their provenance — no recalculation.
-      } else {
-        // Recalculate fees from bound fee profile
-        const newQuantity = body.quantity ?? trade.quantity;
-        const newPrice = body.price ?? trade.unitPrice;
-        const tradeValue = newQuantity * newPrice;
-        const newSide = body.side ?? trade.type;
-
-        const fees = newSide === "BUY"
-          ? calculateBuyFees(trade.feeSnapshot, tradeValue, trade.priceCurrency)
-          : calculateSellFees(trade.feeSnapshot, {
-              tradeValueAmount: tradeValue,
-              tradeCurrency: trade.priceCurrency,
-              instrumentType: trade.instrumentType,
-              isDayTrade: trade.isDayTrade,
-              marketCode: trade.marketCode,
-            });
-
-        patch.commissionAmount = fees.commissionAmount;
-        patch.taxAmount = fees.taxAmount;
-        patch.feesSource = "CALCULATED";
+      const preview = await previewPostedTransactionUpdateBatch(app.persistence, previewInput);
+      result = await confirmPostedTransactionMutation(app.persistence, {
+        ownerUserId: userId,
+        actorUserId: identity.sessionUserId,
+        appBaseUrl: app.appBaseUrl,
+        confirmation: {
+          previewId: preview.previewId,
+          previewVersion: preview.previewVersion,
+          operation: "update",
+          fingerprint: preview.fingerprint,
+          confirmationSummary: preview.confirmationSummary,
+          confirmationDigest: preview.confirmationDigest,
+        },
+      }, { eventBus: app.eventBus });
+      await dispatchPostedTransactionMutationRebuild(app.persistence, {
+        ownerUserId: userId,
+        runId: result.runId,
+        boss: app.boss ?? undefined,
+        eventBus: app.eventBus,
+      });
+    } catch (error) {
+      if (isRouteErrorCode(error, "posted_transaction_mutation_no_changes")) {
+        throw routeError(400, "no_changes", "No changes requested");
       }
+      if (isRouteErrorCode(error, "posted_transaction_mutation_inventory_conflict")) {
+        try {
+          await app.eventBus.publishEvent(userId, "recompute_failed", {
+            accountId: trade.accountId,
+            ticker: trade.ticker,
+            reason: error.message,
+            retriesExhausted: true,
+          });
+        } catch {
+          // Event delivery is best-effort.
+        }
+      }
+      throw error;
     }
-
-    await app.persistence.updateTradeEvent(userId, tradeEventId, patch);
+    try {
+      await app.eventBus.publishEvent(userId, "recompute_complete", {
+        accountId: trade.accountId,
+        ticker: trade.ticker,
+        updatedHoldings: null,
+        changedFields,
+        mutationRunId: result.runId,
+      });
+    } catch {
+      // Event delivery is best-effort.
+    }
     await appendDelegatedWriteAudit(app, req, {
       mutation: "transaction_updated",
       routeKey: "PATCH /portfolio/transactions/:tradeEventId",
@@ -5710,14 +6087,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       accountId: trade.accountId,
       ticker: trade.ticker,
       changedFields,
-    });
-
-    // Schedule async recompute — use min(oldTradeDate, newTradeDate) so a
-    // patch that moves the trade earlier regenerates the earlier window too.
-    const effectiveFromDate = patch.date && patch.date < trade.tradeDate ? patch.date : trade.tradeDate;
-    scheduleReplayWithRetry(app.persistence, app.eventBus, userId, trade.accountId, trade.ticker, {
-      snapshotFromDate: effectiveFromDate,
-      marketCode: trade.marketCode,
     });
 
     reply.code(202);
@@ -5743,17 +6112,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     const trade = await app.persistence.getTradeEvent(userId, tradeEventId);
     if (!trade) throw routeError(404, "trade_event_not_found", "Trade event not found");
-
-    // Count affected rows
-    const store = await app.persistence.loadStore(userId);
-    const cashEntries = store.accounting.facts.cashLedgerEntries.filter(
-      (e) => e.relatedTradeEventId === tradeEventId,
-    ).length;
-    const lotAllocs = store.accounting.projections.lotAllocations.filter(
-      (a) => a.tradeEventId === tradeEventId,
-    ).length;
-    // For a patch that moves the trade earlier, the affected snapshot window
-    // extends back to the new date — use min(old, new) for an accurate count.
     const effectiveSnapshotFromDate = query.action === "patch" && query.date && query.date < trade.tradeDate
       ? query.date
       : trade.tradeDate;
@@ -5764,48 +6122,223 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       effectiveSnapshotFromDate,
       trade.marketCode,
     );
-
-    // Check for negative lots
-    let negativeLots = { wouldOccur: false, resultingQuantity: 0, ticker: trade.ticker };
-
-    if (query.action === "delete" || query.side || query.quantity) {
-      const accountTrades = store.accounting.facts.tradeEvents
-        .filter((t) => t.accountId === trade.accountId && t.ticker === trade.ticker)
-        .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate) || (a.bookingSequence ?? 0) - (b.bookingSequence ?? 0));
-
-      let simulatedQty = 0;
-      let wouldGoNegative = false;
-
-      for (const t of accountTrades) {
-        if (query.action === "delete" && t.id === tradeEventId) continue;
-
-        const qty = t.id === tradeEventId ? (query.quantity ?? t.quantity) : t.quantity;
-        const side = t.id === tradeEventId ? (query.side ?? t.type) : t.type;
-
-        if (side === "BUY") {
-          simulatedQty += qty;
-        } else {
-          simulatedQty -= qty;
-          if (simulatedQty < 0) wouldGoNegative = true;
-        }
-      }
-
-      negativeLots = {
-        wouldOccur: wouldGoNegative,
-        resultingQuantity: simulatedQty,
-        ticker: trade.ticker,
+    const store = await app.persistence.loadStore(userId);
+    const currentOpenQuantity = store.accounting.projections.lots
+      .filter((lot) =>
+        lot.accountId === trade.accountId
+        && lot.ticker === trade.ticker
+        && lot.openQuantity > 0)
+      .reduce((sum, lot) => sum + lot.openQuantity, 0);
+    const currentSignedQuantity = trade.type === "BUY" ? trade.quantity : -trade.quantity;
+    const nextSignedQuantity = query.action === "delete"
+      ? 0
+      : ((query.side ?? trade.type) === "BUY" ? (query.quantity ?? trade.quantity) : -(query.quantity ?? trade.quantity));
+    const resultingQuantity = currentOpenQuantity + (nextSignedQuantity - currentSignedQuantity);
+    try {
+      const preview = query.action === "delete"
+        ? await simulatePostedTransactionDeleteBatch(app.persistence, {
+            ownerUserId: userId,
+            items: [{ transactionId: tradeEventId }],
+            reason: "Preview posted transaction deletion impact",
+            appBaseUrl: app.appBaseUrl,
+          })
+        : await simulatePostedTransactionUpdateBatch(app.persistence, {
+            ownerUserId: userId,
+            reason: "Preview posted transaction correction impact",
+            appBaseUrl: app.appBaseUrl,
+            items: [{
+              transactionId: tradeEventId,
+              patch: {
+                tradeDate: query.date,
+                quantity: query.quantity,
+                unitPrice: query.price,
+                side: query.side,
+              },
+            }],
+          });
+      return {
+        affectedRows: {
+          cashLedgerEntries: Math.abs(preview.summary.cashDelta) > 0 ? 1 : 0,
+          lotAllocations: 0,
+          feePolicySnapshots: 1,
+          holdingSnapshots,
+        },
+        negativeLots: {
+          wouldOccur: resultingQuantity < 0 || preview.blockers.length > 0,
+          resultingQuantity,
+          ticker: trade.ticker,
+        },
+        ...(preview.blockers.length > 0 ? { blockers: preview.blockers } : {}),
+      };
+    } catch (error) {
+      if (!isRouteErrorCode(error, "posted_transaction_mutation_inventory_conflict")) throw error;
+      return {
+        affectedRows: {
+          cashLedgerEntries: 1,
+          lotAllocations: 0,
+          feePolicySnapshots: 1,
+          holdingSnapshots,
+        },
+        negativeLots: {
+          wouldOccur: true,
+          resultingQuantity,
+          ticker: trade.ticker,
+        },
+        blockers: [error.message],
       };
     }
+  });
 
-    return {
-      affectedRows: {
-        cashLedgerEntries: cashEntries,
-        lotAllocations: lotAllocs,
-        feePolicySnapshots: 1,
-        holdingSnapshots,
-      },
-      negativeLots,
+  app.post("/portfolio/transactions/mutations/update-preview", async (req) => {
+    const body = z.object({
+      reason: z.string().trim().min(1).max(500),
+      items: z.array(z.object({
+        transactionId: userScopedIdSchema,
+        note: z.string().trim().max(500).optional(),
+        patch: z.object({
+          tradeDate: isoDateSchema.optional(),
+          quantity: z.number().int().positive().optional(),
+          unitPrice: z.number().positive().multipleOf(0.01).optional(),
+          side: z.enum(["BUY", "SELL"]).optional(),
+          isDayTrade: z.boolean().optional(),
+          commissionAmount: z.number().min(0).optional(),
+          taxAmount: z.number().min(0).optional(),
+          feeOverrideMode: z.enum(["preserve_recorded", "recalculate"]).optional(),
+        }).strict(),
+      }).strict()).min(1),
+    }).parse(req.body);
+    const identity = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const previewInput = {
+      ownerUserId: identity.contextUserId,
+      actorUserId: identity.sessionUserId,
+      items: body.items,
+      reason: body.reason,
+      appBaseUrl: app.appBaseUrl,
     };
+    const sharedContext = await resolveActiveSharedCapabilityContext(req);
+    if (sharedContext && !sharedContext.shareCapabilities.includes("dividend:write")) {
+      const simulation = await simulatePostedTransactionUpdateBatch(app.persistence, previewInput);
+      if (simulation.summary.deletedDividendCount > 0 || simulation.summary.reopenedDividendCount > 0) {
+        requireDelegatedDividendWriteForHistoryRewrite(
+          sharedContext,
+          "POST /portfolio/transactions/mutations/update-preview",
+        );
+      }
+    }
+    return previewPostedTransactionUpdateBatch(app.persistence, previewInput);
+  });
+
+  app.post("/portfolio/transactions/mutations/delete-preview", async (req) => {
+    const body = z.object({
+      reason: z.string().trim().min(1).max(500),
+      items: z.array(z.object({
+        transactionId: userScopedIdSchema,
+        note: z.string().trim().max(500).optional(),
+      }).strict()).min(1),
+    }).parse(req.body);
+    const identity = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const previewInput = {
+      ownerUserId: identity.contextUserId,
+      actorUserId: identity.sessionUserId,
+      items: body.items,
+      reason: body.reason,
+      appBaseUrl: app.appBaseUrl,
+    };
+    const sharedContext = await resolveActiveSharedCapabilityContext(req);
+    if (sharedContext && !sharedContext.shareCapabilities.includes("dividend:write")) {
+      const simulation = await simulatePostedTransactionDeleteBatch(app.persistence, previewInput);
+      if (simulation.summary.deletedDividendCount > 0 || simulation.summary.reopenedDividendCount > 0) {
+        requireDelegatedDividendWriteForHistoryRewrite(
+          sharedContext,
+          "POST /portfolio/transactions/mutations/delete-preview",
+        );
+      }
+    }
+    return previewPostedTransactionDeleteBatch(app.persistence, previewInput);
+  });
+
+  app.get("/portfolio/transactions/mutations/previews/:previewId", async (req) => {
+    const { previewId } = z.object({ previewId: userScopedIdSchema }).parse(req.params);
+    const query = z.object({
+      limit: z.coerce.number().int().positive().max(200).optional(),
+      offset: z.coerce.number().int().min(0).optional(),
+      accountId: userScopedIdSchema.optional(),
+      ticker: tickerSchema.optional(),
+      marketCode: marketCodeSchema.optional(),
+      status: z.enum(["changed", "deleted", "unchanged", "warning", "blocked"]).optional(),
+    }).parse(req.query);
+    const identity = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    return getPostedTransactionMutationPreview(app.persistence, {
+      ownerUserId: identity.contextUserId,
+      actorUserId: identity.sessionUserId,
+      previewId,
+      query,
+      appBaseUrl: app.appBaseUrl,
+    });
+  });
+
+  app.post("/portfolio/transactions/mutations/previews/:previewId/confirm", async (req) => {
+    const { previewId } = z.object({ previewId: userScopedIdSchema }).parse(req.params);
+    const body = z.object({
+      previewVersion: z.number().int().positive(),
+      operation: z.enum(["update", "delete"]),
+      fingerprint: z.string().trim().min(1),
+      confirmationSummary: z.string().trim().min(1),
+      confirmationDigest: z.string().trim().min(1),
+    }).parse(req.body);
+    const identity = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const sharedContext = await resolveActiveSharedCapabilityContext(req);
+    if (sharedContext) {
+      const preview = await getPostedTransactionMutationPreview(app.persistence, {
+        ownerUserId: identity.contextUserId,
+        actorUserId: identity.sessionUserId,
+        previewId,
+        appBaseUrl: app.appBaseUrl,
+      });
+      if (preview.summary.deletedDividendCount > 0 || preview.summary.reopenedDividendCount > 0) {
+        requireDelegatedDividendWriteForHistoryRewrite(
+          sharedContext,
+          "POST /portfolio/transactions/mutations/previews/:previewId/confirm",
+        );
+      }
+    }
+    let result = await confirmPostedTransactionMutation(app.persistence, {
+      ownerUserId: identity.contextUserId,
+      actorUserId: identity.sessionUserId,
+      appBaseUrl: app.appBaseUrl,
+      confirmation: {
+        previewId,
+        previewVersion: body.previewVersion,
+        operation: body.operation,
+        fingerprint: body.fingerprint,
+        confirmationSummary: body.confirmationSummary,
+        confirmationDigest: body.confirmationDigest,
+      },
+    }, { eventBus: app.eventBus });
+    await dispatchPostedTransactionMutationRebuild(app.persistence, {
+      ownerUserId: identity.contextUserId,
+      runId: result.runId,
+      boss: app.boss ?? undefined,
+      eventBus: app.eventBus,
+    });
+    result = await getPostedTransactionMutationRun(app.persistence, {
+      ownerUserId: identity.contextUserId,
+      actorUserId: identity.sessionUserId,
+      runId: result.runId,
+      appBaseUrl: app.appBaseUrl,
+    });
+    return result;
+  });
+
+  app.get("/portfolio/transactions/mutations/runs/:runId", async (req) => {
+    const { runId } = z.object({ runId: userScopedIdSchema }).parse(req.params);
+    const identity = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    return getPostedTransactionMutationRun(app.persistence, {
+      ownerUserId: identity.contextUserId,
+      actorUserId: identity.sessionUserId,
+      runId,
+      appBaseUrl: app.appBaseUrl,
+    });
   });
 
   app.get("/portfolio/transactions", async (req, reply) => {
@@ -6818,6 +7351,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         aggregates: enrichment.aggregates,
         nhiRollup: enrichment.nhiRollup,
         sourceComposition: enrichment.sourceComposition,
+        hero: enrichment.hero,
       };
     });
   });
@@ -6829,6 +7363,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       accountId: query.accountId,
       fromPaymentDate: query.fromPaymentDate,
       toPaymentDate: query.toPaymentDate,
+      cashStatus: query.cashStatus,
+      stockStatus: query.stockStatus,
       reconciliationStatus: query.reconciliationStatus,
       postingStatus: query.postingStatus,
       excludeExpected: query.excludeExpected,
@@ -7057,6 +7593,29 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         return prepared.response;
       }
 
+      if (body.calculation) {
+        const calculationPreview = await buildDividendCalculationPreview(userId, {
+          accountId: body.accountId,
+          dividendEventId: body.dividendEventId,
+          method: body.calculation.method,
+          selectedParValue: body.calculation.selectedParValue ?? null,
+          customRatio: body.calculation.customRatio ?? null,
+        });
+        if (calculationPreview.requiresHighRatioConfirmation && !body.calculation.acknowledgeHighRatio) {
+          throw routeError(409, "dividend_calculation_high_ratio_confirmation_required", "High stock ratios require explicit confirmation.");
+        }
+        if (calculationPreview.drift?.hasDrift && !body.calculation.acknowledgeDrift) {
+          throw routeError(409, "dividend_calculation_drift_confirmation_required", "Provider drift requires explicit reconfirmation.");
+        }
+        appendConfirmedDividendCalculationToStore(draftStore, userId, {
+          accountId: body.accountId,
+          dividendEventId: body.dividendEventId,
+          method: body.calculation.method,
+          selectedParValue: body.calculation.selectedParValue ?? null,
+          customRatio: body.calculation.customRatio ?? null,
+        }, calculationPreview);
+      }
+
       const result = postDividend(draftStore, userId, {
         id: randomUUID(),
         accountId: body.accountId,
@@ -7084,6 +7643,21 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         })),
         sourceCompositionStatus: body.sourceCompositionStatus,
       });
+      const activeCalculation = getStoreActiveDividendCalculation(
+        draftStore,
+        userId,
+        body.accountId,
+        body.dividendEventId,
+      );
+      if (activeCalculation) {
+        applyDividendCalculationSnapshotToLedgerEntry(result.dividendLedgerEntry, activeCalculation);
+        const persistedLedgerEntry = draftStore.accounting.facts.dividendLedgerEntries.find(
+          (entry) => entry.id === result.dividendLedgerEntry.id,
+        );
+        if (persistedLedgerEntry) {
+          applyDividendCalculationSnapshotToLedgerEntry(persistedLedgerEntry, activeCalculation);
+        }
+      }
 
       await app.persistence.savePostedDividend(
         userId,
@@ -7122,17 +7696,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.get("/portfolio/dividends/postings/:dividendLedgerEntryId", async (req) => {
+  app.get("/portfolio/dividends/postings/:dividendLedgerEntryId", async (req, reply) => {
     const params = z.object({ dividendLedgerEntryId: userScopedIdSchema }).parse(req.params);
-    const { contextUserId: userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
-    const ledgerEntry = await app.persistence.getDividendReviewRowDetail(
-      userId,
-      params.dividendLedgerEntryId,
-    );
-    if (!ledgerEntry) {
-      throw routeError(404, "dividend_ledger_entry_not_found", "Dividend ledger entry not found");
-    }
-    return ledgerEntry;
+    return withReadPathTiming(req, reply, "/portfolio/dividends/postings/:dividendLedgerEntryId", async (timing) => {
+      const { contextUserId: userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+      const ledgerEntry = await timing.measure("review_detail_db", "db", () =>
+        app.persistence.getDividendReviewRowDetail(userId, params.dividendLedgerEntryId));
+      if (!ledgerEntry) {
+        throw routeError(404, "dividend_ledger_entry_not_found", "Dividend ledger entry not found");
+      }
+      return ledgerEntry;
+    });
   });
 
   app.patch("/portfolio/dividends/postings/:dividendLedgerEntryId/reconciliation", async (req) => {
@@ -7183,6 +7757,412 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     });
 
     return { ledgerEntry };
+  });
+
+  app.patch("/portfolio/dividends/postings/:dividendLedgerEntryId/stock-reconciliation", async (req) => {
+    const params = z.object({ dividendLedgerEntryId: userScopedIdSchema }).parse(req.params);
+    const body = dividendStockReconciliationSchema.parse(req.body);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+
+    const ownedEntry = await app.persistence.findDividendLedgerEntryById(userId, params.dividendLedgerEntryId);
+    if (!ownedEntry) {
+      throw routeError(403, "forbidden", "Dividend ledger entry does not belong to the authenticated user");
+    }
+
+    await app.persistence.updateDividendStockReconciliationStatus(
+      userId,
+      params.dividendLedgerEntryId,
+      body.status,
+      body.note === undefined ? undefined : (body.note?.trim() || null),
+      body.expectedVersion,
+      await buildPortfolioAuditInput(req, "PATCH /portfolio/dividends/postings/:dividendLedgerEntryId/stock-reconciliation"),
+    );
+
+    const ledgerEntry = await app.persistence.getDividendReviewRowDetail(userId, params.dividendLedgerEntryId);
+    if (!ledgerEntry) {
+      throw routeError(404, "dividend_ledger_entry_not_found", "Dividend ledger entry not found");
+    }
+    await app.eventBus.publishEvent(userId, "dividend_stock_reconciliation_changed", {
+      dividendLedgerEntryId: ledgerEntry.id,
+      dividendEventId: ledgerEntry.dividendEventId,
+      accountId: ledgerEntry.accountId,
+      stockReconciliationStatus: ledgerEntry.stockReconciliationStatus,
+      version: ledgerEntry.version,
+    });
+    return { ledgerEntry };
+  });
+
+  const normalizeProviderDecimal = (
+    value: string | number | null | undefined,
+    fieldName: "value" | "authoritative ratio",
+  ): string | null => {
+    if (value == null) return null;
+    const text = typeof value === "number" ? String(value) : value.trim();
+    if (!isPositiveDecimalWithinPrecision(text, 8, 12)) {
+      throw routeError(
+        400,
+        "dividend_stock_provider_value_invalid",
+        `Provider stock ${fieldName} must be a finite positive decimal within NUMERIC(20,12) precision.`,
+      );
+    }
+    return text;
+  };
+
+  const comparableProviderDecimal = (value: string | null): string | null => {
+    if (value === null) return null;
+    const [whole = "0", fraction = ""] = value.split(".");
+    const normalizedWhole = whole.replace(/^0+(?=\d)/, "");
+    const normalizedFraction = fraction.replace(/0+$/, "");
+    return normalizedFraction.length > 0
+      ? `${normalizedWhole}.${normalizedFraction}`
+      : normalizedWhole;
+  };
+
+  const providerDecimalsEqual = (left: string | null, right: string | null): boolean =>
+    comparableProviderDecimal(left) === comparableProviderDecimal(right);
+
+  const buildDividendCalculationPreview = async (
+    contextUserId: string,
+    body: z.infer<typeof dividendCalculationPreviewSchema>,
+  ) => {
+    const store = await app.persistence.loadStore(contextUserId);
+    const account = store.accounts.find((item) => item.id === body.accountId);
+    if (!account) {
+      throw routeError(404, "account_not_found", "Account not found");
+    }
+    const event = store.marketData.dividendEvents.find((item) => item.id === body.dividendEventId);
+    if (!event) {
+      throw routeError(404, "dividend_event_not_found", "Dividend event not found");
+    }
+    const marketCode = resolveDividendEventMarketCode(event);
+    const eligibleQuantity = deriveEligibleQuantity(
+      store,
+      body.accountId,
+      event.ticker,
+      event.exDividendDate,
+      marketCode,
+    );
+    const selectedParValue = body.selectedParValue
+      ?? (
+        body.method === "derived_from_par_value"
+          ? (await app.persistence.getAccountMarketDividendSettings(contextUserId, body.accountId, marketCode)).fallbackParValue
+          : null
+      );
+    if (body.method === "derived_from_par_value" && marketCode !== "TW") {
+      throw routeError(400, "unsupported_dividend_settings_market", "Par-value derivation is only supported for TW.");
+    }
+    const hasNormalizedProviderFields =
+      event.stockProviderValue !== undefined
+      || event.stockProviderAuthoritativeRatio !== undefined;
+    const providerUnit = event.stockProviderValueUnit
+      ?? (!hasNormalizedProviderFields && event.stockDistributionRatio != null ? "RATIO" : null);
+    const providerValue = normalizeProviderDecimal(
+      event.stockProviderValue !== undefined
+        ? event.stockProviderValue
+        : providerUnit === "RATIO"
+          ? event.stockDistributionRatio
+          : event.stockDistributionAmountRaw,
+      "value",
+    );
+    const providerAuthoritativeRatio = normalizeProviderDecimal(
+      event.stockProviderAuthoritativeRatio !== undefined
+        ? event.stockProviderAuthoritativeRatio
+        : !hasNormalizedProviderFields && providerUnit === "RATIO"
+          ? event.stockDistributionRatio
+          : null,
+      "authoritative ratio",
+    );
+    const activeCalculation = await app.persistence.getLatestDividendCalculation(
+      contextUserId,
+      body.accountId,
+      body.dividendEventId,
+    );
+    const previousAuthoritativeRatio = activeCalculation
+      ? activeCalculation.provider.authoritativeRatio
+        ?? (activeCalculation.method === "provider_ratio" ? activeCalculation.ratio : null)
+      : null;
+    const drift = activeCalculation
+      ? {
+          hasDrift:
+            !providerDecimalsEqual(activeCalculation.provider.value, providerValue)
+            || activeCalculation.provider.unit !== providerUnit
+            || !providerDecimalsEqual(previousAuthoritativeRatio, providerAuthoritativeRatio),
+          previousProviderValue: activeCalculation.provider.value,
+          previousProviderUnit: activeCalculation.provider.unit,
+          currentProviderValue: providerValue,
+          currentProviderUnit: providerUnit,
+          previousAuthoritativeRatio,
+          currentAuthoritativeRatio: providerAuthoritativeRatio,
+        }
+      : null;
+    try {
+      const calculation = calculateDividendStockEntitlement({
+        eligibleQuantity,
+        method: body.method,
+        providerValue: body.method === "provider_ratio" ? providerAuthoritativeRatio : providerValue,
+        providerUnit,
+        selectedParValue,
+        customRatio: body.customRatio ?? null,
+      });
+      return {
+        accountId: body.accountId,
+        dividendEventId: body.dividendEventId,
+        marketCode,
+        eligibleQuantity,
+        ...calculation,
+        providerValue,
+        providerAuthoritativeRatio,
+        providerSource: event.stockProviderSource ?? event.source ?? null,
+        providerDataset: event.stockProviderDataset ?? null,
+        drift,
+        activeCalculation,
+      };
+    } catch (error) {
+      if (error instanceof Error && error.message === "provider_unit_incompatible") {
+        throw routeError(
+          400,
+          "dividend_stock_provider_ratio_unavailable",
+          "Provider stock values are present but not in a usable authoritative ratio unit.",
+        );
+      }
+      if (error instanceof Error && error.message === "provider_value_must_be_finite_positive") {
+        throw routeError(400, "dividend_stock_provider_value_invalid", "Provider stock value must be finite and positive.");
+      }
+      if (error instanceof Error && error.message === "par_value_must_be_finite_positive") {
+        throw routeError(400, "dividend_stock_selected_par_value_invalid", "Selected par value must be finite and positive.");
+      }
+      if (error instanceof Error && error.message === "ratio_must_be_positive") {
+        throw routeError(400, "dividend_stock_custom_ratio_invalid", "Custom ratio must be finite and positive.");
+      }
+      if (error instanceof Error && error.message === "expected_whole_shares_overflow") {
+        throw routeError(400, "dividend_stock_calculation_overflow", "Expected stock quantity exceeds the supported range.");
+      }
+      throw error;
+    }
+  };
+
+  function appendConfirmedDividendCalculationToStore(
+    store: Awaited<ReturnType<typeof app.persistence.loadStore>>,
+    userId: string,
+    input: {
+      accountId: string;
+      dividendEventId: string;
+      method: "provider_ratio" | "derived_from_par_value" | "custom_ratio";
+      selectedParValue: string | null;
+      customRatio: string | null;
+    },
+    preview: Awaited<ReturnType<typeof buildDividendCalculationPreview>>,
+  ) {
+    const now = new Date().toISOString();
+    for (const calculation of store.accounting.facts.dividendCalculationVersions) {
+      if (
+        calculation.userId === userId
+        && calculation.accountId === input.accountId
+        && calculation.dividendEventId === input.dividendEventId
+        && !calculation.supersededAt
+        && (calculation.status === "confirmed" || calculation.status === "amended")
+      ) {
+        calculation.supersededAt = now;
+      }
+    }
+    const nextVersion = store.accounting.facts.dividendCalculationVersions
+      .filter((item) =>
+        item.userId === userId
+        && item.accountId === input.accountId
+        && item.dividendEventId === input.dividendEventId,
+      )
+      .reduce((max, item) => Math.max(max, item.calculationVersion), 0) + 1;
+    store.accounting.facts.dividendCalculationVersions.push({
+      id: randomUUID(),
+      userId,
+      accountId: input.accountId,
+      dividendEventId: input.dividendEventId,
+      calculationVersion: nextVersion,
+      status: "confirmed",
+      method: input.method,
+      providerValue: preview.providerValue,
+      providerUnit: preview.providerUnit,
+      providerSource: preview.providerSource,
+      providerDataset: preview.providerDataset,
+      providerAuthoritativeRatio: preview.providerAuthoritativeRatio,
+      selectedParValue: input.selectedParValue,
+      customRatio: input.customRatio,
+      ratio: preview.ratio,
+      theoreticalShares: preview.theoreticalShares,
+      expectedWholeShares: preview.expectedWholeShares,
+      fractionalRemainder: preview.fractionalRemainder,
+      requiresHighRatioConfirmation: preview.requiresHighRatioConfirmation,
+      confirmedAt: now,
+      priorCalculationId: preview.activeCalculation?.id ?? null,
+      dividendLedgerEntryId: null,
+      drift: preview.drift ?? null,
+      createdAt: now,
+    });
+  }
+
+  function getStoreActiveDividendCalculation(
+    store: Awaited<ReturnType<typeof app.persistence.loadStore>>,
+    userId: string,
+    accountId: string,
+    dividendEventId: string,
+  ) {
+    return [...store.accounting.facts.dividendCalculationVersions]
+      .filter((item) =>
+        item.userId === userId
+        && item.accountId === accountId
+        && item.dividendEventId === dividendEventId
+        && !item.supersededAt
+        && (item.status === "confirmed" || item.status === "amended"),
+      )
+      .sort((left, right) => right.calculationVersion - left.calculationVersion || right.id.localeCompare(left.id))[0] ?? null;
+  }
+
+  function applyDividendCalculationSnapshotToLedgerEntry(
+    ledgerEntry: {
+      expectedStockQuantity: number;
+      expectedStockCalcState?: "resolved" | "needs_action";
+      expectedStockDistributionRatio?: number | null;
+      expectedStockParValueAmount?: number | null;
+      activeCalculationId?: string | null;
+      stockReconciliationStatus?: "needs_calculation" | "pending_receipt" | "matched" | "variance" | "explained" | null;
+      receivedStockQuantity: number;
+      postingStatus: "expected" | "posted" | "adjusted";
+    },
+    calculation: {
+      id: string;
+      ratio: string;
+      selectedParValue?: string | null;
+      expectedWholeShares: number | null;
+    },
+  ) {
+    if (calculation.expectedWholeShares == null) return;
+    ledgerEntry.expectedStockQuantity = calculation.expectedWholeShares;
+    ledgerEntry.expectedStockCalcState = "resolved";
+    ledgerEntry.expectedStockDistributionRatio = Number(calculation.ratio);
+    ledgerEntry.expectedStockParValueAmount = calculation.selectedParValue == null ? null : Number(calculation.selectedParValue);
+    ledgerEntry.activeCalculationId = calculation.id;
+    if (ledgerEntry.stockReconciliationStatus !== "explained") {
+      ledgerEntry.stockReconciliationStatus =
+        ledgerEntry.postingStatus === "expected"
+          ? "pending_receipt"
+          : ledgerEntry.receivedStockQuantity === 0
+            ? "pending_receipt"
+            : ledgerEntry.receivedStockQuantity === calculation.expectedWholeShares
+              ? "matched"
+              : "variance";
+    }
+  }
+
+  app.post("/portfolio/dividends/calculations/preview", async (req) => {
+    const body = dividendCalculationPreviewSchema.parse(req.body);
+    const { contextUserId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    return buildDividendCalculationPreview(contextUserId, body);
+  });
+
+  app.post("/portfolio/dividends/calculations/confirm", async (req) => {
+    const body = dividendCalculationConfirmSchema.parse(req.body);
+    const idempotencyKey = requireIdempotencyKey(req);
+    const { contextUserId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const claimed = await app.persistence.claimIdempotencyKey(contextUserId, idempotencyKey);
+    if (!claimed) {
+      throw routeError(409, "duplicate_idempotency_key", "duplicate idempotency key");
+    }
+    try {
+    const payload = await buildDividendCalculationPreview(contextUserId, {
+      accountId: body.accountId,
+      dividendEventId: body.dividendEventId,
+      method: body.method,
+      selectedParValue: body.selectedParValue ?? null,
+      customRatio: body.customRatio ?? null,
+    });
+    if (payload.requiresHighRatioConfirmation && !body.acknowledgeHighRatio) {
+      throw routeError(409, "dividend_calculation_high_ratio_confirmation_required", "High stock ratios require explicit confirmation.");
+    }
+    if (payload.drift?.hasDrift && !body.acknowledgeDrift) {
+      throw routeError(409, "dividend_calculation_drift_confirmation_required", "Provider drift requires explicit reconfirmation.");
+    }
+    return app.persistence.confirmDividendCalculation(contextUserId, {
+      ...body,
+      providerValue: payload.providerValue,
+      providerUnit: payload.providerUnit,
+      providerSource: payload.providerSource,
+      providerDataset: payload.providerDataset,
+      providerAuthoritativeRatio: payload.providerAuthoritativeRatio,
+      ratio: payload.ratio,
+      theoreticalShares: payload.theoreticalShares,
+      expectedWholeShares: payload.expectedWholeShares,
+      fractionalRemainder: payload.fractionalRemainder,
+      requiresHighRatioConfirmation: payload.requiresHighRatioConfirmation,
+      drift: payload.drift ?? null,
+      auditInput: await buildPortfolioAuditInput(req, "POST /portfolio/dividends/calculations/confirm"),
+    });
+    } catch (error) {
+      await app.persistence.releaseIdempotencyKey(contextUserId, idempotencyKey);
+      throw error;
+    }
+  });
+
+  app.post("/portfolio/dividends/calculations/reset", async (req) => {
+    const body = dividendCalculationResetSchema.parse(req.body);
+    const idempotencyKey = requireIdempotencyKey(req);
+    const { contextUserId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const claimed = await app.persistence.claimIdempotencyKey(contextUserId, idempotencyKey);
+    if (!claimed) {
+      throw routeError(409, "duplicate_idempotency_key", "duplicate idempotency key");
+    }
+    try {
+      await app.persistence.resetDividendCalculation(contextUserId, {
+        ...body,
+        auditInput: await buildPortfolioAuditInput(req, "POST /portfolio/dividends/calculations/reset"),
+      });
+      return { status: "ok" as const };
+    } catch (error) {
+      await app.persistence.releaseIdempotencyKey(contextUserId, idempotencyKey);
+      throw error;
+    }
+  });
+
+  app.post("/portfolio/dividends/calculations/amend", async (req) => {
+    const body = dividendCalculationAmendSchema.parse(req.body);
+    const idempotencyKey = requireIdempotencyKey(req);
+    const { contextUserId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const claimed = await app.persistence.claimIdempotencyKey(contextUserId, idempotencyKey);
+    if (!claimed) {
+      throw routeError(409, "duplicate_idempotency_key", "duplicate idempotency key");
+    }
+    try {
+    const payload = await buildDividendCalculationPreview(contextUserId, {
+      accountId: body.accountId,
+      dividendEventId: body.dividendEventId,
+      method: body.method,
+      selectedParValue: body.selectedParValue ?? null,
+      customRatio: body.customRatio ?? null,
+    });
+    if (payload.requiresHighRatioConfirmation && !body.acknowledgeHighRatio) {
+      throw routeError(409, "dividend_calculation_high_ratio_confirmation_required", "High stock ratios require explicit confirmation.");
+    }
+    if (payload.drift?.hasDrift && !body.acknowledgeDrift) {
+      throw routeError(409, "dividend_calculation_drift_confirmation_required", "Provider drift requires explicit reconfirmation.");
+    }
+    return app.persistence.amendDividendCalculation(contextUserId, {
+      ...body,
+      providerValue: payload.providerValue,
+      providerUnit: payload.providerUnit,
+      providerSource: payload.providerSource,
+      providerDataset: payload.providerDataset,
+      providerAuthoritativeRatio: payload.providerAuthoritativeRatio,
+      ratio: payload.ratio,
+      theoreticalShares: payload.theoreticalShares,
+      expectedWholeShares: payload.expectedWholeShares,
+      fractionalRemainder: payload.fractionalRemainder,
+      requiresHighRatioConfirmation: payload.requiresHighRatioConfirmation,
+      drift: payload.drift ?? null,
+      auditInput: await buildPortfolioAuditInput(req, "POST /portfolio/dividends/calculations/amend"),
+    });
+    } catch (error) {
+      await app.persistence.releaseIdempotencyKey(contextUserId, idempotencyKey);
+      throw error;
+    }
   });
 
   app.get("/corporate-actions", async (req) => {
@@ -7585,7 +8565,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       requestContext.resolvedContext,
       await app.persistence.getAiTransactionDraftBatch(params.batchId),
     );
-    return toTransactionDraftDetailDto(app, aggregate);
+    return await toTransactionDraftDetailDto(app, aggregate);
   });
 
   const draftRowPatchSchema = z.object({
@@ -7643,7 +8623,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       batchId: params.batchId,
       rowId: params.rowId,
     });
-    return toTransactionDraftDetailDto(app, updated);
+    return await toTransactionDraftDetailDto(app, updated);
   });
 
   const draftRowIdsBodySchema = z.object({
@@ -7681,7 +8661,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       batchId: params.batchId,
       rowIds: body.rowIds,
     });
-    return toTransactionDraftDetailDto(app, updated);
+    return await toTransactionDraftDetailDto(app, updated);
   }
 
   app.post("/ai/transaction-drafts/:batchId/exclude", (req) =>
@@ -7726,7 +8706,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       batchId: params.batchId,
       status: updated.batch.status,
     });
-    return toTransactionDraftDetailDto(app, updated);
+    return await toTransactionDraftDetailDto(app, updated);
   });
 
   app.delete("/ai/transaction-drafts/:batchId", async (req) => {
@@ -7791,7 +8771,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       await app.persistence.getAiTransactionDraftBatch(params.batchId),
     );
     return {
-      ...toTransactionDraftDetailDto(app, updated),
+      ...(await toTransactionDraftDetailDto(app, updated)),
       posting,
     };
   });

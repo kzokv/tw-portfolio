@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dividend Stock Calculation Mockups</title>
+  <style>
+    :root {
+      --bg: #f7f8f8;
+      --panel: #ffffff;
+      --line: #d9dee2;
+      --line-strong: #c4cbd0;
+      --text: #17211b;
+      --muted: #66716b;
+      --green: #08783f;
+      --green-soft: #eaf6ef;
+      --amber: #b45309;
+      --amber-soft: #fff7e8;
+      --red: #b42318;
+      --red-soft: #fef0ee;
+      --blue: #175cd3;
+      --blue-soft: #eef4ff;
+      --purple: #6941c6;
+      --purple-soft: #f4f0ff;
+      --shadow: 0 12px 32px rgba(22, 34, 27, 0.08);
+      --radius: 8px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+    body { font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+    button, input, select { font: inherit; letter-spacing: 0; }
+    button { color: inherit; }
+    .screen { display: none; }
+    body[data-screen="hero"] .screen-hero,
+    body[data-screen="drawer"] .screen-drawer,
+    body[data-screen="settings"] .screen-settings,
+    body[data-screen="mobile"] .screen-mobile { display: block; }
+    .desktop-app { min-height: 1024px; display: grid; grid-template-columns: 178px 1fr; background: var(--bg); }
+    .sidebar { border-right: 1px solid var(--line); background: #fbfcfb; display: flex; flex-direction: column; min-height: 1024px; }
+    .brand { height: 50px; display: flex; align-items: center; gap: 10px; padding: 0 18px; border-bottom: 1px solid var(--line); font-size: 14px; font-weight: 750; }
+    .brand-mark { width: 22px; height: 22px; display: grid; grid-template-columns: repeat(3, 1fr); align-items: end; gap: 2px; }
+    .brand-mark span { display: block; background: var(--green); border-radius: 1px 1px 0 0; }
+    .brand-mark span:nth-child(1) { height: 9px; }
+    .brand-mark span:nth-child(2) { height: 16px; }
+    .brand-mark span:nth-child(3) { height: 21px; }
+    .nav { padding: 18px 7px; display: grid; gap: 5px; }
+    .nav-item { min-height: 40px; display: flex; align-items: center; gap: 10px; padding: 0 12px; border-left: 3px solid transparent; border-radius: 4px; color: #38413c; font-size: 13px; }
+    .nav-item svg { width: 17px; height: 17px; stroke-width: 1.8; }
+    .nav-item.active { color: var(--green); background: #eaf2ed; border-left-color: var(--green); font-weight: 650; }
+    .sidebar-foot { margin-top: auto; padding: 12px; display: grid; gap: 8px; }
+    .foot-select { border: 1px solid var(--line); min-height: 40px; background: var(--panel); border-radius: 6px; padding: 0 11px; display: flex; align-items: center; justify-content: space-between; font-size: 12px; }
+    .main { min-width: 0; }
+    .topbar { height: 50px; border-bottom: 1px solid var(--line); background: rgba(255,255,255,0.92); display: flex; align-items: center; justify-content: flex-end; gap: 18px; padding: 0 24px; font-size: 12px; color: var(--muted); }
+    .avatar { width: 32px; height: 32px; border-radius: 50%; background: #edf0ee; display: grid; place-items: center; color: #46504a; font-weight: 700; }
+    .content { padding: 20px 24px 28px; }
+    .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
+    h1 { margin: 0; font-size: 27px; line-height: 1.15; font-weight: 760; }
+    .subtitle { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+    .tabs { display: flex; gap: 26px; margin-top: 17px; border-bottom: 1px solid var(--line); }
+    .tab { padding: 0 14px 10px; font-size: 12px; color: #4f5953; border-bottom: 2px solid transparent; }
+    .tab.active { color: var(--green); border-bottom-color: var(--green); font-weight: 700; }
+    .filters { display: grid; grid-template-columns: 1.1fr 1.1fr 1fr 1fr 1fr auto; gap: 9px; margin-top: 14px; align-items: end; }
+    .field label { display: block; margin: 0 0 5px; color: var(--muted); font-size: 10px; font-weight: 650; }
+    .control { height: 36px; border: 1px solid var(--line); background: var(--panel); border-radius: 6px; padding: 0 10px; display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; white-space: nowrap; }
+    .control svg { width: 14px; height: 14px; color: var(--muted); }
+    .icon-button { width: 36px; height: 36px; border: 1px solid var(--line); background: var(--panel); border-radius: 6px; display: grid; place-items: center; }
+    .icon-button svg { width: 16px; height: 16px; }
+    .metrics { display: grid; grid-template-columns: 1.25fr 1.25fr 0.85fr 0.9fr; gap: 12px; margin-top: 16px; }
+    .metric { min-height: 132px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 14px; }
+    .metric-title { display: flex; align-items: center; gap: 6px; color: #3e4742; font-size: 12px; font-weight: 680; }
+    .metric-title svg { width: 13px; height: 13px; color: var(--muted); }
+    .metric-grid { display: grid; grid-template-columns: 0.85fr 1.3fr; gap: 14px; margin-top: 12px; }
+    .metric-grid > div + div { border-left: 1px solid var(--line); padding-left: 14px; }
+    .eyebrow { color: var(--muted); font-size: 10px; }
+    .metric-value { margin-top: 6px; font-size: 20px; line-height: 1.1; font-weight: 760; }
+    .stock-line { margin-top: 5px; font-size: 11px; line-height: 1.35; }
+    .stock-line strong { font-weight: 720; }
+    .stock-detail { margin-top: 5px; color: var(--amber); font-size: 10px; font-weight: 650; }
+    .metric-link { margin-top: 8px; border: 0; background: transparent; padding: 0; color: var(--green); font-size: 10px; font-weight: 680; }
+    .attention-value { margin-top: 8px; font-size: 28px; font-weight: 760; color: var(--amber); }
+    .attention-list { display: grid; gap: 4px; margin-top: 8px; color: var(--muted); font-size: 10px; }
+    .attention-list span { display: flex; justify-content: space-between; gap: 8px; }
+    .table-card { margin-top: 14px; border: 1px solid var(--line); background: var(--panel); border-radius: var(--radius); overflow: hidden; }
+    .table-headline { min-height: 49px; padding: 0 14px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); }
+    .table-headline h2 { margin: 0; font-size: 14px; }
+    .result-count { color: var(--muted); font-size: 11px; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    th { height: 35px; padding: 0 10px; background: #f8faf8; border-bottom: 1px solid var(--line); color: var(--muted); text-align: left; font-size: 9px; text-transform: uppercase; font-weight: 700; }
+    td { height: 60px; padding: 8px 10px; border-bottom: 1px solid #e8ebE9; font-size: 11px; vertical-align: middle; }
+    tr:last-child td { border-bottom: 0; }
+    .ticker { font-weight: 720; }
+    .ticker-name { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; font-weight: 450; }
+    .badge { display: inline-flex; align-items: center; width: max-content; min-height: 23px; padding: 3px 8px; border: 1px solid; border-radius: 5px; font-size: 9px; font-weight: 680; white-space: nowrap; }
+    .badge.cash { color: var(--blue); background: var(--blue-soft); border-color: #c7d7fe; }
+    .badge.stock { color: var(--purple); background: var(--purple-soft); border-color: #d8ccff; }
+    .badge.mixed { color: var(--green); background: var(--green-soft); border-color: #b9dfc9; }
+    .badge.warning { color: var(--amber); background: var(--amber-soft); border-color: #f5d6a4; }
+    .badge.success { color: var(--green); background: var(--green-soft); border-color: #b9dfc9; }
+    .status-stack { display: grid; gap: 4px; }
+    .muted { color: var(--muted); }
+    .warning-text { color: var(--amber); font-weight: 650; }
+    .success-text { color: var(--green); font-weight: 650; }
+    .unavailable { color: #7d8781; font-weight: 620; }
+    .table-note { display: block; margin-top: 3px; font-size: 9px; color: var(--muted); }
+    .selected-row { background: #fffdf8; }
+
+    /* Drawer screen */
+    .drawer-stage { position: relative; min-height: 1024px; overflow: hidden; }
+    .drawer-backdrop { position: absolute; inset: 0; background: rgba(13, 22, 17, 0.32); z-index: 4; }
+    .ghost-page { filter: saturate(0.8); }
+    .ghost-page .content { opacity: 0.78; }
+    .drawer { position: absolute; z-index: 5; top: 0; right: 0; width: 660px; height: 1024px; background: #fbfcfb; border-left: 1px solid var(--line-strong); box-shadow: -18px 0 42px rgba(20, 31, 24, 0.16); display: flex; flex-direction: column; }
+    .drawer-header { min-height: 76px; padding: 14px 18px; background: var(--panel); border-bottom: 1px solid var(--line); display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .drawer-header h2 { margin: 0; font-size: 17px; }
+    .drawer-meta { margin-top: 5px; color: var(--muted); font-size: 10px; }
+    .drawer-chips { display: flex; gap: 7px; margin-top: 9px; }
+    .drawer-body { flex: 1; overflow: hidden; padding: 14px 18px 16px; display: grid; align-content: start; gap: 12px; }
+    .section { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); overflow: hidden; }
+    .section-title { min-height: 40px; padding: 0 13px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; font-weight: 720; }
+    .section-body { padding: 12px 13px; }
+    .provider-grid { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 8px; }
+    .data-box { min-height: 57px; padding: 9px 10px; background: #f7f9f7; border: 1px solid #e2e6e3; border-radius: 6px; }
+    .data-box .value { margin-top: 4px; font-size: 13px; font-weight: 720; }
+    .data-box .small-value { margin-top: 4px; font-size: 10px; font-weight: 650; line-height: 1.3; }
+    .method-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 11px; }
+    .method { min-height: 66px; border: 1px solid var(--line); border-radius: 6px; padding: 9px; background: #fff; }
+    .method.selected { border-color: #70b58e; box-shadow: 0 0 0 2px rgba(8, 120, 63, 0.10); background: #f7fcf9; }
+    .method.disabled { background: #f5f6f5; color: #909892; }
+    .method-top { display: flex; align-items: center; gap: 7px; font-size: 10px; font-weight: 720; }
+    .radio { width: 14px; height: 14px; border-radius: 50%; border: 1px solid var(--line-strong); display: grid; place-items: center; flex: 0 0 auto; }
+    .selected .radio { border-color: var(--green); }
+    .selected .radio::after { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+    .method p { margin: 6px 0 0; color: var(--muted); font-size: 8px; line-height: 1.35; }
+    .calc-row { display: grid; grid-template-columns: 0.86fr 1.14fr; gap: 10px; margin-top: 11px; }
+    .input-box label { display: block; margin-bottom: 5px; color: var(--muted); font-size: 9px; font-weight: 650; }
+    .input-shell { height: 36px; border: 1px solid var(--line-strong); border-radius: 6px; background: #fff; display: flex; align-items: center; }
+    .input-shell span { padding: 0 10px; color: var(--muted); font-size: 10px; border-right: 1px solid var(--line); }
+    .input-shell strong { padding: 0 10px; font-size: 12px; }
+    .deep-link { margin-top: 7px; color: var(--green); font-size: 9px; font-weight: 680; display: inline-flex; align-items: center; gap: 4px; }
+    .deep-link svg { width: 11px; height: 11px; }
+    .formula { border: 1px solid #b9dfc9; background: var(--green-soft); border-radius: 6px; padding: 9px 10px; }
+    .formula-main { font-size: 11px; font-weight: 740; }
+    .formula-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-top: 8px; }
+    .formula-grid .value { margin-top: 3px; font-size: 11px; font-weight: 720; }
+    .receipt-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .receipt-grid .data-box { min-height: 52px; }
+    .drawer-footer { min-height: 64px; padding: 12px 18px; background: var(--panel); border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .footer-note { color: var(--muted); font-size: 9px; max-width: 290px; line-height: 1.35; }
+    .button-row { display: flex; gap: 8px; }
+    .btn { min-height: 36px; border-radius: 6px; padding: 0 13px; border: 1px solid var(--line-strong); background: #fff; font-size: 10px; font-weight: 700; }
+    .btn.primary { color: #fff; border-color: var(--green); background: var(--green); }
+
+    /* Settings screen */
+    .settings-layout { display: grid; grid-template-columns: 220px 1fr; gap: 18px; margin-top: 18px; }
+    .settings-nav { border-right: 1px solid var(--line); padding-right: 14px; display: grid; align-content: start; gap: 5px; }
+    .settings-nav-item { min-height: 38px; display: flex; align-items: center; gap: 9px; padding: 0 10px; border-radius: 5px; font-size: 12px; color: #4c5650; }
+    .settings-nav-item.active { background: var(--green-soft); color: var(--green); font-weight: 700; }
+    .settings-nav-item svg { width: 15px; height: 15px; }
+    .settings-content { max-width: 880px; }
+    .context-banner { min-height: 48px; border: 1px solid #b7d7fe; background: var(--blue-soft); border-radius: var(--radius); padding: 9px 12px; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #194185; font-size: 10px; }
+    .account-card { margin-top: 12px; border: 1px solid var(--line); background: var(--panel); border-radius: var(--radius); overflow: hidden; }
+    .account-header { min-height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 15px; border-bottom: 1px solid var(--line); }
+    .account-title { display: flex; align-items: center; gap: 10px; }
+    .account-title svg { width: 17px; height: 17px; color: var(--muted); }
+    .account-title strong { font-size: 13px; }
+    .account-title small { display: block; margin-top: 3px; color: var(--muted); font-size: 9px; }
+    .market-pill { border: 1px solid #b9dfc9; background: var(--green-soft); color: var(--green); border-radius: 5px; padding: 4px 8px; font-size: 9px; font-weight: 720; }
+    .account-band { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+    .account-band:last-child { border-bottom: 0; }
+    .band-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+    .band-head h3 { margin: 0; font-size: 12px; }
+    .band-head p { margin: 4px 0 0; color: var(--muted); font-size: 9px; line-height: 1.4; }
+    .focus-band { background: #fbfefc; box-shadow: inset 3px 0 0 var(--green); }
+    .setting-form { display: grid; grid-template-columns: 0.7fr 1fr 1.4fr auto; gap: 10px; align-items: end; margin-top: 12px; }
+    .readonly-control, .number-control { height: 38px; border: 1px solid var(--line); border-radius: 6px; background: #f7f9f7; padding: 0 10px; display: flex; align-items: center; font-size: 11px; }
+    .number-control { background: #fff; border-color: #86b89a; }
+    .example-box { min-height: 38px; border: 1px solid #b9dfc9; background: var(--green-soft); border-radius: 6px; padding: 7px 9px; font-size: 9px; line-height: 1.35; }
+    .setting-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; gap: 12px; color: var(--muted); font-size: 9px; }
+    .collapsed-account { margin-top: 10px; min-height: 58px; border: 1px solid var(--line); background: var(--panel); border-radius: var(--radius); padding: 0 15px; display: flex; align-items: center; justify-content: space-between; }
+
+    /* Mobile screen */
+    .mobile-shell { width: 390px; min-height: 100vh; margin: 0 auto; background: #fbfcfb; }
+    .mobile-status { height: 28px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; font-size: 10px; font-weight: 700; }
+    .mobile-header { height: 54px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: 36px 1fr 36px; align-items: center; padding: 0 12px; background: #fff; }
+    .mobile-header h1 { text-align: center; font-size: 18px; }
+    .mobile-icon { width: 34px; height: 34px; border: 0; background: transparent; display: grid; place-items: center; }
+    .mobile-icon svg { width: 20px; height: 20px; }
+    .mobile-tabs { height: 46px; display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid var(--line); background: #fff; }
+    .mobile-tabs span { display: grid; place-items: center; color: var(--muted); font-size: 12px; border-bottom: 2px solid transparent; }
+    .mobile-tabs .active { color: var(--green); border-bottom-color: var(--green); font-weight: 700; }
+    .mobile-content { padding: 12px; }
+    .mobile-filterbar { display: flex; gap: 7px; overflow: hidden; }
+    .filter-chip { min-height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 6px; background: #fff; display: inline-flex; align-items: center; gap: 6px; font-size: 10px; white-space: nowrap; }
+    .filter-chip svg { width: 13px; height: 13px; }
+    .mobile-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+    .mobile-metric { min-height: 108px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; padding: 10px; }
+    .mobile-metric h2 { margin: 0; color: var(--muted); font-size: 9px; text-transform: uppercase; }
+    .mobile-metric .big { margin-top: 6px; font-size: 17px; font-weight: 760; }
+    .mobile-metric .sub { margin-top: 7px; font-size: 9px; line-height: 1.35; }
+    .mobile-metric .sub.warning-text { color: var(--amber); }
+    .mobile-section-title { margin: 14px 0 8px; display: flex; align-items: center; justify-content: space-between; }
+    .mobile-section-title h2 { margin: 0; font-size: 13px; }
+    .mobile-section-title span { color: var(--muted); font-size: 9px; }
+    .mobile-row { border: 1px solid var(--line); background: #fff; border-radius: var(--radius); padding: 12px; }
+    .mobile-row-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+    .mobile-row-head h3 { margin: 0; font-size: 15px; }
+    .mobile-row-head p { margin: 4px 0 0; color: var(--muted); font-size: 9px; }
+    .mobile-row-badges { display: flex; gap: 5px; margin-top: 7px; }
+    .mobile-detail { margin-top: 10px; border-top: 1px solid var(--line); }
+    .mobile-detail-row { min-height: 39px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid #e8ebe9; font-size: 10px; }
+    .mobile-detail-row:last-child { border-bottom: 0; }
+    .mobile-detail-row strong { text-align: right; font-size: 10px; }
+    .mobile-actions { margin-top: 10px; display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+    .mobile-actions .btn { width: 100%; }
+    .mobile-actions .icon-button { width: 36px; }
+  </style>
+</head>
+<body>
+  <section class="screen screen-hero">
+    <div class="desktop-app">
+      <aside class="sidebar">
+        <div class="brand"><span class="brand-mark"><span></span><span></span><span></span></span>VAKWEN</div>
+        <nav class="nav">
+          <div class="nav-item"><i data-lucide="pie-chart"></i>Dashboard</div>
+          <div class="nav-item"><i data-lucide="briefcase-business"></i>Portfolio</div>
+          <div class="nav-item"><i data-lucide="receipt-text"></i>Transactions</div>
+          <div class="nav-item active"><i data-lucide="circle-dollar-sign"></i>Dividends</div>
+          <div class="nav-item"><i data-lucide="chart-no-axes-combined"></i>Reports</div>
+          <div class="nav-item"><i data-lucide="star"></i>Watchlist</div>
+          <div class="nav-item"><i data-lucide="settings"></i>Settings</div>
+        </nav>
+        <div class="sidebar-foot">
+          <div class="foot-select"><span>Light</span><i data-lucide="chevron-down"></i></div>
+          <div class="foot-select"><span>English</span><i data-lucide="chevron-down"></i></div>
+        </div>
+      </aside>
+      <main class="main">
+        <div class="topbar"><span>TWD</span><span>Notifications</span><span class="avatar">TW</span></div>
+        <div class="content">
+          <div class="page-head">
+            <div><h1>Dividends</h1><p class="subtitle">Review expected income, posted receipts, and reconciliation work.</p></div>
+          </div>
+          <div class="tabs"><span class="tab">Overview</span><span class="tab active">Review</span></div>
+          <div class="filters">
+            <div class="field"><label>Date</label><div class="control"><span>Unspecified</span><i data-lucide="calendar-days"></i></div></div>
+            <div class="field"><label>Ticker</label><div class="control"><span>2886 &middot; Mega Financial</span><i data-lucide="x"></i></div></div>
+            <div class="field"><label>Account</label><div class="control"><span>All accounts</span><i data-lucide="chevron-down"></i></div></div>
+            <div class="field"><label>Cash status</label><div class="control"><span>All</span><i data-lucide="chevron-down"></i></div></div>
+            <div class="field"><label>Stock status</label><div class="control"><span>All</span><i data-lucide="chevron-down"></i></div></div>
+            <button class="icon-button" aria-label="More filters"><i data-lucide="sliders-horizontal"></i></button>
+          </div>
+          <div class="metrics">
+            <article class="metric">
+              <div class="metric-title">Total Expected <i data-lucide="info"></i></div>
+              <div class="metric-grid">
+                <div><div class="eyebrow">Cash</div><div class="metric-value">NT$16,471</div></div>
+                <div><div class="eyebrow">Stock</div><div class="stock-line"><strong>2886 Mega Financial</strong></div><div class="stock-line unavailable">Expected shares unavailable</div><div class="stock-detail">3 events need calculation</div><button class="metric-link">View stock breakdown</button></div>
+              </div>
+            </article>
+            <article class="metric">
+              <div class="metric-title">Total Received <i data-lucide="info"></i></div>
+              <div class="metric-grid">
+                <div><div class="eyebrow">Cash</div><div class="metric-value">NT$2,790</div></div>
+                <div><div class="eyebrow">Stock</div><div class="stock-line"><strong>2886 Mega Financial</strong></div><div class="stock-line success-text">150 shares received</div><div class="stock-detail" style="color:var(--green)">1 stock posting</div><button class="metric-link">View stock breakdown</button></div>
+              </div>
+            </article>
+            <article class="metric">
+              <div class="metric-title">Cash Variance <i data-lucide="info"></i></div>
+              <div class="metric-value">NT$13,681</div>
+              <div class="stock-line muted">Expected less received cash</div>
+            </article>
+            <article class="metric">
+              <div class="metric-title">Needs Attention <i data-lucide="info"></i></div>
+              <div class="attention-value">4</div>
+              <div class="attention-list"><span><span>Cash reconciliation</span><strong>3</strong></span><span><span>Stock calculations</span><strong>3</strong></span></div>
+            </article>
+          </div>
+          <section class="table-card">
+            <div class="table-headline"><h2>Filtered dividend records</h2><span class="result-count">4 results &middot; Page 1 of 1</span></div>
+            <table>
+              <thead><tr><th style="width:11%">Payment date</th><th style="width:15%">Ticker</th><th style="width:12%">Event</th><th style="width:12%">Expected cash</th><th style="width:15%">Expected stock</th><th style="width:12%">Received stock</th><th style="width:14%">Stock status</th><th style="width:9%">Cash status</th></tr></thead>
+              <tbody>
+                <tr><td>Sep 5, 2025</td><td><span class="ticker">2886<span class="ticker-name">Mega Financial</span></span></td><td><span class="badge cash">Cash</span></td><td>NT$5,040</td><td class="unavailable">Not applicable</td><td class="unavailable">Not applicable</td><td class="unavailable">Not applicable</td><td><span class="badge warning">Open</span></td></tr>
+                <tr><td>Sep 13, 2024</td><td><span class="ticker">2886<span class="ticker-name">Mega Financial</span></span></td><td><span class="badge mixed">Cash + Stock</span></td><td>NT$4,725</td><td><span class="unavailable">Unavailable</span></td><td class="muted">Pending</td><td><span class="badge warning">Needs calculation</span></td><td><span class="badge warning">Open</span></td></tr>
+                <tr><td>Sep 15, 2023</td><td><span class="ticker">2886<span class="ticker-name">Mega Financial</span></span></td><td><span class="badge mixed">Cash + Stock</span></td><td>NT$3,906</td><td><span class="unavailable">Unavailable</span></td><td class="muted">Pending</td><td><span class="badge warning">Needs calculation</span></td><td><span class="badge warning">Open</span></td></tr>
+                <tr class="selected-row"><td>Sep 16, 2022</td><td><span class="ticker">2886<span class="ticker-name">Mega Financial</span></span></td><td><span class="badge mixed">Cash + Stock</span></td><td>NT$2,800</td><td><span class="unavailable">Unavailable</span></td><td><strong>150 shares</strong><span class="table-note">Posted receipt</span></td><td><span class="badge warning">Needs calculation</span></td><td><span class="badge success">Matched</span></td></tr>
+              </tbody>
+            </table>
+          </section>
+        </div>
+      </main>
+    </div>
+  </section>
+
+  <section class="screen screen-drawer">
+    <div class="drawer-stage">
+      <div class="desktop-app ghost-page">
+        <aside class="sidebar"><div class="brand"><span class="brand-mark"><span></span><span></span><span></span></span>VAKWEN</div><nav class="nav"><div class="nav-item"><i data-lucide="pie-chart"></i>Dashboard</div><div class="nav-item"><i data-lucide="briefcase-business"></i>Portfolio</div><div class="nav-item active"><i data-lucide="circle-dollar-sign"></i>Dividends</div><div class="nav-item"><i data-lucide="settings"></i>Settings</div></nav></aside>
+        <main class="main"><div class="topbar"><span>TWD</span><span class="avatar">TW</span></div><div class="content"><h1>Dividend Review</h1><div class="tabs"><span class="tab">Overview</span><span class="tab active">Review</span></div><div class="metrics"><article class="metric"><div class="metric-title">Total Expected</div><div class="metric-value">NT$16,471</div></article><article class="metric"><div class="metric-title">Total Received</div><div class="metric-value">NT$2,790</div></article><article class="metric"><div class="metric-title">Cash Variance</div><div class="metric-value">NT$13,681</div></article><article class="metric"><div class="metric-title">Needs Attention</div><div class="attention-value">4</div></article></div><section class="table-card"><div class="table-headline"><h2>2886 dividend records</h2></div><div style="height:420px"></div></section></div></main>
+      </div>
+      <div class="drawer-backdrop"></div>
+      <aside class="drawer">
+        <header class="drawer-header">
+          <div><h2>2886 &middot; Mega Financial</h2><div class="drawer-meta">Taiwan Brokerage &middot; Cash + Stock &middot; Payment Sep 16, 2022</div><div class="drawer-chips"><span class="badge success">Cash matched</span><span class="badge warning">Stock needs calculation</span></div></div>
+          <button class="icon-button" aria-label="Close drawer"><i data-lucide="x"></i></button>
+        </header>
+        <div class="drawer-body">
+          <section class="section">
+            <div class="section-title"><span>Expected stock calculation</span><span class="badge warning">Not confirmed</span></div>
+            <div class="section-body">
+              <div class="provider-grid">
+                <div class="data-box"><div class="eyebrow">Provider value</div><div class="value">0.25 TWD/share</div></div>
+                <div class="data-box"><div class="eyebrow">Source</div><div class="small-value">FinMind<br>TaiwanStockDividend</div></div>
+                <div class="data-box"><div class="eyebrow">Provider ratio</div><div class="value warning-text">Not available</div></div>
+              </div>
+              <div class="method-list">
+                <div class="method disabled"><div class="method-top"><span class="radio"></span>Provider ratio</div><p>No authoritative ratio was supplied.</p></div>
+                <div class="method selected"><div class="method-top"><span class="radio"></span>Derive from par value</div><p>Uses the account fallback or an event value.</p></div>
+                <div class="method"><div class="method-top"><span class="radio"></span>Enter ratio directly</div><p>Use a broker or issuer entitlement ratio.</p></div>
+              </div>
+              <div class="calc-row">
+                <div class="input-box"><label>Selected par value</label><div class="input-shell"><span>TWD</span><strong>10.00</strong></div><span class="deep-link">Change Taiwan Brokerage &middot; TW default <i data-lucide="external-link"></i></span></div>
+                <div class="formula"><div class="formula-main">0.25 / 10.00 = 0.025 shares per eligible share</div><div class="formula-grid"><div><div class="eyebrow">Eligible</div><div class="value">2,000</div></div><div><div class="eyebrow">Theoretical</div><div class="value">50.000</div></div><div><div class="eyebrow">Expected</div><div class="value">50 shares</div></div><div><div class="eyebrow">Remainder</div><div class="value">0.000</div></div></div></div>
+              </div>
+            </div>
+          </section>
+          <section class="section">
+            <div class="section-title"><span>Posted receipt</span><span class="badge success">Accounting facts preserved</span></div>
+            <div class="section-body"><div class="receipt-grid"><div class="data-box"><div class="eyebrow">Received cash</div><div class="value">NT$2,790</div></div><div class="data-box"><div class="eyebrow">Received stock</div><div class="value">150 shares</div></div><div class="data-box"><div class="eyebrow">Cash status</div><div class="value success-text">Matched</div></div><div class="data-box"><div class="eyebrow">Stock variance</div><div class="value muted">Unavailable</div></div></div></div>
+          </section>
+          <section class="section">
+            <div class="section-title"><span>After confirmation</span></div>
+            <div class="section-body" style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div><div class="eyebrow">Expected stock</div><div style="margin-top:5px;font-size:14px;font-weight:750">50 shares</div><div class="stock-line muted">Append-only expectation version</div></div><div><div class="eyebrow">Stock variance</div><div style="margin-top:5px;font-size:14px;font-weight:750;color:var(--amber)">+100 shares</div><div class="stock-line muted">Received 150 minus expected 50</div></div></div>
+          </section>
+        </div>
+        <footer class="drawer-footer"><div class="footer-note">Confirming changes only the expected calculation. The posted 150 shares and portfolio quantity remain unchanged.</div><div class="button-row"><button class="btn">Cancel</button><button class="btn primary">Confirm calculation</button></div></footer>
+      </aside>
+    </div>
+  </section>
+
+  <section class="screen screen-settings">
+    <div class="desktop-app">
+      <aside class="sidebar">
+        <div class="brand"><span class="brand-mark"><span></span><span></span><span></span></span>VAKWEN</div>
+        <nav class="nav"><div class="nav-item"><i data-lucide="pie-chart"></i>Dashboard</div><div class="nav-item"><i data-lucide="briefcase-business"></i>Portfolio</div><div class="nav-item"><i data-lucide="circle-dollar-sign"></i>Dividends</div><div class="nav-item active"><i data-lucide="settings"></i>Settings</div></nav>
+      </aside>
+      <main class="main">
+        <div class="topbar"><span>TWD</span><span>Notifications</span><span class="avatar">TW</span></div>
+        <div class="content">
+          <h1>Settings</h1><p class="subtitle">Manage account-specific operational defaults and fee profiles.</p>
+          <div class="settings-layout">
+            <nav class="settings-nav"><div class="settings-nav-item"><i data-lucide="user-round"></i>Profile</div><div class="settings-nav-item"><i data-lucide="sliders-horizontal"></i>General</div><div class="settings-nav-item active"><i data-lucide="landmark"></i>Accounts</div><div class="settings-nav-item"><i data-lucide="tags"></i>Tickers</div><div class="settings-nav-item"><i data-lucide="monitor"></i>Display</div></nav>
+            <div class="settings-content">
+              <div class="context-banner"><span><strong>Opened from 2886 stock dividend</strong><br>Update the TW fallback used to prefill event calculations for Taiwan Brokerage.</span><span class="badge cash">New tab</span></div>
+              <article class="account-card">
+                <header class="account-header"><div class="account-title"><i data-lucide="chevron-down"></i><div><strong>Taiwan Brokerage</strong><small>Broker account &middot; TWD default currency</small></div><span class="market-pill">TW</span></div><button class="icon-button" aria-label="Edit account"><i data-lucide="pencil"></i></button></header>
+                <div class="account-band"><div class="band-head"><div><h3>Default fee profile</h3><p>Standard Taiwan brokerage &middot; commission and tax rules</p></div><button class="btn">Manage fee profiles</button></div></div>
+                <div class="account-band focus-band" id="dividend-defaults">
+                  <div class="band-head"><div><h3>Dividend calculation defaults</h3><p>Prefills TW stock-dividend calculations. Every event still requires confirmation before this fallback is used.</p></div><span class="badge success">Focused section</span></div>
+                  <div class="setting-form">
+                    <div class="field"><label>Market</label><div class="readonly-control">TW &middot; Taiwan</div></div>
+                    <div class="field"><label>Fallback par value</label><div class="number-control">TWD&nbsp;&nbsp;<strong>10.00</strong></div></div>
+                    <div class="field"><label>Calculation example</label><div class="example-box"><strong>Provider value 0.25 / par value 10 = ratio 0.025</strong><br>Equivalent to 25 shares per 1,000 eligible shares.</div></div>
+                    <button class="btn primary">Save default</button>
+                  </div>
+                  <div class="setting-foot"><span>Leave blank to keep the fallback unconfigured. No market-wide value is assumed.</span><span>Last updated Jul 17, 2026</span></div>
+                </div>
+              </article>
+              <div class="collapsed-account"><div class="account-title"><i data-lucide="chevron-right"></i><div><strong>US Brokerage</strong><small>Broker account &middot; USD default currency</small></div><span class="market-pill" style="color:var(--blue);border-color:#c7d7fe;background:var(--blue-soft)">US</span></div><span class="muted" style="font-size:10px">Dividend par-value fallback not available for this market</span></div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </section>
+
+  <section class="screen screen-mobile">
+    <div class="mobile-shell">
+      <div class="mobile-status"><span>9:41</span><span>5G&nbsp;&nbsp;100%</span></div>
+      <header class="mobile-header"><button class="mobile-icon" aria-label="Open menu"><i data-lucide="menu"></i></button><h1>Dividend Review</h1><button class="mobile-icon" aria-label="More"><i data-lucide="ellipsis-vertical"></i></button></header>
+      <div class="mobile-tabs"><span>Overview</span><span class="active">Review</span></div>
+      <main class="mobile-content">
+        <div class="mobile-filterbar"><button class="filter-chip"><i data-lucide="filter"></i>Filters <span class="badge success" style="min-height:18px;padding:1px 5px">3</span></button><button class="filter-chip">Ticker: 2886</button><button class="filter-chip">Stock: All</button></div>
+        <div class="mobile-metrics">
+          <article class="mobile-metric"><h2>Total expected</h2><div class="big">NT$16,471</div><div class="sub"><strong>2886 Mega Financial</strong><br><span class="warning-text">Expected shares unavailable</span><br>3 events need calculation</div></article>
+          <article class="mobile-metric"><h2>Total received</h2><div class="big">NT$2,790</div><div class="sub"><strong>2886 Mega Financial</strong><br><span class="success-text">150 shares received</span><br>1 stock posting</div></article>
+          <article class="mobile-metric"><h2>Cash variance</h2><div class="big">NT$13,681</div><div class="sub muted">Expected less received cash</div></article>
+          <article class="mobile-metric"><h2>Needs attention</h2><div class="big" style="color:var(--amber)">4</div><div class="sub">Cash reconciliation 3<br>Stock calculations 3</div></article>
+        </div>
+        <div class="mobile-section-title"><h2>Filtered records</h2><span>4 results</span></div>
+        <article class="mobile-row">
+          <div class="mobile-row-head"><div><h3>2886 Mega Financial</h3><p>Sep 16, 2022 &middot; Taiwan Brokerage</p><div class="mobile-row-badges"><span class="badge mixed">Cash + Stock</span><span class="badge success">Cash matched</span></div></div><button class="mobile-icon" aria-label="More actions"><i data-lucide="ellipsis-vertical"></i></button></div>
+          <div class="mobile-detail">
+            <div class="mobile-detail-row"><span>Expected stock</span><strong class="warning-text">Unavailable</strong></div>
+            <div class="mobile-detail-row"><span>Received stock</span><strong>150 shares</strong></div>
+            <div class="mobile-detail-row"><span>Stock variance</span><strong class="muted">Unavailable</strong></div>
+            <div class="mobile-detail-row"><span>Stock status</span><strong class="warning-text">Needs calculation</strong></div>
+          </div>
+          <div class="mobile-actions"><button class="btn primary">Review calculation</button><button class="icon-button" aria-label="Open dividend"><i data-lucide="chevron-right"></i></button></div>
+        </article>
+      </main>
+    </div>
+  </section>
+
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    document.body.dataset.screen = params.get("screen") || "hero";
+    if (window.lucide) window.lucide.createIcons();
+  </script>
+</body>
+</html>

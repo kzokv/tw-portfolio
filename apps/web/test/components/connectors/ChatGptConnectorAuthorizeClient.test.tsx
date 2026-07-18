@@ -30,6 +30,7 @@ function buildConsent(overrides: Partial<McpOAuthConsentRequestDto> = {}): McpOA
     expiresAt: "2026-05-23T12:00:00.000Z",
     policy: {
       maxConnectorLifetimeDays: 90,
+      postedTransactionMutationBatchLimit: 50,
       groupToggles: { read: true, drafts: true, write: true },
     },
     ...overrides,
@@ -123,6 +124,7 @@ describe("ChatGptConnectorAuthorizeClient", () => {
     mockFetchMcpOAuthConsent.mockResolvedValue(buildConsent({
       policy: {
         maxConnectorLifetimeDays: 90,
+        postedTransactionMutationBatchLimit: 50,
         groupToggles: { read: false, drafts: false, write: false },
       },
     }));
@@ -184,12 +186,12 @@ describe("ChatGptConnectorAuthorizeClient", () => {
     await flushEffects();
 
     const postingLabel = Array.from(document.querySelectorAll("label"))
-      .find((candidate) => candidate.textContent?.includes("Post confirmed transactions"));
+      .find((candidate) => candidate.textContent?.includes("Post, update, and delete confirmed transactions"));
     const postingCheckbox = postingLabel?.querySelector("input[type='checkbox']") as HTMLInputElement | null;
 
     expect(postingCheckbox?.checked).toBe(false);
     expect(document.body.textContent).toContain("Advanced scope. Off by default");
-    expect(document.body.textContent).toContain("post_transaction_draft_rows");
+    expect(document.body.textContent).toContain("preview, post, update, or delete confirmed transactions");
   });
 
   it("keeps dividend:write unchecked and warns as an advanced financial write scope", async () => {
@@ -201,12 +203,12 @@ describe("ChatGptConnectorAuthorizeClient", () => {
     await flushEffects();
 
     const dividendLabel = Array.from(document.querySelectorAll("label"))
-      .find((candidate) => candidate.textContent?.includes("Post dividends and other financial writes"));
+      .find((candidate) => candidate.textContent?.includes("Write dividends and related portfolio accounting adjustments"));
     const dividendCheckbox = dividendLabel?.querySelector("input[type='checkbox']") as HTMLInputElement | null;
 
     expect(dividendCheckbox?.checked).toBe(false);
     expect(document.body.textContent).toContain("Advanced scope. Off by default");
-    expect(document.body.textContent).toContain("post_dividend_receipt");
+    expect(document.body.textContent).toContain("preview, post, update, or delete confirmed transactions and dividend actions");
   });
 
   it("shows account management consent as a standard checked scope", async () => {
@@ -236,7 +238,7 @@ describe("ChatGptConnectorAuthorizeClient", () => {
     expect(document.body.textContent).toContain("AI 連接器授權");
     expect(document.body.textContent).toContain("ChatGPT / OpenAI Apps");
     expect(document.body.textContent).toContain("管理帳戶");
-    expect(document.body.textContent).toContain("送出已確認交易");
-    expect(document.body.textContent).toContain("送出股利與其他財務寫入");
+    expect(document.body.textContent).toContain("送出、更新與刪除已確認交易");
+    expect(document.body.textContent).toContain("寫入股利與相關投資組合帳務調整");
   });
 });

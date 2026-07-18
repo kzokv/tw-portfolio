@@ -22,6 +22,8 @@ const FILTER_DIMENSIONS: Array<keyof DividendReviewFilterDto> = [
   "ticker",
   "marketCode",
   "postingStatus",
+  "cashStatus",
+  "stockStatus",
   "reconciliationStatus",
   "excludeExpected",
   "sourceComposition",

@@ -19,7 +19,7 @@ describe("FinMindMarketDataProvider.fetchDividends mapper", () => {
     vi.restoreAllMocks();
   });
 
-  it("extracts 3 new typed fields and rawProviderData passthrough", async () => {
+  it("extracts explicit provider metadata fields and rawProviderData passthrough", async () => {
     const mockRow = {
       date: "2025-06-15",
       stock_id: "2330",
@@ -53,6 +53,11 @@ describe("FinMindMarketDataProvider.fetchDividends mapper", () => {
       cashDividendPerShare: 2.5,
       stockDividendPerShare: 0,
       stockDistributionAmountRaw: 0,
+      stockProviderValue: 0,
+      stockProviderValueUnit: null,
+      stockProviderSource: "finmind",
+      stockProviderDataset: "TaiwanStockDividend",
+      stockProviderAuthoritativeRatio: null,
       stockDistributionRatio: null,
       stockDistributionRatioState: "unresolved",
       stockParValueAmount: null,
@@ -151,6 +156,11 @@ describe("FinMindMarketDataProvider.fetchDividends mapper", () => {
       cashDividendPerShare: 0,
       stockDividendPerShare: 0.07,
       stockDistributionAmountRaw: 0.07,
+      stockProviderValue: 0.07,
+      stockProviderValueUnit: "TWD_PER_SHARE",
+      stockProviderSource: "finmind",
+      stockProviderDataset: "TaiwanStockDividend",
+      stockProviderAuthoritativeRatio: null,
       stockDistributionRatio: null,
       stockDistributionRatioState: "unresolved",
       sourceId: "finmind",
@@ -162,6 +172,11 @@ describe("FinMindMarketDataProvider.fetchDividends mapper", () => {
       cashDividendPerShare: 2,
       stockDividendPerShare: 0.13,
       stockDistributionAmountRaw: 0.13,
+      stockProviderValue: 0.13,
+      stockProviderValueUnit: "TWD_PER_SHARE",
+      stockProviderSource: "finmind",
+      stockProviderDataset: "TaiwanStockDividend",
+      stockProviderAuthoritativeRatio: null,
       stockDistributionRatio: null,
       stockDistributionRatioState: "unresolved",
       sourceId: "finmind",

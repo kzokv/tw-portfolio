@@ -327,8 +327,9 @@ export async function getMcpOAuthConsentRequest(
     }),
     policy: {
       maxConnectorLifetimeDays: settings.maxConnectorLifetimeDays,
+      postedTransactionMutationBatchLimit: settings.postedTransactionMutationBatchLimit,
       groupToggles: { ...settings.groupToggles },
-    },
+    } as McpOAuthConsentRequestDto["policy"],
   };
 }
 

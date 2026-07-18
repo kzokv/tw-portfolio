@@ -49,7 +49,7 @@ test.describe("transaction mutations", () => {
     await ticker.assert.deleteDialogIsVisible();
     await ticker.assert.deleteNegativeLotsWarningIsVisible();
     await ticker.assert.deleteTradeSummaryContains(/BUY/);
-    await ticker.assert.deleteConfirmButtonIsHidden();
+    await ticker.assert.deleteConfirmButtonIsDisabled();
 
     await ticker.actions.cancelDelete();
     await ticker.assert.deleteDialogIsHidden();

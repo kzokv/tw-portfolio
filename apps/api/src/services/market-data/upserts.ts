@@ -100,6 +100,11 @@ export async function upsertDividendEvents(
     totalDistributionShares?: number;
     rawProviderData?: Record<string, unknown>;
     stockDistributionAmountRaw?: number | null;
+    stockProviderValue?: number | null;
+    stockProviderValueUnit?: "RATIO" | "TWD_PER_SHARE" | "UNKNOWN" | null;
+    stockProviderSource?: string | null;
+    stockProviderDataset?: string | null;
+    stockProviderAuthoritativeRatio?: number | null;
     stockDistributionRatio?: number | null;
     stockDistributionRatioState?: "authoritative" | "derived_non_authoritative" | "unresolved";
     stockParValueAmount?: number | null;
@@ -138,6 +143,11 @@ export async function upsertDividendEvents(
   const totalDistShares: (number | null)[] = [];
   const rawProviderDataArr: (string | null)[] = [];
   const stockDistributionAmountsRaw: (number | null)[] = [];
+  const stockProviderValues: (number | null)[] = [];
+  const stockProviderValueUnits: (string | null)[] = [];
+  const stockProviderSources: (string | null)[] = [];
+  const stockProviderDatasets: (string | null)[] = [];
+  const stockProviderAuthoritativeRatios: (number | null)[] = [];
   const stockDistributionRatios: (number | null)[] = [];
   const stockDistributionRatioStates: (string | null)[] = [];
   const stockParValueAmounts: (number | null)[] = [];
@@ -160,6 +170,14 @@ export async function upsertDividendEvents(
     totalDistShares.push(ev.totalDistributionShares ?? null);
     rawProviderDataArr.push(ev.rawProviderData ? JSON.stringify(ev.rawProviderData) : null);
     stockDistributionAmountsRaw.push(ev.stockDistributionAmountRaw ?? null);
+    stockProviderValues.push(ev.stockProviderValue ?? ev.stockDistributionAmountRaw ?? null);
+    stockProviderValueUnits.push(ev.stockProviderValueUnit ?? null);
+    stockProviderSources.push(ev.stockProviderSource ?? ev.sourceId ?? "finmind");
+    stockProviderDatasets.push(ev.stockProviderDataset ?? null);
+    stockProviderAuthoritativeRatios.push(
+      ev.stockProviderAuthoritativeRatio
+      ?? (ev.stockProviderValueUnit === "RATIO" ? ev.stockDistributionRatio ?? null : null),
+    );
     stockDistributionRatios.push(ev.stockDistributionRatio ?? null);
     stockDistributionRatioStates.push(ev.stockDistributionRatioState ?? null);
     stockParValueAmounts.push(ev.stockParValueAmount ?? null);
@@ -175,7 +193,8 @@ export async function upsertDividendEvents(
        (id, ticker, market_code, event_type, ex_dividend_date, payment_date, cash_dividend_per_share, stock_dividend_per_share,
         cash_dividend_currency, source, ingested_at,
         fiscal_year_period, announcement_date, total_distribution_shares, raw_provider_data,
-        stock_distribution_amount_raw, stock_distribution_ratio, stock_distribution_ratio_state,
+        stock_distribution_amount_raw, stock_provider_value, stock_provider_value_unit, stock_provider_source, stock_provider_dataset,
+        stock_provider_authoritative_ratio, stock_distribution_ratio, stock_distribution_ratio_state,
         stock_par_value_amount, stock_par_value_currency)
      SELECT * FROM unnest(
        $1::text[], $2::text[], $3::text[], $4::text[], $5::date[], $6::date[], $7::numeric[], $8::numeric[],
@@ -183,7 +202,7 @@ export async function upsertDividendEvents(
        $10::text[],
        array_fill(CURRENT_TIMESTAMP::timestamp, ARRAY[$9::int]),
        $11::text[], $12::date[], $13::numeric[], $14::jsonb[],
-       $16::numeric[], $17::numeric[], $18::text[], $19::numeric[], $20::text[]
+       $16::numeric[], $17::numeric[], $18::text[], $19::text[], $20::text[], $21::numeric[], $22::numeric[], $23::text[], $24::numeric[], $25::text[]
      )
      ON CONFLICT (id) DO UPDATE SET
        cash_dividend_per_share = EXCLUDED.cash_dividend_per_share,
@@ -196,6 +215,11 @@ export async function upsertDividendEvents(
        total_distribution_shares = EXCLUDED.total_distribution_shares,
        raw_provider_data = EXCLUDED.raw_provider_data,
        stock_distribution_amount_raw = EXCLUDED.stock_distribution_amount_raw,
+       stock_provider_value = EXCLUDED.stock_provider_value,
+       stock_provider_value_unit = EXCLUDED.stock_provider_value_unit,
+       stock_provider_source = EXCLUDED.stock_provider_source,
+       stock_provider_dataset = EXCLUDED.stock_provider_dataset,
+       stock_provider_authoritative_ratio = EXCLUDED.stock_provider_authoritative_ratio,
        stock_distribution_ratio = CASE
          WHEN market_data.dividend_events.stock_distribution_ratio_state = 'authoritative'
            AND EXCLUDED.stock_distribution_ratio_state IS DISTINCT FROM 'authoritative'
@@ -222,8 +246,8 @@ export async function upsertDividendEvents(
        END`,
     [ids, tickers, marketCodes, eventTypes, exDates, payDates, cashAmounts, stockAmounts, uniqueEvents.length,
      sources, fiscalYearPeriods, announcementDates, totalDistShares, rawProviderDataArr, currencies,
-     stockDistributionAmountsRaw, stockDistributionRatios, stockDistributionRatioStates,
-     stockParValueAmounts, stockParValueCurrencies],
+     stockDistributionAmountsRaw, stockProviderValues, stockProviderValueUnits, stockProviderSources, stockProviderDatasets,
+     stockProviderAuthoritativeRatios, stockDistributionRatios, stockDistributionRatioStates, stockParValueAmounts, stockParValueCurrencies],
   );
   return result.rowCount ?? 0;
 }

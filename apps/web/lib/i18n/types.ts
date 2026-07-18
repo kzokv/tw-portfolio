@@ -898,6 +898,7 @@ export interface AppDictionary {
     bookedAtLabel: string;
       commissionLabel: string;
       taxLabel: string;
+      bookedCostLabel: string;
       realizedPnlLabel: string;
       unrealizedPnlLabel: string;
       feeProfileLabel: string;
@@ -1136,6 +1137,25 @@ export interface AppDictionary {
     accountsListCollapseLabel: string;
     accountsListDefaultProfileLabel: string;
     accountsListDefaultProfileHint: string;
+    dividendSettingsTitle: string;
+    dividendSettingsDescription: string;
+    dividendSettingsMarketLabel: string;
+    dividendSettingsFallbackLabel: string;
+    dividendSettingsUnset: string;
+    dividendSettingsEdit: string;
+    dividendSettingsSave: string;
+    dividendSettingsCancel: string;
+    dividendSettingsClear: string;
+    dividendSettingsExampleLabel: string;
+    dividendSettingsExample: string;
+    dividendSettingsHint: string;
+    dividendSettingsUnavailableMarket: string;
+    dividendSettingsReadOnly: string;
+    dividendSettingsLoadError: string;
+    dividendSettingsSaveError: string;
+    dividendSettingsInvalid: string;
+    dividendSettingsUpdated: string;
+    dividendSettingsFocused: string;
     accountsListProfilesSectionLabel: string;
     accountsListAddProfile: string;
     accountsListDuplicateFromAnotherCta: string;
@@ -1150,6 +1170,7 @@ export interface AppDictionary {
     accountsListDeleteProfileLabel: string;
     accountsListSaveProfileEdit: string;
     accountsListCancelProfileEdit: string;
+    accountsListProfileSaveError: string;
     accountsListOverridesSectionLabel: string;
     accountsListAddOverride: string;
     accountsListOverridesEmptyState: string;
@@ -1356,6 +1377,19 @@ export interface AppDictionary {
     paymentDateTbdSection: string;
     viewAllLink: string;
     eligibleSharesLabel: string;
+    sharesUnit: string;
+    pending: string;
+    unavailable: string;
+    eventType: {
+      cash: string;
+      stock: string;
+      cashAndStock: string;
+    };
+    stockRatioState: {
+      authoritative: string;
+      derived: string;
+      unresolved: string;
+    };
     overview: {
       eyebrow: string;
       expected: string;
@@ -1394,6 +1428,18 @@ export interface AppDictionary {
       noPayingToday: string;
       noExDividendToday: string;
       viewAllNeedsAction: string;
+      eventTypeLabel: string;
+      expectedCashLabel: string;
+      receivedCashLabel: string;
+      expectedStockLabel: string;
+      receivedStockLabel: string;
+      cashInLieuLabel: string;
+      ratioLabel: string;
+      stockVarianceLabel: string;
+      stockEventsDetail: string;
+      stockPostingsDetail: string;
+      moreTickerQuantities: string;
+      stockNeedsAction: string;
     };
     ticker: {
       eyebrow: string;
@@ -1447,6 +1493,7 @@ export interface AppDictionary {
     };
     action: {
       postDividend: string;
+      viewDetails: string;
       markMatched: string;
       edit: string;
       cancel: string;
@@ -1472,6 +1519,59 @@ export interface AppDictionary {
       varianceLabel: string;
       expectedNetFormula: string;
       varianceFormula: string;
+      expectedStock: string;
+      calculation: {
+        title: string;
+        description: string;
+        methodsLabel: string;
+        providerRatio: string;
+        providerRatioDescription: string;
+        parValueMethod: string;
+        parValueMethodDescription: string;
+        customRatioMethod: string;
+        customRatioMethodDescription: string;
+        selectedParValue: string;
+        customRatio: string;
+        preview: string;
+        previewing: string;
+        settingsLink: string;
+        eligibleQuantity: string;
+        providerValue: string;
+        providerUnit: string;
+        providerSource: string;
+        providerDataset: string;
+        providerAuthoritativeRatio: string;
+        selectedMethod: string;
+        ratio: string;
+        theoreticalShares: string;
+        expectedWholeShares: string;
+        fractionalRemainder: string;
+        highRatioWarning: string;
+        previewError: string;
+        settingsError: string;
+        unavailable: string;
+        activeVersion: string;
+        historyTitle: string;
+        historyMethod: string;
+        historyWholeShares: string;
+        historyConfirmedAt: string;
+        calculationStatus: string;
+        priorCalculation: string;
+        driftTitle: string;
+        driftDescription: string;
+        previousProvider: string;
+        currentProvider: string;
+        previousRatio: string;
+        currentRatio: string;
+        confirm: string;
+        amend: string;
+        reset: string;
+        saving: string;
+        acknowledgeHighRatio: string;
+        acknowledgeDrift: string;
+        mutationError: string;
+        readOnly: string;
+      };
       nhi: {
         title: string;
         premiumBase: string;
@@ -1573,6 +1673,11 @@ export interface AppDictionary {
         ticker: string;
         account: string;
         status: string;
+        cashStatus: string;
+        stockStatus: string;
+        stockNeedsCalculation: string;
+        stockPendingReceipt: string;
+        stockVariance: string;
         dateFrom: string;
         dateTo: string;
         allAccounts: string;
@@ -1585,6 +1690,17 @@ export interface AppDictionary {
         totalReceived: string;
         variance: string;
         openItems: string;
+        expectedStock: string;
+        receivedStock: string;
+        cashVariance: string;
+        needsAttention: string;
+        cashAttention: string;
+        stockAttention: string;
+        needsCalculation: string;
+        eventNeedsCalculation: string;
+        eventsNeedCalculation: string;
+        more: string;
+        additionalTickers: string;
       };
       chart: {
         tabMonthly: string;
@@ -1605,6 +1721,7 @@ export interface AppDictionary {
         paymentDate: string;
         ticker: string;
         account: string;
+        eventType: string;
         expected: string;
         received: string;
         nhi: string;
@@ -1612,7 +1729,10 @@ export interface AppDictionary {
         otherDeduction: string;
         expectedNet: string;
         actualNet: string;
+        expectedStock: string;
+        ratioState: string;
         stockReceived: string;
+        stockVariance: string;
         cashInLieu: string;
         variance: string;
         status: string;
@@ -1645,6 +1765,16 @@ export interface AppDictionary {
         snapshotRunning: string;
         snapshotComplete: string;
         snapshotFailed: string;
+        stockReconciliationTitle: string;
+        stockReconciliationDescription: string;
+        stockReconciliationStatus: string;
+        stockReconciliationNote: string;
+        stockReconciliationNotePlaceholder: string;
+        stockReconciliationNoteRequired: string;
+        stockReconciliationSave: string;
+        stockReconciliationSaving: string;
+        stockReconciliationSaved: string;
+        stockReconciliationError: string;
       };
       pagination: {
         page: string;
@@ -1843,12 +1973,16 @@ export interface AppDictionary {
     commissionEstimateTitle: string;
     taxEstimateTitle: string;
     estimatedLabel: string;
+    grossTradeValueLabel: string;
+    buyCashOutLabel: string;
+    sellNetProceedsLabel: string;
     overrideAmountPlaceholder: string;
     // ui-enhancement (2026-05-13) — fee/tax 4-tuple gate degradation copy.
     // Rendered when the 4-tuple holds but `feeEstimate == null` (price
     // mismatch / network race). Flat strings, no functions.
     estimatedUnavailable: string;
     estimateUnavailableSubLabel: string;
+    settlementUnavailableMessage: string;
     // KZO-169: market_code chip selector + currency-aware account filter
     // strings. String-only per .claude/rules/nextjs-i18n-serialization.md —
     // {currency} placeholder replaced at call site via .replace().
@@ -1871,13 +2005,29 @@ export interface AppDictionary {
     };
     unavailable: string;
   };
-	  holdings: {
-	    title: string;
-	    description: string;
-	    entries: string;
-	    visibleRowsLabel: string;
-	    visibleRowsDetail: string;
-	    visibleRowsCurrencyDetail: string;
+    holdings: {
+      title: string;
+      description: string;
+      entries: string;
+      selectionLabel: string;
+      selectionAll: string;
+      selectionSelectedCount: string;
+      selectionReset: string;
+      selectionSearchPlaceholder: string;
+      selectionNoMatches: string;
+      selectionUnavailable: string;
+      selectionUnavailableHint: string;
+      selectionRemoveAria: string;
+      selectionOpenPickerAria: string;
+      selectionVisibleOfSelected: string;
+      selectionSummaryCost: string;
+      selectionSummaryMarketValue: string;
+      selectionSummaryUnrealizedPnl: string;
+      selectionSummaryPartial: string;
+      selectionToggleAria: string;
+      visibleRowsLabel: string;
+      visibleRowsDetail: string;
+      visibleRowsCurrencyDetail: string;
 	    accountTerm: string;
     tickerTerm: string;
     quantityTerm: string;

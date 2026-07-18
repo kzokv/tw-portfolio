@@ -1,27 +1,25 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import type { AccountDefaultCurrency } from "@vakwen/shared-types";
 import { ACCOUNT_DEFAULT_CURRENCIES } from "@vakwen/shared-types";
 import { useSettingsRouteContext } from "./SettingsRouteProvider";
 import { getDictionary } from "../../lib/i18n";
 import { useAppShellData } from "../layout/AppShellDataContext";
-import { Button } from "../ui/Button";
 import { AccountCreateForm } from "../../features/settings/components/AccountCreateForm";
 import { AccountsListSection } from "../../features/settings/components/AccountsListSection";
 import { createAccount } from "../../features/cash-ledger/services/cashLedgerService";
-import { renameAccount } from "../../features/settings/services/settingsService";
+import { patchFeeProfile, renameAccount } from "../../features/settings/services/settingsService";
 import { postJson } from "../../lib/api";
-import { clearContextCookie } from "../../lib/context";
 import type { FeeProfileDto } from "@vakwen/shared-types";
-import { clearPortfolioContextRouteCaches } from "../../lib/routeDtoCache";
 import type {
   SettingsAccountBindingModel,
   SettingsProfileModel,
   SettingsSecurityBindingModel,
 } from "../../features/settings/types/settingsUi";
 import { toSettingsFormModel } from "../../features/settings/mappers/settingsMappers";
+import { parseAccountDividendSettingsFocus } from "../../features/dividends/services/dividendCalculationService";
 
 const PREFILL_CURRENCIES = new Set<AccountDefaultCurrency>(ACCOUNT_DEFAULT_CURRENCIES);
 
@@ -51,7 +49,6 @@ export function AccountsSettingsClient() {
   const { locale, initialSettings } = useSettingsRouteContext();
   const dict = getDictionary(locale);
   const shellData = useAppShellData();
-  const router = useRouter();
   const canManageAccounts = !shellData.isSharedContext || shellData.sharedContextPermissions.canManageAccounts;
   const allowHardPurge = !shellData.isSharedContext;
   // Phase 3d H1 — read the `accountsPrefillCurrency` query param so the
@@ -63,6 +60,10 @@ export function AccountsSettingsClient() {
   const searchParams = useSearchParams();
   const prefillCurrency = parsePrefillCurrency(
     searchParams?.get("accountsPrefillCurrency") ?? null,
+  );
+  const focusedDividendSettings = useMemo(
+    () => searchParams ? parseAccountDividendSettingsFocus(searchParams) : null,
+    [searchParams],
   );
 
   // Build a local working copy of the settings form model from the
@@ -122,6 +123,52 @@ export function AccountsSettingsClient() {
       );
     },
     [],
+  );
+
+  const saveProfile = useCallback(
+    async (profileId: string) => {
+      const profile = profiles.find((entry) => entry.id === profileId);
+      if (!profile) {
+        throw new Error(`Fee profile ${profileId} was not found.`);
+      }
+      const authoritative = await patchFeeProfile(profileId, {
+        name: profile.name,
+        boardCommissionRate: profile.boardCommissionRate,
+        commissionDiscountPercent: profile.commissionDiscountPercent,
+        minimumCommissionAmount: profile.minimumCommissionAmount,
+        commissionCurrency: profile.commissionCurrency,
+        commissionRoundingMode: profile.commissionRoundingMode,
+        taxRoundingMode: profile.taxRoundingMode,
+        stockSellTaxRateBps: profile.stockSellTaxRateBps,
+        stockDayTradeTaxRateBps: profile.stockDayTradeTaxRateBps,
+        etfSellTaxRateBps: profile.etfSellTaxRateBps,
+        bondEtfSellTaxRateBps: profile.bondEtfSellTaxRateBps,
+        commissionChargeMode: profile.commissionChargeMode,
+      });
+      setProfiles((current) =>
+        current.map((entry) =>
+          entry.id === authoritative.id
+            ? {
+                ...entry,
+                name: authoritative.name,
+                boardCommissionRate: authoritative.boardCommissionRate,
+                commissionDiscountPercent: authoritative.commissionDiscountPercent,
+                minimumCommissionAmount: authoritative.minimumCommissionAmount,
+                commissionCurrency: authoritative.commissionCurrency,
+                commissionRoundingMode: authoritative.commissionRoundingMode,
+                taxRoundingMode: authoritative.taxRoundingMode,
+                stockSellTaxRateBps: authoritative.stockSellTaxRateBps,
+                stockDayTradeTaxRateBps: authoritative.stockDayTradeTaxRateBps,
+                etfSellTaxRateBps: authoritative.etfSellTaxRateBps,
+                bondEtfSellTaxRateBps: authoritative.bondEtfSellTaxRateBps,
+                commissionChargeMode: authoritative.commissionChargeMode,
+              }
+            : entry,
+        ),
+      );
+      await shellData.refreshPortfolioConfig();
+    },
+    [profiles, shellData],
   );
 
   // Phase 3d iter 2 (architect ruling) — Add profile fires POST /fee-profiles
@@ -240,39 +287,6 @@ export function AccountsSettingsClient() {
     );
   }
 
-  if (shellData.isSharedContext && !canManageAccounts) {
-    return (
-      <div className="space-y-4" data-testid="settings-section-accounts">
-        <div className="rounded-[20px] border border-slate-200 bg-card px-5 py-5 shadow-sm sm:px-6">
-          <h2 className="text-xl font-semibold text-slate-950">{dict.sharing.permissionRequiredTitle}</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">{dict.sharing.permissionRequiredAccountsDescription}</p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button
-              type="button"
-              onClick={() => router.push("/portfolio")}
-              data-testid="accounts-permission-back"
-            >
-              {dict.sharing.backToPortfolio}
-            </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => {
-                clearContextCookie();
-                clearPortfolioContextRouteCaches();
-                router.replace("/settings/profile");
-                router.refresh();
-              }}
-              data-testid="accounts-permission-self"
-            >
-              {dict.sharing.viewMySettings}
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   const hasShellAccountConfig = shellData.accounts.length > 0 || shellData.feeProfiles.length > 0;
 
   return (
@@ -304,6 +318,7 @@ export function AccountsSettingsClient() {
           onRenameAccount={handleRenameAccount}
           onAddProfileForAccount={addProfileForAccount}
           onUpdateProfileField={updateProfileField}
+          onSaveProfile={saveProfile}
           onRemoveProfileFromAccount={removeProfileFromAccount}
           onDuplicateProfilesFromAccount={duplicateProfilesFromAccount}
           onAddBinding={addBinding}
@@ -314,6 +329,7 @@ export function AccountsSettingsClient() {
           dict={dict}
           canManage={canManageAccounts}
           allowHardPurge={allowHardPurge}
+          focusedDividendSettings={focusedDividendSettings}
         />
       )}
     </div>

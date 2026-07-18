@@ -96,4 +96,39 @@ describe("upsertDividendEvents ratio authority", () => {
     expect(sql).toContain("THEN market_data.dividend_events.stock_par_value_amount");
     expect(sql).toContain("THEN market_data.dividend_events.stock_par_value_currency");
   });
+
+  it("writes normalized provider value metadata alongside legacy raw amount columns", async () => {
+    const query = vi.fn().mockResolvedValue({ rowCount: 1 });
+    const pool = { query } as unknown as Parameters<typeof upsertDividendEvents>[0];
+
+    await upsertDividendEvents(pool, [{
+      ticker: "2330",
+      marketCode: "TW",
+      exDividendDate: "2026-07-01",
+      paymentDate: "2026-07-31",
+      cashDividendPerShare: 0,
+      stockDividendPerShare: 0.1,
+      stockDistributionAmountRaw: 0.1,
+      stockProviderValue: 0.1,
+      stockProviderValueUnit: "TWD_PER_SHARE",
+      stockProviderSource: "finmind",
+      stockProviderDataset: "TaiwanStockDividend",
+      stockProviderAuthoritativeRatio: null,
+      stockDistributionRatio: null,
+      stockDistributionRatioState: "unresolved",
+    }]);
+
+    const [sql, params] = query.mock.calls[0] as [string, unknown[]];
+    expect(sql).toContain("stock_distribution_amount_raw, stock_provider_value, stock_provider_value_unit");
+    expect(sql).toContain("stock_provider_dataset");
+    expect(sql).toContain("stock_provider_authoritative_ratio");
+    expect(sql).toContain("stock_provider_value = EXCLUDED.stock_provider_value");
+    expect(sql).toContain("stock_provider_authoritative_ratio = EXCLUDED.stock_provider_authoritative_ratio");
+    expect(params[15]).toEqual([0.1]);
+    expect(params[16]).toEqual([0.1]);
+    expect(params[17]).toEqual(["TWD_PER_SHARE"]);
+    expect(params[18]).toEqual(["finmind"]);
+    expect(params[19]).toEqual(["TaiwanStockDividend"]);
+    expect(params[20]).toEqual([null]);
+  });
 });

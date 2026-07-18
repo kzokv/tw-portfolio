@@ -146,6 +146,28 @@ describe("transaction mutations (delete + edit)", () => {
     if (app) await app.close();
   });
 
+  describe("posted transaction mutation preview validation", () => {
+    it.each([
+      ["fractional quantity", { quantity: 1.5 }],
+      ["sub-cent unit price", { unitPrice: 10.123 }],
+    ])("rejects %s before persisting a preview", async (_label, patch) => {
+      const trade = await createTrade(app);
+      const savePreview = vi.spyOn(app.persistence, "savePostedTransactionMutationPreview");
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/portfolio/transactions/mutations/update-preview",
+        payload: {
+          reason: "Invalid precision regression",
+          items: [{ transactionId: trade.id, patch }],
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(savePreview).not.toHaveBeenCalled();
+    });
+  });
+
   // ─── Group 1: destructive transaction deletion ─────────────────────
 
   describe("transaction delete preview and confirm", () => {
@@ -159,6 +181,59 @@ describe("transaction mutations (delete + edit)", () => {
 
       expect(res.statusCode).toBe(409);
       expect(res.json().error).toBe("dividend_destructive_preview_required");
+    });
+
+    it("rejects a deletion preview that targets a different transaction ID", async () => {
+      const requestedTrade = await createTrade(app);
+      const previewedTrade = await createTrade(app, { tradeDate: "2026-01-02" });
+      const previewResponse = await app.inject({
+        method: "POST",
+        url: "/portfolio/transactions/mutations/delete-preview",
+        payload: {
+          reason: "Remove duplicate trade",
+          items: [{ transactionId: previewedTrade.id }],
+        },
+      });
+      expect(previewResponse.statusCode).toBe(200);
+      const preview = previewResponse.json<{
+        previewId: string;
+        previewVersion: number;
+        fingerprint: string;
+      }>();
+
+      const response = await app.inject({
+        method: "DELETE",
+        url: `/portfolio/transactions/${requestedTrade.id}`,
+        payload: preview,
+      });
+
+      expect(response.statusCode).toBe(409);
+      expect(response.json().error).toBe("posted_transaction_mutation_target_mismatch");
+      const store = await getStore(app);
+      expect(store.accounting.facts.tradeEvents.some((trade) => trade.id === requestedTrade.id)).toBe(true);
+      expect(store.accounting.facts.tradeEvents.some((trade) => trade.id === previewedTrade.id)).toBe(true);
+    });
+
+    it("accepts a legacy dividend-delete preview through the DELETE alias", async () => {
+      const trade = await createTrade(app);
+      const previewResponse = await previewTradeDelete(app, trade.id);
+      expect(previewResponse.statusCode).toBe(200);
+      const preview = previewResponse.json<DestructivePreviewBody>();
+
+      const response = await app.inject({
+        method: "DELETE",
+        url: `/portfolio/transactions/${trade.id}`,
+        payload: {
+          previewId: preview.preview.previewId,
+          previewVersion: preview.preview.previewVersion,
+          fingerprint: preview.preview.fingerprint,
+        },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json<DestructivePreviewBody>().preview.previewId).toBe(preview.preview.previewId);
+      const store = await getStore(app);
+      expect(store.accounting.facts.tradeEvents.some((item) => item.id === trade.id)).toBe(false);
     });
 
     it("deletes a trade after confirmation and reports affected row counts", async () => {
@@ -549,6 +624,7 @@ describe("transaction mutations (delete + edit)", () => {
         type: "SELL" as TransactionType,
       });
 
+      const savePreview = vi.spyOn(app.persistence, "savePostedTransactionMutationPreview");
       const res = await app.inject({
         method: "GET",
         url: `/portfolio/transactions/${buy.id}/preview-impact?action=delete`,
@@ -559,6 +635,7 @@ describe("transaction mutations (delete + edit)", () => {
       expect(body.affectedRows.cashLedgerEntries).toBeGreaterThanOrEqual(1);
       expect(body.affectedRows.feePolicySnapshots).toBe(1);
       expect(body.negativeLots).toBeDefined();
+      expect(savePreview).not.toHaveBeenCalled();
     });
 
     it("detects negative lots for delete", async () => {
@@ -580,6 +657,40 @@ describe("transaction mutations (delete + edit)", () => {
       expect(body.negativeLots.wouldOccur).toBe(true);
       expect(body.negativeLots.resultingQuantity).toBe(-10);
       expect(body.negativeLots.ticker).toBe("2330");
+    });
+
+    it("detects an intermediate negative position even when the final quantity is nonnegative", async () => {
+      const firstBuy = await createTrade(app, {
+        quantity: 10,
+        unitPrice: 100,
+        tradeDate: "2026-01-01",
+      });
+      await createTrade(app, {
+        quantity: 5,
+        unitPrice: 130,
+        tradeDate: "2026-01-02",
+        type: "SELL" as TransactionType,
+      });
+      await createTrade(app, {
+        quantity: 5,
+        unitPrice: 110,
+        tradeDate: "2026-01-03",
+      });
+
+      const res = await app.inject({
+        method: "GET",
+        url: `/portfolio/transactions/${firstBuy.id}/preview-impact?action=delete`,
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toMatchObject({
+        negativeLots: {
+          wouldOccur: true,
+          resultingQuantity: 0,
+          ticker: "2330",
+        },
+      });
+      expect(res.json().blockers).toHaveLength(1);
     });
 
     it("no negative lots when safe delete", async () => {

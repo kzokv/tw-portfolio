@@ -14,6 +14,8 @@ const baseQuery: DividendReviewPrimaryQueryDto = {
   ticker: "2330",
   marketCode: "TW",
   reconciliationStatus: "open",
+  cashStatus: "open",
+  stockStatus: "needs_calculation",
   excludeExpected: true,
   sourceComposition: "pending",
   sortBy: "paymentDate",
@@ -33,6 +35,8 @@ describe("dividend review cache identity", () => {
       { ...baseQuery, marketCode: "US" },
       { ...baseQuery, postingStatus: "posted" },
       { ...baseQuery, reconciliationStatus: "matched" },
+      { ...baseQuery, cashStatus: "matched" },
+      { ...baseQuery, stockStatus: "variance" },
       { ...baseQuery, excludeExpected: false },
       { ...baseQuery, sourceComposition: undefined },
       { ...baseQuery, sortBy: "ticker" },
@@ -59,6 +63,10 @@ describe("dividend review cache identity", () => {
     expect(buildDividendReviewEnrichmentCacheKey("session:a:context:self", {
       ...baseQuery,
       sourceComposition: undefined,
+    })).not.toBe(original);
+    expect(buildDividendReviewEnrichmentCacheKey("session:a:context:self", {
+      ...baseQuery,
+      stockStatus: "variance",
     })).not.toBe(original);
     expect(DIVIDEND_REVIEW_PRIMARY_CACHE_TAG).not.toBe(DIVIDEND_REVIEW_ENRICHMENT_CACHE_TAG);
   });

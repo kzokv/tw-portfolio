@@ -596,6 +596,49 @@ describePostgres("user_preferences + effective-ranges (Postgres)", () => {
       expect(second.ranges).toEqual(["10Y"]);
     });
   });
+
+  it("atomically preserves concurrent holdings selection and sibling table-context patches", async () => {
+    await persistence!.setUserPreferencePatch(userId, {
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          "holdings.shared": { columnOrder: ["ticker", "quantity"] },
+        },
+      },
+    });
+
+    await Promise.all([
+      persistence!.setUserPreferencePatch(userId, {
+        holdingsSelection: { version: 1, mode: "custom", tickerIds: ["TW:2330"] },
+        holdingsTableSettings: {
+          version: 1,
+          contexts: {
+            "dashboard.topHoldings": { topHoldingsLimit: 8 },
+          },
+        },
+      }),
+      persistence!.setUserPreferencePatch(userId, {
+        holdingsTableSettings: {
+          version: 1,
+          contexts: {
+            "portfolio.holdings": { layoutStyle: "portfolio", mobileSummaryCount: 4 },
+          },
+        },
+      }),
+    ]);
+
+    await expect(persistence!.getUserPreferences(userId)).resolves.toMatchObject({
+      holdingsSelection: { version: 1, mode: "custom", tickerIds: ["TW:2330"] },
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          "holdings.shared": { columnOrder: ["ticker", "quantity"] },
+          "dashboard.topHoldings": { topHoldingsLimit: 8 },
+          "portfolio.holdings": { layoutStyle: "portfolio", mobileSummaryCount: 4 },
+        },
+      },
+    });
+  });
 });
 
 // ── Memory sibling — semantic parity suite (always runs) ──────────────────────
@@ -801,6 +844,44 @@ describe("user_preferences + effective-ranges (Memory parity)", () => {
         "admin.marketData.TW.activity": {
           columnOrder: ["event", "source"],
           mobileSummaryCount: 2,
+        },
+      },
+    });
+  });
+
+  it("M13b — concurrent holdings selection and sibling contexts retain parity with Postgres", async () => {
+    await persistence.setUserPreferencePatch(userId, {
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          "holdings.shared": { columnOrder: ["ticker", "quantity"] },
+        },
+      },
+    });
+
+    await Promise.all([
+      persistence.setUserPreferencePatch(userId, {
+        holdingsSelection: { version: 1, mode: "custom", tickerIds: ["TW:2330"] },
+        holdingsTableSettings: {
+          version: 1,
+          contexts: { "dashboard.topHoldings": { topHoldingsLimit: 8 } },
+        },
+      }),
+      persistence.setUserPreferencePatch(userId, {
+        holdingsTableSettings: {
+          version: 1,
+          contexts: { "portfolio.holdings": { layoutStyle: "portfolio", mobileSummaryCount: 4 } },
+        },
+      }),
+    ]);
+
+    await expect(persistence.getUserPreferences(userId)).resolves.toMatchObject({
+      holdingsSelection: { version: 1, mode: "custom", tickerIds: ["TW:2330"] },
+      holdingsTableSettings: {
+        contexts: {
+          "holdings.shared": { columnOrder: ["ticker", "quantity"] },
+          "dashboard.topHoldings": { topHoldingsLimit: 8 },
+          "portfolio.holdings": { layoutStyle: "portfolio", mobileSummaryCount: 4 },
         },
       },
     });

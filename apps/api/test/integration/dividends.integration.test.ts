@@ -35,6 +35,22 @@ async function seedBuy(quantity: number = 10) {
   });
 }
 
+async function seedBuyForTicker(ticker: string, quantity: number = 10) {
+  await app.inject({
+    method: "POST",
+    url: "/portfolio/transactions",
+    headers: { "idempotency-key": `buy-${ticker}-${quantity}-${Math.random()}` },
+    payload: transactionPayload({
+      ticker,
+      quantity,
+      unitPrice: 100,
+      tradeDate: "2026-01-15",
+      commissionAmount: 0,
+      taxAmount: 0,
+    }),
+  });
+}
+
 async function seedBuyAtDate(tradeDate: string, quantity: number = 10) {
   await app.inject({
     method: "POST",
@@ -310,6 +326,873 @@ describe("dividends", () => {
         hasPostedLedgerEntry: false,
       })],
     });
+  });
+
+  it("preserves a 2886 stock receipt of 150 shares while the review row still needs calculation", async () => {
+    const store = await app.persistence.loadStore("user-1");
+    store.instruments.push({
+      ticker: "2886",
+      name: "Mega Financial",
+      type: "STOCK",
+      marketCode: "TW",
+      isProvisional: false,
+    });
+    await app.persistence.saveStore(store);
+
+    await seedBuyForTicker("2886", 1_000);
+    const dividendEvent = await seedDividendEvent({
+      ticker: "2886",
+      eventType: "STOCK",
+      exDividendDate: "2026-07-15",
+      paymentDate: "2026-08-20",
+      cashDividendPerShare: 0,
+      stockDividendPerShare: 0.1,
+      stockDistributionRatio: null,
+      stockDistributionRatioState: "unresolved",
+      stockParValueAmount: null,
+      stockParValueCurrency: null,
+    });
+
+    const postingResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/postings",
+      headers: { "idempotency-key": "unresolved-stock-receipt-2886" },
+      payload: dividendPostingPayload({
+        ticker: "2886",
+        dividendEventId: dividendEvent.id,
+        receivedCashAmount: 0,
+        receivedStockQuantity: 150,
+        deductions: [],
+        sourceCompositionStatus: "unknown_pending_disclosure",
+        sourceLines: [],
+      }),
+    });
+
+    expect(postingResponse.statusCode).toBe(200);
+    const postingBody = postingResponse.json() as {
+      dividendLedgerEntry: { id: string };
+    };
+
+    const persisted = await app.persistence.loadStore("user-1");
+    const ledgerEntry = persisted.accounting.facts.dividendLedgerEntries.find(
+      (entry) => entry.id === postingBody.dividendLedgerEntry.id,
+    );
+    expect(ledgerEntry).toMatchObject({
+      receivedStockQuantity: 150,
+      expectedStockQuantity: 0,
+      postingStatus: "posted",
+    });
+    expect(
+      persisted.accounting.facts.positionActions.find(
+        (entry) => entry.relatedDividendLedgerEntryId === postingBody.dividendLedgerEntry.id,
+      ),
+    ).toMatchObject({
+      ticker: "2886",
+      actionType: "STOCK_DIVIDEND",
+      quantity: 150,
+    });
+
+    const reviewResponse = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/review/primary?ticker=2886&limit=10",
+    });
+    expect(reviewResponse.statusCode).toBe(200);
+    expect(reviewResponse.json()).toMatchObject({
+      reviewRows: [expect.objectContaining({
+        id: postingBody.dividendLedgerEntry.id,
+        ticker: "2886",
+        receivedStockQuantity: 150,
+        stockDistributionRatio: null,
+        expectedStockCalcState: "needs_action",
+      })],
+    });
+  });
+
+  it("keeps unresolved seeded provider values non-authoritative in calculation preview", async () => {
+    await seedBuy(1_000);
+    const dividendEvent = await seedDividendEvent({
+      ticker: "2330",
+      eventType: "STOCK",
+      exDividendDate: "2026-07-15",
+      paymentDate: "2026-08-20",
+      cashDividendPerShare: 0,
+      stockDividendPerShare: 1,
+      stockDistributionAmountRaw: 1,
+      stockDistributionRatio: null,
+      stockDistributionRatioState: "unresolved",
+      stockProviderValueUnit: null,
+      stockProviderSource: "seeded_test",
+      stockProviderDataset: null,
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/calculations/preview",
+      payload: {
+        accountId: "acc-1",
+        dividendEventId: dividendEvent.id,
+        method: "provider_ratio",
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: "dividend_stock_provider_ratio_unavailable",
+    });
+  });
+
+  it("uses normalized provider value and authoritative ratio before conflicting legacy stock fields", async () => {
+    await seedBuy(1_000);
+    const dividendEvent = await seedDividendEvent({
+      ticker: "2330",
+      eventType: "STOCK",
+      exDividendDate: "2026-07-15",
+      paymentDate: "2026-08-20",
+      cashDividendPerShare: 0,
+      stockDividendPerShare: 0.1,
+      stockDistributionAmountRaw: 0.1,
+      stockDistributionRatio: 0.1,
+      stockDistributionRatioState: "authoritative",
+      stockProviderValue: 0.25,
+      stockProviderValueUnit: "RATIO",
+      stockProviderSource: "normalized-test",
+      stockProviderDataset: "NormalizedDividendDataset",
+      stockProviderAuthoritativeRatio: 0.25,
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/calculations/preview",
+      payload: {
+        accountId: "acc-1",
+        dividendEventId: dividendEvent.id,
+        method: "provider_ratio",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      providerValue: "0.25",
+      providerUnit: "RATIO",
+      providerSource: "normalized-test",
+      providerDataset: "NormalizedDividendDataset",
+      ratio: "0.25",
+      expectedWholeShares: 250,
+    });
+  });
+
+  it("provider drift: authoritative-ratio-only change → requires reconfirmation", async () => {
+    await seedBuy(1_000);
+    const dividendEvent = await seedDividendEvent({
+      ticker: "2330",
+      eventType: "STOCK",
+      exDividendDate: "2026-07-15",
+      paymentDate: "2026-08-20",
+      cashDividendPerShare: 0,
+      stockDividendPerShare: 0.1,
+      stockDistributionAmountRaw: 0.1,
+      stockDistributionRatio: 0.1,
+      stockDistributionRatioState: "authoritative",
+      stockProviderValue: "0.1",
+      stockProviderValueUnit: "RATIO",
+      stockProviderSource: "normalized-test",
+      stockProviderDataset: "NormalizedDividendDataset",
+      stockProviderAuthoritativeRatio: "0.1",
+    });
+
+    const confirmResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/calculations/confirm",
+      headers: { "idempotency-key": "ratio-only-drift-initial" },
+      payload: {
+        accountId: "acc-1",
+        dividendEventId: dividendEvent.id,
+        method: "provider_ratio",
+        expectedActiveCalculationId: null,
+      },
+    });
+    expect(confirmResponse.statusCode).toBe(200);
+    const confirmed = confirmResponse.json() as { id: string; calculationVersion: number };
+
+    const store = await app.persistence.loadStore("user-1");
+    const persistedEvent = store.marketData.dividendEvents.find((item) => item.id === dividendEvent.id);
+    if (!persistedEvent) throw new Error("expected dividend event");
+    persistedEvent.stockProviderAuthoritativeRatio = "0.2";
+    await app.persistence.saveStore(store);
+
+    const previewResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/calculations/preview",
+      payload: {
+        accountId: "acc-1",
+        dividendEventId: dividendEvent.id,
+        method: "provider_ratio",
+      },
+    });
+    expect(previewResponse.statusCode).toBe(200);
+    expect(previewResponse.json()).toMatchObject({
+      providerValue: "0.1",
+      providerAuthoritativeRatio: "0.2",
+      drift: {
+        hasDrift: true,
+        previousAuthoritativeRatio: "0.1",
+        currentAuthoritativeRatio: "0.2",
+      },
+    });
+
+    const reconfirmResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/calculations/confirm",
+      headers: { "idempotency-key": "ratio-only-drift-reconfirm" },
+      payload: {
+        accountId: "acc-1",
+        dividendEventId: dividendEvent.id,
+        method: "provider_ratio",
+        expectedActiveCalculationId: confirmed.id,
+        expectedCalculationVersion: confirmed.calculationVersion,
+      },
+    });
+    expect(reconfirmResponse.statusCode).toBe(409);
+    expect(reconfirmResponse.json()).toMatchObject({
+      error: "dividend_calculation_drift_confirmation_required",
+    });
+  });
+
+  it.each([
+    ["preview", "derived_from_par_value", "selectedParValue", "0"],
+    ["preview", "derived_from_par_value", "selectedParValue", "-10"],
+    ["preview", "derived_from_par_value", "selectedParValue", "not-a-number"],
+    ["preview", "derived_from_par_value", "selectedParValue", "Infinity"],
+    ["preview", "derived_from_par_value", "selectedParValue", "123456789012345"],
+    ["preview", "derived_from_par_value", "selectedParValue", "10.1234567"],
+    ["confirm", "custom_ratio", "customRatio", "0"],
+    ["confirm", "custom_ratio", "customRatio", "-0.1"],
+    ["confirm", "custom_ratio", "customRatio", "1e-1"],
+    ["confirm", "custom_ratio", "customRatio", "NaN"],
+    ["confirm", "custom_ratio", "customRatio", "123456789"],
+    ["confirm", "custom_ratio", "customRatio", "0.1234567890123"],
+    ["amend", "custom_ratio", "customRatio", "Infinity"],
+  ] as const)(
+    "rejects invalid decimal input on calculation %s",
+    async (route, method, field, value) => {
+      const response = await app.inject({
+        method: "POST",
+        url: `/portfolio/dividends/calculations/${route}`,
+        headers: route === "preview" ? undefined : { "idempotency-key": `invalid-${route}-${field}-${value}` },
+        payload: {
+          accountId: "acc-1",
+          dividendEventId: "validation-event",
+          dividendLedgerEntryId: route === "amend" ? "validation-ledger" : undefined,
+          method,
+          expectedActiveCalculationId: route === "preview" ? undefined : null,
+          [field]: value,
+        },
+      });
+
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ error: "validation_error" });
+    },
+  );
+
+  it.each([
+    0,
+    -0.1,
+    "not-a-number",
+    Number.POSITIVE_INFINITY,
+    "123456789",
+    "0.1234567890123",
+  ])("returns a deterministic validation error for invalid normalized provider value %s", async (providerValue) => {
+    await seedBuy(1_000);
+    const dividendEvent = await seedDividendEvent({
+      ticker: "2330",
+      eventType: "STOCK",
+      exDividendDate: "2026-07-15",
+      paymentDate: "2026-08-20",
+      cashDividendPerShare: 0,
+      stockDividendPerShare: 0.1,
+      stockProviderValue: providerValue,
+      stockProviderValueUnit: "RATIO",
+      stockProviderAuthoritativeRatio: providerValue,
+      stockDistributionRatio: 0.1,
+      stockDistributionRatioState: "authoritative",
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/calculations/preview",
+      payload: {
+        accountId: "acc-1",
+        dividendEventId: dividendEvent.id,
+        method: "provider_ratio",
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: "dividend_stock_provider_value_invalid" });
+  });
+
+  it("applies account-market fallback versions atomically in memory", async () => {
+    const payload = { expectedVersion: 0, fallbackParValue: "10" };
+    const [left, right] = await Promise.all([
+      app.inject({ method: "PATCH", url: "/accounts/acc-1/dividend-settings/TW", payload }),
+      app.inject({ method: "PATCH", url: "/accounts/acc-1/dividend-settings/TW", payload }),
+    ]);
+
+    expect([left.statusCode, right.statusCode].sort()).toEqual([200, 409]);
+    const conflict = left.statusCode === 409 ? left : right;
+    expect(conflict.json()).toMatchObject({
+      error: "account_market_dividend_settings_version_conflict",
+    });
+    const settings = await app.persistence.getAccountMarketDividendSettings("user-1", "acc-1", "TW");
+    expect(settings).toMatchObject({ version: 1, fallbackParValue: "10" });
+  });
+
+  it("confirms and returns the latest dividend calculation for a TW par-value derivation", async () => {
+    await seedBuy(1_000);
+    const dividendEvent = await seedDividendEvent({
+      ticker: "2330",
+      eventType: "STOCK",
+      exDividendDate: "2026-07-15",
+      paymentDate: "2026-08-20",
+      cashDividendPerShare: 0,
+      stockDividendPerShare: 1,
+      stockDistributionAmountRaw: 1,
+      stockDistributionRatio: null,
+      stockDistributionRatioState: "unresolved",
+      stockProviderValueUnit: "TWD_PER_SHARE",
+      stockProviderSource: "finmind",
+      stockProviderDataset: "TaiwanStockDividend",
+    });
+
+    const confirmResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/calculations/confirm",
+      headers: { "idempotency-key": "calc-confirm-par-value" },
+      payload: {
+        accountId: "acc-1",
+        dividendEventId: dividendEvent.id,
+        method: "derived_from_par_value",
+        selectedParValue: "10",
+        expectedActiveCalculationId: null,
+      },
+    });
+
+    expect(confirmResponse.statusCode).toBe(200);
+    expect(confirmResponse.json()).toMatchObject({
+      accountId: "acc-1",
+      dividendEventId: dividendEvent.id,
+      status: "confirmed",
+      method: "derived_from_par_value",
+      provider: {
+        value: "1",
+        unit: "TWD_PER_SHARE",
+        source: "finmind",
+        dataset: "TaiwanStockDividend",
+      },
+      ratio: "0.1",
+      expectedWholeShares: 100,
+    });
+
+    const latest = await app.persistence.getLatestDividendCalculation("user-1", "acc-1", dividendEvent.id);
+    expect(latest).toMatchObject({
+      status: "confirmed",
+      method: "derived_from_par_value",
+      expectedWholeShares: 100,
+    });
+
+    const primaryResponse = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/review/primary?ticker=2330&limit=10",
+    });
+    expect(primaryResponse.statusCode).toBe(200);
+    expect(primaryResponse.json()).toMatchObject({
+      reviewRows: [expect.objectContaining({
+        postingStatus: "expected",
+        dividendEventId: dividendEvent.id,
+        expectedStockQuantity: 100,
+        provider: expect.objectContaining({
+          value: "1",
+          unit: "TWD_PER_SHARE",
+          source: "finmind",
+          dataset: "TaiwanStockDividend",
+        }),
+        activeCalculation: expect.objectContaining({
+          status: "confirmed",
+          method: "derived_from_par_value",
+          expectedWholeShares: 100,
+        }),
+      })],
+    });
+  });
+
+  it("posts with an inline calculation, amends expectation-only later, and exposes stockStatus plus hero filters", async () => {
+    await seedBuy(1_000);
+    const dividendEvent = await seedDividendEvent({
+      ticker: "2330",
+      eventType: "STOCK",
+      exDividendDate: "2026-07-15",
+      paymentDate: "2026-08-20",
+      cashDividendPerShare: 0,
+      stockDividendPerShare: 1,
+      stockDistributionAmountRaw: 1,
+      stockDistributionRatio: null,
+      stockDistributionRatioState: "unresolved",
+      stockProviderValueUnit: "TWD_PER_SHARE",
+      stockProviderSource: "finmind",
+      stockProviderDataset: "TaiwanStockDividend",
+    });
+
+    const postingResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/postings",
+      headers: { "idempotency-key": "inline-calculation-posting" },
+      payload: {
+        ...dividendPostingPayload({
+          ticker: "2330",
+          dividendEventId: dividendEvent.id,
+          receivedCashAmount: 0,
+          receivedStockQuantity: 150,
+          deductions: [],
+          sourceCompositionStatus: "unknown_pending_disclosure",
+          sourceLines: [],
+        }),
+        calculation: {
+          method: "derived_from_par_value",
+          selectedParValue: "10",
+        },
+      },
+    });
+    expect(postingResponse.statusCode).toBe(200);
+    const postingBody = postingResponse.json() as {
+      dividendLedgerEntry: { id: string; receivedStockQuantity: number };
+    };
+
+    const detailResponse = await app.inject({
+      method: "GET",
+      url: `/portfolio/dividends/postings/${postingBody.dividendLedgerEntry.id}`,
+    });
+    expect(detailResponse.statusCode).toBe(200);
+    const detailBody = detailResponse.json() as {
+      activeCalculation: { id: string; calculationVersion: number };
+      calculationHistory?: Array<{ id: string; status: string }>;
+    };
+    expect(detailBody).toMatchObject({
+      id: postingBody.dividendLedgerEntry.id,
+      expectedStockQuantity: 100,
+      receivedStockQuantity: 150,
+      stockVarianceQuantity: 50,
+      activeCalculation: expect.objectContaining({
+        status: "confirmed",
+        method: "derived_from_par_value",
+        expectedWholeShares: 100,
+      }),
+      provider: {
+        value: "1",
+        unit: "TWD_PER_SHARE",
+        source: "finmind",
+        dataset: "TaiwanStockDividend",
+      },
+    });
+    expect(detailBody.calculationHistory).toEqual([
+      expect.objectContaining({
+        id: detailBody.activeCalculation.id,
+        status: "confirmed",
+      }),
+    ]);
+
+    const amendResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/calculations/amend",
+      headers: { "idempotency-key": "inline-calculation-amend" },
+      payload: {
+        accountId: "acc-1",
+        dividendEventId: dividendEvent.id,
+        dividendLedgerEntryId: postingBody.dividendLedgerEntry.id,
+        method: "custom_ratio",
+        customRatio: "0.2",
+        expectedActiveCalculationId: detailBody.activeCalculation.id,
+        expectedCalculationVersion: detailBody.activeCalculation.calculationVersion,
+      },
+    });
+    expect(amendResponse.statusCode).toBe(200);
+    expect(amendResponse.json()).toMatchObject({
+      status: "amended",
+      method: "custom_ratio",
+      expectedWholeShares: 200,
+      dividendLedgerEntryId: postingBody.dividendLedgerEntry.id,
+    });
+
+    const amendedDetailResponse = await app.inject({
+      method: "GET",
+      url: `/portfolio/dividends/postings/${postingBody.dividendLedgerEntry.id}`,
+    });
+    expect(amendedDetailResponse.statusCode).toBe(200);
+    const amendedDetailBody = amendedDetailResponse.json() as {
+      activeCalculation: { id: string };
+      calculationHistory?: Array<{ id: string; status: string }>;
+    };
+    expect(amendedDetailBody).toMatchObject({
+      id: postingBody.dividendLedgerEntry.id,
+      expectedStockQuantity: 200,
+      receivedStockQuantity: 150,
+      stockVarianceQuantity: -50,
+      activeCalculation: expect.objectContaining({
+        status: "amended",
+        method: "custom_ratio",
+        expectedWholeShares: 200,
+      }),
+    });
+    expect(amendedDetailBody.calculationHistory).toEqual([
+      expect.objectContaining({
+        id: amendedDetailBody.activeCalculation.id,
+        status: "amended",
+      }),
+      expect.objectContaining({
+        id: detailBody.activeCalculation.id,
+        status: "confirmed",
+      }),
+    ]);
+
+    const persisted = await app.persistence.loadStore("user-1");
+    expect(
+      persisted.accounting.facts.positionActions.find(
+        (entry) => entry.relatedDividendLedgerEntryId === postingBody.dividendLedgerEntry.id,
+      ),
+    ).toMatchObject({
+      ticker: "2330",
+      actionType: "STOCK_DIVIDEND",
+      quantity: 150,
+    });
+    expect(
+      persisted.accounting.facts.dividendLedgerEntries.find(
+        (entry) => entry.id === postingBody.dividendLedgerEntry.id,
+      ),
+    ).toMatchObject({
+      expectedStockQuantity: 200,
+      receivedStockQuantity: 150,
+    });
+
+    const primaryResponse = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/review/primary?stockStatus=variance&limit=10",
+    });
+    expect(primaryResponse.statusCode).toBe(200);
+    expect(primaryResponse.json()).toMatchObject({
+      reviewRows: [expect.objectContaining({
+        id: postingBody.dividendLedgerEntry.id,
+        stockReconciliationStatus: "variance",
+        expectedStockQuantity: 200,
+        receivedStockQuantity: 150,
+      })],
+    });
+
+    const compatibilityResponse = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/review?stockStatus=variance&limit=10",
+    });
+    expect(compatibilityResponse.statusCode).toBe(200);
+    expect(compatibilityResponse.json()).toMatchObject({
+      reviewRows: [expect.objectContaining({
+        id: postingBody.dividendLedgerEntry.id,
+        stockReconciliationStatus: "variance",
+      })],
+    });
+
+    const enrichmentResponse = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/review/enrichment?stockStatus=variance",
+    });
+    expect(enrichmentResponse.statusCode).toBe(200);
+    expect(enrichmentResponse.json()).toMatchObject({
+      hero: {
+        expectedStockTickers: [expect.objectContaining({
+          marketCode: "TW",
+          ticker: "2330",
+          expectedWholeShares: 200,
+        })],
+        expectedStockTopTickers: [expect.objectContaining({
+          marketCode: "TW",
+          ticker: "2330",
+          expectedWholeShares: 200,
+        })],
+        receivedStockTickers: [expect.objectContaining({
+          marketCode: "TW",
+          ticker: "2330",
+          receivedShares: 150,
+        })],
+        receivedStockTopTickers: [expect.objectContaining({
+          marketCode: "TW",
+          ticker: "2330",
+          receivedShares: 150,
+        })],
+        stockAttentionCount: 1,
+      },
+    });
+  });
+
+  it("review hero: overlapping cash and stock attention → counts the row once", async () => {
+    await seedBuy(1_000);
+    const dividendEvent = await seedDividendEvent({
+      ticker: "2330",
+      eventType: "CASH_AND_STOCK",
+      exDividendDate: "2026-07-15",
+      paymentDate: "2026-08-20",
+      cashDividendPerShare: 1,
+      stockDividendPerShare: 0.1,
+      stockDistributionAmountRaw: 0.1,
+      stockDistributionRatio: 0.1,
+      stockDistributionRatioState: "authoritative",
+    });
+
+    const postingResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/postings",
+      headers: { "idempotency-key": "overlapping-attention-posting" },
+      payload: dividendPostingPayload({
+        dividendEventId: dividendEvent.id,
+        receivedCashAmount: 0,
+        receivedStockQuantity: 50,
+        deductions: [],
+        sourceCompositionStatus: "unknown_pending_disclosure",
+        sourceLines: [],
+      }),
+    });
+    expect(postingResponse.statusCode).toBe(200);
+    const posted = postingResponse.json() as { dividendLedgerEntry: { id: string } };
+    const store = await app.persistence.loadStore("user-1");
+    const ledgerEntry = store.accounting.facts.dividendLedgerEntries.find(
+      (item) => item.id === posted.dividendLedgerEntry.id,
+    );
+    if (!ledgerEntry) throw new Error("expected dividend ledger entry");
+    ledgerEntry.cashReconciliationStatus = "open";
+    await app.persistence.saveStore(store);
+
+    const enrichmentResponse = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/review/enrichment",
+    });
+    expect(enrichmentResponse.statusCode).toBe(200);
+    expect(enrichmentResponse.json()).toMatchObject({
+      hero: {
+        cashAttentionCount: 1,
+        stockAttentionCount: 1,
+        needsAttentionCount: 1,
+      },
+    });
+  });
+
+  it("enforces calculation idempotency and optimistic conflicts for confirm, reset, amend, and stock explanation audits", async () => {
+    await seedBuy(1_000);
+    const dividendEvent = await seedDividendEvent({
+      ticker: "2330",
+      eventType: "STOCK",
+      exDividendDate: "2026-07-15",
+      paymentDate: "2026-08-20",
+      cashDividendPerShare: 0,
+      stockDividendPerShare: 0.1,
+      stockDistributionRatio: 0.1,
+      stockDistributionRatioState: "authoritative",
+    });
+
+    const confirmPayload = {
+      accountId: "acc-1",
+      dividendEventId: dividendEvent.id,
+      method: "provider_ratio",
+      expectedActiveCalculationId: null,
+    };
+    const confirmResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/calculations/confirm",
+      headers: { "idempotency-key": "calc-confirm-1" },
+      payload: confirmPayload,
+    });
+    expect(confirmResponse.statusCode).toBe(200);
+    const confirmed = confirmResponse.json() as { id: string; calculationVersion: number };
+
+    const duplicateConfirmResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/calculations/confirm",
+      headers: { "idempotency-key": "calc-confirm-1" },
+      payload: confirmPayload,
+    });
+    expect(duplicateConfirmResponse.statusCode).toBe(409);
+    expect(duplicateConfirmResponse.json()).toMatchObject({ error: "duplicate_idempotency_key" });
+
+    const staleConfirmResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/calculations/confirm",
+      headers: { "idempotency-key": "calc-confirm-stale" },
+      payload: confirmPayload,
+    });
+    expect(staleConfirmResponse.statusCode).toBe(409);
+    expect(staleConfirmResponse.json()).toMatchObject({ error: "dividend_calculation_conflict" });
+
+    const resetResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/calculations/reset",
+      headers: { "idempotency-key": "calc-reset-1" },
+      payload: {
+        accountId: "acc-1",
+        dividendEventId: dividendEvent.id,
+        expectedActiveCalculationId: confirmed.id,
+        expectedCalculationVersion: confirmed.calculationVersion,
+      },
+    });
+    expect(resetResponse.statusCode).toBe(200);
+
+    expect(
+      await app.persistence.getLatestDividendCalculation("user-1", "acc-1", dividendEvent.id),
+    ).toBeNull();
+    const previewAfterResetResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/calculations/preview",
+      payload: {
+        accountId: "acc-1",
+        dividendEventId: dividendEvent.id,
+        method: "provider_ratio",
+      },
+    });
+    expect(previewAfterResetResponse.statusCode).toBe(200);
+    expect(previewAfterResetResponse.json()).toMatchObject({
+      activeCalculation: null,
+      drift: null,
+    });
+
+    const duplicateResetResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/calculations/reset",
+      headers: { "idempotency-key": "calc-reset-1" },
+      payload: {
+        accountId: "acc-1",
+        dividendEventId: dividendEvent.id,
+        expectedActiveCalculationId: confirmed.id,
+      },
+    });
+    expect(duplicateResetResponse.statusCode).toBe(409);
+    expect(duplicateResetResponse.json()).toMatchObject({ error: "duplicate_idempotency_key" });
+
+    const staleResetResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/calculations/reset",
+      headers: { "idempotency-key": "calc-reset-stale" },
+      payload: {
+        accountId: "acc-1",
+        dividendEventId: dividendEvent.id,
+        expectedActiveCalculationId: confirmed.id,
+      },
+    });
+    expect(staleResetResponse.statusCode).toBe(409);
+    expect(staleResetResponse.json()).toMatchObject({ error: "dividend_calculation_conflict" });
+
+    const reconfirmResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/calculations/confirm",
+      headers: { "idempotency-key": "calc-confirm-2" },
+      payload: {
+        accountId: "acc-1",
+        dividendEventId: dividendEvent.id,
+        method: "provider_ratio",
+        expectedActiveCalculationId: previewAfterResetResponse.json().activeCalculation?.id ?? null,
+      },
+    });
+    expect(reconfirmResponse.statusCode).toBe(200);
+    const reconfirmed = reconfirmResponse.json() as { id: string; calculationVersion: number };
+
+    const postingResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/postings",
+      headers: { "idempotency-key": "calc-amend-posting" },
+      payload: dividendPostingPayload({
+        dividendEventId: dividendEvent.id,
+        receivedCashAmount: 0,
+        receivedStockQuantity: 150,
+        deductions: [],
+        sourceCompositionStatus: "unknown_pending_disclosure",
+        sourceLines: [],
+      }),
+    });
+    expect(postingResponse.statusCode).toBe(200);
+    const posted = postingResponse.json() as { dividendLedgerEntry: { id: string; version: number } };
+
+    const amendPayload = {
+      accountId: "acc-1",
+      dividendEventId: dividendEvent.id,
+      dividendLedgerEntryId: posted.dividendLedgerEntry.id,
+      method: "custom_ratio",
+      customRatio: "0.2",
+      expectedActiveCalculationId: reconfirmed.id,
+      expectedCalculationVersion: reconfirmed.calculationVersion,
+    };
+    const amendResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/calculations/amend",
+      headers: { "idempotency-key": "calc-amend-1" },
+      payload: amendPayload,
+    });
+    expect(amendResponse.statusCode).toBe(200);
+    const amended = amendResponse.json() as { id: string; calculationVersion: number };
+
+    const duplicateAmendResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/calculations/amend",
+      headers: { "idempotency-key": "calc-amend-1" },
+      payload: amendPayload,
+    });
+    expect(duplicateAmendResponse.statusCode).toBe(409);
+    expect(duplicateAmendResponse.json()).toMatchObject({ error: "duplicate_idempotency_key" });
+
+    const staleAmendResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/calculations/amend",
+      headers: { "idempotency-key": "calc-amend-stale" },
+      payload: amendPayload,
+    });
+    expect(staleAmendResponse.statusCode).toBe(409);
+    expect(staleAmendResponse.json()).toMatchObject({ error: "dividend_calculation_conflict" });
+
+    const stockExplanationResponse = await app.inject({
+      method: "PATCH",
+      url: `/portfolio/dividends/postings/${posted.dividendLedgerEntry.id}/stock-reconciliation`,
+      payload: {
+        status: "explained",
+        note: "Issuer rounded the entitlement.",
+        expectedVersion: posted.dividendLedgerEntry.version,
+      },
+    });
+    expect(stockExplanationResponse.statusCode).toBe(200);
+
+    const explainedEntry = stockExplanationResponse.json() as { ledgerEntry: { version: number } };
+    const clearExplanationResponse = await app.inject({
+      method: "PATCH",
+      url: `/portfolio/dividends/postings/${posted.dividendLedgerEntry.id}/stock-reconciliation`,
+      payload: {
+        status: "variance",
+        note: null,
+        expectedVersion: explainedEntry.ledgerEntry.version,
+      },
+    });
+    expect(clearExplanationResponse.statusCode).toBe(200);
+    expect(clearExplanationResponse.json()).toMatchObject({
+      ledgerEntry: {
+        stockReconciliationStatus: "variance",
+        stockReconciliationNote: null,
+      },
+    });
+
+    const latest = await app.persistence.getLatestDividendCalculation("user-1", "acc-1", dividendEvent.id);
+    expect(latest).toMatchObject({
+      id: amended.id,
+      calculationVersion: amended.calculationVersion,
+      status: "amended",
+    });
+
+    const auditLog = await app.persistence.listAuditLog({ page: 1, limit: 20 });
+    expect(auditLog.items.map((entry) => entry.action)).toEqual(expect.arrayContaining([
+      "dividend_calculation_confirmed",
+      "dividend_calculation_reset",
+      "dividend_calculation_amended",
+      "dividend_stock_reconciliation_updated",
+    ]));
   });
 
   it("filters the dividend ledger route by marketCode", async () => {

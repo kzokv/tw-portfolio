@@ -91,8 +91,8 @@ export class TickerDetailActions extends AppBaseActions {
     await expect(this.el.deleteDialog.confirmButton).toBeEnabled({ timeout: 15_000 });
     const responsePromise = this.mxWaitForResponse(
       (r) =>
-        r.url().includes("/portfolio/transactions/")
-        && r.url().endsWith("/dividend-delete-confirm")
+        r.url().includes("/portfolio/transactions/mutations/previews/")
+        && r.url().endsWith("/confirm")
         && r.request().method() === "POST",
     );
     await this.uiActions.click.perform(this.el.deleteDialog.confirmButton);
@@ -138,11 +138,20 @@ export class TickerDetailActions extends AppBaseActions {
 
   @Step()
   async saveEdit(): Promise<import("@playwright/test").Response> {
-    const responsePromise = this.mxWaitForResponse(
-      (r) => r.url().includes("/portfolio/transactions/") && r.request().method() === "PATCH",
+    const previewResponsePromise = this.mxWaitForResponse(
+      (r) => r.url().endsWith("/portfolio/transactions/mutations/update-preview")
+        && r.request().method() === "POST",
     );
     await this.uiActions.click.perform(this.el.editForm.saveButton);
-    return responsePromise;
+    await previewResponsePromise;
+    await expect(this.el.editForm.confirmButton).toBeEnabled({ timeout: 15_000 });
+    const confirmResponsePromise = this.mxWaitForResponse(
+      (r) => r.url().includes("/portfolio/transactions/mutations/previews/")
+        && r.url().endsWith("/confirm")
+        && r.request().method() === "POST",
+    );
+    await this.uiActions.click.perform(this.el.editForm.confirmButton);
+    return confirmResponsePromise;
   }
 
   @Step()

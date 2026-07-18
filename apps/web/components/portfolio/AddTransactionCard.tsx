@@ -75,6 +75,10 @@ function parseOptionalNumber(raw: string): number | undefined {
   return Number.isFinite(value) ? value : undefined;
 }
 
+function roundMoney(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
 function resolvePriceHintCopy(dict: AppDictionary, locale: LocaleCode, hint: TransactionPriceHint): string {
   const formattedDate = formatDateLabel(hint.date, locale);
   if (hint.message === "exact") {
@@ -323,6 +327,16 @@ export function AddTransactionCard({
     && value.ticker.trim().length > 0
     && value.quantity > 0
     && value.unitPrice > 0;
+  const grossTradeValue = roundMoney(value.quantity * value.unitPrice);
+  const effectiveCommissionAmount = value.commissionAmount ?? feeEstimate?.commissionAmount ?? null;
+  const effectiveTaxAmount = value.taxAmount ?? feeEstimate?.taxAmount ?? (value.type === "BUY" ? 0 : null);
+  const settlementAmount = effectiveCommissionAmount !== null && effectiveTaxAmount !== null
+    ? roundMoney(
+        value.type === "BUY"
+          ? grossTradeValue + effectiveCommissionAmount + effectiveTaxAmount
+          : grossTradeValue - effectiveCommissionAmount - effectiveTaxAmount,
+      )
+    : null;
 
   const content = (
     <>
@@ -660,6 +674,30 @@ export function AddTransactionCard({
           ) : null}
         </div>
       ) : null}
+
+      <div className="mt-6 grid gap-3 sm:grid-cols-2">
+        <section className="space-y-2 px-1 py-1" data-testid="gross-trade-value-section">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.transactions.grossTradeValueLabel}</p>
+          <p className="text-base font-semibold text-foreground" data-testid="gross-trade-value-amount">
+            {formatCurrencyAmount(grossTradeValue, value.priceCurrency, locale)}
+          </p>
+        </section>
+        <section className="space-y-2 px-1 py-1" data-testid="settlement-value-section">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground">
+            {value.type === "BUY" ? dict.transactions.buyCashOutLabel : dict.transactions.sellNetProceedsLabel}
+          </p>
+          <p className="text-base font-semibold text-foreground" data-testid="settlement-value-amount">
+            {settlementAmount === null
+              ? dict.transactions.estimatedUnavailable
+              : formatCurrencyAmount(settlementAmount, value.priceCurrency, locale)}
+          </p>
+          {settlementAmount === null ? (
+            <p className="text-xs text-amber-700" data-testid="settlement-value-unavailable">
+              {dict.transactions.settlementUnavailableMessage}
+            </p>
+          ) : null}
+        </section>
+      </div>
 
       <div className="mt-6 flex min-w-0 justify-end">
         <Button onClick={() => onSubmit()} disabled={submitDisabled} data-testid="tx-submit-button" className="w-full whitespace-normal text-center sm:w-auto">

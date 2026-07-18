@@ -50,6 +50,7 @@ function buildTransaction(overrides: Partial<TransactionHistoryItemDto> = {}): T
     bookingSequence: 2,
     commissionAmount: 139,
     taxAmount: 1_177,
+    bookedCostAmount: 374_616,
     isDayTrade: false,
     realizedPnlAmount: 17_884,
     realizedPnlCurrency: "TWD",
@@ -144,6 +145,41 @@ describe("Realized P&L breakdown UI", () => {
     expect(container.querySelector("[data-testid='realized-pnl-breakdown-inline']")).not.toBeNull();
     expect(container.textContent).toContain("Breakdown unavailable");
     expect(container.textContent).toContain("does not have enough pre-sale quantity");
+  });
+
+  it("renders booked cost for BUY rows and leaves SELL-only realized P&L unavailable on mobile", () => {
+    isSmallScreen = true;
+    ({ container, root } = renderNode(
+      <TransactionHistoryTable
+        transactions={[buildTransaction({
+          type: "BUY",
+          bookedCostAmount: 12_345,
+          realizedPnlAmount: null,
+          realizedPnlCurrency: null,
+          realizedPnlBreakdown: null,
+        })]}
+        dict={dict}
+        locale="en"
+      />,
+    ));
+
+    expect(container.textContent).toContain(dict.tickerHistory.bookedCostLabel);
+    expect(container.textContent).toContain("NT$12,345");
+    expect(container.textContent).toContain(dict.tickerHistory.noRealizedPnl);
+  });
+
+  it("renders em-dash booked cost for SELL rows without booked cost on desktop", () => {
+    ({ container, root } = renderNode(
+      <TransactionHistoryTable
+        transactions={[buildTransaction({ bookedCostAmount: null })]}
+        dict={dict}
+        locale="en"
+      />,
+    ));
+
+    const table = container.querySelector("[data-testid='ticker-history-table']");
+    expect(table?.textContent).toContain(dict.tickerHistory.bookedCostLabel);
+    expect(table?.textContent).toContain(dict.tickerHistory.noRealizedPnl);
   });
 
   it("keeps dashboard recent transactions compact while /transactions shows the table note", () => {

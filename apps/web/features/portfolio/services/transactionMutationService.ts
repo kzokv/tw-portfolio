@@ -4,6 +4,12 @@ import type {
   DeleteTransactionResponse,
   PatchTransactionResponse,
   PatchFeeConfirmationResponse,
+  PostedTransactionMutationConfirmRequestDto,
+  PostedTransactionMutationDeleteItemDto,
+  PostedTransactionMutationPreviewDto,
+  PostedTransactionMutationPreviewQueryDto,
+  PostedTransactionMutationRunDto,
+  PostedTransactionMutationUpdateItemDto,
 } from "@vakwen/shared-types";
 
 export async function previewImpact(
@@ -71,4 +77,67 @@ export async function patchTransaction(
   patch: Record<string, unknown>,
 ): Promise<PatchTransactionResponse | PatchFeeConfirmationResponse> {
   return patchJson(`/portfolio/transactions/${tradeEventId}`, patch);
+}
+
+export async function previewPostedTransactionUpdateBatch(
+  reason: string,
+  items: readonly PostedTransactionMutationUpdateItemDto[],
+): Promise<PostedTransactionMutationPreviewDto> {
+  return postJson<PostedTransactionMutationPreviewDto>(
+    "/portfolio/transactions/mutations/update-preview",
+    { reason, items },
+  );
+}
+
+export async function previewPostedTransactionDeleteBatch(
+  reason: string,
+  items: readonly PostedTransactionMutationDeleteItemDto[],
+): Promise<PostedTransactionMutationPreviewDto> {
+  return postJson<PostedTransactionMutationPreviewDto>(
+    "/portfolio/transactions/mutations/delete-preview",
+    { reason, items },
+  );
+}
+
+export async function getPostedTransactionMutationPreview(
+  previewId: string,
+  query: PostedTransactionMutationPreviewQueryDto = {},
+  contextOwnerId?: string | null,
+): Promise<PostedTransactionMutationPreviewDto> {
+  const params = new URLSearchParams();
+  if (query.limit !== undefined) params.set("limit", String(query.limit));
+  if (query.offset !== undefined) params.set("offset", String(query.offset));
+  if (query.accountId) params.set("accountId", query.accountId);
+  if (query.ticker) params.set("ticker", query.ticker);
+  if (query.marketCode) params.set("marketCode", query.marketCode);
+  if (query.status) params.set("status", query.status);
+  const search = params.toString();
+  return getJson<PostedTransactionMutationPreviewDto>(
+    `/portfolio/transactions/mutations/previews/${encodeURIComponent(previewId)}${search ? `?${search}` : ""}`,
+    contextOwnerId
+      ? { contextScope: "session", headers: { "x-context-user-id": contextOwnerId } }
+      : undefined,
+  );
+}
+
+export async function confirmPostedTransactionMutation(
+  previewId: string,
+  confirmation: Omit<PostedTransactionMutationConfirmRequestDto, "previewId">,
+): Promise<PostedTransactionMutationRunDto> {
+  return postJson<PostedTransactionMutationRunDto>(
+    `/portfolio/transactions/mutations/previews/${encodeURIComponent(previewId)}/confirm`,
+    confirmation,
+  );
+}
+
+export async function getPostedTransactionMutationRun(
+  runId: string,
+  contextOwnerId?: string | null,
+): Promise<PostedTransactionMutationRunDto> {
+  return getJson<PostedTransactionMutationRunDto>(
+    `/portfolio/transactions/mutations/runs/${encodeURIComponent(runId)}`,
+    contextOwnerId
+      ? { contextScope: "session", headers: { "x-context-user-id": contextOwnerId } }
+      : undefined,
+  );
 }

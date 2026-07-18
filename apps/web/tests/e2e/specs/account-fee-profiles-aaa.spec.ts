@@ -47,6 +47,23 @@ test("[settings drawer]: Accounts tab shows expandable card per account with pro
   await settings.assert.accountProfileCountIs("acc-1", 1);
 });
 
+test("[settings drawer]: fee profile discount save → value persists after leaving and reopening Settings", async ({
+  appShell,
+  settings,
+}) => {
+  await appShell.actions.navigateToRoute("/portfolio");
+  await appShell.actions.openSettingsSection("accounts");
+  await settings.actions.expandAccountCard("acc-1");
+
+  await settings.actions.editSelectedProfileDiscount("acc-1", "25");
+  await appShell.actions.navigateToRoute("/dashboard");
+  await appShell.actions.openSettingsSection("accounts");
+  await settings.actions.expandAccountCard("acc-1");
+  await settings.actions.openSelectedProfileEditor("acc-1");
+
+  await settings.assert.selectedProfileDiscountValueIs("acc-1", "25");
+});
+
 // ─── AFP-2 ────────────────────────────────────────────────────────────────────
 
 test("[settings drawer]: add fee profile to account A → save → profile persists on A only", async ({

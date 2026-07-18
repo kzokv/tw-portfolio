@@ -67,6 +67,10 @@ function requireAnyScope(auth: McpAuthContext, scopes: readonly AiConnectorScope
   }
 }
 
+export function assertMcpScopesGranted(auth: McpAuthContext, scopes: readonly AiConnectorScope[]): void {
+  requireAnyScope(auth, scopes);
+}
+
 function rateLimitKey(
   auth: McpAuthContext,
   accessKind: AiConnectorAccessKind,
@@ -145,6 +149,13 @@ function requireShareCapability(
       },
     );
   }
+}
+
+export function assertMcpShareCapabilities(
+  resolvedContext: McpResolvedContext,
+  requiredScopes: readonly AiConnectorScope[],
+): void {
+  requireShareCapability(resolvedContext, requiredScopes);
 }
 
 export class DefaultMcpPolicyService implements McpPolicyService {

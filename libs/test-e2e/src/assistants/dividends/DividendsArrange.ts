@@ -14,6 +14,14 @@ interface SeedDividendEventOptions {
   cashDividendPerShare?: number;
   cashDividendCurrency?: string;
   stockDividendPerShare?: number;
+  stockDistributionAmountRaw?: number | null;
+  stockProviderValueUnit?: "RATIO" | "TWD_PER_SHARE" | "UNKNOWN" | null;
+  stockProviderSource?: string | null;
+  stockProviderDataset?: string | null;
+  stockDistributionRatio?: number | null;
+  stockDistributionRatioState?: "authoritative" | "derived_non_authoritative" | "unresolved";
+  stockParValueAmount?: number | null;
+  stockParValueCurrency?: string | null;
   eligibleQuantity?: number;
 }
 
@@ -88,6 +96,14 @@ export class DividendsArrange extends BaseArrange {
         cashDividendPerShare: options.cashDividendPerShare ?? 0.12,
         cashDividendCurrency: options.cashDividendCurrency ?? "TWD",
         stockDividendPerShare: options.stockDividendPerShare ?? 0,
+        stockDistributionAmountRaw: options.stockDistributionAmountRaw,
+        stockProviderValueUnit: options.stockProviderValueUnit,
+        stockProviderSource: options.stockProviderSource,
+        stockProviderDataset: options.stockProviderDataset,
+        stockDistributionRatio: options.stockDistributionRatio,
+        stockDistributionRatioState: options.stockDistributionRatioState,
+        stockParValueAmount: options.stockParValueAmount,
+        stockParValueCurrency: options.stockParValueCurrency,
         eligibleQuantity: options.eligibleQuantity ?? 1_000,
       },
     });

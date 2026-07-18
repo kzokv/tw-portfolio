@@ -131,10 +131,11 @@ Current runtime write modes:
 - incremental writes:
   - `savePostedTrade`
   - `savePostedDividend`
-- mutation writes (KZO-114):
-  - `deleteTradeEvent` — hard-deletes one trade event and cascades to child rows
-  - `updateTradeEvent` — patches one trade event's fields in place
-  - `replayPositionHistory` (via `scheduleReplayWithRetry`) — async cascade recompute after delete or update
+- posted-transaction mutation writes:
+  - preview update/delete batches by explicit immutable transaction ID
+  - confirm a persisted preview idempotently after exact digest, expiry, actor/owner, and account fingerprint validation
+  - atomically replay core accounting and persist the mutation audit plus durable rebuild run/outbox
+  - run bounded snapshot rebuild work per affected account/ticker scope after the core commit
 - full-store or full-accounting rewrites:
   - `saveStore`
   - `saveAccountingStore`
@@ -1022,6 +1023,7 @@ Currently recognized top-level preference keys:
 - `cardOrder` (`{ dashboard?: string[] | null, transactions?: string[] | null, portfolio?: string[] | null } | null`) — per-page card display order; persisted by `<SortableCardGrid>` debounced 250ms after `onDragEnd` (KZO-161 F5). Three durably scoped consumers (KZO-162): dashboard, transactions section (all three transactions cards reorderable in one grid — see KZO-162 transition guide for the in-flight scope expansion that replaced the original right-stack-only plan), portfolio section. Each sub-key is independently optional and accepts `null` to clear just that page's order; `cardOrder: null` at the top level clears every page atomically. Each slug array is capped at 50 entries per the `cardOrderSchema` in `registerRoutes.ts`. Adding a fourth page (e.g. `/dividends`, `/cash-ledger`) requires extending `cardOrderSchema` — `cash-ledger` is durably out of scope per KZO-162 Q1.
 - `reportingCurrency` (`"TWD" | "USD" | "AUD" | "KRW" | null`) — user's dashboard reporting currency. The key is JSONB-only; there is no typed `user_preferences` column and no DB CHECK constraint. `resolveReportingCurrency(prefs)` defaults missing, null, or invalid stored values to `"TWD"`. The Display tab selector PATCHes this key immediately on change (KZO-180/KR).
 - `holdingAllocationBasis` (`"market_value" | "cost_basis" | null`) — user's grouped-holdings allocation display basis. `resolveHoldingAllocationBasis(prefs)` defaults missing, null, or invalid stored values to `"market_value"`. Dashboard and portfolio controls PATCH this key and also keep a localStorage fallback for client resilience.
+- `holdingsTableSettings` — versioned holdings preferences. It stores one user-scoped global ticker selection as `all` or explicit `custom` market/ticker identities and independently merged stable layout contexts for Top Holdings, Portfolio Holdings, report holdings, and Portfolio layout style. The parser migrates legacy `holdings.shared` settings idempotently; context patches merge without overwriting sibling tables.
 
 Read/write path:
 - `getUserPreferences(userId)` — returns `{}` when no row (lazy: no insert on read)
@@ -1131,20 +1133,15 @@ flowchart TD
   X --> J
   X --> Q
 
-  DEL["DELETE /portfolio/transactions/:id"] --> DTE[deleteTradeEvent]
-  DTE --> I
-  DTE -.->|CASCADE| J
-  DTE -.->|CASCADE| N
-  DEL --> SCHED[scheduleReplayWithRetry]
-  SCHED --> RPH[replayPositionHistory]
-  RPH --> I2[trade_events reads]
-  RPH --> Q2[lots upsert]
-  RPH --> N2[lot_allocations insert]
-  RPH --> J2[cash_ledger_entries insert]
-
-  PATCH["PATCH /portfolio/transactions/:id"] --> UTE[updateTradeEvent]
-  UTE --> I
-  PATCH --> SCHED
+  MUT["update/delete preview"] --> SIM[simulate complete explicit-ID batch]
+  SIM --> PREVIEW[mutation preview + item impacts]
+  CONFIRM["confirm preview + digest"] --> ATOMIC[atomic core accounting replay]
+  ATOMIC --> I2[trade events]
+  ATOMIC --> Q2[lots]
+  ATOMIC --> N2[lot allocations]
+  ATOMIC --> J2[cash and dividend ledgers]
+  ATOMIC --> RUN[durable rebuild run + scopes]
+  RUN --> WORKER[bounded snapshot replay worker]
 ```
 
 Plain-text write paths:
@@ -1180,22 +1177,12 @@ savePostedDividend
   replaces linked cash_ledger_entries for that ledger row
   replaces lots for that account+symbol
 
-deleteTradeEvent (KZO-114)
-  deletes one trade_events row (user+id scoped)
-  cascades to: cash_ledger_entries (TRADE_SETTLEMENT_IN/OUT), lot_allocations
-  preserves: recompute_job_items as immutable historical audit evidence
-
-updateTradeEvent (KZO-114)
-  patches one trade_events row (user+id scoped)
-  updates: trade_type, quantity, unit_price, trade_date, trade_timestamp, commission_amount, tax_amount, fees_source
-
-replayPositionHistory (KZO-114)
-  deletes lots for account+symbol
-  deletes lot_allocations for account+symbol
-  deletes TRADE_SETTLEMENT_IN/OUT cash_ledger_entries for account+symbol
-  replays all trade_events for account+symbol in trade_date + booking_sequence order
-  inserts: lots, lot_allocations, cash_ledger_entries
-  publishes: recompute_complete or recompute_failed SSE event
+postedTransactionMutations
+  persists a 30-minute preview after complete-batch simulation
+  validates exact confirmation digest, preview version, actor/owner, and account fingerprints
+  commits update/delete facts plus lots, allocations, realized P&L, settlement cash, and dividend effects atomically
+  persists immutable mutation audit, deleted AI-draft lineage, and durable rebuild run/scopes
+  dispatches bounded per-scope snapshot replay and publishes mutation lifecycle events
 ```
 
 ### Data integrity invariants enforced in application code
@@ -1640,8 +1627,13 @@ KZO-183 ownership model:
 | --- | --- | --- | --- | --- | --- |
 | `POST` | `/portfolio/transactions` | `{ accountId, symbol, quantity, unitPrice, priceCurrency, tradeDate, tradeTimestamp?, bookingSequence?, commissionAmount?, taxAmount?, type, isDayTrade }` + `idempotency-key` header | created `Transaction` | `createTransaction`, Redis idempotency, `savePostedTrade` | yes |
 | `GET` | `/portfolio/transactions` | query `symbol?`, `accountId?`, `limit?` | `TransactionHistoryItemDto[]` | `listTradeEvents` | not used by shipped UI, used heavily in tests |
-| `DELETE` | `/portfolio/transactions/:tradeEventId` | path param | `202 { accountId, symbol, deletedTradeEventId, deletedChildRows: { cashLedgerEntries, lotAllocations } }` | `deleteTradeEvent`, `scheduleReplayWithRetry` | yes (KZO-114 PR 2) |
-| `PATCH` | `/portfolio/transactions/:tradeEventId` | `{ date?, quantity?, price?, side?, confirmFeeRecalculation?, keepManualFees? }` | `202 { accountId, symbol, updatedTradeEventId, changedFields }` or `200 { requiresFeeConfirmation: true }` | `updateTradeEvent`, `scheduleReplayWithRetry` | yes (KZO-114 PR 2) |
+| `POST` | `/portfolio/transactions/mutations/update-preview` | `{ reason, items: [{ transactionId, patch, note? }] }` | persisted preview, aggregate impact, first 50 items | canonical mutation service | yes |
+| `POST` | `/portfolio/transactions/mutations/delete-preview` | `{ reason, items: [{ transactionId, note? }] }` | persisted destructive preview, aggregate impact, first 50 items | canonical mutation service | yes |
+| `GET` | `/portfolio/transactions/mutations/previews/:previewId` | pagination plus account/ticker/market/status filters | read-only preview page | mutation persistence | yes |
+| `POST` | `/portfolio/transactions/mutations/previews/:previewId/confirm` | exact preview version, fingerprint, summary, and digest | durable mutation run | canonical mutation service | yes |
+| `GET` | `/portfolio/transactions/mutations/runs/:runId` | path param | core commit and per-scope rebuild status | mutation/replay persistence | yes |
+| `DELETE` | `/portfolio/transactions/:tradeEventId` | path param | canonical delete confirmation result | single-item compatibility alias | yes |
+| `PATCH` | `/portfolio/transactions/:tradeEventId` | same-identity editable trade fields and fee choice | canonical update confirmation result | single-item compatibility alias | yes |
 | `GET` | `/portfolio/transactions/:tradeEventId/preview-impact` | query `action=delete\|patch`, `quantity?`, `price?`, `side?`, `date?` | `{ affectedRows: { cashLedgerEntries, lotAllocations, feePolicySnapshots }, negativeLots: { wouldOccur, resultingQuantity, symbol } }` | `loadStore` for simulation | yes (KZO-114 PR 2) |
 | `GET` | `/portfolio/holdings` | none | `Holding[]` | `assertStoreIntegrity`, `listHoldings` | yes |
 
@@ -1657,12 +1649,14 @@ Trade posting behavior:
 - BUY updates lots directly
 - SELL allocates against weighted-average lot projection and computes realized PnL
 
-Transaction mutation behavior (KZO-114):
-- `DELETE` hard-deletes the trade event row; DB `ON DELETE CASCADE` removes linked `cash_ledger_entries` (TRADE_SETTLEMENT_IN/OUT) and `lot_allocations`; `recompute_job_items` remain as immutable historical evidence and `trade_fee_policy_snapshots` remain orphaned (not FK-constrained)
-- `PATCH` validates at least one field changed; if `quantity` or `price` changes and `fees_source = CALCULATED`, fees are recalculated from the bound fee snapshot; if `fees_source = MANUAL`, a `requiresFeeConfirmation: true` response is returned unless `confirmFeeRecalculation` or `keepManualFees` is provided
-- both mutations respond `202` and immediately fire `scheduleReplayWithRetry` in `setImmediate` — the HTTP response returns before recompute completes
-- recompute result is delivered via SSE: `recompute_complete` on success, `recompute_failed` on failure (with one automatic retry; second failure sets `retriesExhausted: true`)
-- `GET /preview-impact` is side-effect-free: counts affected rows and simulates the post-mutation quantity sequence to detect negative lots before committing
+Transaction mutation behavior:
+- update/delete batches accept explicit transaction IDs from one selected portfolio context and commit all-or-nothing across deterministic account locks
+- ordinary updates preserve account, ticker, market, and currency identity; editable fields are date, quantity, unit price, BUY/SELL side, day-trade status, commission, and tax
+- calculated fees replay from the booked fee-policy snapshot; manual or source-provided fees remain unchanged unless explicitly replaced or recalculated
+- preview and confirmation are separate, previews expire after 30 minutes, and account revision/fingerprint drift invalidates confirmation
+- confirmation returns only after trade facts and core accounting are consistent; a durable run separately reports queued/running/completed/partially-failed/failed snapshot rebuild status
+- delegated confirmation requires `transaction:write` and additionally `dividend:write` when deletion can purge or replace dividend artifacts
+- the single-item PATCH and DELETE routes remain compatibility aliases but execute through the same canonical preview, confirmation, and atomic service
 
 Finding:
 - `/portfolio/transactions` uses the incremental persistence path with Redis-backed idempotency, while AI-confirmed trades do not.

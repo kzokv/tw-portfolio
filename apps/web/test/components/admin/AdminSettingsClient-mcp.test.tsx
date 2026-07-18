@@ -81,6 +81,7 @@ function buildPolicy(overrides: Partial<AiConnectorPolicySettingsDto> = {}): AiC
     expirationWarningDays: 7,
     freshAuthMaxAgeMs: 600_000,
     maxConnectorLifetimeDays: 90,
+    postedTransactionMutationBatchLimit: 50,
     oauthPublicIssuer: "https://api.example.com",
     oauthRedirectUriAllowlist: [],
     oauthTokenSecretSet: true,
@@ -225,6 +226,70 @@ describe("AdminSettingsClient — MCP settings", () => {
       "/admin/mcp/settings",
       expect.objectContaining({ maxActiveConnectionsPerUser: 10 }),
       { headers: { "x-vakwen-fresh-auth-at": "fresh-1" } },
+    );
+  });
+
+  it("shows the posted-transaction batch-limit warning above 200 and still saves the value", async () => {
+    mockGetJson.mockResolvedValue(buildPolicy({
+      groupToggles: { read: true, drafts: true, write: true },
+      postedTransactionMutationBatchLimit: 50,
+    }));
+    mockPostJson.mockResolvedValue({ freshAuthToken: "fresh-batch-limit" });
+    mockPatchJson.mockResolvedValue(buildPolicy({
+      groupToggles: { read: true, drafts: true, write: true },
+      postedTransactionMutationBatchLimit: 250,
+    }));
+
+    await act(async () => root.render(<AdminSettingsClient initial={buildAppConfigDto()} />));
+    await flushEffects();
+
+    const batchInput = document.querySelector(
+      "#admin-settings-posted-transaction-mutation-batch-limit",
+    ) as HTMLInputElement | null;
+    expect(batchInput).toBeTruthy();
+
+    const tooltipTrigger = document.querySelector(
+      "[data-testid='admin-settings-posted-transaction-mutation-batch-limit-tooltip-trigger']",
+    ) as HTMLButtonElement | null;
+    expect(tooltipTrigger).toBeTruthy();
+    await act(async () => {
+      tooltipTrigger!.dispatchEvent(new MouseEvent("mouseover", { bubbles: true }));
+      tooltipTrigger!.focus();
+      await Promise.resolve();
+    });
+    await flushEffects();
+
+    const tooltipContent = document.querySelector(
+      "[data-testid='admin-settings-posted-transaction-mutation-batch-limit-tooltip-content']",
+    );
+    expect(tooltipContent?.textContent).toContain("payload or response failures");
+    expect(tooltipContent?.textContent).toContain("preview or client timeouts");
+    expect(tooltipContent?.textContent).toContain("longer account locks and revision conflicts");
+    expect(tooltipContent?.textContent).not.toContain("Allow the AI client to stage larger posted-transaction update or delete previews");
+
+    await act(async () => {
+      setInputValue(batchInput!, "250");
+    });
+
+    const inlineWarning = document.querySelector(
+      "#admin-settings-posted-transaction-mutation-batch-limit-warning",
+    );
+    expect(inlineWarning?.textContent).toContain("payload or response failures");
+    expect(inlineWarning?.textContent).toContain("rebuild queue backlogs");
+
+    const saveButton = Array.from(container.querySelectorAll("button"))
+      .find((button) => button.textContent?.includes("Save limits")) as HTMLButtonElement | undefined;
+    expect(saveButton?.disabled).toBe(false);
+    await act(async () => {
+      saveButton!.click();
+      await Promise.resolve();
+    });
+    await flushEffects();
+
+    expect(mockPatchJson).toHaveBeenCalledWith(
+      "/admin/mcp/settings",
+      expect.objectContaining({ postedTransactionMutationBatchLimit: 250 }),
+      { headers: { "x-vakwen-fresh-auth-at": "fresh-batch-limit" } },
     );
   });
 

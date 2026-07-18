@@ -22,6 +22,25 @@ export async function renameAccount(accountId: string, name: string): Promise<Ac
   return patchJson<AccountDto>(`/accounts/${encodeURIComponent(accountId)}`, { name });
 }
 
+export interface FeeProfilePatch {
+  name: string;
+  boardCommissionRate: number;
+  commissionDiscountPercent: number;
+  minimumCommissionAmount: number;
+  commissionCurrency: FeeProfileDto["commissionCurrency"];
+  commissionRoundingMode: FeeProfileDto["commissionRoundingMode"];
+  taxRoundingMode: FeeProfileDto["taxRoundingMode"];
+  stockSellTaxRateBps: number;
+  stockDayTradeTaxRateBps: number;
+  etfSellTaxRateBps: number;
+  bondEtfSellTaxRateBps: number;
+  commissionChargeMode: FeeProfileDto["commissionChargeMode"];
+}
+
+export async function patchFeeProfile(profileId: string, patch: FeeProfilePatch): Promise<FeeProfileDto> {
+  return patchJson<FeeProfileDto>(`/fee-profiles/${encodeURIComponent(profileId)}`, patch);
+}
+
 // ── Per-resource PATCH helpers (Phase 3d S3 / Decision #16) ─────────────────
 //
 // Replaces the legacy `saveFullSettings` (PUT /settings/full) omnibus call.

@@ -4,7 +4,10 @@ import { roundToDecimal, validateSourceLineReconciliation } from "@vakwen/domain
 import { routeError } from "../lib/routeError.js";
 import type { McpToolHandlerContext } from "../mcp/types.js";
 import type { DividendDeductionEntry, DividendLedgerEntry, Store } from "../types/store.js";
-import type { DividendLedgerListOptions, DividendReviewRowWithDetails } from "../persistence/types.js";
+import type {
+  DividendLedgerListOptions,
+  DividendReviewResponseRowWithDetails,
+} from "../persistence/types.js";
 import { buildConfirmationDigest } from "./mcpNameResolution.js";
 import {
   buildDividendLedgerEntryDetails,
@@ -92,7 +95,7 @@ interface ConfirmReconciliationInput extends ReconciliationInput {
 }
 
 interface ResolvedReviewRow {
-  row: DividendReviewRowWithDetails;
+  row: DividendReviewResponseRowWithDetails;
   store: Store;
   userId: string;
 }
@@ -193,7 +196,7 @@ function assertPreviewSourceReconciliation(
   );
 }
 
-function rowSummary(row: DividendReviewRowWithDetails, store: Store) {
+function rowSummary(row: DividendReviewResponseRowWithDetails, store: Store) {
   const names = accountNameById(store);
   const deductions = row.deductions ?? [];
   const deductionAmount = deductionTotal(deductions);
@@ -227,12 +230,14 @@ function rowSummary(row: DividendReviewRowWithDetails, store: Store) {
     deductionTotal: deductionAmount,
     actualCashEconomicAmount: actualCash,
     cashVarianceAmount: roundToDecimal(row.expectedCashAmount - actualCash, 2),
-    stockVarianceQuantity: row.expectedStockQuantity - row.receivedStockQuantity,
+    stockVarianceQuantity: row.expectedStockQuantity == null ? null : row.expectedStockQuantity - row.receivedStockQuantity,
     sourceCompositionStatus: row.sourceCompositionStatus,
     canPostReceipt: row.postingStatus === "expected",
     canUpdateReconciliation: row.rowKind === "ledger" && row.postingStatus !== "expected",
     warnings: [
-      ...(row.expectedStockQuantity > 0 ? ["Posting a stock or mixed dividend creates or updates an inventory lot."] : []),
+      ...(row.expectedStockQuantity != null && row.expectedStockQuantity > 0
+        ? ["Posting a stock or mixed dividend creates or updates an inventory lot."]
+        : []),
       ...(row.rowKind === "expected" && row.paymentDate === null ? ["Payment date is not set on this dividend event."] : []),
     ],
   };
@@ -247,7 +252,7 @@ async function resolveRow(deps: McpToolHandlerContext, rowId: string): Promise<R
   return { row, store, userId };
 }
 
-function compareDividendReviewRows(left: DividendReviewRowWithDetails, right: DividendReviewRowWithDetails): number {
+function compareDividendReviewRows(left: DividendReviewResponseRowWithDetails, right: DividendReviewResponseRowWithDetails): number {
   if (left.paymentDate === null && right.paymentDate !== null) return 1;
   if (left.paymentDate !== null && right.paymentDate === null) return -1;
   if (left.paymentDate !== null && right.paymentDate !== null && left.paymentDate !== right.paymentDate) {
@@ -260,8 +265,8 @@ async function fetchAllDividendReviewRows(
   deps: McpToolHandlerContext,
   userId: string,
   opts: DividendReviewFetchOptions,
-): Promise<DividendReviewRowWithDetails[]> {
-  const rows: DividendReviewRowWithDetails[] = [];
+): Promise<DividendReviewResponseRowWithDetails[]> {
+  const rows: DividendReviewResponseRowWithDetails[] = [];
   const limit = 100;
   let page = 1;
   let total = Number.POSITIVE_INFINITY;
@@ -289,7 +294,7 @@ function receiptPreviewPayload(resolved: ResolvedReviewRow, input: DividendRecei
   }
   const deductions = normalizeDeductions(input.deductions, resolved.row.cashCurrency);
   const receivedCashAmount = input.receivedCashAmount ?? resolved.row.expectedCashAmount;
-  const receivedStockQuantity = input.receivedStockQuantity ?? resolved.row.expectedStockQuantity;
+  const receivedStockQuantity = input.receivedStockQuantity ?? resolved.row.expectedStockQuantity ?? 0;
   assertReceiptStockQuantityAllowed(resolved.row.eventType, receivedStockQuantity);
   const actualCashAmount = actualCashEconomicAmount(receivedCashAmount, deductions);
   const hasCallerSourceLines = (input.sourceLines?.length ?? 0) > 0;
@@ -398,7 +403,7 @@ export async function getDividendReview(deps: McpToolHandlerContext, input: GetD
   const tickerMarkets = input.tickerMarkets ?? [];
   const pageSize = Math.min(Math.max(input.limit ?? 25, 1), 100);
   const offset = Math.max(input.offset ?? 0, 0);
-  const collected = new Map<string, DividendReviewRowWithDetails>();
+  const collected = new Map<string, DividendReviewResponseRowWithDetails>();
 
   const filters = tickerMarkets.length > 0 ? tickerMarkets : [undefined];
   for (const tickerMarket of filters) {

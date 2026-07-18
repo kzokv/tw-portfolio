@@ -10,7 +10,7 @@ import {
 const SHARING_MANAGE = "sharing:manage" as ShareCapability;
 
 test.describe("shared portfolio nav and permissions", () => {
-  test("[shared nav]: switched-in member without sharing grant hides sharing nav and shows accounts permission state", async ({
+  test("[shared nav]: switched-in member without sharing grant hides sharing nav and keeps accounts read-only", async ({
     appShell,
     contextSwitcher,
     page,
@@ -42,12 +42,12 @@ test.describe("shared portfolio nav and permissions", () => {
 
     await appShell.actions.navigateToRoute("/settings/accounts");
     await appShell.assert.appIsReady();
-    await page.getByTestId("accounts-permission-back").waitFor({ state: "visible" });
-    await page.getByTestId("accounts-permission-self").waitFor({ state: "visible" });
+    const accountNameInput = page.getByTestId("account-create-name-input");
+    await accountNameInput.waitFor({ state: "visible" });
     await appShell.assert.mxAssertEqual(
-      await page.getByTestId("account-create-name-input").count(),
-      0,
-      "account creation controls are hidden without account:manage",
+      await accountNameInput.isDisabled(),
+      true,
+      "account creation controls are read-only without account:manage",
     );
   });
 

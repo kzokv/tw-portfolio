@@ -1111,7 +1111,13 @@ describe("ReportsClient", () => {
     await act(async () => {});
     await act(async () => {});
 
-    const settingsPatch = fetchMock.mock.calls.find(([_input, init]) => init?.method === "PATCH");
+    const settingsPatch = fetchMock.mock.calls.find(([_input, init]) => {
+      if (init?.method !== "PATCH") return false;
+      const body = JSON.parse(String(init.body)) as {
+        holdingsTableSettings?: { contexts?: Record<string, unknown> };
+      };
+      return body.holdingsTableSettings?.contexts?.["reports.portfolio.tickerAllocation"] !== undefined;
+    });
     expect(settingsPatch).toBeDefined();
     const patchBody = JSON.parse(String(settingsPatch?.[1]?.body)) as {
       holdingsTableSettings?: {

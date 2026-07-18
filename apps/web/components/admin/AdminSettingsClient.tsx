@@ -51,6 +51,7 @@ import { NumericOverrideRow } from "./NumericOverrideRow";
 import { MaskedSecretInput } from "./MaskedSecretInput";
 import { useAdminI18n } from "./admin-i18n";
 import { McpStatusChip, mcpStatusTone } from "../connectors/McpUiPrimitives";
+import { TooltipInfo } from "../ui/TooltipInfo";
 import {
   AiClientGlyph,
   type CompatibleAiClientKind,
@@ -137,6 +138,11 @@ const ADMIN_SETTINGS_ZH: Record<string, string> = {
   "User defaults": "使用者預設",
   "Provider secrets": "資料提供者密鑰",
   "AI connector policy": "AI 連接器政策",
+  "Posted transaction mutations": "已入帳交易異動",
+  "Maximum transactions per batch": "每批交易上限",
+  "Default 50 · Effective {value} · No platform hard cap": "預設 50 · 實際 {value} · 平台沒有硬上限",
+  "Values above 200 are still allowed, but can cause large MCP payload or response failures, preview or client timeouts, longer account locks and revision conflicts, rebuild queue backlogs, or a client timeout after the server has already committed.": "超過 200 的值仍可儲存，但可能造成大型 MCP 請求或回應失敗、預覽或客戶端逾時、較長的帳戶鎖定與版本衝突、重建佇列壅塞，或伺服器已提交後客戶端才逾時。",
+  "Batch limit guidance": "批次上限說明",
   "Settings": "設定",
   "Runtime configuration. Changes apply immediately and are recorded in the audit log.": "執行階段設定。變更會立即生效並記錄到稽核記錄。",
   "Admin settings sections": "管理設定區段",
@@ -296,18 +302,20 @@ type McpNumericSettingKey =
   | "maxActiveConnectionsPerUser"
   | "inactivityExpiryDays"
   | "expirationWarningDays"
-  | "maxConnectorLifetimeDays";
+  | "maxConnectorLifetimeDays"
+  | "postedTransactionMutationBatchLimit";
 
 const MCP_NUMERIC_FIELDS: Array<{
   key: McpNumericSettingKey;
   label: string;
   min: number;
-  max: number;
+  max?: number;
 }> = [
   { key: "maxActiveConnectionsPerUser", label: "Max active connectors", min: 1, max: 20 },
   { key: "inactivityExpiryDays", label: "Inactivity expiry days", min: 1, max: 365 },
   { key: "expirationWarningDays", label: "Expiry warning days", min: 1, max: 30 },
   { key: "maxConnectorLifetimeDays", label: "Max connector lifetime days", min: 1, max: 365 },
+  { key: "postedTransactionMutationBatchLimit", label: "Maximum transactions per batch", min: 1 },
 ];
 
 function numericDraftsFromSettings(
@@ -318,6 +326,7 @@ function numericDraftsFromSettings(
     inactivityExpiryDays: String(settings.inactivityExpiryDays),
     expirationWarningDays: String(settings.expirationWarningDays),
     maxConnectorLifetimeDays: String(settings.maxConnectorLifetimeDays),
+    postedTransactionMutationBatchLimit: String(settings.postedTransactionMutationBatchLimit),
   };
 }
 
@@ -326,8 +335,12 @@ function parseMcpNumericDrafts(
 ): Pick<AiConnectorPolicySettingsDto, McpNumericSettingKey> {
   return Object.fromEntries(MCP_NUMERIC_FIELDS.map((field) => {
     const value = Number(drafts[field.key]);
-    if (!Number.isInteger(value) || value < field.min || value > field.max) {
-      throw new Error(`${field.label} must be an integer from ${field.min} to ${field.max}.`);
+    if (!Number.isInteger(value) || value < field.min || (field.max !== undefined && value > field.max)) {
+      throw new Error(
+        field.max !== undefined
+          ? `${field.label} must be an integer from ${field.min} to ${field.max}.`
+          : `${field.label} must be a positive integer.`,
+      );
     }
     return [field.key, value];
   })) as Pick<AiConnectorPolicySettingsDto, McpNumericSettingKey>;
@@ -1093,6 +1106,7 @@ function formatTimestamp(dateStr: string): string {
 function AdminMcpSettingsPanel({ active }: { active: boolean }) {
   const adminDict = useAdminI18n();
   const isZhTW = adminDict.common.justNow === "剛剛";
+  const t = (text: string) => translateAdminSettingsCopy(isZhTW, text);
   const [settings, setSettings] = useState<AiConnectorPolicySettingsDto | null>(null);
   const [issuerDraft, setIssuerDraft] = useState("");
   const [redirectAllowlistDraft, setRedirectAllowlistDraft] = useState("");
@@ -1169,6 +1183,8 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
     numericValidation = err instanceof Error ? err.message : adminDict.inputs.mcpNumericInvalid;
   }
   const numericDirty = MCP_NUMERIC_FIELDS.some((field) => currentNumericDrafts[field.key] !== String(settings[field.key]));
+  const mutationBatchLimitValue = Number(currentNumericDrafts.postedTransactionMutationBatchLimit);
+  const showMutationBatchLimitWarning = Number.isInteger(mutationBatchLimitValue) && mutationBatchLimitValue > 200;
   let redirectAllowlistValidation: string | null = null;
   let redirectAllowlistValues: string[] | null = null;
   try {
@@ -1493,7 +1509,7 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
 
         <div className="rounded-xl border border-slate-200 px-4 py-4">
           <div className="grid gap-4 md:grid-cols-3">
-            {MCP_NUMERIC_FIELDS.map((field) => (
+            {MCP_NUMERIC_FIELDS.filter((field) => field.key !== "postedTransactionMutationBatchLimit").map((field) => (
               <label key={field.key} className="text-sm font-medium text-slate-700">
                 {isZhTW
                   ? ({
@@ -1501,6 +1517,7 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
                     inactivityExpiryDays: "閒置到期天數",
                     expirationWarningDays: "到期警告天數",
                     maxConnectorLifetimeDays: "連接器最長有效天數",
+                    postedTransactionMutationBatchLimit: "每批交易上限",
                   } satisfies Record<McpNumericSettingKey, string>)[field.key]
                   : field.label}
                 <input
@@ -1520,6 +1537,57 @@ function AdminMcpSettingsPanel({ active }: { active: boolean }) {
                 />
               </label>
             ))}
+          </div>
+          <div className="mt-4 border-t border-slate-200 pt-4">
+            <div className="flex flex-wrap items-start gap-2">
+              <label
+                htmlFor="admin-settings-posted-transaction-mutation-batch-limit"
+                className="text-sm font-medium text-slate-700"
+              >
+                {t("Maximum transactions per batch")}
+              </label>
+              <TooltipInfo
+                label={t("Batch limit guidance")}
+                content={t("Values above 200 are still allowed, but can cause large MCP payload or response failures, preview or client timeouts, longer account locks and revision conflicts, rebuild queue backlogs, or a client timeout after the server has already committed.")}
+                triggerTestId="admin-settings-posted-transaction-mutation-batch-limit-tooltip-trigger"
+                contentTestId="admin-settings-posted-transaction-mutation-batch-limit-tooltip-content"
+              />
+            </div>
+            <input
+              id="admin-settings-posted-transaction-mutation-batch-limit"
+              type="number"
+              value={currentNumericDrafts.postedTransactionMutationBatchLimit}
+              min={1}
+              inputMode="numeric"
+              disabled={saving}
+              onChange={(event) => {
+                const { value } = event.target;
+                setNumericDrafts((current) => ({
+                  ...(current ?? numericDraftsFromSettings(settings)),
+                  postedTransactionMutationBatchLimit: value,
+                }));
+              }}
+              className="mt-2 block w-full max-w-xs rounded-xl border border-slate-200 px-3 py-2"
+              aria-describedby="admin-settings-posted-transaction-mutation-batch-limit-help admin-settings-posted-transaction-mutation-batch-limit-warning"
+            />
+            <p
+              id="admin-settings-posted-transaction-mutation-batch-limit-help"
+              className="mt-2 text-sm text-slate-600"
+            >
+              {t("Default 50 · Effective {value} · No platform hard cap").replace(
+                "{value}",
+                String(settings.postedTransactionMutationBatchLimit),
+              )}
+            </p>
+            {showMutationBatchLimitWarning ? (
+              <p
+                id="admin-settings-posted-transaction-mutation-batch-limit-warning"
+                className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800"
+                role="alert"
+              >
+                {t("Values above 200 are still allowed, but can cause large MCP payload or response failures, preview or client timeouts, longer account locks and revision conflicts, rebuild queue backlogs, or a client timeout after the server has already committed.")}
+              </p>
+            ) : null}
           </div>
           {numericValidation ? (
             <p className="mt-3 text-sm text-red-700" role="alert">{numericValidation}</p>

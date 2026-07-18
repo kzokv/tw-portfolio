@@ -51,4 +51,14 @@ describe("buildDividendCalendarRowFromEntry", () => {
     expect(row.event.dividendLedgerEntryId).toBeNull();
     expect(row.ledgerEntry).toBeNull();
   });
+
+  it("preserves unavailable expected stock quantity instead of coercing it to zero", () => {
+    const row = buildDividendCalendarRowFromEntry(buildEntry({
+      expectedStockQuantity: null,
+      expectedStockCalcState: "needs_action",
+      stockDistributionRatioState: "unresolved",
+    }));
+
+    expect(row.event.expectedStockQuantity).toBeNull();
+  });
 });

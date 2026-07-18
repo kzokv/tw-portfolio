@@ -15,6 +15,11 @@ import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, GripVertical, ListOrdered, M
 import { getJson, patchJson } from "../../lib/api";
 import type { AppDictionary } from "../../lib/i18n/types";
 import { cn } from "../../lib/utils";
+import {
+  fetchHoldingsPreferences,
+  persistHoldingsTableContexts,
+  resolveHoldingsTableContextPreference,
+} from "./holdingsPreferenceHelpers";
 import { Button } from "../ui/Button";
 import { Checkbox } from "../ui/shadcn/checkbox";
 import {
@@ -217,19 +222,31 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
 
   useEffect(() => {
     let cancelled = false;
-    void getJson<UserPreferencesResponse>("/user-preferences", { contextScope: "session" })
-      .then((response) => {
+    const hydratePreferences = preferenceNamespace === "holdingsTableSettings"
+      ? fetchHoldingsPreferences().then((response) => ({
+          contexts: response.holdingsTableSettings.contexts,
+          migrated: response.migratedHoldingsTableSettings,
+        }))
+      : getJson<UserPreferencesResponse>("/user-preferences", { contextScope: "session" })
+        .then((response) => {
+          const parsed = readPreferenceSchema(preferenceNamespace).safeParse(response?.preferences?.[preferenceNamespace]);
+          return {
+            contexts: parsed.success ? parsed.data.contexts : {},
+            migrated: false,
+          };
+        });
+    void hydratePreferences
+      .then(({ contexts: hydratedContexts }) => {
         if (cancelled) return;
-        const parsed = readPreferenceSchema(preferenceNamespace).safeParse(response?.preferences?.[preferenceNamespace]);
-        const nextContexts = parsed.success ? parsed.data.contexts : {};
+        const nextContexts = hydratedContexts;
         hasHydratedPreferencesRef.current = true;
         if (hasLocalEditRef.current) {
-          const localContext = contextsRef.current[contextKey] ?? serializeSettings(settingsRef.current);
+          const localContext = resolveHoldingsTableContextPreference(contextsRef.current, contextKey) ?? serializeSettings(settingsRef.current);
           const mergedContexts = {
             ...nextContexts,
             ...contextsRef.current,
             [contextKey]: {
-              ...nextContexts[contextKey],
+              ...resolveHoldingsTableContextPreference(nextContexts, contextKey),
               ...localContext,
             },
           };
@@ -237,7 +254,7 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
           setContexts(mergedContexts);
           setSettings((current) => {
             const next = normalizeContextSettings(
-              mergedContexts[contextKey],
+              resolveHoldingsTableContextPreference(mergedContexts, contextKey),
               columns,
               defaultLayoutStyle,
               defaultHiddenColumns,
@@ -247,14 +264,14 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
             );
             return columnSettingsEqual(current, next) ? current : next;
           });
-          persistContexts(mergedContexts);
+          persistContexts(mergedContexts, [contextKey]);
           return;
         }
         contextsRef.current = nextContexts;
         setContexts(nextContexts);
         setSettings((current) => {
           const next = normalizeContextSettings(
-            nextContexts[contextKey],
+            resolveHoldingsTableContextPreference(nextContexts, contextKey),
             columns,
             defaultLayoutStyle,
             defaultHiddenColumns,
@@ -282,7 +299,18 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     [columns, settings.columnOrder],
   );
 
-  function persistContexts(nextContexts: Record<string, HoldingsTableContextPreferenceDto>) {
+  function persistContexts(nextContexts: Record<string, HoldingsTableContextPreferenceDto>, dirtyContextKeys: string[]) {
+    if (preferenceNamespace === "holdingsTableSettings") {
+      const dirtyContexts = dirtyContextKeys.reduce<Record<string, HoldingsTableContextPreferenceDto>>((acc, key) => {
+        const context = nextContexts[key];
+        if (context) acc[key] = context;
+        return acc;
+      }, {});
+      void persistHoldingsTableContexts(dirtyContexts, nextContexts).catch((error) => {
+        setSettingsError(error instanceof Error ? error.message : String(error));
+      });
+      return;
+    }
     const payload = buildPreferencePayload(preferenceNamespace, nextContexts);
     void patchJson("/user-preferences", { [preferenceNamespace]: payload }, { contextScope: "session" })
       .catch((error) => {
@@ -299,7 +327,7 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     setSettings(next);
     setSettingsError("");
     if (hasHydratedPreferencesRef.current) {
-      persistContexts(mergedContexts);
+      persistContexts(mergedContexts, [contextKey]);
     }
   }
 
@@ -315,7 +343,7 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     setSettings(next);
     setSettingsError("");
     if (hasHydratedPreferencesRef.current) {
-      persistContexts(mergedContexts);
+      persistContexts(mergedContexts, [contextKey]);
     }
   }
 

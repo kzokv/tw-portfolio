@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { InjectOptions, LightMyRequestResponse } from "fastify";
 import type { ShareCapability } from "@vakwen/shared-types";
 import { buildApp } from "../../src/app.js";
@@ -153,6 +153,7 @@ describe("shared-context delegated capabilities", () => {
 
   it("[shared transaction write]: viewer with transaction:write can create and patch owner transaction", async () => {
     const { viewerUserId } = await createViewerShare(["portfolio:mcp_read", "transaction:write"]);
+    const commitMutation = vi.spyOn(app.persistence, "commitPostedTransactionMutation");
 
     const created = await app.inject({
       method: "POST",
@@ -194,7 +195,12 @@ describe("shared-context delegated capabilities", () => {
       },
     });
     expect(patched.statusCode).toBe(202);
-
+    expect(commitMutation).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "user-1",
+      auditEntry: expect.objectContaining({ actorUserId: viewerUserId }),
+      run: expect.objectContaining({ actorUserId: viewerUserId }),
+      replayRun: expect.objectContaining({ sessionUserId: viewerUserId }),
+    }));
   });
 
   it("[shared transaction write]: viewer without transaction:write gets shared_capability_required", async () => {
@@ -229,6 +235,238 @@ describe("shared-context delegated capabilities", () => {
         routeKey: "POST /portfolio/transactions",
       },
     });
+  });
+
+  it("[shared transaction mutation]: delegated actor can open its preview and run deep links", async () => {
+    const { viewerUserId } = await createViewerShare(["portfolio:mcp_read", "transaction:write"]);
+    const headers = {
+      "x-user-id": viewerUserId,
+      "x-user-role": "viewer",
+      "x-context-user-id": "user-1",
+    };
+    const created = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { ...headers, "idempotency-key": "shared-context-mutation-link-1" },
+      payload: {
+        accountId: "acc-1",
+        ticker: "2330",
+        marketCode: "TW",
+        quantity: 1,
+        unitPrice: 100,
+        priceCurrency: "TWD",
+        tradeDate: "2026-01-02",
+        type: "BUY",
+      },
+    });
+    expect(created.statusCode).toBe(200);
+    const transactionId = created.json<{ id: string }>().id;
+
+    const previewResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions/mutations/update-preview",
+      headers,
+      payload: {
+        reason: "Correct delegated transaction",
+        items: [{ transactionId, patch: { quantity: 2 } }],
+      },
+    });
+    expect(previewResponse.statusCode).toBe(200);
+    const preview = previewResponse.json<{
+      previewId: string;
+      previewVersion: number;
+      operation: "update";
+      fingerprint: string;
+      confirmationSummary: string;
+      confirmationDigest: string;
+      deepLinks: {
+        previewPath: string;
+        transactionPath: string;
+        previewUrl: string;
+      };
+    }>();
+    expect(preview.deepLinks).toMatchObject({
+      previewPath: `/transactions/mutations/previews/${preview.previewId}?as=user-1`,
+      transactionPath: "/transactions?as=user-1",
+    });
+    expect(preview.deepLinks.previewUrl.endsWith(
+      `/transactions/mutations/previews/${preview.previewId}?as=user-1`,
+    )).toBe(true);
+
+    const previewLink = await app.inject({
+      method: "GET",
+      url: `/portfolio/transactions/mutations/previews/${preview.previewId}`,
+      headers,
+    });
+    expect(previewLink.statusCode).toBe(200);
+
+    const confirmed = await app.inject({
+      method: "POST",
+      url: `/portfolio/transactions/mutations/previews/${preview.previewId}/confirm`,
+      headers,
+      payload: {
+        previewVersion: preview.previewVersion,
+        operation: preview.operation,
+        fingerprint: preview.fingerprint,
+        confirmationSummary: preview.confirmationSummary,
+        confirmationDigest: preview.confirmationDigest,
+      },
+    });
+    expect(confirmed.statusCode).toBe(200);
+    const run = confirmed.json<{
+      runId: string;
+      deepLinks: { previewPath: string; runPath: string; transactionPath: string; runUrl: string };
+    }>();
+    const runId = run.runId;
+    expect(run.deepLinks).toMatchObject({
+      previewPath: `/transactions/mutations/previews/${preview.previewId}?as=user-1`,
+      runPath: `/transactions/mutations/runs/${runId}?as=user-1`,
+      transactionPath: "/transactions?as=user-1",
+    });
+    expect(run.deepLinks.runUrl.endsWith(`/transactions/mutations/runs/${runId}?as=user-1`)).toBe(true);
+
+    const runLink = await app.inject({
+      method: "GET",
+      url: `/portfolio/transactions/mutations/runs/${runId}`,
+      headers,
+    });
+    expect(runLink.statusCode).toBe(200);
+    expect(runLink.json()).toMatchObject({ runId, previewId: preview.previewId });
+  });
+
+  it("[shared transaction mutation]: viewer without transaction:write cannot preview or confirm mutations", async () => {
+    const { viewerUserId } = await createViewerShare(["portfolio:mcp_read"]);
+    const headers = {
+      "x-user-id": viewerUserId,
+      "x-user-role": "viewer",
+      "x-context-user-id": "user-1",
+    };
+    const requests = [
+      {
+        url: "/portfolio/transactions/mutations/update-preview",
+        payload: {
+          reason: "Unauthorized correction attempt",
+          items: [{ transactionId: "shared-guard-trade", patch: { quantity: 2 } }],
+        },
+        routeKey: "POST /portfolio/transactions/mutations/update-preview",
+      },
+      {
+        url: "/portfolio/transactions/mutations/delete-preview",
+        payload: {
+          reason: "Unauthorized deletion attempt",
+          items: [{ transactionId: "shared-guard-trade" }],
+        },
+        routeKey: "POST /portfolio/transactions/mutations/delete-preview",
+      },
+      {
+        url: "/portfolio/transactions/mutations/previews/shared-guard-preview/confirm",
+        payload: {
+          previewVersion: 1,
+          operation: "update",
+          fingerprint: "shared-guard-fingerprint",
+          confirmationSummary: "Unauthorized confirmation attempt",
+          confirmationDigest: "shared-guard-digest",
+        },
+        routeKey: "POST /portfolio/transactions/mutations/previews/:previewId/confirm",
+      },
+    ] as const;
+
+    for (const request of requests) {
+      const response = await app.inject({
+        method: "POST",
+        url: request.url,
+        headers,
+        payload: request.payload,
+      });
+
+      expect(response.statusCode).toBe(403);
+      expect(response.json()).toMatchObject({
+        error: "shared_capability_required",
+        metadata: {
+          requiredCapability: "transaction:write",
+          routeKey: request.routeKey,
+        },
+      });
+    }
+  });
+
+  it("[shared transaction mutation]: dividend-impact previews require dividend:write before persistence", async () => {
+    const { viewerUserId } = await createViewerShare(["portfolio:mcp_read", "transaction:write"]);
+    await seedSharedDividendForOwner();
+    const savePreview = vi.spyOn(app.persistence, "savePostedTransactionMutationPreview");
+    const headers = {
+      "x-user-id": viewerUserId,
+      "x-user-role": "viewer",
+      "x-context-user-id": "user-1",
+    };
+    const previewResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions/mutations/update-preview",
+      headers,
+      payload: {
+        reason: "Move purchases beyond dividend eligibility",
+        items: [
+          { transactionId: "shared-dividend-buy-1", patch: { tradeDate: "2026-02-02" } },
+          { transactionId: "shared-dividend-buy-2", patch: { tradeDate: "2026-02-03" } },
+        ],
+      },
+    });
+    expect(previewResponse.statusCode).toBe(403);
+    expect(previewResponse.json()).toMatchObject({
+      error: "shared_capability_required",
+      metadata: {
+        requiredCapability: "dividend:write",
+        routeKey: "POST /portfolio/transactions/mutations/update-preview",
+      },
+    });
+    expect(savePreview).not.toHaveBeenCalled();
+
+    const deletePreview = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions/mutations/delete-preview",
+      headers,
+      payload: {
+        reason: "Remove delegated dividend-eligible transactions",
+        items: [
+          { transactionId: "shared-dividend-buy-1" },
+          { transactionId: "shared-dividend-buy-2" },
+        ],
+      },
+    });
+    expect(deletePreview.statusCode).toBe(403);
+    expect(deletePreview.json()).toMatchObject({
+      error: "shared_capability_required",
+      metadata: {
+        requiredCapability: "dividend:write",
+        routeKey: "POST /portfolio/transactions/mutations/delete-preview",
+      },
+    });
+    expect(savePreview).not.toHaveBeenCalled();
+
+    const ownerStore = await app.persistence.loadStore("user-1");
+    ownerStore.accounting.facts.tradeEvents = ownerStore.accounting.facts.tradeEvents.filter(
+      (trade) => trade.id !== "shared-dividend-buy-2",
+    );
+    await app.persistence.saveStore(ownerStore);
+    await replayPositionHistory(app.persistence, "user-1", "acc-1", "2330", { marketCode: "TW" });
+
+    const legacyPatch = await app.inject({
+      method: "PATCH",
+      url: "/portfolio/transactions/shared-dividend-buy-1",
+      headers,
+      payload: {
+        date: "2026-02-02",
+      },
+    });
+    expect(legacyPatch.statusCode).toBe(403);
+    expect(legacyPatch.json()).toMatchObject({
+      error: "shared_capability_required",
+      metadata: {
+        requiredCapability: "dividend:write",
+        routeKey: "PATCH /portfolio/transactions/:tradeEventId",
+      },
+    });
+    expect(savePreview).not.toHaveBeenCalled();
   });
 
   it("[shared dividend write]: viewer with dividend:write can post and reconcile owner dividend entries", async () => {
@@ -976,5 +1214,45 @@ describe("shared-context delegated capabilities", () => {
         }),
       ]),
     );
+  });
+
+  it("[shared dividend read]: read-only viewer can preview provider provenance but cannot confirm", async () => {
+    await seedSharedDividendForOwner();
+    const { viewerUserId } = await createViewerShare(["portfolio:mcp_read"]);
+    const headers = {
+      "x-user-id": viewerUserId,
+      "x-user-role": "viewer",
+      "x-context-user-id": "user-1",
+    };
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/calculations/preview",
+      headers,
+      payload: {
+        accountId: "acc-1",
+        dividendEventId: "shared-dividend-write-event",
+        method: "provider_ratio",
+      },
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json()).toMatchObject({
+      providerUnit: "RATIO",
+      ratio: "0.1",
+      expectedWholeShares: 150,
+    });
+
+    const confirm = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/calculations/confirm",
+      headers: { ...headers, "idempotency-key": "read-only-confirm" },
+      payload: {
+        accountId: "acc-1",
+        dividendEventId: "shared-dividend-write-event",
+        method: "provider_ratio",
+        expectedActiveCalculationId: null,
+      },
+    });
+    expect(confirm.statusCode).toBe(403);
   });
 });

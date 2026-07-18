@@ -82,6 +82,7 @@ export interface TSettingsDrawerElements extends TElementLocatorHelpers {
     profileRow: (accountId: string, profileId: string) => Locator;
     profileEditButton: (profileId: string) => Locator;
     profileNameInput: (profileId: string) => Locator;
+    profileDiscountInput: (profileId: string) => Locator;
     profileEditDoneButton: (profileId: string) => Locator;
     deleteButton: (accountId: string) => Locator;
     softDeleteModal: Locator;
@@ -298,6 +299,11 @@ export class SettingsDrawerPage extends BasePage<TSettingsDrawerElements> {
           this.locate(
             `accounts-profile-name-input-${profileId}`,
             `Profile Name Input (${profileId})`,
+          ),
+        profileDiscountInput: (profileId) =>
+          this.locate(
+            `accounts-profile-discount-${profileId}`,
+            `Profile Discount Input (${profileId})`,
           ),
         profileEditDoneButton: (profileId) =>
           this.locate(

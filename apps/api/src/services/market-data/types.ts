@@ -72,6 +72,11 @@ export interface DividendRecord {
   cashDividendPerShare: number;
   stockDividendPerShare: number;
   stockDistributionAmountRaw?: number | null;
+  stockProviderValue?: number | null;
+  stockProviderValueUnit?: "RATIO" | "TWD_PER_SHARE" | "UNKNOWN" | null;
+  stockProviderSource?: string | null;
+  stockProviderDataset?: string | null;
+  stockProviderAuthoritativeRatio?: number | null;
   stockDistributionRatio?: number | null;
   stockDistributionRatioState?: "authoritative" | "derived_non_authoritative" | "unresolved";
   stockParValueAmount?: number | null;

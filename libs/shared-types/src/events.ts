@@ -164,6 +164,62 @@ export interface CurrencyWalletRecomputedEvent {
   }>;
 }
 
+export interface PortfolioTransactionsChangedEvent {
+  type: "portfolio_transactions_changed";
+  reason: "posted_transaction_mutation_committed";
+  runId: string;
+  previewId: string;
+  operation: "update" | "delete";
+  affectedAccountIds: string[];
+  affectedTickers: Array<{ ticker: string; marketCode: string }>;
+  invalidatedReads: string[];
+  invalidatedRoutes: string[];
+}
+
+export interface PortfolioHoldingsChangedEvent {
+  type: "portfolio_holdings_changed";
+  reason: "posted_transaction_mutation_committed";
+  runId: string;
+  previewId: string;
+  operation: "update" | "delete";
+  affectedAccountIds: string[];
+  affectedTickers: Array<{ ticker: string; marketCode: string }>;
+  invalidatedReads: string[];
+  invalidatedRoutes: string[];
+}
+
+export interface PortfolioDividendsChangedEvent {
+  type: "portfolio_dividends_changed";
+  reason: "posted_transaction_mutation_committed";
+  runId: string;
+  previewId: string;
+  operation: "update" | "delete";
+  affectedAccountIds: string[];
+  affectedTickers: Array<{ ticker: string; marketCode: string }>;
+  invalidatedReads: string[];
+  invalidatedRoutes: string[];
+}
+
+export interface AuditLogChangedEvent {
+  type: "audit_log_changed";
+  reason: "posted_transaction_mutation_committed";
+  runId: string;
+  previewId: string;
+  action: "delegated_portfolio_write";
+  invalidatedReads: string[];
+  invalidatedRoutes: string[];
+}
+
+export interface PostedTransactionMutationRebuildEvent {
+  type: "posted_transaction_mutation_rebuild";
+  runId: string;
+  previewId: string;
+  operation: "update" | "delete";
+  status: "queued" | "running" | "completed" | "partially_failed" | "failed";
+  affectedAccountIds: string[];
+  affectedTickers: Array<{ ticker: string; marketCode: string }>;
+}
+
 /**
  * ui-enhancement — account lifecycle events.
  *
@@ -211,6 +267,11 @@ export type SSEEvent =
   | SnapshotsGeneratedEvent
   | WalletGenerationFailedEvent
   | CurrencyWalletRecomputedEvent
+  | PortfolioTransactionsChangedEvent
+  | PortfolioHoldingsChangedEvent
+  | PortfolioDividendsChangedEvent
+  | AuditLogChangedEvent
+  | PostedTransactionMutationRebuildEvent
   | AccountSoftDeletedEvent
   | AccountRestoredEvent
   | AccountHardPurgedEvent;
@@ -235,6 +296,11 @@ export type SSEDomainEventType =
   | "snapshots_generated"
   | "wallet_generation_failed"
   | "currency_wallet_recomputed"
+  | "portfolio_transactions_changed"
+  | "portfolio_holdings_changed"
+  | "portfolio_dividends_changed"
+  | "audit_log_changed"
+  | "posted_transaction_mutation_rebuild"
   | "account_soft_deleted"
   | "account_restored"
   | "account_hard_purged";
