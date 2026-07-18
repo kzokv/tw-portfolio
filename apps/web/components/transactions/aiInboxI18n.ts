@@ -83,6 +83,7 @@ export const aiInboxCopy: Record<LocaleCode, {
   deleteConfirm: string;
   notProvided: string;
   ariaSelectRow: string;
+  postedTransactionDeleted: string;
 }> = {
   en: {
     title: "AI Inbox",
@@ -167,6 +168,7 @@ export const aiInboxCopy: Record<LocaleCode, {
     deleteConfirm: "Delete this AI draft batch? Unposted rows will be removed.",
     notProvided: "not provided",
     ariaSelectRow: "Select draft row",
+    postedTransactionDeleted: "Posted transaction deleted",
   },
   "zh-TW": {
     title: "AI Inbox",
@@ -251,5 +253,6 @@ export const aiInboxCopy: Record<LocaleCode, {
     deleteConfirm: "要刪除這個 AI 草稿批次嗎？未送出的資料列將一併移除。",
     notProvided: "未提供",
     ariaSelectRow: "選取草稿資料列",
+    postedTransactionDeleted: "已刪除已送出交易",
   },
 };

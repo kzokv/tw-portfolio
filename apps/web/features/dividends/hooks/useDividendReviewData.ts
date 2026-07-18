@@ -51,6 +51,8 @@ function filtersFromQuery(query: DividendReviewPrimaryQueryDto): DividendReviewF
     ticker: query.ticker,
     marketCode: query.marketCode,
     postingStatus: query.postingStatus,
+    cashStatus: query.cashStatus,
+    stockStatus: query.stockStatus,
     reconciliationStatus: query.reconciliationStatus,
     excludeExpected: query.excludeExpected,
     sourceComposition: query.sourceComposition,

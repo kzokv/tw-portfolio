@@ -1,5 +1,10 @@
 import type { BackfillStatus, CurrencyCode, InstrumentRef, InstrumentType, Lot, VerificationStatus } from "@vakwen/domain";
 import type {
+  AccountMarketDividendSettingsDto,
+  DividendCalculationAmendRequestDto,
+  DividendCalculationConfirmRequestDto,
+  DividendCalculationResetRequestDto,
+  DividendCalculationVersionDto,
   AiConnectorAccessKind,
   AiConnectorAccessResult,
   AiConnectorAuthMode,
@@ -401,6 +406,11 @@ export type AuditLogAction =
   | "account_soft_deleted"
   | "account_restored"
   | "account_hard_purged"
+  | "account_market_dividend_settings_updated"
+  | "dividend_calculation_confirmed"
+  | "dividend_calculation_reset"
+  | "dividend_calculation_amended"
+  | "dividend_stock_reconciliation_updated"
   | "dividend_destructive_preview_created"
   | "dividend_destructive_confirmed"
   | "dividend_destructive_failed"
@@ -703,7 +713,7 @@ export interface ListAiConnectorAccessLogsOptions {
 export interface AiTransactionDraftBatchRecord {
   id: string;
   ownerUserId: string;
-  createdByUserId: string;
+  createdByUserId: string | null;
   connectorConnectionId: string | null;
   shareId: string | null;
   sourceChannel: AiTransactionDraftSourceChannel;
@@ -726,7 +736,7 @@ export interface AiTransactionDraftBatchRecord {
 export interface SaveAiTransactionDraftBatchInput {
   id: string;
   ownerUserId: string;
-  createdByUserId: string;
+  createdByUserId: string | null;
   connectorConnectionId?: string | null;
   shareId?: string | null;
   sourceChannel: AiTransactionDraftSourceChannel;
@@ -942,6 +952,7 @@ export interface TradeEventPatch {
   quantity?: number;
   price?: number;
   side?: "BUY" | "SELL";
+  isDayTrade?: boolean;
   commissionAmount?: number;
   taxAmount?: number;
   feesSource?: "CALCULATED" | "MANUAL" | "SOURCE_PROVIDED";
@@ -978,6 +989,7 @@ export interface AccountingStoreAuditOptions {
     accountId: string;
     revision: number;
   };
+  expectedAccountRevisions?: Record<string, number>;
   deleteHoldingSnapshotScopes?: Array<{
     accountId: string;
     ticker: string;
@@ -1291,6 +1303,8 @@ export interface DividendLedgerListOptions {
 export interface DividendReviewListOptions extends Omit<DividendLedgerListOptions, "sortBy"> {
   sortBy: DividendReviewSortColumn;
   sourceComposition?: DividendReviewPrimaryQueryDto["sourceComposition"];
+  cashStatus?: DividendReviewPrimaryQueryDto["cashStatus"];
+  stockStatus?: DividendReviewPrimaryQueryDto["stockStatus"];
 }
 
 export type DividendReviewPrimaryResult = {
@@ -1354,13 +1368,13 @@ export type DividendReviewRowWithDetails = DividendLedgerEntryWithDetails & {
   stockDistributionRatio?: number | null;
   stockDistributionRatioState?: import("@vakwen/shared-types").StockDistributionRatioState;
   expectedStockCalcState?: import("@vakwen/shared-types").ExpectedStockCalcState;
-  nhiAmount?: number;
-  bankFeeAmount?: number;
-  otherDeductionAmount?: number;
-  expectedGrossAmount?: number;
-  expectedNetAmount?: number;
-  actualNetAmount?: number;
-  varianceAmount?: number;
+  nhiAmount?: number | null;
+  bankFeeAmount?: number | null;
+  otherDeductionAmount?: number | null;
+  expectedGrossAmount?: number | null;
+  expectedNetAmount?: number | null;
+  actualNetAmount?: number | null;
+  varianceAmount?: number | null;
   correctionMode?: "in_place" | "amend" | "reversal_replacement" | null;
   amendmentBlockedReason?: string | null;
   linkedPositionActionId?: string | null;
@@ -1370,11 +1384,19 @@ export type DividendReviewRowWithDetails = DividendLedgerEntryWithDetails & {
   premiumBaseAmount?: number | null;
   nhiPremiumBaseAmount?: number | null;
   portfolioCostBasisAddedAmount?: number | null;
+  calculationHistory?: DividendCalculationVersionDto[];
+  activeCalculation?: DividendCalculationVersionDto | null;
+  provider?: DividendCalculationVersionDto["provider"] | null;
+  stockVarianceQuantity?: number | null;
   snapshotRefreshStatus?: "idle" | "queued" | "running" | "complete" | "failed" | null;
 };
 
+export type DividendReviewResponseRowWithDetails = Omit<DividendReviewRowWithDetails, "expectedStockQuantity"> & {
+  expectedStockQuantity: number | null;
+};
+
 export interface DividendReviewListResult {
-  rows: DividendReviewRowWithDetails[];
+  rows: DividendReviewResponseRowWithDetails[];
   total: number;
   aggregates: DividendLedgerAggregates;
 }
@@ -2282,6 +2304,8 @@ export interface McpReplayRunScopeRecord extends McpReplayScopeRecord {
   errorMessage: string | null;
   replayedTradeCount: number | null;
   snapshotGenerationRunId: string | null;
+  earliestReplayDate?: string;
+  deletedTradeEventIds?: string[];
   updatedAt: string;
 }
 
@@ -2295,6 +2319,126 @@ export interface McpReplayRunRecord {
   startedAt: string | null;
   finishedAt: string | null;
   scopes: McpReplayRunScopeRecord[];
+}
+
+export type PostedTransactionMutationOperationRecord = "update" | "delete";
+export type PostedTransactionMutationPreviewStatusRecord = "ready" | "expired" | "stale" | "confirmed" | "failed";
+export type PostedTransactionMutationRunStatusRecord = "queued" | "running" | "completed" | "partially_failed" | "failed";
+export type PostedTransactionMutationRebuildStatusRecord = "pending" | "running" | "completed" | "partially_failed" | "failed";
+export type PostedTransactionMutationItemStatusRecord = "changed" | "deleted" | "unchanged" | "blocked";
+
+export interface PostedTransactionMutationErrorRecord {
+  code: string;
+  message: string;
+  transactionId?: string | null;
+}
+
+export interface PostedTransactionMutationScopeRecord {
+  accountId: string;
+  accountName: string;
+  ticker: string;
+  marketCode: MarketCode;
+  earliestReplayDate: string;
+  accountRevision: number;
+  fingerprint: string;
+  status?: PostedTransactionMutationRunStatusRecord | PostedTransactionMutationItemStatusRecord;
+  errorMessage?: string | null;
+  replayRunId?: string | null;
+}
+
+export interface PostedTransactionMutationPreviewItemRecord {
+  transactionId: string;
+  status: PostedTransactionMutationItemStatusRecord;
+  note?: string | null;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  impacts: {
+    quantityDelta: number;
+    costBasisDelta: number;
+    realizedPnlDelta: number;
+    cashDelta: number;
+    reopenedDividendCount: number;
+    deletedDividendCount: number;
+  };
+  warnings: string[];
+  blockers: string[];
+  errors: PostedTransactionMutationErrorRecord[];
+}
+
+export interface PostedTransactionMutationPreviewRecord {
+  id: string;
+  ownerUserId: string;
+  actorUserId: string | null;
+  operation: PostedTransactionMutationOperationRecord;
+  status: PostedTransactionMutationPreviewStatusRecord;
+  version: number;
+  reason: string;
+  confirmationSummary: string;
+  confirmationDigest: string;
+  fingerprint: string;
+  batchLimit: number;
+  summary: {
+    quantityDelta: number;
+    costBasisDelta: number;
+    realizedPnlDelta: number;
+    cashDelta: number;
+    reopenedDividendCount: number;
+    deletedDividendCount: number;
+  };
+  warnings: string[];
+  blockers: string[];
+  errors: PostedTransactionMutationErrorRecord[];
+  affectedAccountIds: string[];
+  affectedTickers: Array<{ ticker: string; marketCode: MarketCode }>;
+  scopes: PostedTransactionMutationScopeRecord[];
+  accountRevisions: Record<string, number>;
+  items: PostedTransactionMutationPreviewItemRecord[];
+  finalAccounting: AccountingStore;
+  replayScopes: Array<{
+    accountId: string;
+    ticker: string;
+    marketCode: MarketCode;
+    fromDate: string;
+    deletedTradeEventIds?: string[];
+  }>;
+  createdAt: string;
+  expiresAt: string;
+  confirmedAt: string | null;
+  confirmedRunId: string | null;
+}
+
+export interface PostedTransactionMutationRunRecord {
+  id: string;
+  previewId: string;
+  ownerUserId: string;
+  actorUserId: string | null;
+  operation: PostedTransactionMutationOperationRecord;
+  status: PostedTransactionMutationRunStatusRecord;
+  rebuildStatus: PostedTransactionMutationRebuildStatusRecord;
+  reason: string;
+  warnings: string[];
+  blockers: string[];
+  errors: PostedTransactionMutationErrorRecord[];
+  summary: PostedTransactionMutationPreviewRecord["summary"];
+  affectedAccountIds: string[];
+  affectedTickers: Array<{ ticker: string; marketCode: MarketCode }>;
+  scopes: PostedTransactionMutationScopeRecord[];
+  fingerprint: string;
+  confirmationDigest: string;
+  replayRunId: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+export interface PostedTransactionMutationDeletedDraftLineageRecord {
+  tradeEventId: string;
+  ownerUserId: string;
+  batchId: string;
+  rowId: string;
+  deletedAt: string;
+  deletedByUserId: string | null;
+  mutationRunId: string;
 }
 
 // ── Currency wallet snapshots (KZO-165) ───────────────────────────────────────
@@ -2770,6 +2914,66 @@ export interface Persistence {
    * deleted. Memory backend is a no-op (returns 0).
    */
   purgeTerminalAnonymousShareTokens(olderThanMs: number): Promise<number>;
+  getAccountMarketDividendSettings(
+    userId: string,
+    accountId: string,
+    marketCode: MarketCode,
+  ): Promise<AccountMarketDividendSettingsDto>;
+  patchAccountMarketDividendSettings(
+    userId: string,
+    input: {
+      accountId: string;
+      marketCode: MarketCode;
+      fallbackParValue: string | null;
+      expectedVersion?: number;
+      auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+    },
+  ): Promise<AccountMarketDividendSettingsDto>;
+  getLatestDividendCalculation(
+    userId: string,
+    accountId: string,
+    dividendEventId: string,
+  ): Promise<DividendCalculationVersionDto | null>;
+  confirmDividendCalculation(
+    userId: string,
+    input: DividendCalculationConfirmRequestDto & {
+      providerValue: string | null;
+      providerUnit: "RATIO" | "TWD_PER_SHARE" | "UNKNOWN" | null;
+      providerSource: string | null;
+      providerDataset: string | null;
+      providerAuthoritativeRatio: string | null;
+      ratio: string;
+      theoreticalShares: string;
+      expectedWholeShares: number;
+      fractionalRemainder: string;
+      requiresHighRatioConfirmation: boolean;
+      drift: import("@vakwen/shared-types").DividendCalculationDriftDto | null;
+      auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+    },
+  ): Promise<DividendCalculationVersionDto>;
+  resetDividendCalculation(
+    userId: string,
+    input: DividendCalculationResetRequestDto & {
+      auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+    },
+  ): Promise<void>;
+  amendDividendCalculation(
+    userId: string,
+    input: DividendCalculationAmendRequestDto & {
+      providerValue: string | null;
+      providerUnit: "RATIO" | "TWD_PER_SHARE" | "UNKNOWN" | null;
+      providerSource: string | null;
+      providerDataset: string | null;
+      providerAuthoritativeRatio: string | null;
+      ratio: string;
+      theoreticalShares: string;
+      expectedWholeShares: number;
+      fractionalRemainder: string;
+      requiresHighRatioConfirmation: boolean;
+      drift: import("@vakwen/shared-types").DividendCalculationDriftDto | null;
+      auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+    },
+  ): Promise<DividendCalculationVersionDto>;
   loadStore(userId: string): Promise<Store>;
   /**
    * Load the narrow store shape required by first-paint portfolio/dashboard
@@ -2820,6 +3024,18 @@ export interface Persistence {
     auditEntry: AuditLogInput,
     options?: AccountingStoreAuditOptions,
   ): Promise<void>;
+  commitPostedTransactionMutation(input: {
+    userId: string;
+    accounting: AccountingStore;
+    auditEntry: AuditLogInput;
+    preview: PostedTransactionMutationPreviewRecord;
+    replayPreview: McpReplayPreviewRecord;
+    run: PostedTransactionMutationRunRecord;
+    replayRun: McpReplayRunRecord;
+    options: AccountingStoreAuditOptions & {
+      deletedDraftLineage?: PostedTransactionMutationDeletedDraftLineageRecord[];
+    };
+  }): Promise<void>;
   getAccountAccountingRevision(userId: string, accountId: string): Promise<number>;
   savePostedTrade(userId: string, accounting: AccountingStore, tradeEventId: string): Promise<void>;
   savePostedDividend(
@@ -2851,13 +3067,21 @@ export interface Persistence {
   getDividendReviewRowDetail(
     userId: string,
     dividendLedgerEntryId: string,
-  ): Promise<DividendReviewRowWithDetails | null>;
+  ): Promise<DividendReviewResponseRowWithDetails | null>;
   updateDividendReconciliationStatus(
     userId: string,
     dividendLedgerEntryId: string,
     status: DividendLedgerEntry["reconciliationStatus"],
     note?: string,
     expectedVersion?: number,
+  ): Promise<DividendLedgerEntry>;
+  updateDividendStockReconciliationStatus(
+    userId: string,
+    dividendLedgerEntryId: string,
+    status: NonNullable<DividendLedgerEntry["stockReconciliationStatus"]>,
+    note?: string | null,
+    expectedVersion?: number,
+    auditInput?: Omit<AuditLogInput, "action" | "targetUserId">,
   ): Promise<DividendLedgerEntry>;
   updatePostedCashDividend(userId: string, input: UpdatePostedCashDividendInput): Promise<DividendLedgerEntry>;
   /**
@@ -3530,6 +3754,16 @@ export interface Persistence {
     startedAt?: string | null;
     finishedAt?: string | null;
   }): Promise<void>;
+  savePostedTransactionMutationPreview(record: PostedTransactionMutationPreviewRecord): Promise<void>;
+  getPostedTransactionMutationPreview(id: string): Promise<PostedTransactionMutationPreviewRecord | null>;
+  savePostedTransactionMutationRun(record: PostedTransactionMutationRunRecord): Promise<void>;
+  getPostedTransactionMutationRun(id: string): Promise<PostedTransactionMutationRunRecord | null>;
+  savePostedTransactionMutationDeletedDraftLineage(record: PostedTransactionMutationDeletedDraftLineageRecord): Promise<void>;
+  listPostedTransactionMutationDeletedDraftLineage(
+    ownerUserId: string,
+    tradeEventIds: readonly string[],
+    draftRowIds?: readonly string[],
+  ): Promise<PostedTransactionMutationDeletedDraftLineageRecord[]>;
 
   // Currency wallet snapshots (KZO-165) — minimal aggregator stub. WAC + FX is KZO-166.
   /**

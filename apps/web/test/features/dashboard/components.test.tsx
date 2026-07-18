@@ -798,7 +798,7 @@ describe("dashboard components", () => {
     click(largestButton!);
     await flushPromises();
 
-    const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
+    const patchCall = fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH").at(-1);
     expect(patchCall).toBeDefined();
     expect(JSON.parse(String(patchCall?.[1]?.body))).toEqual({
       dashboardHoldingFocus: {
@@ -858,15 +858,23 @@ describe("dashboard components", () => {
     click(moveRight!);
     await flushPromises();
 
-    const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
+    const reorderedHeaders = [...container.querySelectorAll('[data-testid^="holdings-column-drag-"]')];
+    expect(reorderedHeaders[0]?.getAttribute("data-testid")).toBe("holdings-column-drag-ticker");
+    const patchCall = fetchMock.mock.calls.find(([, init]) => {
+      if (init?.method !== "PATCH") return false;
+      const body = JSON.parse(String(init.body)) as {
+        holdingsTableSettings?: { contexts?: Record<string, { columnOrder?: string[] }> };
+      };
+      return body.holdingsTableSettings?.contexts?.["dashboard.topHoldings"]?.columnOrder?.[0] === "ticker";
+    });
     expect(patchCall).toBeDefined();
     const patchBody = JSON.parse(String(patchCall?.[1]?.body)) as {
       holdingsTableSettings: { contexts: Record<string, { columnOrder: string[]; columnWidths: Record<string, number> }> };
     };
-    expect(patchBody.holdingsTableSettings.contexts["holdings.shared"]?.columnOrder).toEqual(
+    expect(patchBody.holdingsTableSettings.contexts["dashboard.topHoldings"]?.columnOrder).toEqual(
       ["ticker", "pnl", "position", "avgCost", "price", "unitPnl", "marketValue", "costBasis", "daily", "health", "action"],
     );
-    expect(patchBody.holdingsTableSettings.contexts["holdings.shared"]?.columnWidths.pnl).toBe(222);
+    expect(patchBody.holdingsTableSettings.contexts["dashboard.topHoldings"]?.columnWidths.pnl).toBe(222);
 
     const resetButton = [...document.body.querySelectorAll("button")]
       .find((button) => button.textContent?.includes(dict.holdings.resetColumnsLabel));
@@ -877,7 +885,7 @@ describe("dashboard components", () => {
     const resetPatchBody = JSON.parse(String(fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH").at(-1)?.[1]?.body)) as {
       holdingsTableSettings: { contexts: Record<string, { columnOrder: string[]; rowOrder: string[]; topHoldingsLimit: number }> };
     };
-    expect(resetPatchBody.holdingsTableSettings.contexts["holdings.shared"]).toMatchObject({
+    expect(resetPatchBody.holdingsTableSettings.contexts["dashboard.topHoldings"]).toMatchObject({
       columnOrder: ["ticker", "position", "avgCost", "price", "unitPnl", "marketValue", "costBasis", "daily", "pnl", "health", "action"],
       rowOrder: ["US:AAPL", "TW:2330"],
       topHoldingsLimit: 8,
@@ -935,7 +943,7 @@ describe("dashboard components", () => {
     expect(rowSettingsRows[1]?.getAttribute("data-testid")).toBe("dashboard-holdings-row-drag-US:AAPL");
   });
 
-  it("hydrates and persists shared dashboard row order and top holdings count", async () => {
+  it("hydrates legacy dashboard settings and persists row order and top holdings count in the stable context", async () => {
     const fetchMock = mockUserPreferencesFetch({
       holdingsTableSettings: {
         version: 1,
@@ -1011,7 +1019,7 @@ describe("dashboard components", () => {
     const patchBody = JSON.parse(String(patchCalls.at(-1)?.[1]?.body)) as {
       holdingsTableSettings: { contexts: Record<string, { rowOrder: string[]; topHoldingsLimit: number }> };
     };
-    expect(patchBody.holdingsTableSettings.contexts["holdings.shared"]).toMatchObject({
+    expect(patchBody.holdingsTableSettings.contexts["dashboard.topHoldings"]).toMatchObject({
       rowOrder: ["TW:2330", "US:AAPL"],
       topHoldingsLimit: 2,
     });
@@ -1178,7 +1186,7 @@ describe("dashboard components", () => {
     expect(dialog?.textContent).toContain("Daily change %");
   });
 
-  it("preserves other holdings table contexts when editing before preferences hydrate", async () => {
+  it("patches only the dashboard context when editing before preferences hydrate", async () => {
     const resolvePreferences: Array<(response: Response) => void> = [];
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       if (init?.method === "PATCH") {
@@ -1247,18 +1255,13 @@ describe("dashboard components", () => {
     await flushPromises();
     await flushPromises();
 
-    const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === "PATCH");
+    const patchCall = fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH").at(-1);
     expect(patchCall).toBeDefined();
     const patchBody = JSON.parse(String(patchCall?.[1]?.body)) as {
       holdingsTableSettings: { contexts: Record<string, { columnOrder: string[]; hiddenColumns: string[]; columnWidths: Record<string, number> }> };
     };
-    expect(patchBody.holdingsTableSettings.contexts["reports.market.topHoldings"]).toEqual({
-      columnOrder: ["ticker", "marketValue"],
-      hiddenColumns: ["daily"],
-      columnWidths: { ticker: 180 },
-      layoutStyle: "dashboard",
-    });
-    expect(patchBody.holdingsTableSettings.contexts["holdings.shared"]?.columnOrder.slice(0, 2)).toEqual(["position", "ticker"]);
+    expect(patchBody.holdingsTableSettings.contexts["reports.market.topHoldings"]).toBeUndefined();
+    expect(patchBody.holdingsTableSettings.contexts["dashboard.topHoldings"]?.columnOrder.slice(0, 2)).toEqual(["position", "ticker"]);
   });
 
   it("does not persist holdings table contexts when preference hydration fails", async () => {

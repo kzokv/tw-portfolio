@@ -28,8 +28,8 @@ const CAPABILITY_LABELS: Record<string, string> = {
   "transaction_draft:edit": "Edit AI drafts",
   "transaction_draft:archive": "Archive AI drafts",
   "transaction_draft:delete": "Delete AI drafts",
-  "transaction:write": "Create, edit, and delete transactions",
-  [DIVIDEND_WRITE_CAPABILITY]: "Post, reconcile, and delete dividends",
+  "transaction:write": "Post, update, and delete confirmed transactions",
+  [DIVIDEND_WRITE_CAPABILITY]: "Write dividends and related accounting adjustments",
 };
 
 const STATUS_STYLES: Record<OutboundShareRow["status"], string> = {

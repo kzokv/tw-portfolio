@@ -36,6 +36,7 @@ import type {
   AccountingStore,
   BookedTradeEvent,
   CashLedgerEntry,
+  DividendCalculationVersion,
   DividendDeductionEntry,
   DividendEvent,
   DividendLedgerEntry,
@@ -49,11 +50,17 @@ import type {
   Transaction,
 } from "../types/store.js";
 import type {
+  AccountMarketDividendSettingsDto,
   AiConnectorAccessKind,
   AiConnectorAccessResult,
   AiConnectorAuthMode,
   AiConnectorCapability,
   AiConnectorClientKind,
+  DividendCalculationAmendRequestDto,
+  DividendCalculationConfirmRequestDto,
+  DividendCalculationDriftDto,
+  DividendCalculationResetRequestDto,
+  DividendCalculationVersionDto,
   AiConnectorProvider,
   AiConnectorScope,
   AiConnectorStatus,
@@ -82,7 +89,7 @@ import type {
   ShareCapability,
   TickerFundamentalsDto,
 } from "@vakwen/shared-types";
-import { marketCodeFor, normalizeInstrumentSector } from "@vakwen/shared-types";
+import { marketCodeFor, normalizeInstrumentSector, type MarketCode as SharedMarketCode } from "@vakwen/shared-types";
 import { routeError } from "../lib/routeError.js";
 import { defaultClientCapabilities, getMcpClientByLegacyProvider } from "../mcp/clientRegistry.js";
 import { replayPositionHistory } from "../services/replayPositionHistory.js";
@@ -128,7 +135,7 @@ import type {
   DividendReviewMetadataResult,
   DividendReviewEnrichmentResult,
   DividendReviewPrimaryResult,
-  DividendReviewRowWithDetails,
+  DividendReviewResponseRowWithDetails,
   InstrumentRow,
   InviteRecord,
   InviteStatus,
@@ -662,6 +669,7 @@ function mapAiConnectorPolicySettingsRow(row: {
   expiration_warning_days: number;
   fresh_auth_max_age_ms: number;
   max_connector_lifetime_days: number;
+  posted_transaction_mutation_batch_limit?: number | null;
   oauth_public_issuer: string | null;
   oauth_redirect_uri_allowlist: string[] | null;
   oauth_token_secret_set?: boolean;
@@ -670,6 +678,7 @@ function mapAiConnectorPolicySettingsRow(row: {
   return {
     enabled: row.enabled,
     maxActiveConnectionsPerUser: row.max_active_connections_per_user,
+    postedTransactionMutationBatchLimit: row.posted_transaction_mutation_batch_limit ?? 50,
     allowedProviders: {
       chatgpt: row.allow_chatgpt,
       self_hosted: row.allow_self_hosted,
@@ -847,7 +856,7 @@ function mapAiConnectorAccessLogRow(row: {
 function mapAiTransactionDraftBatchRow(row: {
   id: string;
   owner_user_id: string;
-  created_by_user_id: string;
+  created_by_user_id: string | null;
   connector_connection_id: string | null;
   share_id: string | null;
   source_channel: AiTransactionDraftSourceChannel;
@@ -2993,6 +3002,7 @@ export class PostgresPersistence implements Persistence {
               expiration_warning_days,
               fresh_auth_max_age_ms,
               max_connector_lifetime_days,
+              posted_transaction_mutation_batch_limit,
               oauth_public_issuer,
               oauth_redirect_uri_allowlist,
               EXISTS (
@@ -3033,6 +3043,7 @@ export class PostgresPersistence implements Persistence {
                  expiration_warning_days,
                  fresh_auth_max_age_ms,
                  max_connector_lifetime_days,
+                 posted_transaction_mutation_batch_limit,
                  oauth_public_issuer,
                  oauth_redirect_uri_allowlist,
                  EXISTS (
@@ -3054,6 +3065,8 @@ export class PostgresPersistence implements Persistence {
     const next = {
       enabled: input.enabled ?? current.enabled,
       maxActiveConnectionsPerUser: input.maxActiveConnectionsPerUser ?? current.maxActiveConnectionsPerUser,
+      postedTransactionMutationBatchLimit:
+        input.postedTransactionMutationBatchLimit ?? current.postedTransactionMutationBatchLimit,
       allowedProviders: patchedAllowedProviders,
       allowedClientKinds: {
         chatgpt_app:
@@ -3134,12 +3147,13 @@ export class PostgresPersistence implements Persistence {
          expiration_warning_days,
          fresh_auth_max_age_ms,
          max_connector_lifetime_days,
+         posted_transaction_mutation_batch_limit,
          oauth_public_issuer,
          oauth_redirect_uri_allowlist,
          updated_at
        ) VALUES (
          TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-         $15, $16::text[], $17, $18, $19::text[], $20, $21, $22, $23, $24, $25, NOW()
+         $15, $16::text[], $17, $18, $19::text[], $20, $21, $22, $23, $24, $25, $26::text[], NOW()
        )
        ON CONFLICT (id) DO UPDATE SET
          enabled = EXCLUDED.enabled,
@@ -3165,6 +3179,7 @@ export class PostgresPersistence implements Persistence {
          expiration_warning_days = EXCLUDED.expiration_warning_days,
          fresh_auth_max_age_ms = EXCLUDED.fresh_auth_max_age_ms,
          max_connector_lifetime_days = EXCLUDED.max_connector_lifetime_days,
+         posted_transaction_mutation_batch_limit = EXCLUDED.posted_transaction_mutation_batch_limit,
          oauth_public_issuer = EXCLUDED.oauth_public_issuer,
          oauth_redirect_uri_allowlist = EXCLUDED.oauth_redirect_uri_allowlist,
          updated_at = EXCLUDED.updated_at
@@ -3191,6 +3206,7 @@ export class PostgresPersistence implements Persistence {
                  expiration_warning_days,
                  fresh_auth_max_age_ms,
                  max_connector_lifetime_days,
+                 posted_transaction_mutation_batch_limit,
                  oauth_public_issuer,
                  oauth_redirect_uri_allowlist,
                  EXISTS (
@@ -3223,6 +3239,7 @@ export class PostgresPersistence implements Persistence {
         next.expirationWarningDays,
         next.freshAuthMaxAgeMs,
         next.maxConnectorLifetimeDays,
+        next.postedTransactionMutationBatchLimit,
         next.oauthPublicIssuer,
         next.oauthRedirectUriAllowlist,
       ],
@@ -4141,7 +4158,7 @@ export class PostgresPersistence implements Persistence {
       const result = await client.query<{
         id: string;
         owner_user_id: string;
-        created_by_user_id: string;
+        created_by_user_id: string | null;
         connector_connection_id: string | null;
         share_id: string | null;
         source_channel: AiTransactionDraftSourceChannel;
@@ -4264,7 +4281,7 @@ export class PostgresPersistence implements Persistence {
     const batchResult = await this.pool.query<{
       id: string;
       owner_user_id: string;
-      created_by_user_id: string;
+      created_by_user_id: string | null;
       connector_connection_id: string | null;
       share_id: string | null;
       source_channel: AiTransactionDraftSourceChannel;
@@ -4326,7 +4343,7 @@ export class PostgresPersistence implements Persistence {
     const result = await this.pool.query<{
       id: string;
       owner_user_id: string;
-      created_by_user_id: string;
+      created_by_user_id: string | null;
       connector_connection_id: string | null;
       share_id: string | null;
       source_channel: AiTransactionDraftSourceChannel;
@@ -4923,7 +4940,7 @@ export class PostgresPersistence implements Persistence {
       const batchResult = await client.query<{
         id: string;
         owner_user_id: string;
-        created_by_user_id: string;
+        created_by_user_id: string | null;
         connector_connection_id: string | null;
         share_id: string | null;
         source_channel: AiTransactionDraftSourceChannel;
@@ -5348,6 +5365,680 @@ export class PostgresPersistence implements Persistence {
     return result.rowCount ?? 0;
   }
 
+  async getAccountMarketDividendSettings(
+    userId: string,
+    accountId: string,
+    marketCode: SharedMarketCode,
+  ): Promise<AccountMarketDividendSettingsDto> {
+    const accountResult = await this.pool.query<{ default_currency: string }>(
+      `SELECT default_currency
+       FROM accounts
+       WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
+      [accountId, userId],
+    );
+    if (accountResult.rowCount === 0) {
+      throw routeError(404, "account_not_found", "Account not found");
+    }
+    if (marketCodeFor(accountResult.rows[0]!.default_currency) !== marketCode) {
+      const defaultSettings: AccountMarketDividendSettingsDto = {
+        accountId,
+        marketCode,
+        version: 0,
+        fallbackParValue: null,
+        updatedAt: null,
+      };
+      return defaultSettings;
+    }
+
+    const result = await this.pool.query<{
+      account_id: string;
+      market_code: string;
+      version: number;
+      fallback_par_value: string | null;
+      updated_at: string | null;
+    }>(
+      `SELECT account_id, market_code, version, fallback_par_value::text AS fallback_par_value, updated_at::text AS updated_at
+       FROM account_market_dividend_settings
+       WHERE account_id = $1 AND market_code = $2`,
+      [accountId, marketCode],
+    );
+    if (result.rowCount === 0) {
+      const defaultSettings: AccountMarketDividendSettingsDto = {
+        accountId,
+        marketCode,
+        version: 0,
+        fallbackParValue: null,
+        updatedAt: null,
+      };
+      return defaultSettings;
+    }
+    const row = result.rows[0]!;
+    return {
+      accountId: row.account_id,
+      marketCode: row.market_code as SharedMarketCode,
+      version: row.version,
+      fallbackParValue: normalizeNumericText(row.fallback_par_value),
+      updatedAt: row.updated_at ? normalizeDateTime(row.updated_at) : null,
+    };
+  }
+
+  async patchAccountMarketDividendSettings(
+    userId: string,
+    input: {
+      accountId: string;
+      marketCode: SharedMarketCode;
+      fallbackParValue: string | null;
+      expectedVersion?: number;
+      auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+    },
+  ): Promise<AccountMarketDividendSettingsDto> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const accountResult = await client.query<{ default_currency: string }>(
+        `SELECT default_currency
+           FROM accounts
+          WHERE id = $1
+            AND user_id = $2
+            AND deleted_at IS NULL
+          FOR UPDATE`,
+        [input.accountId, userId],
+      );
+      if (accountResult.rowCount === 0) {
+        throw routeError(404, "account_not_found", "Account not found");
+      }
+      if (marketCodeFor(accountResult.rows[0]!.default_currency) !== input.marketCode) {
+        throw routeError(
+          400,
+          "unsupported_dividend_settings_market",
+          "Dividend settings market must match the account market.",
+        );
+      }
+
+      const result = await client.query<{
+        account_id: string;
+        market_code: string;
+        version: number;
+        fallback_par_value: string | null;
+        updated_at: string;
+      }>(
+        `INSERT INTO account_market_dividend_settings (account_id, market_code, fallback_par_value, version)
+         SELECT $1, $2, $3::numeric, 1
+          WHERE $4::integer IS NULL OR $4::integer = 0
+         ON CONFLICT (account_id, market_code) DO UPDATE
+           SET fallback_par_value = EXCLUDED.fallback_par_value,
+               version = account_market_dividend_settings.version + 1,
+               updated_at = CURRENT_TIMESTAMP
+         WHERE $4::integer IS NULL OR account_market_dividend_settings.version = $4::integer
+         RETURNING account_id, market_code, version, fallback_par_value::text AS fallback_par_value, updated_at::text AS updated_at`,
+        [input.accountId, input.marketCode, input.fallbackParValue, input.expectedVersion ?? null],
+      );
+      if (result.rowCount === 0) {
+        throw routeError(409, "account_market_dividend_settings_version_conflict", "Dividend settings version conflict.");
+      }
+      const row = result.rows[0]!;
+      await this.appendAuditLogTx(client, {
+        ...input.auditInput,
+        action: "account_market_dividend_settings_updated",
+        targetUserId: userId,
+        metadata: {
+          ...(input.auditInput.metadata ?? {}),
+          accountId: input.accountId,
+          marketCode: input.marketCode,
+          fallbackParValue: input.fallbackParValue,
+        },
+      });
+      await client.query("COMMIT");
+      return {
+        accountId: row.account_id,
+        marketCode: row.market_code as SharedMarketCode,
+        version: row.version,
+        fallbackParValue: normalizeNumericText(row.fallback_par_value),
+        updatedAt: normalizeDateTime(row.updated_at),
+      };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getLatestDividendCalculation(
+    userId: string,
+    accountId: string,
+    dividendEventId: string,
+  ): Promise<DividendCalculationVersionDto | null> {
+    await this.assertOwnedDividendCalculationAccount(userId, accountId);
+    const activeResult = await this.pool.query(
+      `SELECT *
+         FROM dividend_event_calculation_versions
+        WHERE user_id = $1
+          AND account_id = $2
+          AND dividend_event_id = $3
+          AND superseded_at IS NULL
+          AND calculation_status IN ('confirmed', 'amended')
+        ORDER BY calculation_version DESC, created_at DESC, id DESC
+        LIMIT 1`,
+      [userId, accountId, dividendEventId],
+    );
+    return (activeResult.rowCount ?? 0) > 0
+      ? mapDividendCalculationVersionRow(activeResult.rows[0]!)
+      : null;
+  }
+
+  async confirmDividendCalculation(
+    userId: string,
+    input: DividendCalculationConfirmRequestDto & {
+      providerValue: string | null;
+      providerUnit: "RATIO" | "TWD_PER_SHARE" | "UNKNOWN" | null;
+      providerSource: string | null;
+      providerDataset: string | null;
+      providerAuthoritativeRatio: string | null;
+      ratio: string;
+      theoreticalShares: string;
+      expectedWholeShares: number;
+      fractionalRemainder: string;
+      requiresHighRatioConfirmation: boolean;
+      drift: DividendCalculationDriftDto | null;
+      auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+    },
+  ): Promise<DividendCalculationVersionDto> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await this.assertOwnedDividendCalculationAccountTx(client, userId, input.accountId);
+      const currentActive = await this.getActiveDividendCalculationTx(
+        client,
+        userId,
+        input.accountId,
+        input.dividendEventId,
+        true,
+      );
+      this.assertDividendCalculationMutationExpectation(currentActive, input);
+      const nextVersion = await this.getNextDividendCalculationVersionTx(
+        client,
+        userId,
+        input.accountId,
+        input.dividendEventId,
+      );
+      const now = new Date().toISOString();
+      if (currentActive) {
+        await client.query(
+          `UPDATE dividend_event_calculation_versions
+              SET superseded_at = $4,
+                  is_active = FALSE
+            WHERE id = $1
+              AND user_id = $2
+              AND account_id = $3`,
+          [currentActive.id, userId, input.accountId, now],
+        );
+      }
+      const inserted = await client.query(
+        `INSERT INTO dividend_event_calculation_versions (
+           id, user_id, account_id, dividend_event_id, prior_calculation_id,
+           dividend_ledger_entry_id, calculation_version, calculation_status, method,
+           provider_value, provider_unit, provider_source, provider_dataset,
+           selected_par_value, custom_ratio, resolved_ratio, theoretical_shares,
+           expected_whole_shares, fractional_remainder, requires_high_ratio_confirmation,
+           confirmed_at, created_at, provenance, is_active, provider_authoritative_ratio,
+           drifted_provider_value, drifted_provider_unit, drifted_authoritative_ratio
+         ) VALUES (
+           $1, $2, $3, $4, $5,
+           NULL, $6, 'confirmed', $7,
+           $8::numeric, $9, $10, $11,
+           $12::numeric, $13::numeric, $14::numeric, $15::numeric,
+           $16, $17::numeric, $18,
+           $19::timestamptz, $19::timestamptz, $20::jsonb, TRUE, $21::numeric,
+           $22::numeric, $23, $24::numeric
+         )
+         RETURNING *`,
+        [
+          randomUUID(),
+          userId,
+          input.accountId,
+          input.dividendEventId,
+          currentActive ? String(currentActive.id) : null,
+          nextVersion,
+          input.method,
+          input.providerValue,
+          input.providerUnit,
+          input.providerSource,
+          input.providerDataset,
+          input.selectedParValue ?? null,
+          input.customRatio ?? null,
+          input.ratio,
+          input.theoreticalShares,
+          input.expectedWholeShares,
+          input.fractionalRemainder,
+          input.requiresHighRatioConfirmation,
+          now,
+          JSON.stringify({ drift: input.drift, customRatio: input.customRatio ?? null }),
+          input.providerAuthoritativeRatio,
+          input.drift?.currentProviderValue ?? null,
+          input.drift?.currentProviderUnit ?? null,
+          input.drift?.currentAuthoritativeRatio ?? null,
+        ],
+      );
+      await this.appendAuditLogTx(client, {
+        ...input.auditInput,
+        action: "dividend_calculation_confirmed",
+        targetUserId: userId,
+        metadata: {
+          ...(input.auditInput.metadata ?? {}),
+          mutation: "dividend_calculation_confirmed",
+          accountId: input.accountId,
+          dividendEventId: input.dividendEventId,
+          calculationId: String(inserted.rows[0]!.id),
+        },
+      });
+      await client.query("COMMIT");
+      return mapDividendCalculationVersionRow(inserted.rows[0]!);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async resetDividendCalculation(
+    userId: string,
+    input: DividendCalculationResetRequestDto & {
+      auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+    },
+  ): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await this.assertOwnedDividendCalculationAccountTx(client, userId, input.accountId);
+      const active = await this.getActiveDividendCalculationTx(
+        client,
+        userId,
+        input.accountId,
+        input.dividendEventId,
+        true,
+      );
+      this.assertDividendCalculationMutationExpectation(active, input);
+      if (!active) {
+        await client.query("COMMIT");
+        return;
+      }
+      const postedLedger = await client.query(
+        `SELECT id
+           FROM dividend_ledger_entries
+          WHERE account_id = $1
+            AND dividend_event_id = $2
+            AND superseded_at IS NULL
+            AND reversal_of_dividend_ledger_entry_id IS NULL
+            AND posting_status <> 'expected'
+          LIMIT 1`,
+        [input.accountId, input.dividendEventId],
+      );
+      if ((postedLedger.rowCount ?? 0) > 0) {
+        throw routeError(
+          409,
+          "dividend_calculation_reset_requires_unposted",
+          "Posted dividend expectations must be corrected with an amendment.",
+        );
+      }
+      const nextVersion = await this.getNextDividendCalculationVersionTx(
+        client,
+        userId,
+        input.accountId,
+        input.dividendEventId,
+      );
+      const now = new Date().toISOString();
+      await client.query(
+        `UPDATE dividend_event_calculation_versions
+            SET superseded_at = $4,
+                is_active = FALSE
+          WHERE id = $1
+            AND user_id = $2
+            AND account_id = $3`,
+        [active.id, userId, input.accountId, now],
+      );
+      await client.query(
+        `INSERT INTO dividend_event_calculation_versions (
+           id, user_id, account_id, dividend_event_id, prior_calculation_id,
+           dividend_ledger_entry_id, calculation_version, calculation_status, method,
+           provider_value, provider_unit, provider_source, provider_dataset,
+           selected_par_value, custom_ratio, resolved_ratio, theoretical_shares,
+           expected_whole_shares, fractional_remainder, requires_high_ratio_confirmation,
+           confirmed_at, created_at, provenance, is_active
+         ) VALUES (
+           $1, $2, $3, $4, $5,
+           NULL, $6, 'reset', $7,
+           $8::numeric, $9, $10, $11,
+           $12::numeric, $13::numeric, $14::numeric, $15::numeric,
+           $16, $17::numeric, $18,
+           NULL, $19::timestamptz, '{}'::jsonb, FALSE
+         )`,
+        [
+          randomUUID(),
+          userId,
+          input.accountId,
+          input.dividendEventId,
+          String(active.id),
+          nextVersion,
+          String(active.method),
+          active.provider_value == null ? null : String(active.provider_value),
+          active.provider_unit == null ? null : String(active.provider_unit),
+          active.provider_source == null ? null : String(active.provider_source),
+          active.provider_dataset == null ? null : String(active.provider_dataset),
+          active.selected_par_value == null ? null : String(active.selected_par_value),
+          active.custom_ratio == null ? null : String(active.custom_ratio),
+          String(active.resolved_ratio),
+          String(active.theoretical_shares),
+          active.expected_whole_shares == null ? null : Number(active.expected_whole_shares),
+          String(active.fractional_remainder ?? 0),
+          Boolean(active.requires_high_ratio_confirmation),
+          now,
+        ],
+      );
+      await this.appendAuditLogTx(client, {
+        ...input.auditInput,
+        action: "dividend_calculation_reset",
+        targetUserId: userId,
+        metadata: {
+          ...(input.auditInput.metadata ?? {}),
+          mutation: "dividend_calculation_reset",
+          accountId: input.accountId,
+          dividendEventId: input.dividendEventId,
+        },
+      });
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async amendDividendCalculation(
+    userId: string,
+    input: DividendCalculationAmendRequestDto & {
+      providerValue: string | null;
+      providerUnit: "RATIO" | "TWD_PER_SHARE" | "UNKNOWN" | null;
+      providerSource: string | null;
+      providerDataset: string | null;
+      providerAuthoritativeRatio: string | null;
+      ratio: string;
+      theoreticalShares: string;
+      expectedWholeShares: number;
+      fractionalRemainder: string;
+      requiresHighRatioConfirmation: boolean;
+      drift: DividendCalculationDriftDto | null;
+      auditInput: Omit<AuditLogInput, "action" | "targetUserId">;
+    },
+  ): Promise<DividendCalculationVersionDto> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await this.assertOwnedDividendCalculationAccountTx(client, userId, input.accountId);
+      const ledgerResult = await client.query(
+        `SELECT ledger.id, ledger.posting_status, ledger.received_stock_quantity,
+                ledger.stock_reconciliation_status
+           FROM dividend_ledger_entries AS ledger
+           JOIN accounts AS account
+             ON account.id = ledger.account_id
+          WHERE ledger.id = $1
+            AND ledger.account_id = $2
+            AND ledger.dividend_event_id = $3
+            AND account.user_id = $4
+            AND account.deleted_at IS NULL
+            AND ledger.superseded_at IS NULL
+            AND ledger.reversal_of_dividend_ledger_entry_id IS NULL
+          FOR UPDATE OF ledger`,
+        [input.dividendLedgerEntryId, input.accountId, input.dividendEventId, userId],
+      );
+      if (ledgerResult.rowCount === 0) {
+        throw routeError(404, "dividend_ledger_entry_not_found", "Dividend ledger entry not found");
+      }
+      const ledgerRow = ledgerResult.rows[0]!;
+      if (String(ledgerRow.posting_status) === "expected") {
+        throw routeError(
+          409,
+          "dividend_calculation_amend_requires_posted",
+          "Expectation-only amendments require a posted dividend receipt.",
+        );
+      }
+      const currentActive = await this.getActiveDividendCalculationTx(
+        client,
+        userId,
+        input.accountId,
+        input.dividendEventId,
+        true,
+      );
+      this.assertDividendCalculationMutationExpectation(currentActive, input);
+      const nextVersion = await this.getNextDividendCalculationVersionTx(
+        client,
+        userId,
+        input.accountId,
+        input.dividendEventId,
+      );
+      const now = new Date().toISOString();
+      if (currentActive) {
+        await client.query(
+          `UPDATE dividend_event_calculation_versions
+              SET superseded_at = $4,
+                  is_active = FALSE
+            WHERE id = $1
+              AND user_id = $2
+              AND account_id = $3`,
+          [currentActive.id, userId, input.accountId, now],
+        );
+      }
+      const inserted = await client.query(
+        `INSERT INTO dividend_event_calculation_versions (
+           id, user_id, account_id, dividend_event_id, prior_calculation_id,
+           dividend_ledger_entry_id, calculation_version, calculation_status, method,
+           provider_value, provider_unit, provider_source, provider_dataset,
+           selected_par_value, custom_ratio, resolved_ratio, theoretical_shares,
+           expected_whole_shares, fractional_remainder, requires_high_ratio_confirmation,
+           confirmed_at, created_at, provenance, is_active, provider_authoritative_ratio,
+           drifted_provider_value, drifted_provider_unit, drifted_authoritative_ratio
+         ) VALUES (
+           $1, $2, $3, $4, $5,
+           $6, $7, 'amended', $8,
+           $9::numeric, $10, $11, $12,
+           $13::numeric, $14::numeric, $15::numeric, $16::numeric,
+           $17, $18::numeric, $19,
+           $20::timestamptz, $20::timestamptz, $21::jsonb, TRUE, $22::numeric,
+           $23::numeric, $24, $25::numeric
+         )
+         RETURNING *`,
+        [
+          randomUUID(),
+          userId,
+          input.accountId,
+          input.dividendEventId,
+          currentActive ? String(currentActive.id) : null,
+          input.dividendLedgerEntryId,
+          nextVersion,
+          input.method,
+          input.providerValue,
+          input.providerUnit,
+          input.providerSource,
+          input.providerDataset,
+          input.selectedParValue ?? null,
+          input.customRatio ?? null,
+          input.ratio,
+          input.theoreticalShares,
+          input.expectedWholeShares,
+          input.fractionalRemainder,
+          input.requiresHighRatioConfirmation,
+          now,
+          JSON.stringify({ drift: input.drift, customRatio: input.customRatio ?? null }),
+          input.providerAuthoritativeRatio,
+          input.drift?.currentProviderValue ?? null,
+          input.drift?.currentProviderUnit ?? null,
+          input.drift?.currentAuthoritativeRatio ?? null,
+        ],
+      );
+      const nextStockStatus = String(ledgerRow.stock_reconciliation_status) === "explained"
+        ? "explained"
+        : deriveStockReconciliationStatusFromExpectation(
+            Number(ledgerRow.received_stock_quantity),
+            input.expectedWholeShares,
+          );
+      await client.query(
+        `UPDATE dividend_ledger_entries
+            SET expected_stock_quantity = $2,
+                expected_stock_calc_state = 'resolved',
+                expected_stock_distribution_ratio = $3::numeric,
+                expected_stock_par_value_amount = $4::numeric,
+                active_calculation_id = $5,
+                stock_reconciliation_status = $6
+          WHERE id = $1`,
+        [
+          input.dividendLedgerEntryId,
+          input.expectedWholeShares,
+          input.ratio,
+          input.selectedParValue ?? null,
+          String(inserted.rows[0]!.id),
+          nextStockStatus,
+        ],
+      );
+      await this.appendAuditLogTx(client, {
+        ...input.auditInput,
+        action: "dividend_calculation_amended",
+        targetUserId: userId,
+        metadata: {
+          ...(input.auditInput.metadata ?? {}),
+          mutation: "dividend_calculation_amended",
+          accountId: input.accountId,
+          dividendEventId: input.dividendEventId,
+          calculationId: String(inserted.rows[0]!.id),
+          dividendLedgerEntryId: input.dividendLedgerEntryId,
+        },
+      });
+      await client.query("COMMIT");
+      return mapDividendCalculationVersionRow(inserted.rows[0]!);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  private async assertOwnedDividendCalculationAccount(userId: string, accountId: string): Promise<void> {
+    const result = await this.pool.query(
+      `SELECT 1
+         FROM accounts
+        WHERE id = $1
+          AND user_id = $2
+          AND deleted_at IS NULL`,
+      [accountId, userId],
+    );
+    if (result.rowCount === 0) {
+      throw routeError(404, "account_not_found", "Account not found");
+    }
+  }
+
+  private async assertOwnedDividendCalculationAccountTx(
+    client: PoolClient,
+    userId: string,
+    accountId: string,
+  ): Promise<void> {
+    const result = await client.query(
+      `SELECT 1
+         FROM accounts
+        WHERE id = $1
+          AND user_id = $2
+          AND deleted_at IS NULL
+        FOR UPDATE`,
+      [accountId, userId],
+    );
+    if (result.rowCount === 0) {
+      throw routeError(404, "account_not_found", "Account not found");
+    }
+  }
+
+  private async getActiveDividendCalculationTx(
+    client: PoolClient,
+    userId: string,
+    accountId: string,
+    dividendEventId: string,
+    forUpdate: boolean,
+  ): Promise<Record<string, unknown> | null> {
+    const result = await client.query(
+      `SELECT *
+         FROM dividend_event_calculation_versions
+        WHERE user_id = $1
+          AND account_id = $2
+          AND dividend_event_id = $3
+          AND superseded_at IS NULL
+          AND calculation_status IN ('confirmed', 'amended')
+        ORDER BY calculation_version DESC, created_at DESC, id DESC
+        LIMIT 1
+        ${forUpdate ? "FOR UPDATE" : ""}`,
+      [userId, accountId, dividendEventId],
+    );
+    return result.rows[0] ?? null;
+  }
+
+  private async getNextDividendCalculationVersionTx(
+    client: PoolClient,
+    userId: string,
+    accountId: string,
+    dividendEventId: string,
+  ): Promise<number> {
+    const result = await client.query<{ next_version: number }>(
+      `SELECT COALESCE(MAX(calculation_version), 0)::int + 1 AS next_version
+         FROM dividend_event_calculation_versions
+        WHERE user_id = $1
+          AND account_id = $2
+          AND dividend_event_id = $3`,
+      [userId, accountId, dividendEventId],
+    );
+    return Number(result.rows[0]?.next_version ?? 1);
+  }
+
+  private assertDividendCalculationMutationExpectation(
+    currentActive: Record<string, unknown> | null,
+    input: {
+      expectedActiveCalculationId?: string | null;
+      expectedCalculationVersion?: number | null;
+    },
+  ): void {
+    const actualActiveCalculationId = currentActive?.id == null ? null : String(currentActive.id);
+    const actualCalculationVersion = currentActive?.calculation_version == null
+      ? null
+      : Number(currentActive.calculation_version);
+    if (input.expectedActiveCalculationId === undefined && input.expectedCalculationVersion === undefined) {
+      throw routeError(
+        400,
+        "dividend_calculation_expectation_required",
+        "expectedActiveCalculationId or expectedCalculationVersion is required.",
+      );
+    }
+    if (
+      input.expectedActiveCalculationId !== undefined
+      && input.expectedActiveCalculationId !== actualActiveCalculationId
+    ) {
+      throw routeError(
+        409,
+        "dividend_calculation_conflict",
+        "The active dividend calculation changed. Refresh and retry.",
+        { actualActiveCalculationId, actualCalculationVersion },
+      );
+    }
+    if (
+      input.expectedCalculationVersion !== undefined
+      && (input.expectedCalculationVersion ?? null) !== actualCalculationVersion
+    ) {
+      throw routeError(
+        409,
+        "dividend_calculation_conflict",
+        "The active dividend calculation changed. Refresh and retry.",
+        { actualActiveCalculationId, actualCalculationVersion },
+      );
+    }
+  }
+
   async loadPrimaryReadStore(userId: string): Promise<Store> {
     await this.ensureDefaultPortfolioData(userId);
     const [
@@ -5495,6 +6186,7 @@ export class PostgresPersistence implements Persistence {
           tradeEvents: [],
           cashLedgerEntries: [],
           dividendLedgerEntries: [],
+          dividendCalculationVersions: [],
           dividendDeductionEntries: [],
           dividendSourceLines: [],
           positionActions: [],
@@ -5733,7 +6425,11 @@ export class PostgresPersistence implements Persistence {
         ? this.pool.query(
             `SELECT id, ticker, market_code, event_type, ex_dividend_date, payment_date,
                     cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
-                    stock_distribution_amount_raw, stock_distribution_ratio, stock_distribution_ratio_state,
+                    stock_distribution_amount_raw,
+                    stock_provider_value::text AS stock_provider_value, stock_provider_value_unit,
+                    stock_provider_source, stock_provider_dataset,
+                    stock_provider_authoritative_ratio::text AS stock_provider_authoritative_ratio,
+                    stock_distribution_ratio, stock_distribution_ratio_state,
                     stock_par_value_amount, stock_par_value_currency,
                     source, source_reference, ingested_at AS created_at,
                     fiscal_year_period, announcement_date, total_distribution_shares
@@ -5838,6 +6534,12 @@ export class PostgresPersistence implements Persistence {
       cashDividendCurrency: row.cash_dividend_currency,
       stockDividendPerShare: Number(row.stock_dividend_per_share),
       stockDistributionAmountRaw: row.stock_distribution_amount_raw == null ? null : Number(row.stock_distribution_amount_raw),
+      stockProviderValue: row.stock_provider_value == null ? null : String(row.stock_provider_value),
+      stockProviderValueUnit: row.stock_provider_value_unit ?? null,
+      stockProviderSource: row.stock_provider_source ?? null,
+      stockProviderDataset: row.stock_provider_dataset ?? null,
+      stockProviderAuthoritativeRatio:
+        row.stock_provider_authoritative_ratio == null ? null : String(row.stock_provider_authoritative_ratio),
       stockDistributionRatio: row.stock_distribution_ratio == null ? null : Number(row.stock_distribution_ratio),
       stockDistributionRatioState: row.stock_distribution_ratio_state ?? undefined,
       stockParValueAmount: row.stock_par_value_amount == null ? null : Number(row.stock_par_value_amount),
@@ -5932,6 +6634,7 @@ export class PostgresPersistence implements Persistence {
           tradeEvents,
           cashLedgerEntries,
           dividendLedgerEntries,
+          dividendCalculationVersions: [],
           dividendDeductionEntries,
           dividendSourceLines: [],
           positionActions: actionsResult.rows.map((row) => mapPositionActionRow(row)),
@@ -6093,7 +6796,11 @@ export class PostgresPersistence implements Persistence {
       this.pool.query(
         `SELECT id, ticker, market_code, event_type, ex_dividend_date, payment_date,
                 cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
-                stock_distribution_amount_raw, stock_distribution_ratio, stock_distribution_ratio_state,
+                stock_distribution_amount_raw,
+                stock_provider_value::text AS stock_provider_value, stock_provider_value_unit,
+                stock_provider_source, stock_provider_dataset,
+                stock_provider_authoritative_ratio::text AS stock_provider_authoritative_ratio,
+                stock_distribution_ratio, stock_distribution_ratio_state,
                 stock_par_value_amount, stock_par_value_currency,
                 source, source_reference, ingested_at AS created_at,
                 fiscal_year_period, announcement_date, total_distribution_shares
@@ -6145,6 +6852,7 @@ export class PostgresPersistence implements Persistence {
       lotsResult,
       actionsResult,
       dividendLedgerEntriesResult,
+      dividendCalculationVersionsResult,
       jobItemsResult,
     ] = await Promise.all([
       feeProfileIds.length
@@ -6208,11 +6916,29 @@ export class PostgresPersistence implements Persistence {
                     received_stock_quantity,
                     posting_status, reconciliation_status, version,
                     source_composition_status, reconciliation_note, booked_at,
+                    active_calculation_id, cash_reconciliation_status,
+                    stock_reconciliation_status, stock_reconciliation_note,
                     reversal_of_dividend_ledger_entry_id, superseded_at
              FROM dividend_ledger_entries
              WHERE account_id = ANY($1)
              ORDER BY booked_at, id`,
             [accountIds],
+          )
+        : Promise.resolve({ rows: [] }),
+      accountIds.length
+        ? this.pool.query(
+            `SELECT id, user_id, account_id, dividend_event_id, prior_calculation_id,
+                    dividend_ledger_entry_id, calculation_version, calculation_status, method,
+                    provider_value, provider_unit, provider_source, provider_dataset,
+                    provider_authoritative_ratio, selected_par_value, custom_ratio,
+                    resolved_ratio, theoretical_shares, expected_whole_shares,
+                    fractional_remainder, requires_high_ratio_confirmation,
+                    confirmed_at, superseded_at, created_at, provenance
+             FROM dividend_event_calculation_versions
+             WHERE user_id = $1
+               AND account_id = ANY($2)
+             ORDER BY account_id, dividend_event_id, calculation_version, created_at, id`,
+            [userId, accountIds],
           )
         : Promise.resolve({ rows: [] }),
       jobIds.length
@@ -6332,6 +7058,12 @@ export class PostgresPersistence implements Persistence {
       cashDividendCurrency: row.cash_dividend_currency,
       stockDividendPerShare: Number(row.stock_dividend_per_share),
       stockDistributionAmountRaw: row.stock_distribution_amount_raw == null ? null : Number(row.stock_distribution_amount_raw),
+      stockProviderValue: row.stock_provider_value == null ? null : String(row.stock_provider_value),
+      stockProviderValueUnit: row.stock_provider_value_unit ?? null,
+      stockProviderSource: row.stock_provider_source ?? null,
+      stockProviderDataset: row.stock_provider_dataset ?? null,
+      stockProviderAuthoritativeRatio:
+        row.stock_provider_authoritative_ratio == null ? null : String(row.stock_provider_authoritative_ratio),
       stockDistributionRatio: row.stock_distribution_ratio == null ? null : Number(row.stock_distribution_ratio),
       stockDistributionRatioState: row.stock_distribution_ratio_state ?? undefined,
       stockParValueAmount: row.stock_par_value_amount == null ? null : Number(row.stock_par_value_amount),
@@ -6393,6 +7125,10 @@ export class PostgresPersistence implements Persistence {
         row.expected_stock_distribution_ratio == null ? null : Number(row.expected_stock_distribution_ratio),
       expectedStockParValueAmount:
         row.expected_stock_par_value_amount == null ? null : Number(row.expected_stock_par_value_amount),
+      activeCalculationId: row.active_calculation_id ?? null,
+      cashReconciliationStatus: row.cash_reconciliation_status ?? undefined,
+      stockReconciliationStatus: row.stock_reconciliation_status ?? null,
+      stockReconciliationNote: row.stock_reconciliation_note ?? null,
       receivedCashAmount: receivedCashAmountByDividendLedgerId.get(row.id) ?? 0,
       receivedStockQuantity: Number(row.received_stock_quantity),
       postingStatus: row.posting_status,
@@ -6486,6 +7222,8 @@ export class PostgresPersistence implements Persistence {
           tradeEvents,
           cashLedgerEntries,
           dividendLedgerEntries,
+          dividendCalculationVersions: dividendCalculationVersionsResult.rows.map((row) =>
+            mapDividendCalculationVersionFactRow(row)),
           dividendDeductionEntries,
           dividendSourceLines,
           positionActions: actionsResult.rows.map((row) => mapPositionActionRow(row)),
@@ -9242,6 +9980,19 @@ export class PostgresPersistence implements Persistence {
           throw routeError(409, "dividend_destructive_preview_row_drift", "Underlying records changed after preview");
         }
       }
+      for (const [accountId, expectedRevision] of Object.entries(options?.expectedAccountRevisions ?? {}).sort()) {
+        const revisionResult = await client.query<{ accounting_revision: string }>(
+          `SELECT accounting_revision::text AS accounting_revision
+             FROM accounts
+            WHERE id = $1 AND user_id = $2
+            FOR UPDATE`,
+          [accountId, userId],
+        );
+        const currentRevision = Number(revisionResult.rows[0]?.accounting_revision ?? -1);
+        if (currentRevision !== expectedRevision) {
+          throw routeError(409, "posted_transaction_mutation_preview_stale", "Underlying records changed after preview");
+        }
+      }
       const accountIds = options?.accountIds ?? await this.listUserAccountIds(client, userId);
       await this.saveAccountingStoreTx(client, userId, accounting, accountIds);
       for (const scope of options?.deleteHoldingSnapshotScopes ?? []) {
@@ -9266,6 +10017,307 @@ export class PostgresPersistence implements Persistence {
         );
       }
       await this.appendAuditLogTx(client, auditEntry);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async commitPostedTransactionMutation(input: {
+    userId: string;
+    accounting: AccountingStore;
+    auditEntry: AuditLogInput;
+    preview: import("./types.js").PostedTransactionMutationPreviewRecord;
+    replayPreview: import("./types.js").McpReplayPreviewRecord;
+    run: import("./types.js").PostedTransactionMutationRunRecord;
+    replayRun: import("./types.js").McpReplayRunRecord;
+    options: AccountingStoreAuditOptions & {
+      deletedDraftLineage?: import("./types.js").PostedTransactionMutationDeletedDraftLineageRecord[];
+    };
+  }): Promise<void> {
+    validateAccountingStoreInvariants(input.accounting);
+    await this.ensureDefaultPortfolioData(input.userId);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      if (input.options.expectedAccountRevision) {
+        const revisionResult = await client.query<{ accounting_revision: string }>(
+          `SELECT accounting_revision::text AS accounting_revision
+             FROM accounts
+            WHERE id = $1 AND user_id = $2
+            FOR UPDATE`,
+          [input.options.expectedAccountRevision.accountId, input.userId],
+        );
+        const currentRevision = Number(revisionResult.rows[0]?.accounting_revision ?? -1);
+        if (currentRevision !== input.options.expectedAccountRevision.revision) {
+          throw routeError(409, "dividend_destructive_preview_row_drift", "Underlying records changed after preview");
+        }
+      }
+      for (const [accountId, expectedRevision] of Object.entries(input.options.expectedAccountRevisions ?? {}).sort()) {
+        const revisionResult = await client.query<{ accounting_revision: string }>(
+          `SELECT accounting_revision::text AS accounting_revision
+             FROM accounts
+            WHERE id = $1 AND user_id = $2
+            FOR UPDATE`,
+          [accountId, input.userId],
+        );
+        const currentRevision = Number(revisionResult.rows[0]?.accounting_revision ?? -1);
+        if (currentRevision !== expectedRevision) {
+          throw routeError(409, "posted_transaction_mutation_preview_stale", "Underlying records changed after preview");
+        }
+      }
+
+      const accountIds = input.options.accountIds ?? await this.listUserAccountIds(client, input.userId);
+      await this.saveAccountingStoreTx(client, input.userId, input.accounting, accountIds);
+      for (const scope of input.options.deleteHoldingSnapshotScopes ?? []) {
+        await client.query(
+          `DELETE FROM daily_holding_snapshots
+            WHERE user_id = $1
+              AND account_id = $2
+              AND ticker = $3
+              AND market_code = $4
+              AND snapshot_date >= $5::date`,
+          [input.userId, scope.accountId, scope.ticker, scope.marketCode, scope.fromDate],
+        );
+      }
+
+      await client.query(
+        `INSERT INTO posted_transaction_mutation_previews (
+           id, owner_user_id, actor_user_id, operation, status, version, reason,
+           confirmation_summary, confirmation_digest, fingerprint, batch_limit,
+           summary_json, warnings_json, blockers_json, errors_json,
+           affected_account_ids_json, affected_tickers_json, scopes_json, account_revisions_json,
+           final_accounting_json, replay_scopes_json, created_at, expires_at, confirmed_at, confirmed_run_id
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7,
+           $8, $9, $10, $11,
+           $12::jsonb, $13::jsonb, $14::jsonb, $15::jsonb,
+           $16::jsonb, $17::jsonb, $18::jsonb, $19::jsonb,
+           $20::jsonb, $21::jsonb, $22::timestamptz, $23::timestamptz, $24::timestamptz, $25
+         )
+         ON CONFLICT (id) DO UPDATE SET
+           status = EXCLUDED.status,
+           version = EXCLUDED.version,
+           confirmation_summary = EXCLUDED.confirmation_summary,
+           confirmation_digest = EXCLUDED.confirmation_digest,
+           fingerprint = EXCLUDED.fingerprint,
+           summary_json = EXCLUDED.summary_json,
+           warnings_json = EXCLUDED.warnings_json,
+           blockers_json = EXCLUDED.blockers_json,
+           errors_json = EXCLUDED.errors_json,
+           affected_account_ids_json = EXCLUDED.affected_account_ids_json,
+           affected_tickers_json = EXCLUDED.affected_tickers_json,
+           scopes_json = EXCLUDED.scopes_json,
+           account_revisions_json = EXCLUDED.account_revisions_json,
+           final_accounting_json = EXCLUDED.final_accounting_json,
+           replay_scopes_json = EXCLUDED.replay_scopes_json,
+           expires_at = EXCLUDED.expires_at,
+           confirmed_at = EXCLUDED.confirmed_at,
+           confirmed_run_id = EXCLUDED.confirmed_run_id`,
+        [
+          input.preview.id,
+          input.preview.ownerUserId,
+          input.preview.actorUserId,
+          input.preview.operation,
+          input.preview.status,
+          input.preview.version,
+          input.preview.reason,
+          input.preview.confirmationSummary,
+          input.preview.confirmationDigest,
+          input.preview.fingerprint,
+          input.preview.batchLimit,
+          JSON.stringify(input.preview.summary),
+          JSON.stringify(input.preview.warnings),
+          JSON.stringify(input.preview.blockers),
+          JSON.stringify(input.preview.errors),
+          JSON.stringify(input.preview.affectedAccountIds),
+          JSON.stringify(input.preview.affectedTickers),
+          JSON.stringify(input.preview.scopes),
+          JSON.stringify(input.preview.accountRevisions),
+          JSON.stringify(input.preview.finalAccounting),
+          JSON.stringify(input.preview.replayScopes),
+          input.preview.createdAt,
+          input.preview.expiresAt,
+          input.preview.confirmedAt,
+          input.preview.confirmedRunId,
+        ],
+      );
+      await client.query(`DELETE FROM posted_transaction_mutation_preview_items WHERE preview_id = $1`, [input.preview.id]);
+      for (const [ordinal, item] of input.preview.items.entries()) {
+        await client.query(
+          `INSERT INTO posted_transaction_mutation_preview_items (
+             preview_id, transaction_id, ordinal, account_id, ticker, market_code, status, note,
+             before_json, after_json, impacts_json, warnings_json, blockers_json, errors_json
+           ) VALUES (
+             $1, $2, $3, $4, $5, $6, $7, $8,
+             $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb
+           )`,
+          [
+            input.preview.id,
+            item.transactionId,
+            ordinal,
+            item.before?.accountId ?? item.after?.accountId ?? null,
+            item.before?.ticker ?? item.after?.ticker ?? null,
+            item.before?.marketCode ?? item.after?.marketCode ?? null,
+            item.status,
+            item.note ?? null,
+            item.before ? JSON.stringify(item.before) : null,
+            item.after ? JSON.stringify(item.after) : null,
+            JSON.stringify(item.impacts),
+            JSON.stringify(item.warnings),
+            JSON.stringify(item.blockers),
+            JSON.stringify(item.errors),
+          ],
+        );
+      }
+
+      await client.query(
+        `INSERT INTO mcp_replay_position_previews
+           (id, session_user_id, portfolio_context_user_id, scopes_json, warnings_json,
+            confirmation_summary, confirmation_digest, expires_at, created_at)
+         VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7, $8::timestamptz, $9::timestamptz)
+         ON CONFLICT (id) DO UPDATE
+         SET scopes_json = EXCLUDED.scopes_json,
+             warnings_json = EXCLUDED.warnings_json,
+             confirmation_summary = EXCLUDED.confirmation_summary,
+             confirmation_digest = EXCLUDED.confirmation_digest,
+             expires_at = EXCLUDED.expires_at,
+             created_at = EXCLUDED.created_at`,
+        [
+          input.replayPreview.id,
+          input.replayPreview.sessionUserId,
+          input.replayPreview.portfolioContextUserId,
+          JSON.stringify(input.replayPreview.scopes),
+          JSON.stringify(input.replayPreview.warnings),
+          input.replayPreview.confirmationSummary,
+          input.replayPreview.confirmationDigest,
+          input.replayPreview.expiresAt,
+          input.replayPreview.createdAt,
+        ],
+      );
+      await client.query(
+        `INSERT INTO mcp_replay_position_runs (
+           id, preview_id, session_user_id, portfolio_context_user_id, status, created_at, started_at, finished_at
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6::timestamptz, $7::timestamptz, $8::timestamptz
+         )
+         ON CONFLICT (id) DO UPDATE SET
+           status = EXCLUDED.status,
+           started_at = EXCLUDED.started_at,
+           finished_at = EXCLUDED.finished_at`,
+        [
+          input.replayRun.id,
+          input.replayRun.previewId,
+          input.replayRun.sessionUserId,
+          input.replayRun.portfolioContextUserId,
+          input.replayRun.status,
+          input.replayRun.createdAt,
+          input.replayRun.startedAt,
+          input.replayRun.finishedAt,
+        ],
+      );
+      await client.query(`DELETE FROM mcp_replay_position_run_scopes WHERE run_id = $1`, [input.replayRun.id]);
+      for (const scope of input.replayRun.scopes) {
+        await client.query(
+          `INSERT INTO mcp_replay_position_run_scopes
+             (run_id, account_id, account_name, ticker, market_code, status, error_message,
+              replayed_trade_count, snapshot_generation_run_id, earliest_replay_date,
+              deleted_trade_event_ids_json, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::date, $11::jsonb, $12::timestamptz)`,
+          [
+            input.replayRun.id,
+            scope.accountId,
+            scope.accountName,
+            scope.ticker,
+            scope.marketCode,
+            scope.status,
+            scope.errorMessage,
+            scope.replayedTradeCount,
+            scope.snapshotGenerationRunId,
+            scope.earliestReplayDate ?? null,
+            JSON.stringify(scope.deletedTradeEventIds ?? []),
+            scope.updatedAt,
+          ],
+        );
+      }
+
+      await client.query(
+        `INSERT INTO posted_transaction_mutation_runs (
+           id, preview_id, owner_user_id, actor_user_id, operation, status, rebuild_status,
+           reason, warnings_json, blockers_json, errors_json, summary_json,
+           affected_account_ids_json, affected_tickers_json, scopes_json,
+           fingerprint, confirmation_digest, replay_run_id, created_at, started_at, completed_at
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7,
+           $8, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb,
+           $13::jsonb, $14::jsonb, $15::jsonb,
+           $16, $17, $18, $19::timestamptz, $20::timestamptz, $21::timestamptz
+         )
+         ON CONFLICT (id) DO UPDATE SET
+           status = EXCLUDED.status,
+           rebuild_status = EXCLUDED.rebuild_status,
+           warnings_json = EXCLUDED.warnings_json,
+           blockers_json = EXCLUDED.blockers_json,
+           errors_json = EXCLUDED.errors_json,
+           summary_json = EXCLUDED.summary_json,
+           affected_account_ids_json = EXCLUDED.affected_account_ids_json,
+           affected_tickers_json = EXCLUDED.affected_tickers_json,
+           scopes_json = EXCLUDED.scopes_json,
+           replay_run_id = EXCLUDED.replay_run_id,
+           started_at = EXCLUDED.started_at,
+           completed_at = EXCLUDED.completed_at`,
+        [
+          input.run.id,
+          input.run.previewId,
+          input.run.ownerUserId,
+          input.run.actorUserId,
+          input.run.operation,
+          input.run.status,
+          input.run.rebuildStatus,
+          input.run.reason,
+          JSON.stringify(input.run.warnings),
+          JSON.stringify(input.run.blockers),
+          JSON.stringify(input.run.errors),
+          JSON.stringify(input.run.summary),
+          JSON.stringify(input.run.affectedAccountIds),
+          JSON.stringify(input.run.affectedTickers),
+          JSON.stringify(input.run.scopes),
+          input.run.fingerprint,
+          input.run.confirmationDigest,
+          input.run.replayRunId,
+          input.run.createdAt,
+          input.run.startedAt,
+          input.run.completedAt,
+        ],
+      );
+
+      for (const record of input.options.deletedDraftLineage ?? []) {
+        await client.query(
+          `INSERT INTO posted_transaction_mutation_deleted_draft_lineage (
+             trade_event_id, owner_user_id, batch_id, row_id, deleted_at, deleted_by_user_id, mutation_run_id
+           ) VALUES (
+             $1, $2, $3, $4, $5::timestamptz, $6, $7
+           )
+           ON CONFLICT (trade_event_id) DO UPDATE SET
+             deleted_at = EXCLUDED.deleted_at,
+             deleted_by_user_id = EXCLUDED.deleted_by_user_id,
+             mutation_run_id = EXCLUDED.mutation_run_id`,
+          [
+            record.tradeEventId,
+            record.ownerUserId,
+            record.batchId,
+            record.rowId,
+            record.deletedAt,
+            record.deletedByUserId,
+            record.mutationRunId,
+          ],
+        );
+      }
+
+      await this.appendAuditLogTx(client, input.auditEntry);
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
@@ -9628,6 +10680,12 @@ export class PostgresPersistence implements Persistence {
     const nextLots = accounting.projections.lots.filter(
       (lot) => lot.accountId === dividendLedgerEntry.accountId && lot.ticker === dividendEvent.ticker,
     );
+    const dividendCalculationVersions = accounting.facts.dividendCalculationVersions.filter(
+      (entry) =>
+        entry.userId === userId
+        && entry.accountId === dividendLedgerEntry.accountId
+        && entry.dividendEventId === dividendLedgerEntry.dividendEventId,
+    );
 
     const client = await this.pool.connect();
     try {
@@ -9650,6 +10708,69 @@ export class PostgresPersistence implements Persistence {
       }
 
       await this.saveDividendEventTx(client, dividendEvent);
+      for (const calculationVersion of [...dividendCalculationVersions].sort(
+        (left, right) => left.calculationVersion - right.calculationVersion,
+      )) {
+        const linkedLedgerEntryId = calculationVersion.dividendLedgerEntryId === dividendLedgerEntry.id
+          ? null
+          : calculationVersion.dividendLedgerEntryId ?? null;
+        await client.query(
+          `INSERT INTO dividend_event_calculation_versions (
+             id, user_id, account_id, dividend_event_id, prior_calculation_id,
+             dividend_ledger_entry_id, calculation_version, calculation_status, method,
+             provider_value, provider_unit, provider_source, provider_dataset,
+             selected_par_value, custom_ratio, resolved_ratio, theoretical_shares,
+             expected_whole_shares, fractional_remainder, requires_high_ratio_confirmation,
+             confirmed_at, superseded_at, created_at, provenance, is_active,
+             provider_authoritative_ratio, drifted_provider_value, drifted_provider_unit,
+             drifted_authoritative_ratio
+           ) VALUES (
+             $1, $2, $3, $4, $5,
+             $6, $7, $8, $9,
+             $10::numeric, $11, $12, $13,
+             $14::numeric, $15::numeric, $16::numeric, $17::numeric,
+             $18, $19::numeric, $20,
+             $21::timestamptz, $22::timestamptz, $23::timestamptz, $24::jsonb, $25,
+             $26::numeric, $27::numeric, $28, $29::numeric
+           )
+           ON CONFLICT (id)
+           DO UPDATE SET
+             dividend_ledger_entry_id = COALESCE(dividend_event_calculation_versions.dividend_ledger_entry_id, EXCLUDED.dividend_ledger_entry_id),
+             superseded_at = EXCLUDED.superseded_at,
+             is_active = EXCLUDED.is_active`,
+          [
+            calculationVersion.id,
+            calculationVersion.userId,
+            calculationVersion.accountId,
+            calculationVersion.dividendEventId,
+            calculationVersion.priorCalculationId ?? null,
+            linkedLedgerEntryId,
+            calculationVersion.calculationVersion,
+            calculationVersion.status,
+            calculationVersion.method,
+            calculationVersion.providerValue ?? null,
+            calculationVersion.providerUnit ?? null,
+            calculationVersion.providerSource ?? null,
+            calculationVersion.providerDataset ?? null,
+            calculationVersion.selectedParValue ?? null,
+            calculationVersion.customRatio ?? null,
+            calculationVersion.ratio,
+            calculationVersion.theoreticalShares,
+            calculationVersion.expectedWholeShares,
+            calculationVersion.fractionalRemainder ?? null,
+            calculationVersion.requiresHighRatioConfirmation,
+            calculationVersion.confirmedAt ?? null,
+            calculationVersion.supersededAt ?? null,
+            calculationVersion.createdAt ?? calculationVersion.confirmedAt ?? new Date().toISOString(),
+            JSON.stringify({ drift: calculationVersion.drift ?? null, customRatio: calculationVersion.customRatio ?? null }),
+            !calculationVersion.supersededAt && (calculationVersion.status === "confirmed" || calculationVersion.status === "amended"),
+            calculationVersion.providerAuthoritativeRatio ?? null,
+            calculationVersion.drift?.currentProviderValue ?? null,
+            calculationVersion.drift?.currentProviderUnit ?? null,
+            calculationVersion.drift?.currentAuthoritativeRatio ?? null,
+          ],
+        );
+      }
       const dividendLedgerVersion = dividendLedgerEntry.version ?? 1;
       const dividendSourceCompositionStatus =
         dividendLedgerEntry.sourceCompositionStatus ?? "unknown_pending_disclosure";
@@ -9662,6 +10783,7 @@ export class PostgresPersistence implements Persistence {
            received_stock_quantity,
            posting_status, reconciliation_status, version,
            source_composition_status, reconciliation_note, booked_at,
+           active_calculation_id, cash_reconciliation_status, stock_reconciliation_status, stock_reconciliation_note,
            reversal_of_dividend_ledger_entry_id, superseded_at
          ) VALUES (
            $1, $2, $3, $4,
@@ -9669,7 +10791,8 @@ export class PostgresPersistence implements Persistence {
            $10,
            $11, $12, $13,
            $14, $15, $16,
-           $17, $18
+           $17, $18, $19, $20,
+           $21, $22
          )
          ON CONFLICT (id)
          DO UPDATE SET
@@ -9688,6 +10811,10 @@ export class PostgresPersistence implements Persistence {
            source_composition_status = EXCLUDED.source_composition_status,
            reconciliation_note = EXCLUDED.reconciliation_note,
            booked_at = EXCLUDED.booked_at,
+           active_calculation_id = EXCLUDED.active_calculation_id,
+           cash_reconciliation_status = EXCLUDED.cash_reconciliation_status,
+           stock_reconciliation_status = EXCLUDED.stock_reconciliation_status,
+           stock_reconciliation_note = EXCLUDED.stock_reconciliation_note,
            reversal_of_dividend_ledger_entry_id = EXCLUDED.reversal_of_dividend_ledger_entry_id,
            superseded_at = EXCLUDED.superseded_at`,
         [
@@ -9707,10 +10834,37 @@ export class PostgresPersistence implements Persistence {
           dividendSourceCompositionStatus,
           dividendLedgerEntry.reconciliationNote ?? null,
           dividendLedgerEntry.bookedAt ?? new Date().toISOString(),
+          dividendLedgerEntry.activeCalculationId ?? null,
+          dividendLedgerEntry.cashReconciliationStatus ?? dividendLedgerEntry.reconciliationStatus,
+          dividendLedgerEntry.stockReconciliationStatus ?? null,
+          dividendLedgerEntry.stockReconciliationNote ?? null,
           dividendLedgerEntry.reversalOfDividendLedgerEntryId ?? null,
           dividendLedgerEntry.supersededAt ?? null,
         ],
       );
+
+      for (const calculationVersion of dividendCalculationVersions) {
+        if (
+          calculationVersion.dividendLedgerEntryId === dividendLedgerEntry.id
+          || dividendLedgerEntry.activeCalculationId === calculationVersion.id
+        ) {
+          await client.query(
+            `UPDATE dividend_event_calculation_versions
+                SET dividend_ledger_entry_id = COALESCE(dividend_ledger_entry_id, $2)
+              WHERE id = $1
+                AND user_id = $3
+                AND account_id = $4
+                AND dividend_event_id = $5`,
+            [
+              calculationVersion.id,
+              dividendLedgerEntry.id,
+              userId,
+              dividendLedgerEntry.accountId,
+              dividendLedgerEntry.dividendEventId,
+            ],
+          );
+        }
+      }
 
       await client.query(`DELETE FROM dividend_deduction_entries WHERE dividend_ledger_entry_id = $1`, [dividendLedgerEntry.id]);
       for (const deduction of dividendDeductions) {
@@ -9937,6 +11091,7 @@ export class PostgresPersistence implements Persistence {
               dle.received_stock_quantity,
               dle.posting_status, dle.reconciliation_status, dle.version,
               dle.source_composition_status, dle.reconciliation_note, dle.booked_at,
+              dle.active_calculation_id, dle.cash_reconciliation_status, dle.stock_reconciliation_status, dle.stock_reconciliation_note,
               dle.reversal_of_dividend_ledger_entry_id, dle.superseded_at,
               COALESCE((
                 SELECT SUM(entry.amount)
@@ -10027,7 +11182,7 @@ export class PostgresPersistence implements Persistence {
     userId: string,
     dividendLedgerEntryId: string,
     status: DividendLedgerEntry["reconciliationStatus"],
-    note?: string,
+    note?: string | null,
     expectedVersion?: number,
   ): Promise<DividendLedgerEntry> {
     const client = await this.pool.connect();
@@ -10081,9 +11236,10 @@ export class PostgresPersistence implements Persistence {
       const nextVersion = Number(current.version) + 1;
       const nextNote = normalizedNote || current.reconciliation_note || null;
       await client.query(
-        `UPDATE dividend_ledger_entries
+          `UPDATE dividend_ledger_entries
          SET reconciliation_status = $2,
              reconciliation_note = $3,
+             cash_reconciliation_status = $2,
              version = $4
          WHERE id = $1`,
         [dividendLedgerEntryId, status, nextNote, nextVersion],
@@ -10094,6 +11250,105 @@ export class PostgresPersistence implements Persistence {
         ...mapDividendLedgerEntryRow(current),
         reconciliationStatus: status,
         reconciliationNote: nextNote ?? undefined,
+        version: nextVersion,
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async updateDividendStockReconciliationStatus(
+    userId: string,
+    dividendLedgerEntryId: string,
+    status: NonNullable<DividendLedgerEntry["stockReconciliationStatus"]>,
+    note?: string | null,
+    expectedVersion?: number,
+    auditInput?: Omit<AuditLogInput, "action" | "targetUserId">,
+  ): Promise<DividendLedgerEntry> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const currentResult = await client.query(
+        `SELECT dle.id, dle.account_id, dle.dividend_event_id, dle.eligible_quantity,
+                dle.expected_cash_amount, dle.expected_stock_quantity,
+                dle.expected_stock_calc_state, dle.expected_stock_distribution_ratio, dle.expected_stock_par_value_amount,
+                dle.received_stock_quantity,
+                dle.posting_status, dle.reconciliation_status, dle.version,
+                dle.source_composition_status, dle.reconciliation_note, dle.booked_at,
+                dle.active_calculation_id, dle.cash_reconciliation_status, dle.stock_reconciliation_status, dle.stock_reconciliation_note,
+                dle.reversal_of_dividend_ledger_entry_id, dle.superseded_at,
+                event.event_type,
+                COALESCE((
+                  SELECT SUM(entry.amount)
+                  FROM cash_ledger_entries AS entry
+                  WHERE entry.user_id = $2
+                    AND entry.related_dividend_ledger_entry_id = dle.id
+                    AND entry.entry_type = 'DIVIDEND_RECEIPT'
+                ), 0) AS received_cash_amount
+         FROM dividend_ledger_entries AS dle
+         JOIN accounts AS account
+           ON account.id = dle.account_id
+         JOIN market_data.dividend_events AS event
+           ON event.id = dle.dividend_event_id
+         WHERE dle.id = $1
+           AND account.user_id = $2
+           AND account.deleted_at IS NULL
+         FOR UPDATE OF dle`,
+        [dividendLedgerEntryId, userId],
+      );
+
+      if (!currentResult.rowCount) {
+        throw routeError(404, "dividend_ledger_entry_not_found", "Dividend ledger entry not found");
+      }
+      const current = currentResult.rows[0]!;
+      if (expectedVersion !== undefined && Number(current.version) !== expectedVersion) {
+        throw routeError(409, "dividend_version_conflict", "Dividend has been updated by another request");
+      }
+      if (!["posted", "adjusted"].includes(String(current.posting_status))) {
+        throw routeError(409, "stock_reconciliation_requires_posted_status", "Dividend must be posted before stock reconciliation changes");
+      }
+      if (String(current.event_type) === "CASH") {
+        throw routeError(409, "stock_reconciliation_requires_stock_event", "Stock reconciliation is only available for stock-bearing dividends");
+      }
+      const normalizedNote = note?.trim();
+      if (status === "explained" && !normalizedNote) {
+        throw routeError(400, "stock_reconciliation_note_required", "A note is required when stock reconciliation stays explained");
+      }
+      const nextVersion = Number(current.version) + 1;
+      const nextNote = note === undefined
+        ? (current.stock_reconciliation_note || null)
+        : (normalizedNote || null);
+      await client.query(
+        `UPDATE dividend_ledger_entries
+            SET stock_reconciliation_status = $2,
+                stock_reconciliation_note = $3,
+                version = $4
+          WHERE id = $1`,
+        [dividendLedgerEntryId, status, nextNote, nextVersion],
+      );
+      if (auditInput) {
+        await this.appendAuditLogTx(client, {
+          ...auditInput,
+          action: "dividend_stock_reconciliation_updated",
+          targetUserId: userId,
+          metadata: {
+            ...(auditInput.metadata ?? {}),
+            mutation: "dividend_stock_reconciliation_updated",
+            dividendLedgerEntryId,
+            dividendEventId: String(current.dividend_event_id),
+            accountId: String(current.account_id),
+            stockReconciliationStatus: status,
+          },
+        });
+      }
+      await client.query("COMMIT");
+      return {
+        ...mapDividendLedgerEntryRow(current),
+        stockReconciliationStatus: status,
+        stockReconciliationNote: nextNote,
         version: nextVersion,
       };
     } catch (error) {
@@ -10507,6 +11762,7 @@ export class PostgresPersistence implements Persistence {
                   expected_stock_par_value_amount = $7,
                   reconciliation_status = $8,
                   reconciliation_note = $9,
+                  cash_reconciliation_status = $8,
                   version = $10,
                   superseded_at = $11
             WHERE id = $1`,
@@ -10549,7 +11805,11 @@ export class PostgresPersistence implements Persistence {
     const result = await this.pool.query(
       `SELECT id, ticker, market_code, event_type, ex_dividend_date, payment_date,
               cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
-              stock_distribution_amount_raw, stock_distribution_ratio, stock_distribution_ratio_state,
+              stock_distribution_amount_raw,
+              stock_provider_value::text AS stock_provider_value, stock_provider_value_unit,
+              stock_provider_source, stock_provider_dataset,
+              stock_provider_authoritative_ratio::text AS stock_provider_authoritative_ratio,
+              stock_distribution_ratio, stock_distribution_ratio_state,
               stock_par_value_amount, stock_par_value_currency,
               source, source_reference, ingested_at AS created_at,
               fiscal_year_period, announcement_date, total_distribution_shares
@@ -10576,6 +11836,12 @@ export class PostgresPersistence implements Persistence {
       cashDividendCurrency: row.cash_dividend_currency,
       stockDividendPerShare: Number(row.stock_dividend_per_share),
       stockDistributionAmountRaw: row.stock_distribution_amount_raw == null ? undefined : Number(row.stock_distribution_amount_raw),
+      stockProviderValue: row.stock_provider_value == null ? null : String(row.stock_provider_value),
+      stockProviderValueUnit: row.stock_provider_value_unit ?? null,
+      stockProviderSource: row.stock_provider_source ?? null,
+      stockProviderDataset: row.stock_provider_dataset ?? null,
+      stockProviderAuthoritativeRatio:
+        row.stock_provider_authoritative_ratio == null ? null : String(row.stock_provider_authoritative_ratio),
       stockDistributionRatio: row.stock_distribution_ratio == null ? null : Number(row.stock_distribution_ratio),
       stockDistributionRatioState: row.stock_distribution_ratio_state ?? undefined,
       stockParValueAmount: row.stock_par_value_amount == null ? null : Number(row.stock_par_value_amount),
@@ -10597,7 +11863,11 @@ export class PostgresPersistence implements Persistence {
     const eventsResult = await this.pool.query(
       `SELECT event.id, event.ticker, event.market_code, event.event_type, event.ex_dividend_date, event.payment_date,
               cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
-              stock_distribution_amount_raw, stock_distribution_ratio, stock_distribution_ratio_state,
+              stock_distribution_amount_raw,
+              stock_provider_value::text AS stock_provider_value, stock_provider_value_unit,
+              stock_provider_source, stock_provider_dataset,
+              stock_provider_authoritative_ratio::text AS stock_provider_authoritative_ratio,
+              stock_distribution_ratio, stock_distribution_ratio_state,
               stock_par_value_amount, stock_par_value_currency,
               source, source_reference, ingested_at AS created_at,
               fiscal_year_period, announcement_date, total_distribution_shares
@@ -10689,6 +11959,12 @@ export class PostgresPersistence implements Persistence {
       cashDividendCurrency: row.cash_dividend_currency,
       stockDividendPerShare: Number(row.stock_dividend_per_share),
       stockDistributionAmountRaw: row.stock_distribution_amount_raw == null ? undefined : Number(row.stock_distribution_amount_raw),
+      stockProviderValue: row.stock_provider_value == null ? null : String(row.stock_provider_value),
+      stockProviderValueUnit: row.stock_provider_value_unit ?? null,
+      stockProviderSource: row.stock_provider_source ?? null,
+      stockProviderDataset: row.stock_provider_dataset ?? null,
+      stockProviderAuthoritativeRatio:
+        row.stock_provider_authoritative_ratio == null ? null : String(row.stock_provider_authoritative_ratio),
       stockDistributionRatio: row.stock_distribution_ratio == null ? null : Number(row.stock_distribution_ratio),
       stockDistributionRatioState: row.stock_distribution_ratio_state ?? undefined,
       stockParValueAmount: row.stock_par_value_amount == null ? null : Number(row.stock_par_value_amount),
@@ -11217,7 +12493,7 @@ export class PostgresPersistence implements Persistence {
     return { ledgerEntries, total, aggregates };
   }
 
-  private dividendReviewNormalizedSql(): string {
+  private dividendReviewNormalizedSql(detailLedgerIdPlaceholder = "NULL"): string {
     return `
       RECURSIVE eligible_ledger AS (
         SELECT ledger.*, account.name AS account_name,
@@ -11225,6 +12501,12 @@ export class PostgresPersistence implements Persistence {
                event.ex_dividend_date, event.payment_date,
                event.cash_dividend_currency AS cash_currency,
                event.stock_distribution_ratio, event.stock_distribution_ratio_state,
+               COALESCE(event.stock_provider_value::text, event.stock_distribution_amount_raw::text) AS provider_value,
+               event.stock_provider_value_unit AS provider_unit,
+               event.stock_provider_source AS provider_source,
+               event.stock_provider_dataset AS provider_dataset,
+               event.stock_provider_authoritative_ratio::text AS provider_authoritative_ratio,
+               to_jsonb(active_calculation) AS active_calculation,
                instrument.name AS ticker_name,
                COALESCE(instrument.instrument_type, 'STOCK') AS instrument_type
         FROM dividend_ledger_entries AS ledger
@@ -11232,8 +12514,24 @@ export class PostgresPersistence implements Persistence {
         JOIN market_data.dividend_events AS event ON event.id = ledger.dividend_event_id
         LEFT JOIN market_data.instruments AS instrument
           ON instrument.market_code = event.market_code AND instrument.ticker = event.ticker
+        LEFT JOIN LATERAL (
+          SELECT calculation.*
+          FROM dividend_event_calculation_versions AS calculation
+          WHERE calculation.user_id = account.user_id
+            AND calculation.account_id = ledger.account_id
+            AND calculation.dividend_event_id = ledger.dividend_event_id
+            AND calculation.is_active = TRUE
+            AND calculation.superseded_at IS NULL
+            AND calculation.calculation_status IN ('confirmed', 'amended')
+          ORDER BY (calculation.id = ledger.active_calculation_id) DESC,
+                   calculation.calculation_version DESC,
+                   calculation.created_at DESC,
+                   calculation.id DESC
+          LIMIT 1
+        ) AS active_calculation ON TRUE
         WHERE account.user_id = $1
           AND account.deleted_at IS NULL
+          AND (${detailLedgerIdPlaceholder}::text IS NULL OR ledger.id = ${detailLedgerIdPlaceholder})
           AND ($2::text IS NULL OR account.id = $2)
           AND (
             CASE WHEN $3::date IS NULL AND $4::date IS NULL THEN event.payment_date IS NOT NULL
@@ -11300,7 +12598,11 @@ export class PostgresPersistence implements Persistence {
                ledger.cash_currency,
                ledger.eligible_quantity, ledger.expected_cash_amount,
                COALESCE(receipt.received_cash_amount, 0) AS received_cash_amount,
-               ledger.expected_stock_quantity, ledger.received_stock_quantity,
+               COALESCE(
+                 (ledger.active_calculation->>'expected_whole_shares')::numeric,
+                 ledger.expected_stock_quantity
+               ) AS expected_stock_quantity,
+               ledger.received_stock_quantity,
                ledger.posting_status, ledger.reconciliation_status,
                ledger.source_composition_status,
                ledger.expected_cash_amount AS expected_gross_amount,
@@ -11312,18 +12614,31 @@ export class PostgresPersistence implements Persistence {
                COALESCE(deduction.bank_fee_amount, 0) AS bank_fee_amount,
                COALESCE(deduction.other_deduction_amount, 0) AS other_deduction_amount,
                CASE WHEN ledger.event_type = 'CASH' THEN NULL
+                    WHEN ledger.active_calculation IS NOT NULL
+                      THEN (ledger.active_calculation->>'resolved_ratio')::numeric
                     WHEN ledger.stock_distribution_ratio >= 0 THEN ledger.stock_distribution_ratio
                     ELSE NULL END AS stock_distribution_ratio,
-               COALESCE(ledger.stock_distribution_ratio_state, 'unresolved') AS stock_distribution_ratio_state,
+               CASE WHEN ledger.active_calculation IS NOT NULL
+                      THEN CASE WHEN ledger.active_calculation->>'method' = 'provider_ratio'
+                             THEN 'authoritative' ELSE 'derived_non_authoritative' END
+                    ELSE COALESCE(ledger.stock_distribution_ratio_state, 'unresolved')
+               END AS stock_distribution_ratio_state,
                CASE
                  WHEN ledger.event_type = 'CASH' THEN 'resolved'
                  WHEN TRUNC(GREATEST(ledger.eligible_quantity, 0)) = 0 THEN 'resolved'
+                 WHEN ledger.active_calculation IS NOT NULL THEN 'resolved'
                  WHEN ledger.stock_distribution_ratio >= 0
                   AND ledger.stock_distribution_ratio_state = 'authoritative' THEN 'resolved'
                  ELSE 'needs_action'
                END AS expected_stock_calc_state,
-               ledger.expected_stock_par_value_amount,
-               cash_in_lieu.amount AS cash_in_lieu_amount
+               COALESCE(
+                 (ledger.active_calculation->>'selected_par_value')::numeric,
+                 ledger.expected_stock_par_value_amount
+               ) AS expected_stock_par_value_amount,
+               cash_in_lieu.amount AS cash_in_lieu_amount,
+               ledger.provider_value, ledger.provider_unit, ledger.provider_source,
+               ledger.provider_dataset, ledger.provider_authoritative_ratio,
+               ledger.active_calculation
         FROM eligible_ledger AS ledger
         LEFT JOIN receipt_totals AS receipt ON receipt.ledger_id = ledger.id
         LEFT JOIN deduction_totals AS deduction ON deduction.ledger_id = ledger.id
@@ -11336,6 +12651,12 @@ export class PostgresPersistence implements Persistence {
                event.cash_dividend_currency AS cash_currency,
                event.stock_distribution_ratio, event.stock_distribution_ratio_state,
                event.stock_par_value_amount AS expected_stock_par_value_amount,
+               COALESCE(event.stock_provider_value::text, event.stock_distribution_amount_raw::text) AS provider_value,
+               event.stock_provider_value_unit AS provider_unit,
+               event.stock_provider_source AS provider_source,
+               event.stock_provider_dataset AS provider_dataset,
+               event.stock_provider_authoritative_ratio::text AS provider_authoritative_ratio,
+               to_jsonb(active_calculation) AS active_calculation,
                instrument.name AS ticker_name,
                COALESCE(instrument.instrument_type, 'STOCK') AS instrument_type,
                account.id || ':' || event.id AS candidate_key
@@ -11344,8 +12665,21 @@ export class PostgresPersistence implements Persistence {
           ON event.cash_dividend_currency = account.default_currency
         LEFT JOIN market_data.instruments AS instrument
           ON instrument.market_code = event.market_code AND instrument.ticker = event.ticker
+        LEFT JOIN LATERAL (
+          SELECT calculation.*
+          FROM dividend_event_calculation_versions AS calculation
+          WHERE calculation.user_id = account.user_id
+            AND calculation.account_id = account.id
+            AND calculation.dividend_event_id = event.id
+            AND calculation.is_active = TRUE
+            AND calculation.superseded_at IS NULL
+            AND calculation.calculation_status IN ('confirmed', 'amended')
+          ORDER BY calculation.calculation_version DESC, calculation.created_at DESC, calculation.id DESC
+          LIMIT 1
+        ) AS active_calculation ON TRUE
         WHERE account.user_id = $1
           AND account.deleted_at IS NULL
+          AND ${detailLedgerIdPlaceholder}::text IS NULL
           AND NOT $7::boolean
           AND ($5::text IS NULL OR $5 = 'open')
           AND ($6::text IS NULL OR $6 = 'expected')
@@ -11647,7 +12981,9 @@ export class PostgresPersistence implements Persistence {
                market_code, instrument_type, event_type, ex_dividend_date, payment_date,
                cash_currency, eligible_quantity,
                expected_gross_amount AS expected_cash_amount, 0::numeric AS received_cash_amount,
-               CASE WHEN event_type <> 'CASH'
+               CASE WHEN active_calculation IS NOT NULL
+                    THEN (active_calculation->>'expected_whole_shares')::numeric
+                    WHEN event_type <> 'CASH'
                          AND stock_distribution_ratio >= 0
                          AND stock_distribution_ratio_state = 'authoritative'
                     THEN FLOOR(eligible_quantity * stock_distribution_ratio)
@@ -11660,14 +12996,27 @@ export class PostgresPersistence implements Persistence {
                0::numeric AS nhi_amount, 0::numeric AS bank_fee_amount,
                0::numeric AS other_deduction_amount,
                CASE WHEN event_type = 'CASH' THEN NULL
+                    WHEN active_calculation IS NOT NULL
+                      THEN (active_calculation->>'resolved_ratio')::numeric
                     WHEN stock_distribution_ratio >= 0 THEN stock_distribution_ratio
                     ELSE NULL END AS stock_distribution_ratio,
-               COALESCE(stock_distribution_ratio_state, 'unresolved') AS stock_distribution_ratio_state,
+               CASE WHEN active_calculation IS NOT NULL
+                      THEN CASE WHEN active_calculation->>'method' = 'provider_ratio'
+                             THEN 'authoritative' ELSE 'derived_non_authoritative' END
+                    ELSE COALESCE(stock_distribution_ratio_state, 'unresolved')
+               END AS stock_distribution_ratio_state,
                CASE WHEN event_type = 'CASH' OR eligible_quantity = 0 THEN 'resolved'
+                    WHEN active_calculation IS NOT NULL THEN 'resolved'
                     WHEN stock_distribution_ratio >= 0
                      AND stock_distribution_ratio_state = 'authoritative' THEN 'resolved'
                     ELSE 'needs_action' END AS expected_stock_calc_state,
-               expected_stock_par_value_amount, NULL::numeric AS cash_in_lieu_amount
+               COALESCE(
+                 (active_calculation->>'selected_par_value')::numeric,
+                 expected_stock_par_value_amount
+               ) AS expected_stock_par_value_amount,
+               NULL::numeric AS cash_in_lieu_amount,
+               provider_value, provider_unit, provider_source, provider_dataset,
+               provider_authoritative_ratio, active_calculation
         FROM expected_calculated
       ),
       normalized AS (
@@ -11709,8 +13058,25 @@ export class PostgresPersistence implements Persistence {
       paymentDate: row.payment_date == null ? null : normalizeDate(String(row.payment_date)),
       cashCurrency: String(row.cash_currency), eligibleQuantity: Number(row.eligible_quantity),
       expectedCashAmount: Number(row.expected_cash_amount), receivedCashAmount: Number(row.received_cash_amount),
-      expectedStockQuantity: Number(row.expected_stock_quantity), receivedStockQuantity: Number(row.received_stock_quantity),
+      expectedStockQuantity:
+        String(row.event_type) !== "CASH" && String(row.expected_stock_calc_state) === "needs_action"
+          ? null
+          : Number(row.expected_stock_quantity),
+      receivedStockQuantity: Number(row.received_stock_quantity),
       postingStatus: String(row.posting_status) as DividendReviewRowSummaryDto["postingStatus"],
+      cashReconciliationStatus: String(row.reconciliation_status) as DividendReviewRowSummaryDto["cashReconciliationStatus"],
+      stockReconciliationStatus: deriveDividendReviewStockStatus({
+        eventType: String(row.event_type) as DividendReviewRowSummaryDto["eventType"],
+        postingStatus: String(row.posting_status) as DividendReviewRowSummaryDto["postingStatus"],
+        expectedStockCalcState: String(row.expected_stock_calc_state) as DividendReviewRowSummaryDto["expectedStockCalcState"],
+        expectedStockQuantity: Number(row.expected_stock_quantity),
+        receivedStockQuantity: Number(row.received_stock_quantity),
+        reconciliationStatus: String(row.reconciliation_status) as DividendReviewRowSummaryDto["reconciliationStatus"],
+      }),
+      stockReconciliationNote:
+        String(row.reconciliation_status) === "explained"
+          ? (row.reconciliation_note == null ? null : String(row.reconciliation_note))
+          : null,
       reconciliationStatus: String(row.reconciliation_status) as DividendReviewRowSummaryDto["reconciliationStatus"],
       sourceCompositionStatus: String(row.source_composition_status) as DividendReviewRowSummaryDto["sourceCompositionStatus"],
       expectedGrossAmount: Number(row.expected_gross_amount), expectedNetAmount: Number(row.expected_net_amount),
@@ -11718,10 +13084,28 @@ export class PostgresPersistence implements Persistence {
       nhiAmount: Number(row.nhi_amount), bankFeeAmount: Number(row.bank_fee_amount),
       otherDeductionAmount: Number(row.other_deduction_amount),
       stockDistributionRatio: row.stock_distribution_ratio == null ? null : Number(row.stock_distribution_ratio),
-      stockDistributionRatioState: String(row.stock_distribution_ratio_state) as DividendReviewRowSummaryDto["stockDistributionRatioState"],
+      stockDistributionRatioState:
+        row.stock_distribution_ratio_state == null
+          ? undefined
+          : String(row.stock_distribution_ratio_state) as DividendReviewRowSummaryDto["stockDistributionRatioState"],
       expectedStockCalcState: String(row.expected_stock_calc_state) as DividendReviewRowSummaryDto["expectedStockCalcState"],
       expectedStockParValueAmount: row.expected_stock_par_value_amount == null ? null : Number(row.expected_stock_par_value_amount),
+      stockVarianceQuantity:
+        String(row.event_type) !== "CASH" && String(row.expected_stock_calc_state) !== "needs_action"
+          ? Number(row.received_stock_quantity) - Number(row.expected_stock_quantity)
+          : null,
       cashInLieuAmount: row.cash_in_lieu_amount == null ? null : Number(row.cash_in_lieu_amount),
+      provider: {
+        value: row.provider_value == null ? null : normalizeNumericText(String(row.provider_value)),
+        unit: nullableDividendProviderUnit(row.provider_unit),
+        source: row.provider_source == null ? null : String(row.provider_source),
+        dataset: row.provider_dataset == null ? null : String(row.provider_dataset),
+        authoritativeRatio:
+          row.provider_authoritative_ratio == null ? null : String(row.provider_authoritative_ratio),
+      },
+      activeCalculation: isRecord(row.active_calculation)
+        ? mapDividendCalculationVersionRow(row.active_calculation)
+        : null,
     };
   }
 
@@ -11903,20 +13287,268 @@ export class PostgresPersistence implements Persistence {
     return enrichment;
   }
 
+  private async loadDividendReviewSummariesSql(
+    userId: string,
+    filters: DividendReviewFilterDto | DividendReviewListOptions,
+  ): Promise<DividendReviewRowSummaryDto[]> {
+    const result = await this.pool.query(
+      `WITH ${this.dividendReviewNormalizedSql()}
+       SELECT * FROM normalized
+       ORDER BY payment_date DESC NULLS LAST, ticker ASC, account_name ASC, id ASC`,
+      this.dividendReviewSqlParams(userId, filters),
+    );
+    return result.rows.map((row) => this.mapDividendReviewSummaryRow(row));
+  }
+
+  private async loadDividendReviewSummaryByLedgerIdSql(
+    userId: string,
+    dividendLedgerEntryId: string,
+  ): Promise<DividendReviewRowSummaryDto | null> {
+    const result = await this.pool.query(
+      `WITH ${this.dividendReviewNormalizedSql("$11")}
+       SELECT * FROM normalized
+       WHERE row_kind = 'ledger'
+       LIMIT 1`,
+      [
+        ...this.dividendReviewSqlParams(userId, {
+          fromPaymentDate: "0001-01-01",
+        }),
+        dividendLedgerEntryId,
+      ],
+    );
+    const row = result.rows[0] as Record<string, unknown> | undefined;
+    return row ? this.mapDividendReviewSummaryRow(row) : null;
+  }
+
+  private async overlayDividendReviewSummaries(
+    userId: string,
+    summaries: DividendReviewRowSummaryDto[],
+  ): Promise<DividendReviewRowSummaryDto[]> {
+    if (summaries.length === 0) return [];
+    const ledgerIds = summaries.filter((row) => row.rowKind === "ledger").map((row) => row.id);
+    const calculationAccountIds = summaries.map((row) => row.accountId);
+    const calculationDividendEventIds = summaries.map((row) => row.dividendEventId);
+    const [ledgerStatusResult, calculationResult] = await Promise.all([
+      ledgerIds.length === 0
+        ? Promise.resolve<{ rows: Array<Record<string, unknown>> }>({ rows: [] })
+        : this.pool.query(
+          `SELECT id, active_calculation_id, cash_reconciliation_status, stock_reconciliation_status, stock_reconciliation_note
+             FROM dividend_ledger_entries
+            WHERE id = ANY($1::text[])`,
+          [ledgerIds],
+        ),
+      this.pool.query(
+        `SELECT DISTINCT ON (account_id, dividend_event_id) *
+           FROM dividend_event_calculation_versions
+          WHERE user_id = $1
+            AND (account_id, dividend_event_id) IN (
+              SELECT requested.account_id, requested.dividend_event_id
+              FROM UNNEST($2::text[], $3::text[]) AS requested(account_id, dividend_event_id)
+            )
+            AND superseded_at IS NULL
+            AND calculation_status IN ('confirmed', 'amended')
+          ORDER BY account_id, dividend_event_id, calculation_version DESC, created_at DESC, id DESC`,
+        [userId, calculationAccountIds, calculationDividendEventIds],
+      ),
+    ]);
+    const ledgerStatusById = new Map(
+      ledgerStatusResult.rows.map((row) => [
+        String(row.id),
+        {
+          activeCalculationId: row.active_calculation_id == null ? null : String(row.active_calculation_id),
+          cashReconciliationStatus:
+            row.cash_reconciliation_status == null
+              ? null
+              : String(row.cash_reconciliation_status) as DividendReviewRowSummaryDto["cashReconciliationStatus"],
+          stockReconciliationStatus:
+            row.stock_reconciliation_status == null
+              ? null
+              : String(row.stock_reconciliation_status) as DividendReviewRowSummaryDto["stockReconciliationStatus"],
+          stockReconciliationNote: row.stock_reconciliation_note == null ? null : String(row.stock_reconciliation_note),
+        },
+      ]),
+    );
+    const activeCalculationByKey = new Map(
+      calculationResult.rows.map((row) => {
+        const dto = mapDividendCalculationVersionRow(row);
+        return [`${dto.accountId}:${dto.dividendEventId}`, dto] as const;
+      }),
+    );
+    return summaries.map((summary) => {
+      const activeCalculation = activeCalculationByKey.get(`${summary.accountId}:${summary.dividendEventId}`) ?? null;
+      const ledgerStatus = summary.rowKind === "ledger" ? ledgerStatusById.get(summary.id) : undefined;
+      const expectedStockCalcState =
+        activeCalculation?.expectedWholeShares != null
+          ? "resolved"
+          : summary.expectedStockCalcState ?? null;
+      const expectedStockQuantityRaw =
+        activeCalculation?.expectedWholeShares != null
+          ? activeCalculation.expectedWholeShares
+          : summary.expectedStockQuantity;
+      const expectedStockQuantity =
+        summary.eventType !== "CASH" && expectedStockCalcState === "needs_action"
+          ? null
+          : expectedStockQuantityRaw;
+      const stockDistributionRatio =
+        activeCalculation?.expectedWholeShares != null
+          ? Number(activeCalculation.ratio)
+          : summary.stockDistributionRatio ?? null;
+      const expectedStockParValueAmount =
+        activeCalculation?.selectedParValue != null
+          ? Number(activeCalculation.selectedParValue)
+          : summary.expectedStockParValueAmount ?? null;
+      const cashReconciliationStatus =
+        ledgerStatus?.cashReconciliationStatus
+        ?? summary.cashReconciliationStatus
+        ?? summary.reconciliationStatus;
+      const stockReconciliationStatus =
+        ledgerStatus?.stockReconciliationStatus
+        ?? deriveDividendReviewStockStatus({
+          eventType: summary.eventType,
+          postingStatus: summary.postingStatus,
+          expectedStockCalcState,
+          expectedStockQuantity: expectedStockQuantity ?? 0,
+          receivedStockQuantity: summary.receivedStockQuantity,
+          reconciliationStatus: summary.reconciliationStatus,
+        });
+      const stockReconciliationNote =
+        stockReconciliationStatus === "explained"
+          ? (ledgerStatus?.stockReconciliationNote ?? summary.stockReconciliationNote ?? null)
+          : null;
+      return {
+        ...summary,
+        expectedStockQuantity,
+        cashReconciliationStatus,
+        stockReconciliationStatus,
+        stockReconciliationNote,
+        stockDistributionRatio,
+        expectedStockCalcState,
+        expectedStockParValueAmount,
+        stockVarianceQuantity:
+          summary.eventType !== "CASH" && expectedStockCalcState !== "needs_action" && expectedStockQuantity != null
+            ? summary.receivedStockQuantity - expectedStockQuantity
+            : null,
+      };
+    });
+  }
+
+  private filterDividendReviewSummaries(
+    summaries: DividendReviewRowSummaryDto[],
+    filters: DividendReviewFilterDto | DividendReviewListOptions,
+  ): DividendReviewRowSummaryDto[] {
+    return summaries.filter((row) => {
+      if (filters.cashStatus && row.cashReconciliationStatus !== filters.cashStatus) return false;
+      if (filters.stockStatus && row.stockReconciliationStatus !== filters.stockStatus) return false;
+      return true;
+    });
+  }
+
+  private buildDividendReviewAggregates(
+    rows: DividendReviewRowSummaryDto[],
+  ): DividendLedgerAggregates {
+    const aggregates: DividendLedgerAggregates = {
+      totalExpectedCashAmount: {},
+      totalReceivedCashAmount: {},
+      openCount: 0,
+      byMonth: {},
+      byTicker: {},
+    };
+    for (const row of rows) {
+      const currency = row.cashCurrency;
+      aggregates.totalExpectedCashAmount[currency] =
+        (aggregates.totalExpectedCashAmount[currency] ?? 0) + row.expectedCashAmount;
+      aggregates.totalReceivedCashAmount[currency] =
+        (aggregates.totalReceivedCashAmount[currency] ?? 0) + row.receivedCashAmount;
+      if (row.reconciliationStatus === "open") aggregates.openCount += 1;
+      if (row.paymentDate) {
+        const monthKey = row.paymentDate.slice(0, 7);
+        const monthBucket = (aggregates.byMonth[monthKey] ??= {});
+        const monthCurrencyBucket = (monthBucket[currency] ??= { expected: 0, received: 0 });
+        monthCurrencyBucket.expected += row.expectedCashAmount;
+        monthCurrencyBucket.received += row.receivedCashAmount;
+      }
+      const tickerBucket = (aggregates.byTicker[row.ticker] ??= {});
+      const tickerCurrencyBucket = (tickerBucket[currency] ??= { expected: 0, received: 0 });
+      tickerCurrencyBucket.expected += row.expectedCashAmount;
+      tickerCurrencyBucket.received += row.receivedCashAmount;
+    }
+    return aggregates;
+  }
+
+  private sortDividendReviewSummaries(
+    rows: DividendReviewRowSummaryDto[],
+    query: Pick<DividendReviewPrimaryQueryDto, "sortBy" | "sortOrder">,
+  ): DividendReviewRowSummaryDto[] {
+    return rows.slice().sort((left, right) => {
+      const leftAccountName = left.accountName ?? "";
+      const rightAccountName = right.accountName ?? "";
+      let cmp = 0;
+      switch (query.sortBy) {
+        case "paymentDate":
+          cmp = compareNullableIsoDateNullLast(left.paymentDate, right.paymentDate, query.sortOrder);
+          break;
+        case "ticker":
+          cmp = compareStringByOrder(left.ticker, right.ticker, query.sortOrder);
+          break;
+        case "account":
+          cmp = compareStringByOrder(leftAccountName, rightAccountName, query.sortOrder);
+          break;
+        case "expectedCashAmount":
+        case "expectedGrossAmount":
+          cmp = compareNumberByOrder(left.expectedCashAmount, right.expectedCashAmount, query.sortOrder);
+          break;
+        case "expectedNetAmount":
+          cmp = compareNumberByOrder(left.expectedNetAmount ?? 0, right.expectedNetAmount ?? 0, query.sortOrder);
+          break;
+        case "nhiAmount":
+          cmp = compareNumberByOrder(left.nhiAmount ?? 0, right.nhiAmount ?? 0, query.sortOrder);
+          break;
+        case "bankFeeAmount":
+          cmp = compareNumberByOrder(left.bankFeeAmount ?? 0, right.bankFeeAmount ?? 0, query.sortOrder);
+          break;
+        case "otherDeductionAmount":
+          cmp = compareNumberByOrder(left.otherDeductionAmount ?? 0, right.otherDeductionAmount ?? 0, query.sortOrder);
+          break;
+        case "receivedCashAmount":
+          cmp = compareNumberByOrder(left.receivedCashAmount, right.receivedCashAmount, query.sortOrder);
+          break;
+        case "actualNetAmount":
+          cmp = compareNumberByOrder(left.actualNetAmount ?? 0, right.actualNetAmount ?? 0, query.sortOrder);
+          break;
+        case "varianceAmount":
+          cmp = compareNumberByOrder(left.varianceAmount ?? 0, right.varianceAmount ?? 0, query.sortOrder);
+          break;
+        case "reconciliationStatus":
+          cmp = compareStringByOrder(left.reconciliationStatus, right.reconciliationStatus, query.sortOrder);
+          break;
+      }
+      if (cmp !== 0) return cmp;
+      cmp = compareNullableIsoDateNullLast(left.paymentDate, right.paymentDate, "asc");
+      if (cmp !== 0) return cmp;
+      cmp = left.ticker.localeCompare(right.ticker);
+      if (cmp !== 0) return cmp;
+      cmp = leftAccountName.localeCompare(rightAccountName);
+      if (cmp !== 0) return cmp;
+      return left.id.localeCompare(right.id);
+    });
+  }
+
   private async hydrateDividendReviewPage(
     userId: string,
     summaries: DividendReviewRowSummaryDto[],
-  ): Promise<DividendReviewRowWithDetails[]> {
+  ): Promise<DividendReviewResponseRowWithDetails[]> {
     const ledgerIds = summaries.filter((row) => row.rowKind === "ledger").map((row) => row.id);
     if (ledgerIds.length === 0) {
       return summaries.map((row) => ({
         ...row,
+        stockDistributionRatioState: row.stockDistributionRatioState ?? undefined,
+        expectedStockCalcState: row.expectedStockCalcState ?? undefined,
         deductions: [],
         sourceLines: [],
         correctionMode: row.eventType === "CASH" ? "in_place" : "amend",
-      } as DividendReviewRowWithDetails));
+      }));
     }
-    const [deductionsResult, sourceLinesResult, metadataResult] = await Promise.all([
+    const [deductionsResult, sourceLinesResult, metadataResult, calculationResult] = await Promise.all([
       this.pool.query(
         `SELECT deduction.*
          FROM dividend_deduction_entries AS deduction
@@ -11977,12 +13609,41 @@ export class PostgresPersistence implements Persistence {
          WHERE account.user_id = $1 AND ledger.id = ANY($2::text[])`,
         [userId, ledgerIds],
       ),
+      this.pool.query(
+        `SELECT ledger.id AS ledger_id, calc.*
+           FROM dividend_ledger_entries AS ledger
+           JOIN accounts AS account
+             ON account.id = ledger.account_id
+           LEFT JOIN dividend_event_calculation_versions AS calc
+             ON calc.user_id = account.user_id
+            AND calc.account_id = ledger.account_id
+            AND calc.dividend_event_id = ledger.dividend_event_id
+            AND calc.calculation_status IN ('confirmed', 'amended')
+          WHERE account.user_id = $1
+            AND ledger.id = ANY($2::text[])
+          ORDER BY ledger.id, calc.calculation_version DESC NULLS LAST, calc.created_at DESC NULLS LAST, calc.id DESC NULLS LAST`,
+        [userId, ledgerIds],
+      ),
     ]);
     const deductionsByLedgerId = groupRowsByKey(deductionsResult.rows, "dividend_ledger_entry_id");
     const sourceLinesByLedgerId = groupRowsByKey(sourceLinesResult.rows, "dividend_ledger_entry_id");
     const metadataByLedgerId = new Map(metadataResult.rows.map((row) => [String(row.ledger_id), row]));
+    const calculationByLedgerId = new Map<string, DividendCalculationVersionDto>();
+    const calculationHistoryByLedgerId = new Map<string, DividendCalculationVersionDto[]>();
+    for (const row of calculationResult.rows) {
+      if (row.id == null) continue;
+      const ledgerId = String(row.ledger_id);
+      const dto = mapDividendCalculationVersionRow(row);
+      if (row.superseded_at == null && !calculationByLedgerId.has(ledgerId)) {
+        calculationByLedgerId.set(ledgerId, dto);
+      }
+      const history = calculationHistoryByLedgerId.get(ledgerId) ?? [];
+      history.push(dto);
+      calculationHistoryByLedgerId.set(ledgerId, history);
+    }
     return summaries.map((summary) => {
       const metadata = metadataByLedgerId.get(summary.id);
+      const activeCalculation = calculationByLedgerId.get(summary.id) ?? null;
       const deductions = (deductionsByLedgerId.get(summary.id) ?? []).map((deduction) => ({
         id: String(deduction.id), dividendLedgerEntryId: String(deduction.dividend_ledger_entry_id),
         deductionType: String(deduction.deduction_type) as DividendDeductionEntry["deductionType"],
@@ -12008,8 +13669,13 @@ export class PostgresPersistence implements Persistence {
       const parValuePerShare = metadata?.par_value_per_share == null ? 0 : Number(metadata.par_value_per_share);
       return {
         ...summary,
+        stockDistributionRatioState: summary.stockDistributionRatioState ?? undefined,
+        expectedStockCalcState: summary.expectedStockCalcState ?? undefined,
         deductions,
         sourceLines,
+        provider: activeCalculation?.provider ?? summary.provider ?? null,
+        activeCalculation,
+        calculationHistory: calculationHistoryByLedgerId.get(summary.id) ?? [],
         reconciliationNote: metadata?.reconciliation_note == null ? undefined : String(metadata.reconciliation_note),
         bookedAt: metadata?.booked_at ? normalizeDateTime(String(metadata.booked_at)) : undefined,
         correctionMode: summary.eventType === "CASH" ? "in_place" : blockingSellId ? "reversal_replacement" : "amend",
@@ -12022,97 +13688,20 @@ export class PostgresPersistence implements Persistence {
         nhiPremiumBaseAmount: metadata?.nhi_premium_base_amount == null ? null : Number(metadata.nhi_premium_base_amount),
         portfolioCostBasisAddedAmount: metadata?.action_type === "STOCK_DIVIDEND" ? 0 : null,
         snapshotRefreshStatus: linkedPositionActionId ? "queued" : null,
-      } as DividendReviewRowWithDetails;
+      };
     });
   }
 
   async getDividendReviewRowDetail(
     userId: string,
     dividendLedgerEntryId: string,
-  ): Promise<DividendReviewRowWithDetails | null> {
+  ): Promise<DividendReviewResponseRowWithDetails | null> {
     await this.ensureDefaultPortfolioData(userId);
-    const result = await this.pool.query(
-      `SELECT ledger.id, 'ledger'::text AS row_kind, ledger.version,
-              account.id AS account_id, account.name AS account_name,
-              event.id AS dividend_event_id, event.ticker,
-              instrument.name AS ticker_name, event.market_code,
-              COALESCE(instrument.instrument_type, 'STOCK') AS instrument_type,
-              event.event_type, event.ex_dividend_date, event.payment_date,
-              event.cash_dividend_currency AS cash_currency,
-              ledger.eligible_quantity, ledger.expected_cash_amount,
-              COALESCE(receipt.received_cash_amount, 0) AS received_cash_amount,
-              ledger.expected_stock_quantity, ledger.received_stock_quantity,
-              ledger.posting_status, ledger.reconciliation_status,
-              ledger.source_composition_status,
-              ledger.expected_cash_amount AS expected_gross_amount,
-              ledger.expected_cash_amount - COALESCE(deduction.deduction_total, 0) AS expected_net_amount,
-              COALESCE(receipt.received_cash_amount, 0) AS actual_net_amount,
-              COALESCE(receipt.received_cash_amount, 0)
-                - (ledger.expected_cash_amount - COALESCE(deduction.deduction_total, 0)) AS variance_amount,
-              COALESCE(deduction.nhi_amount, 0) AS nhi_amount,
-              COALESCE(deduction.bank_fee_amount, 0) AS bank_fee_amount,
-              COALESCE(deduction.other_deduction_amount, 0) AS other_deduction_amount,
-              CASE WHEN event.event_type = 'CASH' THEN NULL
-                   WHEN event.stock_distribution_ratio >= 0 THEN event.stock_distribution_ratio
-                   ELSE NULL END AS stock_distribution_ratio,
-              COALESCE(event.stock_distribution_ratio_state, 'unresolved') AS stock_distribution_ratio_state,
-              CASE
-                WHEN event.event_type = 'CASH' THEN 'resolved'
-                WHEN TRUNC(GREATEST(ledger.eligible_quantity, 0)) = 0 THEN 'resolved'
-                WHEN event.stock_distribution_ratio >= 0
-                 AND event.stock_distribution_ratio_state = 'authoritative' THEN 'resolved'
-                ELSE 'needs_action'
-              END AS expected_stock_calc_state,
-              ledger.expected_stock_par_value_amount,
-              cash_in_lieu.amount AS cash_in_lieu_amount
-       FROM dividend_ledger_entries AS ledger
-       JOIN accounts AS account ON account.id = ledger.account_id
-       JOIN market_data.dividend_events AS event ON event.id = ledger.dividend_event_id
-       LEFT JOIN market_data.instruments AS instrument
-         ON instrument.market_code = event.market_code AND instrument.ticker = event.ticker
-       LEFT JOIN LATERAL (
-         SELECT SUM(entry.amount) AS received_cash_amount
-         FROM cash_ledger_entries AS entry
-         WHERE entry.user_id = $1
-           AND entry.entry_type = 'DIVIDEND_RECEIPT'
-           AND entry.related_dividend_ledger_entry_id = ledger.id
-       ) AS receipt ON TRUE
-       LEFT JOIN LATERAL (
-         SELECT SUM(entry.amount) FILTER (WHERE entry.deduction_type = 'NHI_SUPPLEMENTAL_PREMIUM') AS nhi_amount,
-                SUM(entry.amount) FILTER (WHERE entry.deduction_type = 'BANK_FEE') AS bank_fee_amount,
-                SUM(entry.amount) FILTER (WHERE entry.deduction_type NOT IN ('NHI_SUPPLEMENTAL_PREMIUM', 'BANK_FEE')) AS other_deduction_amount,
-                SUM(entry.amount) AS deduction_total
-         FROM dividend_deduction_entries AS entry
-         WHERE entry.dividend_ledger_entry_id = ledger.id
-       ) AS deduction ON TRUE
-       LEFT JOIN LATERAL (
-         SELECT SUM(action.cash_in_lieu_amount) AS amount
-         FROM position_actions AS action
-         WHERE action.related_dividend_ledger_entry_id = ledger.id
-           AND action.reversal_of_position_action_id IS NULL
-           AND action.superseded_at IS NULL
-           AND NOT EXISTS (
-             SELECT 1 FROM position_actions AS reversal
-             WHERE reversal.reversal_of_position_action_id = action.id
-           )
-       ) AS cash_in_lieu ON TRUE
-       WHERE ledger.id = $2
-         AND account.user_id = $1
-         AND account.deleted_at IS NULL
-         AND ledger.superseded_at IS NULL
-         AND ledger.reversal_of_dividend_ledger_entry_id IS NULL
-         AND NOT EXISTS (
-           SELECT 1 FROM dividend_ledger_entries AS reversal
-           WHERE reversal.reversal_of_dividend_ledger_entry_id = ledger.id
-         )
-       LIMIT 1`,
-      [userId, dividendLedgerEntryId],
-    );
-    if (!result.rowCount) return null;
-    return (await this.hydrateDividendReviewPage(
-      userId,
-      [this.mapDividendReviewSummaryRow(result.rows[0])],
-    ))[0] ?? null;
+    const baseSummary = await this.loadDividendReviewSummaryByLedgerIdSql(userId, dividendLedgerEntryId);
+    if (!baseSummary) return null;
+    const [summary] = await this.overlayDividendReviewSummaries(userId, [baseSummary]);
+    if (!summary) return null;
+    return (await this.hydrateDividendReviewPage(userId, [summary]))[0] ?? null;
   }
 
   async listDividendReviewRows(
@@ -12120,14 +13709,18 @@ export class PostgresPersistence implements Persistence {
     opts: DividendReviewListOptions,
   ): Promise<DividendReviewListResult> {
     await this.ensureDefaultPortfolioData(userId);
-    const [primary, enrichment] = await Promise.all([
-      this.listDividendReviewPrimarySql(userId, opts),
-      this.getDividendReviewEnrichmentSql(userId, opts),
-    ]);
+    const baseRows = await this.overlayDividendReviewSummaries(
+      userId,
+      await this.loadDividendReviewSummariesSql(userId, opts),
+    );
+    const filteredRows = this.filterDividendReviewSummaries(baseRows, opts);
+    const sortedRows = this.sortDividendReviewSummaries(filteredRows, opts);
+    const startIndex = (opts.page - 1) * opts.limit;
+    const pageRows = sortedRows.slice(startIndex, startIndex + opts.limit);
     return {
-      rows: await this.hydrateDividendReviewPage(userId, primary.rows),
-      total: primary.total,
-      aggregates: enrichment.aggregates,
+      rows: await this.hydrateDividendReviewPage(userId, pageRows),
+      total: sortedRows.length,
+      aggregates: this.buildDividendReviewAggregates(filteredRows),
     };
   }
 
@@ -12136,7 +13729,21 @@ export class PostgresPersistence implements Persistence {
     query: DividendReviewPrimaryQueryDto,
   ): Promise<DividendReviewPrimaryResult> {
     await this.ensureDefaultPortfolioData(userId);
-    return this.listDividendReviewPrimarySql(userId, query);
+    const dbStartedAt = performance.now();
+    const baseRows = await this.overlayDividendReviewSummaries(
+      userId,
+      await this.loadDividendReviewSummariesSql(userId, query),
+    );
+    const filteredRows = this.filterDividendReviewSummaries(baseRows, query);
+    const dbMs = performance.now() - dbStartedAt;
+    const hydrationStartedAt = performance.now();
+    const sortedRows = this.sortDividendReviewSummaries(filteredRows, query);
+    const startIndex = (query.page - 1) * query.limit;
+    return {
+      total: sortedRows.length,
+      rows: sortedRows.slice(startIndex, startIndex + query.limit),
+      phaseTimings: { dbMs, hydrationMs: performance.now() - hydrationStartedAt },
+    };
   }
 
   async getDividendReviewEnrichment(
@@ -12144,7 +13751,69 @@ export class PostgresPersistence implements Persistence {
     filters: DividendReviewFilterDto,
   ): Promise<DividendReviewEnrichmentResult> {
     await this.ensureDefaultPortfolioData(userId);
-    return this.getDividendReviewEnrichmentSql(userId, filters);
+    const dbStartedAt = performance.now();
+    const baseRows = await this.overlayDividendReviewSummaries(
+      userId,
+      await this.loadDividendReviewSummariesSql(userId, filters),
+    );
+    const filteredRows = this.filterDividendReviewSummaries(baseRows, filters);
+    const detailedRows = await this.hydrateDividendReviewPage(userId, filteredRows);
+    const dbMs = performance.now() - dbStartedAt;
+    const aggregateStartedAt = performance.now();
+    const etfRows = detailedRows.filter((row) => row.instrumentType === "ETF" || row.instrumentType === "BOND_ETF");
+    const pendingCount = etfRows.filter((row) => row.sourceCompositionStatus === "unknown_pending_disclosure").length;
+    const nhiSubjectBuckets = new Set(["DIVIDEND_INCOME", "INTEREST_INCOME"]);
+    const sourceBucketOrder = [
+      "DIVIDEND_INCOME",
+      "INTEREST_INCOME",
+      "SECURITIES_GAIN_INCOME",
+      "REVENUE_EQUALIZATION",
+      "CAPITAL_EQUALIZATION",
+      "CAPITAL_RETURN",
+      "OTHER",
+    ] as const;
+    const amountByBucket = new Map<string, number>();
+    let projectedPremium = 0;
+    for (const row of etfRows) {
+      for (const line of row.sourceLines) {
+        amountByBucket.set(line.sourceBucket, (amountByBucket.get(line.sourceBucket) ?? 0) + line.amount);
+      }
+      if (row.sourceCompositionStatus !== "provided") continue;
+      const perEntryNhiSubject = row.sourceLines
+        .filter((line) => nhiSubjectBuckets.has(line.sourceBucket))
+        .reduce((sum, line) => sum + line.amount, 0);
+      if (perEntryNhiSubject >= 20_000) {
+        projectedPremium += Math.round(perEntryNhiSubject * 0.0211 + Number.EPSILON);
+      }
+    }
+    const bucketAggregates = sourceBucketOrder
+      .filter((sourceBucket) => (amountByBucket.get(sourceBucket) ?? 0) > 0)
+      .map((sourceBucket) => ({
+        sourceBucket,
+        totalAmount: amountByBucket.get(sourceBucket) ?? 0,
+        isNhiSubject: nhiSubjectBuckets.has(sourceBucket),
+      }));
+    return {
+      aggregates: this.buildDividendReviewAggregates(filteredRows),
+      nhiRollup: {
+        bucketAggregates,
+        nhiSubjectTotal: bucketAggregates
+          .filter((bucket) => bucket.isNhiSubject)
+          .reduce((sum, bucket) => sum + bucket.totalAmount, 0),
+        projectedPremium,
+        pendingCount,
+        hasEtfEntries: etfRows.length > 0,
+      },
+      sourceComposition: {
+        providedCount: detailedRows.filter((row) => row.sourceCompositionStatus === "provided").length,
+        pendingCount: detailedRows.filter((row) => row.sourceCompositionStatus === "unknown_pending_disclosure").length,
+      },
+      hero: buildDividendReviewHeroAggregates(detailedRows),
+      phaseTimings: {
+        dbMs,
+        aggregateMs: performance.now() - aggregateStartedAt,
+      },
+    };
   }
 
   async listDividendReviewMetadata(userId: string): Promise<DividendReviewMetadataResult> {
@@ -13718,7 +15387,20 @@ export class PostgresPersistence implements Persistence {
     accountIds: string[],
   ): Promise<void> {
     const accountIdSet = new Set(accountIds);
+    let confirmedDraftTradeLinks: Array<{ row_id: string; confirmed_trade_event_id: string }> = [];
     if (accountIds.length) {
+      const confirmedDraftTradeLinkResult = await client.query<{
+        row_id: string;
+        confirmed_trade_event_id: string;
+      }>(
+        `SELECT draft_row.id AS row_id, draft_row.confirmed_trade_event_id
+           FROM ai_transaction_draft_rows AS draft_row
+           JOIN trade_events AS trade ON trade.id = draft_row.confirmed_trade_event_id
+          WHERE trade.user_id = $1
+            AND trade.account_id = ANY($2::text[])`,
+        [userId, accountIds],
+      );
+      confirmedDraftTradeLinks = confirmedDraftTradeLinkResult.rows;
       await client.query(
         `DELETE FROM cash_ledger_entries
           WHERE user_id = $1
@@ -13766,6 +15448,87 @@ export class PostgresPersistence implements Persistence {
         );
       }
     }
+
+    const retainedDividendLedgerIds = new Set(
+      accounting.facts.dividendLedgerEntries
+        .filter((entry) => accountIdSet.has(entry.accountId))
+        .map((entry) => entry.id),
+    );
+    const dividendCalculationVersions = accounting.facts.dividendCalculationVersions
+      .filter((entry) => entry.userId === userId && accountIdSet.has(entry.accountId))
+      .sort((left, right) => left.calculationVersion - right.calculationVersion);
+
+    if (accountIds.length) {
+      await client.query(
+        `UPDATE dividend_event_calculation_versions
+            SET is_active = FALSE
+          WHERE user_id = $1
+            AND account_id = ANY($2::text[])`,
+        [userId, accountIds],
+      );
+    }
+
+    // Calculation rows must exist before a ledger row can reference its active
+    // version. Ledger links are restored after the ledger rows are inserted.
+    for (const calculationVersion of dividendCalculationVersions) {
+      await client.query(
+        `INSERT INTO dividend_event_calculation_versions (
+           id, user_id, account_id, dividend_event_id, prior_calculation_id,
+           dividend_ledger_entry_id, calculation_version, calculation_status, method,
+           provider_value, provider_unit, provider_source, provider_dataset,
+           selected_par_value, custom_ratio, resolved_ratio, theoretical_shares,
+           expected_whole_shares, fractional_remainder, requires_high_ratio_confirmation,
+           confirmed_at, superseded_at, created_at, provenance, is_active,
+           provider_authoritative_ratio, drifted_provider_value, drifted_provider_unit,
+           drifted_authoritative_ratio
+         ) VALUES (
+           $1, $2, $3, $4, $5,
+           NULL, $6, $7, $8,
+           $9::numeric, $10, $11, $12,
+           $13::numeric, $14::numeric, $15::numeric, $16::numeric,
+           $17, $18::numeric, $19,
+           $20::timestamptz, $21::timestamptz, $22::timestamptz, $23::jsonb, $24,
+           $25::numeric, $26::numeric, $27, $28::numeric
+         )
+         ON CONFLICT (id)
+         DO UPDATE SET
+           dividend_ledger_entry_id = NULL,
+           superseded_at = EXCLUDED.superseded_at,
+           is_active = EXCLUDED.is_active`,
+        [
+          calculationVersion.id,
+          calculationVersion.userId,
+          calculationVersion.accountId,
+          calculationVersion.dividendEventId,
+          calculationVersion.priorCalculationId ?? null,
+          calculationVersion.calculationVersion,
+          calculationVersion.status,
+          calculationVersion.method,
+          calculationVersion.providerValue ?? null,
+          calculationVersion.providerUnit ?? null,
+          calculationVersion.providerSource ?? null,
+          calculationVersion.providerDataset ?? null,
+          calculationVersion.selectedParValue ?? null,
+          calculationVersion.customRatio ?? null,
+          calculationVersion.ratio,
+          calculationVersion.theoreticalShares,
+          calculationVersion.expectedWholeShares,
+          calculationVersion.fractionalRemainder ?? null,
+          calculationVersion.requiresHighRatioConfirmation,
+          calculationVersion.confirmedAt ?? null,
+          calculationVersion.supersededAt ?? null,
+          calculationVersion.createdAt ?? calculationVersion.confirmedAt ?? new Date().toISOString(),
+          JSON.stringify({ drift: calculationVersion.drift ?? null, customRatio: calculationVersion.customRatio ?? null }),
+          !calculationVersion.supersededAt
+            && (calculationVersion.status === "confirmed" || calculationVersion.status === "amended"),
+          calculationVersion.providerAuthoritativeRatio ?? null,
+          calculationVersion.drift?.currentProviderValue ?? null,
+          calculationVersion.drift?.currentProviderUnit ?? null,
+          calculationVersion.drift?.currentAuthoritativeRatio ?? null,
+        ],
+      );
+    }
+
     for (const dividendLedgerEntry of accounting.facts.dividendLedgerEntries) {
       if (!accountIdSet.has(dividendLedgerEntry.accountId)) continue;
       const dividendLedgerVersion = dividendLedgerEntry.version ?? 1;
@@ -13779,6 +15542,7 @@ export class PostgresPersistence implements Persistence {
            received_stock_quantity,
            posting_status, reconciliation_status, version,
            source_composition_status, reconciliation_note, booked_at,
+           active_calculation_id, cash_reconciliation_status, stock_reconciliation_status, stock_reconciliation_note,
            reversal_of_dividend_ledger_entry_id, superseded_at
          ) VALUES (
            $1, $2, $3, $4,
@@ -13786,7 +15550,8 @@ export class PostgresPersistence implements Persistence {
            $10,
            $11, $12, $13,
            $14, $15, $16,
-           $17, $18
+           $17, $18, $19, $20,
+           $21, $22
          )`,
         [
           dividendLedgerEntry.id,
@@ -13805,6 +15570,10 @@ export class PostgresPersistence implements Persistence {
           dividendSourceCompositionStatus,
           dividendLedgerEntry.reconciliationNote ?? null,
           dividendLedgerEntry.bookedAt ?? new Date().toISOString(),
+          dividendLedgerEntry.activeCalculationId ?? null,
+          dividendLedgerEntry.cashReconciliationStatus ?? dividendLedgerEntry.reconciliationStatus,
+          dividendLedgerEntry.stockReconciliationStatus ?? null,
+          dividendLedgerEntry.stockReconciliationNote ?? null,
           dividendLedgerEntry.reversalOfDividendLedgerEntryId ?? null,
           dividendLedgerEntry.supersededAt ?? null,
         ],
@@ -13862,6 +15631,32 @@ export class PostgresPersistence implements Persistence {
       }
     }
 
+    for (const calculationVersion of dividendCalculationVersions) {
+      const linkedLedgerEntry = accounting.facts.dividendLedgerEntries.find((entry) =>
+        entry.accountId === calculationVersion.accountId
+        && entry.dividendEventId === calculationVersion.dividendEventId
+        && (
+          entry.id === calculationVersion.dividendLedgerEntryId
+          || entry.activeCalculationId === calculationVersion.id
+        ));
+      if (!linkedLedgerEntry || !retainedDividendLedgerIds.has(linkedLedgerEntry.id)) continue;
+      await client.query(
+        `UPDATE dividend_event_calculation_versions
+            SET dividend_ledger_entry_id = $2
+          WHERE id = $1
+            AND user_id = $3
+            AND account_id = $4
+            AND dividend_event_id = $5`,
+        [
+          calculationVersion.id,
+          linkedLedgerEntry.id,
+          userId,
+          calculationVersion.accountId,
+          calculationVersion.dividendEventId,
+        ],
+      );
+    }
+
     for (const tx of accounting.facts.tradeEvents) {
       if (!accountIdSet.has(tx.accountId)) continue;
       const feePolicySnapshotId = feePolicySnapshotIdForTrade(tx.id);
@@ -13903,6 +15698,26 @@ export class PostgresPersistence implements Persistence {
           tx.bookedAt ?? new Date(`${tx.tradeDate}T00:00:00.000Z`).toISOString(),
           tx.reversalOfTradeEventId ?? null,
           tx.feesSource ?? "CALCULATED",
+        ],
+      );
+    }
+
+    const retainedTradeEventIds = new Set(
+      accounting.facts.tradeEvents
+        .filter((trade) => accountIdSet.has(trade.accountId))
+        .map((trade) => trade.id),
+    );
+    const retainedDraftTradeLinks = confirmedDraftTradeLinks.filter((link) =>
+      retainedTradeEventIds.has(link.confirmed_trade_event_id));
+    if (retainedDraftTradeLinks.length > 0) {
+      await client.query(
+        `UPDATE ai_transaction_draft_rows AS draft_row
+            SET confirmed_trade_event_id = restored.trade_event_id
+           FROM unnest($1::text[], $2::text[]) AS restored(row_id, trade_event_id)
+          WHERE draft_row.id = restored.row_id`,
+        [
+          retainedDraftTradeLinks.map((link) => link.row_id),
+          retainedDraftTradeLinks.map((link) => link.confirmed_trade_event_id),
         ],
       );
     }
@@ -14159,6 +15974,11 @@ export class PostgresPersistence implements Persistence {
       if (patch.side !== undefined) {
         setClauses.push(`trade_type = $${paramIndex}`);
         values.push(patch.side);
+        paramIndex++;
+      }
+      if (patch.isDayTrade !== undefined) {
+        setClauses.push(`is_day_trade = $${paramIndex}`);
+        values.push(patch.isDayTrade);
         paramIndex++;
       }
       if (patch.commissionAmount !== undefined) {
@@ -14470,14 +16290,17 @@ export class PostgresPersistence implements Persistence {
       `INSERT INTO market_data.dividend_events (
          id, ticker, market_code, event_type, ex_dividend_date, payment_date,
          cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
-         stock_distribution_amount_raw, stock_distribution_ratio, stock_distribution_ratio_state,
+         stock_distribution_amount_raw, stock_provider_value, stock_provider_value_unit,
+         stock_provider_source, stock_provider_dataset, stock_provider_authoritative_ratio,
+         stock_distribution_ratio, stock_distribution_ratio_state,
          stock_par_value_amount, stock_par_value_currency,
          source, source_reference, ingested_at,
          fiscal_year_period, announcement_date, total_distribution_shares, raw_provider_data
        ) VALUES (
          $1, $2, $3, $4, $5, $6,
-         $7, $8, $9, $10, $11, $12, $13, $14,
-         $15, $16, $17,
+         $7, $8, $9, $10, $11, $12, $13, $14, $15,
+         $16, $17, $18, $19,
+         $20, $21, $22,
          NULL, NULL, NULL, NULL
        )
        ON CONFLICT (id)
@@ -14491,6 +16314,11 @@ export class PostgresPersistence implements Persistence {
          cash_dividend_currency = EXCLUDED.cash_dividend_currency,
          stock_dividend_per_share = EXCLUDED.stock_dividend_per_share,
          stock_distribution_amount_raw = EXCLUDED.stock_distribution_amount_raw,
+         stock_provider_value = EXCLUDED.stock_provider_value,
+         stock_provider_value_unit = EXCLUDED.stock_provider_value_unit,
+         stock_provider_source = EXCLUDED.stock_provider_source,
+         stock_provider_dataset = EXCLUDED.stock_provider_dataset,
+         stock_provider_authoritative_ratio = EXCLUDED.stock_provider_authoritative_ratio,
          stock_distribution_ratio = EXCLUDED.stock_distribution_ratio,
          stock_distribution_ratio_state = EXCLUDED.stock_distribution_ratio_state,
          stock_par_value_amount = EXCLUDED.stock_par_value_amount,
@@ -14512,6 +16340,11 @@ export class PostgresPersistence implements Persistence {
         dividendEvent.cashDividendCurrency,
         dividendEvent.stockDividendPerShare,
         dividendEvent.stockDistributionAmountRaw ?? null,
+        dividendEvent.stockProviderValue ?? null,
+        dividendEvent.stockProviderValueUnit ?? null,
+        dividendEvent.stockProviderSource ?? null,
+        dividendEvent.stockProviderDataset ?? null,
+        dividendEvent.stockProviderAuthoritativeRatio ?? null,
         dividendEvent.stockDistributionRatio ?? null,
         dividendEvent.stockDistributionRatioState ?? null,
         dividendEvent.stockParValueAmount ?? null,
@@ -15640,17 +17473,21 @@ export class PostgresPersistence implements Persistence {
     // `jsonb_strip_nulls()`. Top-level `{cardOrder:null}` still routes
     // through the delete-keys arm and removes the entire `cardOrder` key.
     //
-    // `adminMarketDataTableSettings.contexts` is also sub-key-merged so
-    // concurrently mounted admin tables do not overwrite sibling contexts.
+    // `holdingsTableSettings.contexts` and
+    // `adminMarketDataTableSettings.contexts` are sub-key-merged so
+    // concurrently mounted tables do not overwrite sibling contexts.
     const mergeObj: Record<string, unknown> = {};
     const deleteKeys: string[] = [];
     let cardOrderPatch: Record<string, unknown> | null = null;
+    let holdingsTableSettingsPatch: Record<string, unknown> | null = null;
     let adminMarketDataTableSettingsPatch: Record<string, unknown> | null = null;
     for (const [k, v] of Object.entries(patch)) {
       if (v === null) {
         deleteKeys.push(k);
       } else if (k === "cardOrder" && typeof v === "object" && !Array.isArray(v)) {
         cardOrderPatch = v as Record<string, unknown>;
+      } else if (k === "holdingsTableSettings" && typeof v === "object" && !Array.isArray(v)) {
+        holdingsTableSettingsPatch = v as Record<string, unknown>;
       } else if (k === "adminMarketDataTableSettings" && typeof v === "object" && !Array.isArray(v)) {
         adminMarketDataTableSettingsPatch = v as Record<string, unknown>;
       } else {
@@ -15662,13 +17499,42 @@ export class PostgresPersistence implements Persistence {
        VALUES ($1, jsonb_strip_nulls(
          COALESCE($2::jsonb, '{}'::jsonb)
          || COALESCE(jsonb_build_object('cardOrder', $4::jsonb), '{}'::jsonb)
-         || COALESCE(jsonb_build_object('adminMarketDataTableSettings', $5::jsonb), '{}'::jsonb)
+         || COALESCE(jsonb_build_object('holdingsTableSettings', $5::jsonb), '{}'::jsonb)
+         || COALESCE(jsonb_build_object('adminMarketDataTableSettings', $6::jsonb), '{}'::jsonb)
        ), NOW())
        ON CONFLICT (user_id) DO UPDATE
          SET preferences = CASE
-           WHEN $5::jsonb IS NOT NULL THEN
+           WHEN $6::jsonb IS NOT NULL THEN
              jsonb_set(
                CASE
+                 WHEN $5::jsonb IS NOT NULL THEN
+                   jsonb_set(
+                     CASE
+                       WHEN $4::jsonb IS NOT NULL THEN
+                         jsonb_set(
+                           (public.user_preferences.preferences || EXCLUDED.preferences) - $3::text[],
+                           '{cardOrder}',
+                           jsonb_strip_nulls(
+                             COALESCE(public.user_preferences.preferences->'cardOrder', '{}'::jsonb)
+                             || $4::jsonb
+                           )
+                         )
+                       ELSE
+                         (public.user_preferences.preferences || EXCLUDED.preferences) - $3::text[]
+                     END,
+                     '{holdingsTableSettings}',
+                     jsonb_set(
+                       jsonb_strip_nulls(
+                         COALESCE(public.user_preferences.preferences->'holdingsTableSettings', '{}'::jsonb)
+                         || $5::jsonb
+                       ),
+                       '{contexts}',
+                       jsonb_strip_nulls(
+                         COALESCE(public.user_preferences.preferences#>'{holdingsTableSettings,contexts}', '{}'::jsonb)
+                         || COALESCE($5::jsonb->'contexts', '{}'::jsonb)
+                       )
+                    )
+                   )
                  WHEN $4::jsonb IS NOT NULL THEN
                    jsonb_set(
                      (public.user_preferences.preferences || EXCLUDED.preferences) - $3::text[],
@@ -15685,14 +17551,42 @@ export class PostgresPersistence implements Persistence {
                jsonb_set(
                  jsonb_strip_nulls(
                    COALESCE(public.user_preferences.preferences->'adminMarketDataTableSettings', '{}'::jsonb)
-                   || $5::jsonb
+                   || $6::jsonb
                  ),
                  '{contexts}',
                  jsonb_strip_nulls(
                    COALESCE(public.user_preferences.preferences#>'{adminMarketDataTableSettings,contexts}', '{}'::jsonb)
-                   || COALESCE($5::jsonb->'contexts', '{}'::jsonb)
+                   || COALESCE($6::jsonb->'contexts', '{}'::jsonb)
                  )
               )
+             )
+           WHEN $5::jsonb IS NOT NULL THEN
+             jsonb_set(
+               CASE
+                 WHEN $4::jsonb IS NOT NULL THEN
+                   jsonb_set(
+                     (public.user_preferences.preferences || EXCLUDED.preferences) - $3::text[],
+                     '{cardOrder}',
+                     jsonb_strip_nulls(
+                       COALESCE(public.user_preferences.preferences->'cardOrder', '{}'::jsonb)
+                       || $4::jsonb
+                     )
+                   )
+                 ELSE
+                   (public.user_preferences.preferences || EXCLUDED.preferences) - $3::text[]
+               END,
+               '{holdingsTableSettings}',
+               jsonb_set(
+                 jsonb_strip_nulls(
+                   COALESCE(public.user_preferences.preferences->'holdingsTableSettings', '{}'::jsonb)
+                   || $5::jsonb
+                 ),
+                 '{contexts}',
+                 jsonb_strip_nulls(
+                   COALESCE(public.user_preferences.preferences#>'{holdingsTableSettings,contexts}', '{}'::jsonb)
+                   || COALESCE($5::jsonb->'contexts', '{}'::jsonb)
+                 )
+               )
              )
            WHEN $4::jsonb IS NOT NULL THEN
              jsonb_set(
@@ -15713,6 +17607,7 @@ export class PostgresPersistence implements Persistence {
         JSON.stringify(mergeObj),
         deleteKeys,
         cardOrderPatch === null ? null : JSON.stringify(cardOrderPatch),
+        holdingsTableSettingsPatch === null ? null : JSON.stringify(holdingsTableSettingsPatch),
         adminMarketDataTableSettingsPatch === null ? null : JSON.stringify(adminMarketDataTableSettingsPatch),
       ],
     );
@@ -18958,8 +20853,9 @@ export class PostgresPersistence implements Persistence {
         await client.query(
           `INSERT INTO mcp_replay_position_run_scopes
              (run_id, account_id, account_name, ticker, market_code, status, error_message,
-              replayed_trade_count, snapshot_generation_run_id, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz)`,
+              replayed_trade_count, snapshot_generation_run_id, earliest_replay_date,
+              deleted_trade_event_ids_json, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::date, $11::jsonb, $12::timestamptz)`,
           [
             record.id,
             scope.accountId,
@@ -18970,6 +20866,8 @@ export class PostgresPersistence implements Persistence {
             scope.errorMessage,
             scope.replayedTradeCount,
             scope.snapshotGenerationRunId,
+            scope.earliestReplayDate ?? null,
+            JSON.stringify(scope.deletedTradeEventIds ?? []),
             scope.updatedAt,
           ],
         );
@@ -19010,10 +20908,13 @@ export class PostgresPersistence implements Persistence {
         error_message: string | null;
         replayed_trade_count: string | null;
         snapshot_generation_run_id: string | null;
+        earliest_replay_date: string | null;
+        deleted_trade_event_ids_json: string[] | null;
         updated_at: string;
       }>(
         `SELECT account_id, account_name, ticker, market_code, status, error_message,
-                replayed_trade_count::text, snapshot_generation_run_id, updated_at::text
+                replayed_trade_count::text, snapshot_generation_run_id, earliest_replay_date::text,
+                deleted_trade_event_ids_json, updated_at::text
            FROM mcp_replay_position_run_scopes
           WHERE run_id = $1
           ORDER BY account_name ASC, ticker ASC, market_code ASC`,
@@ -19040,6 +20941,8 @@ export class PostgresPersistence implements Persistence {
         errorMessage: scope.error_message,
         replayedTradeCount: scope.replayed_trade_count !== null ? Number(scope.replayed_trade_count) : null,
         snapshotGenerationRunId: scope.snapshot_generation_run_id,
+        earliestReplayDate: scope.earliest_replay_date ?? undefined,
+        deletedTradeEventIds: scope.deleted_trade_event_ids_json ?? [],
         updatedAt: scope.updated_at,
       })),
     };
@@ -19115,6 +21018,388 @@ export class PostgresPersistence implements Persistence {
     if ((result.rowCount ?? 0) === 0) {
       throw routeError(404, "mcp_replay_run_not_found", "Replay run not found");
     }
+  }
+
+  async savePostedTransactionMutationPreview(
+    record: import("./types.js").PostedTransactionMutationPreviewRecord,
+  ): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `INSERT INTO posted_transaction_mutation_previews (
+           id, owner_user_id, actor_user_id, operation, status, version, reason,
+           confirmation_summary, confirmation_digest, fingerprint, batch_limit,
+           summary_json, warnings_json, blockers_json, errors_json,
+           affected_account_ids_json, affected_tickers_json, scopes_json, account_revisions_json,
+           final_accounting_json, replay_scopes_json, created_at, expires_at, confirmed_at, confirmed_run_id
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7,
+           $8, $9, $10, $11,
+           $12::jsonb, $13::jsonb, $14::jsonb, $15::jsonb,
+           $16::jsonb, $17::jsonb, $18::jsonb, $19::jsonb,
+           $20::jsonb, $21::jsonb, $22::timestamptz, $23::timestamptz, $24::timestamptz, $25
+         )
+         ON CONFLICT (id) DO UPDATE SET
+           status = EXCLUDED.status,
+           version = EXCLUDED.version,
+           confirmation_summary = EXCLUDED.confirmation_summary,
+           confirmation_digest = EXCLUDED.confirmation_digest,
+           fingerprint = EXCLUDED.fingerprint,
+           summary_json = EXCLUDED.summary_json,
+           warnings_json = EXCLUDED.warnings_json,
+           blockers_json = EXCLUDED.blockers_json,
+           errors_json = EXCLUDED.errors_json,
+           affected_account_ids_json = EXCLUDED.affected_account_ids_json,
+           affected_tickers_json = EXCLUDED.affected_tickers_json,
+           scopes_json = EXCLUDED.scopes_json,
+           account_revisions_json = EXCLUDED.account_revisions_json,
+           final_accounting_json = EXCLUDED.final_accounting_json,
+           replay_scopes_json = EXCLUDED.replay_scopes_json,
+           expires_at = EXCLUDED.expires_at,
+           confirmed_at = EXCLUDED.confirmed_at,
+           confirmed_run_id = EXCLUDED.confirmed_run_id`,
+        [
+          record.id,
+          record.ownerUserId,
+          record.actorUserId,
+          record.operation,
+          record.status,
+          record.version,
+          record.reason,
+          record.confirmationSummary,
+          record.confirmationDigest,
+          record.fingerprint,
+          record.batchLimit,
+          JSON.stringify(record.summary),
+          JSON.stringify(record.warnings),
+          JSON.stringify(record.blockers),
+          JSON.stringify(record.errors),
+          JSON.stringify(record.affectedAccountIds),
+          JSON.stringify(record.affectedTickers),
+          JSON.stringify(record.scopes),
+          JSON.stringify(record.accountRevisions),
+          JSON.stringify(record.finalAccounting),
+          JSON.stringify(record.replayScopes),
+          record.createdAt,
+          record.expiresAt,
+          record.confirmedAt,
+          record.confirmedRunId,
+        ],
+      );
+      await client.query(`DELETE FROM posted_transaction_mutation_preview_items WHERE preview_id = $1`, [record.id]);
+      for (const [ordinal, item] of record.items.entries()) {
+        await client.query(
+          `INSERT INTO posted_transaction_mutation_preview_items (
+             preview_id, transaction_id, ordinal, account_id, ticker, market_code, status, note,
+             before_json, after_json, impacts_json, warnings_json, blockers_json, errors_json
+           ) VALUES (
+             $1, $2, $3, $4, $5, $6, $7, $8,
+             $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb, $14::jsonb
+           )`,
+          [
+            record.id,
+            item.transactionId,
+            ordinal,
+            item.before?.accountId ?? item.after?.accountId ?? null,
+            item.before?.ticker ?? item.after?.ticker ?? null,
+            item.before?.marketCode ?? item.after?.marketCode ?? null,
+            item.status,
+            item.note ?? null,
+            item.before ? JSON.stringify(item.before) : null,
+            item.after ? JSON.stringify(item.after) : null,
+            JSON.stringify(item.impacts),
+            JSON.stringify(item.warnings),
+            JSON.stringify(item.blockers),
+            JSON.stringify(item.errors),
+          ],
+        );
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getPostedTransactionMutationPreview(
+    id: string,
+  ): Promise<import("./types.js").PostedTransactionMutationPreviewRecord | null> {
+    const [previewResult, itemsResult] = await Promise.all([
+      this.pool.query<{
+        id: string;
+        owner_user_id: string;
+        actor_user_id: string | null;
+        operation: import("./types.js").PostedTransactionMutationOperationRecord;
+        status: import("./types.js").PostedTransactionMutationPreviewStatusRecord;
+        version: number;
+        reason: string;
+        confirmation_summary: string;
+        confirmation_digest: string;
+        fingerprint: string;
+        batch_limit: number;
+        summary_json: import("./types.js").PostedTransactionMutationPreviewRecord["summary"];
+        warnings_json: string[];
+        blockers_json: string[];
+        errors_json: import("./types.js").PostedTransactionMutationErrorRecord[];
+        affected_account_ids_json: string[];
+        affected_tickers_json: Array<{ ticker: string; marketCode: MarketCode }>;
+        scopes_json: import("./types.js").PostedTransactionMutationScopeRecord[];
+        account_revisions_json: Record<string, number>;
+        final_accounting_json: AccountingStore;
+        replay_scopes_json: Array<{ accountId: string; ticker: string; marketCode: MarketCode; fromDate: string }>;
+        created_at: string;
+        expires_at: string;
+        confirmed_at: string | null;
+        confirmed_run_id: string | null;
+      }>(
+        `SELECT id, owner_user_id, actor_user_id, operation, status, version, reason,
+                confirmation_summary, confirmation_digest, fingerprint, batch_limit,
+                summary_json, warnings_json, blockers_json, errors_json,
+                affected_account_ids_json, affected_tickers_json, scopes_json, account_revisions_json,
+                final_accounting_json, replay_scopes_json,
+                created_at::text, expires_at::text, confirmed_at::text, confirmed_run_id
+           FROM posted_transaction_mutation_previews
+          WHERE id = $1`,
+        [id],
+      ),
+      this.pool.query<{
+        transaction_id: string;
+        status: import("./types.js").PostedTransactionMutationItemStatusRecord;
+        note: string | null;
+        before_json: Record<string, unknown> | null;
+        after_json: Record<string, unknown> | null;
+        impacts_json: import("./types.js").PostedTransactionMutationPreviewRecord["summary"];
+        warnings_json: string[];
+        blockers_json: string[];
+        errors_json: import("./types.js").PostedTransactionMutationErrorRecord[];
+      }>(
+        `SELECT transaction_id, status, note, before_json, after_json, impacts_json, warnings_json, blockers_json, errors_json
+           FROM posted_transaction_mutation_preview_items
+          WHERE preview_id = $1
+          ORDER BY ordinal ASC`,
+        [id],
+      ),
+    ]);
+    const preview = previewResult.rows[0];
+    if (!preview) return null;
+    return {
+      id: preview.id,
+      ownerUserId: preview.owner_user_id,
+      actorUserId: preview.actor_user_id,
+      operation: preview.operation,
+      status: preview.status,
+      version: preview.version,
+      reason: preview.reason,
+      confirmationSummary: preview.confirmation_summary,
+      confirmationDigest: preview.confirmation_digest,
+      fingerprint: preview.fingerprint,
+      batchLimit: preview.batch_limit,
+      summary: preview.summary_json,
+      warnings: preview.warnings_json ?? [],
+      blockers: preview.blockers_json ?? [],
+      errors: preview.errors_json ?? [],
+      affectedAccountIds: preview.affected_account_ids_json ?? [],
+      affectedTickers: preview.affected_tickers_json ?? [],
+      scopes: preview.scopes_json ?? [],
+      accountRevisions: preview.account_revisions_json ?? {},
+      items: itemsResult.rows.map((row) => ({
+        transactionId: row.transaction_id,
+        status: row.status,
+        note: row.note,
+        before: row.before_json,
+        after: row.after_json,
+        impacts: row.impacts_json,
+        warnings: row.warnings_json ?? [],
+        blockers: row.blockers_json ?? [],
+        errors: row.errors_json ?? [],
+      })),
+      finalAccounting: preview.final_accounting_json,
+      replayScopes: preview.replay_scopes_json ?? [],
+      createdAt: preview.created_at,
+      expiresAt: preview.expires_at,
+      confirmedAt: preview.confirmed_at,
+      confirmedRunId: preview.confirmed_run_id,
+    };
+  }
+
+  async savePostedTransactionMutationRun(
+    record: import("./types.js").PostedTransactionMutationRunRecord,
+  ): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO posted_transaction_mutation_runs (
+         id, preview_id, owner_user_id, actor_user_id, operation, status, rebuild_status,
+         reason, warnings_json, blockers_json, errors_json, summary_json,
+         affected_account_ids_json, affected_tickers_json, scopes_json,
+         fingerprint, confirmation_digest, replay_run_id, created_at, started_at, completed_at
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7,
+         $8, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb,
+         $13::jsonb, $14::jsonb, $15::jsonb,
+         $16, $17, $18, $19::timestamptz, $20::timestamptz, $21::timestamptz
+       )
+       ON CONFLICT (id) DO UPDATE SET
+         status = EXCLUDED.status,
+         rebuild_status = EXCLUDED.rebuild_status,
+         warnings_json = EXCLUDED.warnings_json,
+         blockers_json = EXCLUDED.blockers_json,
+         errors_json = EXCLUDED.errors_json,
+         summary_json = EXCLUDED.summary_json,
+         affected_account_ids_json = EXCLUDED.affected_account_ids_json,
+         affected_tickers_json = EXCLUDED.affected_tickers_json,
+         scopes_json = EXCLUDED.scopes_json,
+         replay_run_id = EXCLUDED.replay_run_id,
+         started_at = EXCLUDED.started_at,
+         completed_at = EXCLUDED.completed_at`,
+      [
+        record.id,
+        record.previewId,
+        record.ownerUserId,
+        record.actorUserId,
+        record.operation,
+        record.status,
+        record.rebuildStatus,
+        record.reason,
+        JSON.stringify(record.warnings),
+        JSON.stringify(record.blockers),
+        JSON.stringify(record.errors),
+        JSON.stringify(record.summary),
+        JSON.stringify(record.affectedAccountIds),
+        JSON.stringify(record.affectedTickers),
+        JSON.stringify(record.scopes),
+        record.fingerprint,
+        record.confirmationDigest,
+        record.replayRunId,
+        record.createdAt,
+        record.startedAt,
+        record.completedAt,
+      ],
+    );
+  }
+
+  async getPostedTransactionMutationRun(
+    id: string,
+  ): Promise<import("./types.js").PostedTransactionMutationRunRecord | null> {
+    const result = await this.pool.query<{
+      id: string;
+      preview_id: string;
+      owner_user_id: string;
+      actor_user_id: string | null;
+      operation: import("./types.js").PostedTransactionMutationOperationRecord;
+      status: import("./types.js").PostedTransactionMutationRunStatusRecord;
+      rebuild_status: import("./types.js").PostedTransactionMutationRebuildStatusRecord;
+      reason: string;
+      warnings_json: string[];
+      blockers_json: string[];
+      errors_json: import("./types.js").PostedTransactionMutationErrorRecord[];
+      summary_json: import("./types.js").PostedTransactionMutationPreviewRecord["summary"];
+      affected_account_ids_json: string[];
+      affected_tickers_json: Array<{ ticker: string; marketCode: MarketCode }>;
+      scopes_json: import("./types.js").PostedTransactionMutationScopeRecord[];
+      fingerprint: string;
+      confirmation_digest: string;
+      replay_run_id: string | null;
+      created_at: string;
+      started_at: string | null;
+      completed_at: string | null;
+    }>(
+      `SELECT id, preview_id, owner_user_id, actor_user_id, operation, status, rebuild_status,
+              reason, warnings_json, blockers_json, errors_json, summary_json,
+              affected_account_ids_json, affected_tickers_json, scopes_json,
+              fingerprint, confirmation_digest, replay_run_id,
+              created_at::text, started_at::text, completed_at::text
+         FROM posted_transaction_mutation_runs
+        WHERE id = $1`,
+      [id],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      id: row.id,
+      previewId: row.preview_id,
+      ownerUserId: row.owner_user_id,
+      actorUserId: row.actor_user_id,
+      operation: row.operation,
+      status: row.status,
+      rebuildStatus: row.rebuild_status,
+      reason: row.reason,
+      warnings: row.warnings_json ?? [],
+      blockers: row.blockers_json ?? [],
+      errors: row.errors_json ?? [],
+      summary: row.summary_json,
+      affectedAccountIds: row.affected_account_ids_json ?? [],
+      affectedTickers: row.affected_tickers_json ?? [],
+      scopes: row.scopes_json ?? [],
+      fingerprint: row.fingerprint,
+      confirmationDigest: row.confirmation_digest,
+      replayRunId: row.replay_run_id,
+      createdAt: row.created_at,
+      startedAt: row.started_at,
+      completedAt: row.completed_at,
+    };
+  }
+
+  async savePostedTransactionMutationDeletedDraftLineage(
+    record: import("./types.js").PostedTransactionMutationDeletedDraftLineageRecord,
+  ): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO posted_transaction_mutation_deleted_draft_lineage (
+         trade_event_id, owner_user_id, batch_id, row_id, deleted_at, deleted_by_user_id, mutation_run_id
+       ) VALUES (
+         $1, $2, $3, $4, $5::timestamptz, $6, $7
+       )
+       ON CONFLICT (trade_event_id) DO UPDATE SET
+         deleted_at = EXCLUDED.deleted_at,
+         deleted_by_user_id = EXCLUDED.deleted_by_user_id,
+         mutation_run_id = EXCLUDED.mutation_run_id`,
+      [
+        record.tradeEventId,
+        record.ownerUserId,
+        record.batchId,
+        record.rowId,
+        record.deletedAt,
+        record.deletedByUserId,
+        record.mutationRunId,
+      ],
+    );
+  }
+
+  async listPostedTransactionMutationDeletedDraftLineage(
+    ownerUserId: string,
+    tradeEventIds: readonly string[],
+    draftRowIds: readonly string[] = [],
+  ): Promise<import("./types.js").PostedTransactionMutationDeletedDraftLineageRecord[]> {
+    if (tradeEventIds.length === 0 && draftRowIds.length === 0) return [];
+    const result = await this.pool.query<{
+      trade_event_id: string;
+      owner_user_id: string;
+      batch_id: string;
+      row_id: string;
+      deleted_at: string;
+      deleted_by_user_id: string | null;
+      mutation_run_id: string;
+    }>(
+      `SELECT trade_event_id, owner_user_id, batch_id, row_id,
+              deleted_at::text, deleted_by_user_id, mutation_run_id
+        FROM posted_transaction_mutation_deleted_draft_lineage
+        WHERE owner_user_id = $1
+          AND (
+            trade_event_id = ANY($2::text[])
+            OR row_id = ANY($3::text[])
+          )`,
+      [ownerUserId, tradeEventIds, draftRowIds],
+    );
+    return result.rows.map((row) => ({
+      tradeEventId: row.trade_event_id,
+      ownerUserId: row.owner_user_id,
+      batchId: row.batch_id,
+      rowId: row.row_id,
+      deletedAt: row.deleted_at,
+      deletedByUserId: row.deleted_by_user_id,
+      mutationRunId: row.mutation_run_id,
+    }));
   }
 
   async createProviderOperationLog(input: CreateProviderOperationLogInput): Promise<ProviderOperationLogRecord> {
@@ -20758,6 +23043,12 @@ function normalizeDateTime(value: string | Date): string {
   return value.toISOString();
 }
 
+function normalizeNumericText(value: string | null): string | null {
+  if (value === null || !value.includes(".")) return value;
+  const normalized = value.replace(/0+$/, "").replace(/\.$/, "");
+  return normalized === "-0" ? "0" : normalized;
+}
+
 function mapDividendLedgerEntryRow(row: Record<string, unknown>): DividendLedgerEntry {
   return {
     id: String(row.id),
@@ -20775,6 +23066,17 @@ function mapDividendLedgerEntryRow(row: Record<string, unknown>): DividendLedger
     receivedCashAmount: Number(row.received_cash_amount ?? 0),
     receivedStockQuantity: Number(row.received_stock_quantity),
     postingStatus: String(row.posting_status) as DividendLedgerEntry["postingStatus"],
+    activeCalculationId: row.active_calculation_id == null ? null : String(row.active_calculation_id),
+    cashReconciliationStatus:
+      row.cash_reconciliation_status == null
+        ? undefined
+        : String(row.cash_reconciliation_status) as DividendLedgerEntry["cashReconciliationStatus"],
+    stockReconciliationStatus:
+      row.stock_reconciliation_status == null
+        ? null
+        : String(row.stock_reconciliation_status) as DividendLedgerEntry["stockReconciliationStatus"],
+    stockReconciliationNote:
+      row.stock_reconciliation_note == null ? null : String(row.stock_reconciliation_note),
     reconciliationStatus: String(row.reconciliation_status) as DividendLedgerEntry["reconciliationStatus"],
     version: Number(row.version ?? 1),
     sourceCompositionStatus: String(row.source_composition_status ?? "unknown_pending_disclosure") as DividendLedgerEntry["sourceCompositionStatus"],
@@ -20782,6 +23084,259 @@ function mapDividendLedgerEntryRow(row: Record<string, unknown>): DividendLedger
     reversalOfDividendLedgerEntryId: row.reversal_of_dividend_ledger_entry_id ? String(row.reversal_of_dividend_ledger_entry_id) : undefined,
     supersededAt: row.superseded_at ? normalizeDateTime(String(row.superseded_at)) : undefined,
     bookedAt: row.booked_at ? normalizeDateTime(String(row.booked_at)) : undefined,
+  };
+}
+
+function deriveDividendReviewStockStatus(row: {
+  eventType: DividendReviewRowSummaryDto["eventType"];
+  postingStatus: DividendReviewRowSummaryDto["postingStatus"];
+  expectedStockCalcState?: DividendReviewRowSummaryDto["expectedStockCalcState"] | null;
+  expectedStockQuantity: number;
+  receivedStockQuantity: number;
+  reconciliationStatus: DividendReviewRowSummaryDto["reconciliationStatus"];
+}): DividendReviewRowSummaryDto["stockReconciliationStatus"] {
+  if (row.eventType === "CASH") return null;
+  if (row.expectedStockCalcState === "needs_action") return "needs_calculation";
+  if (row.postingStatus === "expected") return "pending_receipt";
+  if (row.reconciliationStatus === "explained") return "explained";
+  return row.receivedStockQuantity === row.expectedStockQuantity ? "matched" : "variance";
+}
+
+function mapDividendCalculationVersionRow(
+  row: Record<string, unknown>,
+): DividendCalculationVersionDto {
+  const provenance = parseJsonRecord(row.provenance);
+  const driftRecord = provenance.drift;
+  const drift = isRecord(driftRecord)
+    ? {
+        hasDrift: Boolean(driftRecord.hasDrift),
+        previousProviderValue: nullableString(driftRecord.previousProviderValue),
+        previousProviderUnit: nullableDividendProviderUnit(driftRecord.previousProviderUnit),
+        currentProviderValue: nullableString(driftRecord.currentProviderValue),
+        currentProviderUnit: nullableDividendProviderUnit(driftRecord.currentProviderUnit),
+        previousAuthoritativeRatio: nullableString(driftRecord.previousAuthoritativeRatio),
+        currentAuthoritativeRatio: nullableString(driftRecord.currentAuthoritativeRatio),
+      }
+    : null;
+  return {
+    id: String(row.id),
+    accountId: String(row.account_id),
+    dividendEventId: String(row.dividend_event_id),
+    calculationVersion: Number(row.calculation_version),
+    status: String(row.calculation_status) as DividendCalculationVersion["status"],
+    method: String(row.method) as DividendCalculationVersion["method"],
+    provider: {
+      value: row.provider_value == null ? null : String(row.provider_value),
+      unit: nullableDividendProviderUnit(row.provider_unit),
+      source: row.provider_source == null ? null : String(row.provider_source),
+      dataset: row.provider_dataset == null ? null : String(row.provider_dataset),
+      authoritativeRatio:
+        row.provider_authoritative_ratio == null ? null : String(row.provider_authoritative_ratio),
+    },
+    ratio: String(row.resolved_ratio),
+    selectedParValue: row.selected_par_value == null ? null : String(row.selected_par_value),
+    theoreticalShares: String(row.theoretical_shares),
+    expectedWholeShares: row.expected_whole_shares == null ? null : Number(row.expected_whole_shares),
+    fractionalRemainder: row.fractional_remainder == null ? null : String(row.fractional_remainder),
+    requiresHighRatioConfirmation: Boolean(row.requires_high_ratio_confirmation),
+    confirmedAt: row.confirmed_at == null ? null : normalizeDateTime(String(row.confirmed_at)),
+    supersededAt: row.superseded_at == null ? null : normalizeDateTime(String(row.superseded_at)),
+    priorCalculationId: row.prior_calculation_id == null ? null : String(row.prior_calculation_id),
+    dividendLedgerEntryId: row.dividend_ledger_entry_id == null ? null : String(row.dividend_ledger_entry_id),
+    drift,
+  };
+}
+
+function mapDividendCalculationVersionFactRow(
+  row: Record<string, unknown>,
+): DividendCalculationVersion {
+  const dto = mapDividendCalculationVersionRow(row);
+  const provenance = parseJsonRecord(row.provenance);
+  return {
+    id: dto.id,
+    userId: String(row.user_id),
+    accountId: dto.accountId,
+    dividendEventId: dto.dividendEventId,
+    calculationVersion: dto.calculationVersion,
+    status: dto.status,
+    method: dto.method,
+    providerValue: dto.provider.value,
+    providerUnit: dto.provider.unit,
+    providerSource: dto.provider.source,
+    providerDataset: dto.provider.dataset,
+    providerAuthoritativeRatio: dto.provider.authoritativeRatio,
+    selectedParValue: dto.selectedParValue,
+    customRatio: row.custom_ratio == null ? nullableString(provenance.customRatio) : String(row.custom_ratio),
+    ratio: dto.ratio,
+    theoreticalShares: dto.theoreticalShares,
+    expectedWholeShares: dto.expectedWholeShares,
+    fractionalRemainder: dto.fractionalRemainder,
+    requiresHighRatioConfirmation: dto.requiresHighRatioConfirmation,
+    confirmedAt: dto.confirmedAt,
+    supersededAt: dto.supersededAt,
+    priorCalculationId: dto.priorCalculationId,
+    dividendLedgerEntryId: dto.dividendLedgerEntryId,
+    drift: dto.drift,
+    createdAt: row.created_at == null ? undefined : normalizeDateTime(String(row.created_at)),
+  };
+}
+
+function parseJsonRecord(value: unknown): Record<string, unknown> {
+  if (isRecord(value)) return value;
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return isRecord(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function nullableString(value: unknown): string | null {
+  return value == null ? null : String(value);
+}
+
+function nullableDividendProviderUnit(value: unknown): DividendCalculationVersionDto["provider"]["unit"] {
+  if (value == null) return null;
+  const candidate = String(value);
+  return candidate === "RATIO" || candidate === "TWD_PER_SHARE" || candidate === "UNKNOWN"
+    ? candidate
+    : null;
+}
+
+function deriveStockReconciliationStatusFromExpectation(
+  receivedStockQuantity: number,
+  expectedWholeShares: number,
+): DividendReviewRowSummaryDto["stockReconciliationStatus"] {
+  if (expectedWholeShares <= 0) return receivedStockQuantity > 0 ? "variance" : "pending_receipt";
+  if (receivedStockQuantity === 0) return "pending_receipt";
+  return receivedStockQuantity === expectedWholeShares ? "matched" : "variance";
+}
+
+function compareNullableIsoDateNullLast(
+  left: string | null | undefined,
+  right: string | null | undefined,
+  sortOrder: "asc" | "desc",
+): number {
+  const leftValue = left ?? null;
+  const rightValue = right ?? null;
+  if (leftValue === null && rightValue === null) return 0;
+  if (leftValue === null) return 1;
+  if (rightValue === null) return -1;
+  const cmp = leftValue.localeCompare(rightValue);
+  return sortOrder === "asc" ? cmp : -cmp;
+}
+
+function compareNumberByOrder(left: number, right: number, sortOrder: "asc" | "desc"): number {
+  return sortOrder === "asc" ? left - right : right - left;
+}
+
+function compareStringByOrder(left: string, right: string, sortOrder: "asc" | "desc"): number {
+  const cmp = left.localeCompare(right);
+  return sortOrder === "asc" ? cmp : -cmp;
+}
+
+function buildDividendReviewHeroAggregates(
+  rows: readonly DividendReviewResponseRowWithDetails[],
+): DividendReviewEnrichmentDto["hero"] {
+  const expectedByTicker = new Map<string, {
+    marketCode: SharedMarketCode;
+    ticker: string;
+    expectedWholeShares: number | null;
+    receivedShares: number | null;
+    unresolvedEventCount: number;
+  }>();
+  const receivedByTicker = new Map<string, {
+    marketCode: SharedMarketCode;
+    ticker: string;
+    expectedWholeShares: number | null;
+    receivedShares: number | null;
+    unresolvedEventCount: number;
+  }>();
+  let needsCalculationCount = 0;
+  let cashAttentionCount = 0;
+  let stockAttentionCount = 0;
+  let needsAttentionCount = 0;
+
+  for (const row of rows) {
+    const cashNeedsAttention = row.cashReconciliationStatus === "open" || row.cashReconciliationStatus === "explained";
+    if (cashNeedsAttention) {
+      cashAttentionCount += 1;
+    }
+    const stockStatus = row.stockReconciliationStatus ?? deriveDividendReviewStockStatus({
+      eventType: row.eventType,
+      postingStatus: row.postingStatus,
+      expectedStockCalcState: row.expectedStockCalcState,
+      expectedStockQuantity: row.expectedStockQuantity ?? 0,
+      receivedStockQuantity: row.receivedStockQuantity,
+      reconciliationStatus: row.reconciliationStatus,
+    });
+    if (stockStatus === "needs_calculation") needsCalculationCount += 1;
+    const stockNeedsAttention = Boolean(stockStatus && stockStatus !== "matched");
+    if (stockNeedsAttention) stockAttentionCount += 1;
+    if (cashNeedsAttention || stockNeedsAttention) needsAttentionCount += 1;
+    if (row.eventType === "CASH") continue;
+    const key = `${row.marketCode}:${row.ticker}`;
+    const expectedBucket = expectedByTicker.get(key) ?? {
+      marketCode: row.marketCode as SharedMarketCode,
+      ticker: row.ticker,
+      expectedWholeShares: 0,
+      receivedShares: null,
+      unresolvedEventCount: 0,
+    };
+    if (row.expectedStockCalcState === "needs_action" || row.expectedStockQuantity == null) {
+      expectedBucket.expectedWholeShares = expectedBucket.expectedWholeShares === 0 ? null : expectedBucket.expectedWholeShares;
+      expectedBucket.unresolvedEventCount += 1;
+    } else {
+      expectedBucket.expectedWholeShares = (expectedBucket.expectedWholeShares ?? 0) + row.expectedStockQuantity;
+    }
+    expectedByTicker.set(key, expectedBucket);
+
+    const receivedBucket = receivedByTicker.get(key) ?? {
+      marketCode: row.marketCode as SharedMarketCode,
+      ticker: row.ticker,
+      expectedWholeShares: null,
+      receivedShares: 0,
+      unresolvedEventCount: 0,
+    };
+    receivedBucket.receivedShares = (receivedBucket.receivedShares ?? 0) + row.receivedStockQuantity;
+    if (row.expectedStockCalcState === "needs_action" || row.expectedStockQuantity == null) {
+      receivedBucket.unresolvedEventCount += 1;
+    }
+    receivedByTicker.set(key, receivedBucket);
+  }
+
+  const sortTickerAggregates = (
+    items: Iterable<{
+      marketCode: SharedMarketCode;
+      ticker: string;
+      expectedWholeShares: number | null;
+      receivedShares: number | null;
+      unresolvedEventCount: number;
+    }>,
+  ) => [...items].sort((left, right) =>
+    left.marketCode.localeCompare(right.marketCode) || left.ticker.localeCompare(right.ticker));
+  const expectedStockTickers = sortTickerAggregates(expectedByTicker.values());
+  const receivedStockTickers = sortTickerAggregates(receivedByTicker.values());
+  const expectedStockTopTickers = expectedStockTickers.slice(0, 3);
+  const receivedStockTopTickers = receivedStockTickers.slice(0, 3);
+  return {
+    expectedStockTickers,
+    expectedStockTopTickers,
+    expectedStockRemainingTickerCount: Math.max(expectedByTicker.size - expectedStockTopTickers.length, 0),
+    receivedStockTickers,
+    receivedStockTopTickers,
+    receivedStockRemainingTickerCount: Math.max(receivedByTicker.size - receivedStockTopTickers.length, 0),
+    needsCalculationCount,
+    cashAttentionCount,
+    stockAttentionCount,
+    needsAttentionCount,
   };
 }
 

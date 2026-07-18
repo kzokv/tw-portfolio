@@ -1,5 +1,10 @@
+import type { AiConnectorPolicySettingsDto } from "@vakwen/shared-types";
+import { TestEnv } from "@vakwen/config/test";
 import { test } from "../fixtures.js";
 import { createOauthSession } from "./helpers/sharing.js";
+
+const mcpAdminFreshAuthUrl = new URL("/admin/mcp/fresh-auth", TestEnv.apiBaseUrl).href;
+const mcpAdminSettingsUrl = new URL("/admin/mcp/settings", TestEnv.apiBaseUrl).href;
 
 test.describe("admin settings API (KZO-142)", () => {
   test("[admin settings]: GET /admin/settings as admin → 200 with AppConfigDto shape", async ({
@@ -253,6 +258,50 @@ test.describe("admin settings API (KZO-142)", () => {
       { repairCooldownMinutes: 1.5 },
     );
     await adminApi.assert.statusIs(response, 400);
+  });
+
+  test("[admin MCP settings]: PATCH { postedTransactionMutationBatchLimit: 250 } → 200 and persists without hard cap rejection", async ({
+    request,
+    adminApi,
+  }) => {
+    const admin = await createOauthSession(request, {
+      sub: "admin-settings-mutation-batch-limit-sub",
+      email: "admin-settings-mutation-batch-limit@example.com",
+      name: "Admin Mutation Batch Limit",
+      role: "admin",
+    });
+
+    const freshAuthResponse = await request.post(mcpAdminFreshAuthUrl, {
+      headers: { cookie: admin.cookieHeader },
+    });
+    await adminApi.assert.statusIs(freshAuthResponse, 200);
+    const freshAuth = await freshAuthResponse.json() as { freshAuthToken: string };
+    const patchResponse = await request.patch(mcpAdminSettingsUrl, {
+      headers: {
+        cookie: admin.cookieHeader,
+        "content-type": "application/json",
+        "x-vakwen-fresh-auth-at": freshAuth.freshAuthToken,
+      },
+      data: { postedTransactionMutationBatchLimit: 250 },
+    });
+    await adminApi.assert.statusIs(patchResponse, 200);
+    const patchedBody = await patchResponse.json() as AiConnectorPolicySettingsDto;
+    await adminApi.assert.mxAssertEqual(
+      patchedBody.postedTransactionMutationBatchLimit,
+      250,
+      "patched.postedTransactionMutationBatchLimit",
+    );
+
+    const followUp = await request.get(mcpAdminSettingsUrl, {
+      headers: { cookie: admin.cookieHeader },
+    });
+    await adminApi.assert.statusIs(followUp, 200);
+    const followUpBody = await followUp.json() as AiConnectorPolicySettingsDto;
+    await adminApi.assert.mxAssertEqual(
+      followUpBody.postedTransactionMutationBatchLimit,
+      250,
+      "followUp.postedTransactionMutationBatchLimit",
+    );
   });
 
   test("[admin settings]: GET /admin/settings as member → 403 admin_role_required", async ({

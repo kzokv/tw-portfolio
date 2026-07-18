@@ -501,7 +501,22 @@ Checklist:
 6. Edit one row, exclude or reinclude one row, and confirm the widget refreshes through MCP tool calls without requiring a Vakwen browser session.
 7. Open the Vakwen deep link and confirm the same batch appears under `Transactions -> AI Inbox`.
 8. In Vakwen Settings -> AI Connectors or admin access logs, confirm recent connector activity exists for the session.
-9. If you are also validating posting, reconnect or re-consent with `transaction:write`, import or reopen a batch with ready rows, and verify posting only succeeds through `post_transaction_draft_rows`.
+9. If you are validating posted writes, reconnect or re-consent with `transaction:write`. Verify draft posting through `post_transaction_draft_rows`; verify posted corrections through preview first, explicit post-preview approval, and then the matching update/delete confirmation tool.
+
+### Posted transaction mutation operations
+
+- Admin -> Settings -> MCP controls `postedTransactionMutationBatchLimit`. The default is 50, the value must be a positive integer, and the application has no hard cap. Values above 200 remain saveable but display warnings about payload/response size, preview or client timeouts, longer locks and revision conflicts, queue backlog, and a client timeout after the server has committed.
+- AI callers must resolve immutable IDs with `get_recent_transactions`, submit an update or delete preview, present the returned impact, then wait for explicit user approval before calling the matching confirmation tool. The original correction request is not approval of the preview.
+- Inspect large previews with `get_posted_transaction_mutation_preview` or `/transactions/mutations/previews/:previewId`. The preview is read-only, paginated, expires after 30 minutes, and supports account, ticker, market, item status, warning, and blocker filters.
+- Treat the core accounting commit and snapshot rebuild as separate states. Use `get_posted_transaction_mutation_run` or `/transactions/mutations/runs/:runId`; do not report full completion while rebuild status is queued or running.
+- On `partially_failed` or `failed`, the corrected transaction facts and core accounting remain committed. Use the existing portfolio preview/replay tools to recover failed snapshot scopes. Do not repeat confirmation unless the returned run indicates the core commit did not occur.
+- Delegated shared-portfolio mutations require `transaction:write`. A destructive confirmation that can purge dividend artifacts also requires `dividend:write`.
+
+### Holdings table preferences
+
+- Ticker selection is one user-scoped global preference shared by Top Holdings, Portfolio Holdings, and report holdings tables. `All` means every row visible after that table's current filters and limits; a custom selection includes every account row for each selected market/ticker identity.
+- Column order, visibility, width, row order, filters, mobile summary count, Top Holdings count, and Portfolio compact/detailed style are stored in independent stable table contexts. Context merges are atomic, so one mounted table cannot overwrite another table's layout.
+- Legacy `holdings.shared` preferences migrate on read. To diagnose a reported reset, inspect `GET /user-preferences` for `holdingsTableSettings`, verify the expected context key remains present, and confirm `PATCH /user-preferences` returns the merged sibling contexts.
 10. For a 6+ row or high-value posting case, confirm the widget requires typed confirmation in the form `POST {N} TRADES`.
 
 If the live smoke test fails, capture which phase broke:

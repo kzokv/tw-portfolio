@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp, type AppInstance } from "../../src/app.js";
 import { planDividendLedgerRecompute, reconcileDividendEntitlementsForScope } from "../../src/services/dividends.js";
 import type { BookedTradeEvent, DividendEvent, DividendLedgerEntry, PositionAction } from "../../src/types/store.js";
+import { dividendPostingPayload } from "../helpers/fixtures.js";
 
 const USER_ID = "user-1";
 
@@ -336,7 +337,7 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
     expect(review.rows).toHaveLength(1);
     expect(review.rows[0]).toMatchObject({
       id: `expected:${accountId}:${event.id}`,
-      expectedStockQuantity: 0,
+      expectedStockQuantity: null,
       stockDistributionRatio: null,
       stockDistributionRatioState: "unresolved",
       expectedStockCalcState: "needs_action",
@@ -738,6 +739,70 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
     expect(ledgerResponse.json()).toMatchObject({
       total: 0,
       ledgerEntries: [],
+    });
+  });
+
+  it("preserves unresolved stock calculation semantics on the compatibility review route", async () => {
+    const accountId = await seedTwdAccount();
+    await seedBuy(accountId, "2886", 1000, "2026-01-15", { unitPrice: 30 });
+    const event = await seedDividendEvent({
+      ticker: "2886",
+      eventType: "STOCK",
+      exDividendDate: "2026-07-15",
+      paymentDate: "2026-08-20",
+      cashDividendPerShare: 0,
+      stockDividendPerShare: 0.1,
+      stockDistributionRatio: null,
+      stockDistributionRatioState: "unresolved",
+      stockParValueAmount: null,
+      stockParValueCurrency: null,
+    });
+
+    const postingResponse = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/postings",
+      headers: { "idempotency-key": "k-review-unresolved-stock" },
+      payload: dividendPostingPayload({
+        ticker: "2886",
+        dividendEventId: event.id,
+        receivedCashAmount: 0,
+        receivedStockQuantity: 150,
+        deductions: [],
+        sourceCompositionStatus: "unknown_pending_disclosure",
+        sourceLines: [],
+      }),
+    });
+    expect(postingResponse.statusCode).toBe(200);
+    const postingBody = postingResponse.json() as { dividendLedgerEntry: { id: string } };
+
+    const reviewResponse = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/review?ticker=2886&limit=10",
+    });
+
+    expect(reviewResponse.statusCode).toBe(200);
+    expect(reviewResponse.json()).toMatchObject({
+      reviewRows: [expect.objectContaining({
+        id: postingBody.dividendLedgerEntry.id,
+        ticker: "2886",
+        receivedStockQuantity: 150,
+        stockDistributionRatioState: "unresolved",
+        expectedStockCalcState: "needs_action",
+        expectedStockQuantity: null,
+        stockVarianceQuantity: null,
+      })],
+    });
+
+    const detailResponse = await app.inject({
+      method: "GET",
+      url: `/portfolio/dividends/postings/${postingBody.dividendLedgerEntry.id}`,
+    });
+    expect(detailResponse.statusCode).toBe(200);
+    expect(detailResponse.json()).toMatchObject({
+      id: postingBody.dividendLedgerEntry.id,
+      expectedStockCalcState: "needs_action",
+      expectedStockQuantity: null,
+      stockVarianceQuantity: null,
     });
   });
 

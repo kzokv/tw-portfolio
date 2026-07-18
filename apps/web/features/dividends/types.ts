@@ -2,8 +2,13 @@ import type {
   CurrencyCode,
   DividendSourceBucket,
   DividendSourceLine,
+  DividendCalculationVersionDto,
+  DividendProviderValueDto,
+  DividendStockCalculationMethod,
+  DividendStockReconciliationStatus,
   ExpectedStockCalcState,
   InstrumentType,
+  MarketCode,
   SourceCompositionStatus,
 } from "@vakwen/shared-types";
 
@@ -50,7 +55,7 @@ export interface DividendLedgerEntryDetails {
   accountName?: string | null;
   ticker: string;
   tickerName?: string | null;
-  marketCode: string;
+  marketCode: MarketCode;
   bookedAt?: string;
   instrumentType: InstrumentType;
   eventType: DividendEventType;
@@ -59,9 +64,15 @@ export interface DividendLedgerEntryDetails {
   cashCurrency: CurrencyCode;
   postingStatus: DividendPostingStatus;
   reconciliationStatus: DividendReconciliationStatus;
+  cashReconciliationStatus?: DividendReconciliationStatus;
+  stockReconciliationStatus?: DividendStockReconciliationStatus | null;
+  stockReconciliationNote?: string | null;
   sourceCompositionStatus: SourceCompositionStatus;
   version: number;
   reconciliationNote?: string | null;
+  provider?: DividendProviderValueDto | null;
+  activeCalculation?: DividendCalculationVersionDto | null;
+  calculationHistory?: DividendCalculationVersionDto[];
   correctionMode?: "in_place" | "amend" | "reversal_replacement" | null;
   amendmentBlockedReason?: string | null;
   linkedPositionActionId?: string | null;
@@ -87,7 +98,7 @@ export interface DividendLedgerEntryDetails {
   snapshotRefreshStatus?: "idle" | "queued" | "running" | "complete" | "failed" | null;
   expectedCashAmount: number;
   receivedCashAmount: number;
-  expectedStockQuantity: number;
+  expectedStockQuantity: number | null;
   receivedStockQuantity: number;
   eligibleQuantity: number;
   sourceLines: DividendSourceLine[];
@@ -111,18 +122,21 @@ export interface DividendEventListItem {
   accountName?: string | null;
   ticker: string;
   tickerName?: string | null;
-  marketCode: string;
+  marketCode: MarketCode;
   instrumentType: InstrumentType;
   eventType: DividendEventType;
   exDividendDate: string;
   paymentDate: string | null;
   cashDividendCurrency: CurrencyCode;
   expectedCashAmount: number;
-  expectedStockQuantity: number;
+  expectedStockQuantity: number | null;
   stockDistributionRatio: number | null;
   stockDistributionRatioState: "authoritative" | "derived_non_authoritative" | "unresolved";
   eligibleQuantity: number;
   parValuePerShare?: number | null;
+  provider?: DividendProviderValueDto | null;
+  activeCalculation?: DividendCalculationVersionDto | null;
+  calculationHistory?: DividendCalculationVersionDto[];
   hasPostedLedgerEntry: boolean;
   dividendLedgerEntryId: string | null;
 }
@@ -142,6 +156,20 @@ export interface DividendPostingPayload {
   sourceCompositionStatus: SourceCompositionStatus;
   dividendLedgerEntryId?: string;
   expectedVersion?: number;
+  calculation?: DividendPostingCalculationInput;
+}
+
+export interface DividendPostingCalculationInput {
+  method: DividendStockCalculationMethod;
+  selectedParValue?: string | null;
+  customRatio?: string | null;
+  acknowledgeHighRatio?: boolean;
+  acknowledgeDrift?: boolean;
+}
+
+export interface ReviewedDividendPostingCalculation {
+  calculation: DividendPostingCalculationInput;
+  canSubmit: boolean;
 }
 
 export interface DividendPostingResult {

@@ -101,6 +101,8 @@ const reviewRow: DividendReviewRowSummaryDto = {
   receivedCashAmount: 0,
   receivedStockQuantity: 0,
   postingStatus: "expected",
+  cashReconciliationStatus: "open",
+  stockReconciliationStatus: null,
   reconciliationStatus: "open",
   version: 0,
   sourceCompositionStatus: "unknown_pending_disclosure",
@@ -180,6 +182,91 @@ describe("DividendReviewClient", () => {
     ]);
     expect(window.location.search).not.toContain("marketCode=TW");
     expect(window.location.search).not.toContain("ticker=2330");
+  });
+
+  it("persists and requests cash and stock statuses independently", async () => {
+    searchParamsState.value = "view=ledger&cashStatus=explained&stockStatus=variance";
+    window.history.replaceState(null, "", `/dividends?${searchParamsState.value}`);
+
+    act(() => {
+      root.render(
+        <DividendReviewClient initialData={emptyReviewData} dict={dict} locale="en" accounts={[]} years={[2026]} />,
+      );
+    });
+    await act(async () => {});
+
+    expect(container.querySelector<HTMLSelectElement>("[data-testid='filter-cash-status']")?.value).toBe("explained");
+    const stockStatus = container.querySelector<HTMLSelectElement>("[data-testid='filter-stock-status']");
+    expect(stockStatus?.value).toBe("variance");
+    await act(async () => {
+      stockStatus!.value = "matched";
+      stockStatus!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(primaryQueryCalls()).toContainEqual([
+      expect.objectContaining({ cashStatus: "explained", stockStatus: "matched" }),
+    ]);
+    expect(window.location.search).toContain("cashStatus=explained");
+    expect(window.location.search).toContain("stockStatus=matched");
+  });
+
+  it("renders filter-responsive stock hero totals with a keyboard-accessible overflow", async () => {
+    vi.mocked(fetchDividendReviewEnrichment).mockResolvedValue({
+      ...emptyEnrichment,
+      aggregates: {
+        ...emptyEnrichment.aggregates,
+        totalExpectedCashAmount: { TWD: 900 },
+        totalReceivedCashAmount: { TWD: 750 },
+      },
+      hero: {
+        expectedStockTickers: [
+          { marketCode: "TW", ticker: "2330", expectedWholeShares: 100, receivedShares: 90, unresolvedEventCount: 0 },
+          { marketCode: "TW", ticker: "2886", expectedWholeShares: null, receivedShares: 150, unresolvedEventCount: 1 },
+          { marketCode: "US", ticker: "VOO", expectedWholeShares: 4, receivedShares: 4, unresolvedEventCount: 0 },
+          { marketCode: "US", ticker: "SCHD", expectedWholeShares: 8, receivedShares: 8, unresolvedEventCount: 0 },
+          { marketCode: "JP", ticker: "7203", expectedWholeShares: 12, receivedShares: 12, unresolvedEventCount: 0 },
+        ],
+        expectedStockTopTickers: [
+          { marketCode: "TW", ticker: "2330", expectedWholeShares: 100, receivedShares: 90, unresolvedEventCount: 0 },
+          { marketCode: "TW", ticker: "2886", expectedWholeShares: null, receivedShares: 150, unresolvedEventCount: 1 },
+          { marketCode: "US", ticker: "VOO", expectedWholeShares: 4, receivedShares: 4, unresolvedEventCount: 0 },
+        ],
+        expectedStockRemainingTickerCount: 2,
+        receivedStockTickers: [
+          { marketCode: "TW", ticker: "2886", expectedWholeShares: null, receivedShares: 150, unresolvedEventCount: 1 },
+          { marketCode: "US", ticker: "SCHD", expectedWholeShares: 8, receivedShares: 8, unresolvedEventCount: 0 },
+        ],
+        receivedStockTopTickers: [
+          { marketCode: "TW", ticker: "2886", expectedWholeShares: null, receivedShares: 150, unresolvedEventCount: 1 },
+        ],
+        receivedStockRemainingTickerCount: 0,
+        needsCalculationCount: 1,
+        needsAttentionCount: 4,
+        cashAttentionCount: 2,
+        stockAttentionCount: 3,
+      },
+    });
+
+    act(() => {
+      root.render(
+        <DividendReviewClient initialData={emptyReviewData} dict={dict} locale="en" accounts={[]} years={[2026]} />,
+      );
+    });
+    await act(async () => {});
+
+    expect(container.querySelector("[data-testid='stat-expected-stock']")?.textContent).toContain("TW · 2886");
+    expect(container.querySelector("[data-testid='stat-expected-stock']")?.textContent).toContain("—");
+    expect(container.querySelector("[data-testid='stat-expected-stock']")?.textContent).toContain("1 event needs calculation");
+    expect(container.querySelector("[data-testid='stat-received-stock']")?.textContent).toContain("150");
+    expect(container.querySelector("[data-testid='stat-received-stock']")?.textContent).not.toContain("needs calculation");
+    expect(container.querySelector("[data-testid='stat-cash-variance']")?.textContent).toContain("150");
+    expect(container.querySelector("[data-testid='stat-needs-attention']")?.textContent).toContain("4");
+    const overflow = container.querySelector<HTMLElement>("[data-testid='stat-expected-stock-overflow']");
+    expect(overflow?.textContent).toContain("+2 more");
+    expect(overflow?.tagName).toBe("SUMMARY");
+    overflow?.click();
+    expect(overflow?.parentElement?.getAttribute("open")).not.toBeNull();
+    expect(overflow?.parentElement?.textContent).toContain("US · SCHD");
+    expect(overflow?.parentElement?.textContent).toContain("JP · 7203");
   });
 
   it("renders a table-local fixed skeleton and busy state on an exact cache miss", async () => {
@@ -550,7 +637,8 @@ describe("DividendReviewClient", () => {
     expect(container.textContent).toContain("NT$8");
   });
 
-  it("hides the quick reconciliation action without delegated dividend write access", async () => {
+  it("hides the mobile reconciliation action without delegated dividend write access", async () => {
+    smallScreenState.value = true;
     shellContext.value = {
       isSharedContext: true,
       sharedContextPermissions: { canWriteDividends: false },
@@ -572,6 +660,7 @@ describe("DividendReviewClient", () => {
     await act(async () => {});
 
     expect(container.querySelector("[data-testid='mark-matched-ledger-1']")).toBeNull();
+    expect(container.querySelector("[data-testid='review-row-ledger-1-open']")).not.toBeNull();
   });
 
   it("opens the ticker route from the row link without opening the review drawer", async () => {
@@ -600,7 +689,7 @@ describe("DividendReviewClient", () => {
     expect(container.querySelector("[data-testid='drawer-content']")).toBeNull();
   });
 
-  it("opens the drawer from keyboard interaction on a review row", async () => {
+  it("opens the drawer from the row's keyboard-accessible details button", async () => {
     act(() => {
       root.render(
         <DividendReviewClient
@@ -616,12 +705,16 @@ describe("DividendReviewClient", () => {
     await act(async () => {});
 
     const row = container.querySelector<HTMLElement>("[data-testid='review-row-ledger-1']");
-    expect(row).not.toBeNull();
-    const focusSpy = vi.spyOn(row!, "focus");
-    row!.focus();
+    const openButton = container.querySelector<HTMLButtonElement>("[data-testid='review-row-ledger-1-open']");
+    expect(row?.getAttribute("role")).toBeNull();
+    expect(row?.getAttribute("tabindex")).toBeNull();
+    expect(openButton).not.toBeNull();
+    const focusSpy = vi.spyOn(openButton!, "focus");
+    openButton!.focus();
 
     await act(async () => {
-      row!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      openButton!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      openButton!.click();
     });
 
     expect(document.querySelector("[data-testid='ui-drawer-body']")).not.toBeNull();
@@ -649,11 +742,11 @@ describe("DividendReviewClient", () => {
     });
     await act(async () => {});
 
-    const row = container.querySelector<HTMLElement>("[data-testid='review-row-ledger-1']");
-    const focusSpy = vi.spyOn(row!, "focus");
-    row!.focus();
+    const openButton = container.querySelector<HTMLButtonElement>("[data-testid='review-row-ledger-1-open']")!;
+    const focusSpy = vi.spyOn(openButton, "focus");
+    openButton.focus();
     await act(async () => {
-      row!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      openButton.click();
     });
     await act(async () => {
       document.querySelector<HTMLButtonElement>("[data-testid='ui-drawer-close']")?.click();

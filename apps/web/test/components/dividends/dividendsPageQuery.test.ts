@@ -79,6 +79,16 @@ describe("dividendsPageQuery", () => {
     });
   });
 
+  it("keeps separate cash and stock review statuses in the query", () => {
+    const query = searchParamsToReviewQuery(new URLSearchParams([
+      ["cashStatus", "explained"],
+      ["stockStatus", "needs_calculation"],
+    ]));
+
+    expect(query.cashStatus).toBe("explained");
+    expect(query.stockStatus).toBe("needs_calculation");
+  });
+
   it("omits empty date filters when the selected preset resolves to no range", () => {
     const query = searchParamsToReviewQuery(new URLSearchParams([
       ["preset", "unspecified"],

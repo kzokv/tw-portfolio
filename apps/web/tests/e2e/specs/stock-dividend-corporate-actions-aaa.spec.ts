@@ -88,7 +88,7 @@ test("[stock-dividend]: post-sell correction → adjusted review row renders on 
   await dividendReview.assert.pageLoaded();
   await dividendReview.assert.rowContainsText(String(adjustedLedgerEntryId), stockTicker);
   await dividendReview.assert.rowContainsText(String(adjustedLedgerEntryId), "12");
-  await dividendReview.assert.rowStatusContains(String(adjustedLedgerEntryId), /Open|未完成/i);
+  await dividendReview.assert.rowStatusContains(String(adjustedLedgerEntryId), /Variance|差異/i);
   await dashboard.assert.mxAssertTruthy(await viewportFits(page), "desktop dividend review viewport fit");
 
   await page.setViewportSize({ width: 390, height: 1000 });

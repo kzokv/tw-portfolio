@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../../src/app.js";
 import {
   createAiConnectorConnection,
@@ -9,6 +9,9 @@ import { createTransactionDraftBatch } from "../../src/services/mcpDrafts.js";
 import type { McpRequestContext } from "../../src/mcp/types.js";
 import { mcpDevTokenAllowedForRuntime } from "../../src/mcp/auth.js";
 import { listMcpToolDefinitions } from "../../src/mcp/tools.js";
+import { resetMcpRateLimitBucketsForTest } from "../../src/mcp/policy.js";
+import { createDividendEvent } from "../../src/services/dividends.js";
+import { replayPositionHistory } from "../../src/services/replayPositionHistory.js";
 
 let app: Awaited<ReturnType<typeof buildApp>>;
 
@@ -145,8 +148,118 @@ function createRequestContext(): McpRequestContext {
   };
 }
 
+async function createTrade(
+  appInstance: Awaited<ReturnType<typeof buildApp>>,
+  overrides: Partial<{
+    accountId: string;
+    ticker: string;
+    marketCode: "TW" | "US" | "AU" | "KR" | "JP";
+    type: "BUY" | "SELL";
+    quantity: number;
+    unitPrice: number;
+    tradeDate: string;
+    commissionAmount: number;
+    taxAmount: number;
+  }> = {},
+) {
+  const response = await appInstance.inject({
+    method: "POST",
+    url: "/portfolio/transactions",
+    headers: { "idempotency-key": `mcp-posted-trade-${Math.random().toString(36).slice(2)}` },
+    payload: {
+      accountId: overrides.accountId ?? "acc-1",
+      ticker: overrides.ticker ?? "2330",
+      marketCode: overrides.marketCode ?? "TW",
+      type: overrides.type ?? "BUY",
+      quantity: overrides.quantity ?? 10,
+      unitPrice: overrides.unitPrice ?? 100,
+      tradeDate: overrides.tradeDate ?? "2026-01-05",
+      commissionAmount: overrides.commissionAmount ?? 0,
+      taxAmount: overrides.taxAmount ?? 0,
+    },
+  });
+  expect(response.statusCode).toBe(200);
+  return response.json<{ id: string }>();
+}
+
+async function seedMcpSharedDividendForOwner() {
+  const store = await app.persistence.loadStore("user-1");
+  const transactionIds = ["mcp-shared-dividend-buy-1", "mcp-shared-dividend-buy-2"];
+  store.accounting.facts.tradeEvents.push({
+    id: transactionIds[0],
+    userId: "user-1",
+    accountId: "acc-1",
+    ticker: "2330",
+    marketCode: "TW",
+    instrumentType: "STOCK",
+    type: "BUY",
+    quantity: 1_000,
+    unitPrice: 100,
+    priceCurrency: "TWD",
+    tradeDate: "2026-01-02",
+    commissionAmount: 0,
+    taxAmount: 0,
+    isDayTrade: false,
+    feeSnapshot: store.feeProfiles[0]!,
+  }, {
+    id: transactionIds[1],
+    userId: "user-1",
+    accountId: "acc-1",
+    ticker: "2330",
+    marketCode: "TW",
+    instrumentType: "STOCK",
+    type: "BUY",
+    quantity: 500,
+    unitPrice: 102,
+    priceCurrency: "TWD",
+    tradeDate: "2026-01-03",
+    commissionAmount: 0,
+    taxAmount: 0,
+    isDayTrade: false,
+    feeSnapshot: store.feeProfiles[0]!,
+  });
+  createDividendEvent(store, {
+    id: "mcp-shared-dividend-event",
+    ticker: "2330",
+    marketCode: "TW",
+    eventType: "CASH",
+    exDividendDate: "2026-02-01",
+    paymentDate: "2026-02-20",
+    cashDividendPerShare: 1,
+    cashDividendCurrency: "TWD",
+    stockDividendPerShare: 0,
+    stockDistributionAmountRaw: 0,
+    stockDistributionRatio: 0,
+    source: "test",
+  });
+  await app.persistence.saveStore(store);
+  await replayPositionHistory(app.persistence, "user-1", "acc-1", "2330", { marketCode: "TW" });
+  return transactionIds;
+}
+
+async function getSelfPortfolio(
+  headers: Record<string, string>,
+  sessionId: string,
+) {
+  const portfolios = await callMcpTool(headers, sessionId, "list_portfolio_contexts", {});
+  expect(portfolios.statusCode).toBe(200);
+  const portfoliosBody = parseMcpJson<{
+    result: {
+      structuredContent: {
+        portfolios: Array<{ label: string; email: string | null; isSelf: boolean }>;
+      };
+      isError?: boolean;
+    };
+  }>(portfolios.body);
+  expect(portfoliosBody.result.isError).not.toBe(true);
+  const selfPortfolio = portfoliosBody.result.structuredContent.portfolios.find((portfolio) => portfolio.isSelf);
+  expect(selfPortfolio).toBeTruthy();
+  return selfPortfolio!;
+}
+
 describe("mcp routes", () => {
   beforeEach(async () => {
+    resetMcpRateLimitBucketsForTest();
     app = await buildApp({ persistenceBackend: "memory", oauthConfig: testOAuthConfig });
   });
 
@@ -283,6 +396,16 @@ describe("mcp routes", () => {
       visibility: ["model", "app"],
     });
     expect(overviewTool?._meta?.["openai/outputTemplate"]).toBe("ui://widget/vakwen.html");
+    expect(body.result.tools.find((tool) => tool.name === "update_posted_transactions")?.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+    });
+    expect(body.result.tools.find((tool) => tool.name === "delete_posted_transactions")?.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+    });
 
     const readWidget = await app.inject({
       method: "POST",
@@ -485,6 +608,26 @@ describe("mcp routes", () => {
       connectDomains: [],
       resourceDomains: [],
     });
+  });
+
+  it("constrains posted transaction mutation quantities and prices at the MCP boundary", () => {
+    const tool = listMcpToolDefinitions().find(({ name }) => name === "preview_update_posted_transactions");
+    expect(tool).toBeDefined();
+    const baseInput = {
+      portfolio: { label: "Self" },
+      reason: "Invalid precision regression",
+      items: [{ transactionId: "trade-1", patch: { quantity: 12 } }],
+    };
+
+    expect(tool!.inputSchema.safeParse(baseInput).success).toBe(true);
+    expect(tool!.inputSchema.safeParse({
+      ...baseInput,
+      items: [{ transactionId: "trade-1", patch: { quantity: 1.5 } }],
+    }).success).toBe(false);
+    expect(tool!.inputSchema.safeParse({
+      ...baseInput,
+      items: [{ transactionId: "trade-1", patch: { unitPrice: 10.123 } }],
+    }).success).toBe(false);
   });
 
   it("requires fresh auth for high-risk MCP admin settings changes", async () => {
@@ -2115,6 +2258,413 @@ describe("mcp routes", () => {
     );
   });
 
+  it("requires an explicit portfolio selector for posted-transaction mutation tools", async () => {
+    await app.persistence.saveAiConnectorPolicySettings({ groupToggles: { write: true } });
+    const trade = await createTrade(app);
+    const headers = {
+      authorization: `Bearer ${devToken({ userId: "user-1", scopes: ["transaction:write"] })}`,
+      accept: "application/json, text/event-stream",
+    };
+    const sessionId = await initializeMcpSession(headers);
+    const response = await callMcpTool(headers, sessionId, "preview_update_posted_transactions", {
+      reason: "Correct booked quantity",
+      items: [{ transactionId: trade.id, patch: { quantity: 12 } }],
+    });
+    expect(response.statusCode).toBe(200);
+    const body = parseMcpJson<{
+      result: { isError?: boolean; structuredContent: { code: string; statusCode: number } };
+    }>(response.body);
+    expect(body.result.isError).toBe(true);
+    expect(body.result.structuredContent).toMatchObject({
+      code: "mcp_portfolio_required",
+      statusCode: 400,
+    });
+  });
+
+  it("requires delegated dividend access before persisting dividend-impacting MCP previews", async () => {
+    await app.persistence.saveAiConnectorPolicySettings({ groupToggles: { write: true } });
+    const { userId: sharedUserId } = await app.persistence.resolveOrCreateUser("google", "shared-mcp-preview-user", {
+      email: "shared-mcp-preview@example.com",
+      name: "Shared MCP Preview User",
+    });
+    const transactionIds = await seedMcpSharedDividendForOwner();
+    const share = await app.persistence.createShareGrant({
+      ownerUserId: "user-1",
+      granteeUserId: sharedUserId,
+      auditInput: { actorUserId: "user-1", ipAddress: "127.0.0.1" },
+    });
+    await app.persistence.setShareCapabilities({
+      shareId: share.id,
+      capabilities: ["portfolio:mcp_read", "transaction:write"],
+      grantedByUserId: "user-1",
+    });
+    const savePreview = vi.spyOn(app.persistence, "savePostedTransactionMutationPreview");
+    const headers = {
+      authorization: `Bearer ${devToken({ userId: sharedUserId, scopes: ["portfolio:mcp_read", "transaction:write"] })}`,
+      accept: "application/json, text/event-stream",
+    };
+    const sessionId = await initializeMcpSession(headers);
+    const contexts = await callMcpTool(headers, sessionId, "list_portfolio_contexts", {});
+    const contextsBody = parseMcpJson<{
+      result: { structuredContent: { portfolios: Array<{ label: string; isSelf: boolean }> } };
+    }>(contexts.body);
+    const delegatedPortfolio = contextsBody.result.structuredContent.portfolios.find((portfolio) => !portfolio.isSelf);
+    expect(delegatedPortfolio).toBeTruthy();
+
+    const deniedForScope = await callMcpTool(headers, sessionId, "preview_update_posted_transactions", {
+      portfolio: { label: delegatedPortfolio!.label },
+      reason: "Move purchases beyond dividend eligibility",
+      items: [
+        { transactionId: transactionIds[0], patch: { tradeDate: "2026-02-02" } },
+        { transactionId: transactionIds[1], patch: { tradeDate: "2026-02-03" } },
+      ],
+    });
+    const deniedForScopeBody = parseMcpJson<{
+      result: {
+        isError?: boolean;
+        content?: Array<{ text?: string }>;
+        _meta?: { "mcp/www_authenticate"?: string[] };
+      };
+    }>(deniedForScope.body);
+    expect(deniedForScopeBody.result.content?.[0]?.text ?? "").toContain("Authorization");
+    expect(deniedForScopeBody.result._meta?.["mcp/www_authenticate"]?.[0]).toContain("error=\"insufficient_scope\"");
+    expect(savePreview).not.toHaveBeenCalled();
+
+    const dividendScopeHeaders = {
+      authorization: `Bearer ${devToken({
+        userId: sharedUserId,
+        scopes: ["portfolio:mcp_read", "transaction:write", "dividend:write"],
+      })}`,
+      accept: "application/json, text/event-stream",
+    };
+    const dividendScopeSessionId = await initializeMcpSession(dividendScopeHeaders);
+    const deniedForShare = await callMcpTool(
+      dividendScopeHeaders,
+      dividendScopeSessionId,
+      "preview_delete_posted_transactions",
+      {
+        portfolio: { label: delegatedPortfolio!.label },
+        reason: "Remove dividend-eligible transactions",
+        items: transactionIds.map((transactionId) => ({ transactionId })),
+      },
+    );
+    const deniedForShareBody = parseMcpJson<{
+      result: { isError?: boolean; structuredContent: { code: string; statusCode: number } };
+    }>(deniedForShare.body);
+    expect(deniedForShareBody.result.isError).toBe(true);
+    expect(deniedForShareBody.result.structuredContent).toMatchObject({
+      code: "shared_capability_required",
+      statusCode: 403,
+    });
+    expect(savePreview).not.toHaveBeenCalled();
+
+    await app.persistence.setShareCapabilities({
+      shareId: share.id,
+      capabilities: ["portfolio:mcp_read", "transaction:write", "dividend:write"],
+      grantedByUserId: "user-1",
+    });
+    const allowed = await callMcpTool(
+      dividendScopeHeaders,
+      dividendScopeSessionId,
+      "preview_delete_posted_transactions",
+      {
+        portfolio: { label: delegatedPortfolio!.label },
+        reason: "Remove dividend-eligible transactions",
+        items: transactionIds.map((transactionId) => ({ transactionId })),
+      },
+    );
+    const allowedBody = parseMcpJson<{ result: { isError?: boolean } }>(allowed.body);
+    expect(allowedBody.result.isError).not.toBe(true);
+    expect(savePreview).toHaveBeenCalledTimes(1);
+  });
+
+  it("previews, confirms, and reports posted-transaction MCP update runs", async () => {
+    await app.persistence.saveAiConnectorPolicySettings({ groupToggles: { write: true } });
+    const trade = await createTrade(app, { quantity: 10, unitPrice: 100, tradeDate: "2026-01-05" });
+    const headers = {
+      authorization: `Bearer ${devToken({ userId: "user-1", scopes: ["portfolio:mcp_read", "transaction:write"] })}`,
+      accept: "application/json, text/event-stream",
+    };
+    const sessionId = await initializeMcpSession(headers);
+    const selfPortfolio = await getSelfPortfolio(headers, sessionId);
+
+    const previewResponse = await callMcpTool(headers, sessionId, "preview_update_posted_transactions", {
+      portfolio: { label: selfPortfolio.label },
+      reason: "Correct booked quantity",
+      items: [{ transactionId: trade.id, patch: { quantity: 12 } }],
+    });
+    expect(previewResponse.statusCode).toBe(200);
+    const previewBody = parseMcpJson<{
+      result: {
+        isError?: boolean;
+        structuredContent: {
+          previewId: string;
+          previewVersion: number;
+          operation: string;
+          status: string;
+          fingerprint: string;
+          confirmationSummary: string;
+          confirmationDigest: string;
+          page: { items: Array<{ after: { quantity: number } | null }> };
+        };
+      };
+    }>(previewResponse.body);
+    expect(previewBody.result.isError).not.toBe(true);
+    expect(previewBody.result.structuredContent.operation).toBe("update");
+    expect(previewBody.result.structuredContent.status).toBe("ready");
+    expect(previewBody.result.structuredContent.page.items[0]?.after?.quantity).toBe(12);
+
+    const getPreviewResponse = await callMcpTool(headers, sessionId, "get_posted_transaction_mutation_preview", {
+      portfolio: { label: selfPortfolio.label },
+      previewId: previewBody.result.structuredContent.previewId,
+      limit: 10,
+      offset: 0,
+    });
+    expect(getPreviewResponse.statusCode).toBe(200);
+    const getPreviewBody = parseMcpJson<{
+      result: {
+        isError?: boolean;
+        structuredContent: {
+          previewId: string;
+          confirmationDigest: string;
+          page: { total: number };
+        };
+      };
+    }>(getPreviewResponse.body);
+    expect(getPreviewBody.result.isError).not.toBe(true);
+    expect(getPreviewBody.result.structuredContent).toMatchObject({
+      previewId: previewBody.result.structuredContent.previewId,
+      confirmationDigest: previewBody.result.structuredContent.confirmationDigest,
+    });
+    expect(getPreviewBody.result.structuredContent.page.total).toBe(1);
+
+    const confirmResponse = await callMcpTool(headers, sessionId, "update_posted_transactions", {
+      portfolio: { label: selfPortfolio.label },
+      previewId: previewBody.result.structuredContent.previewId,
+      previewVersion: previewBody.result.structuredContent.previewVersion,
+      operation: "update",
+      fingerprint: previewBody.result.structuredContent.fingerprint,
+      confirmationSummary: previewBody.result.structuredContent.confirmationSummary,
+      confirmationDigest: previewBody.result.structuredContent.confirmationDigest,
+    });
+    expect(confirmResponse.statusCode).toBe(200);
+    const confirmBody = parseMcpJson<{
+      result: {
+        isError?: boolean;
+        structuredContent: {
+          runId: string;
+          operation: string;
+          previewId: string;
+        };
+      };
+    }>(confirmResponse.body);
+    expect(confirmBody.result.isError).not.toBe(true);
+    expect(confirmBody.result.structuredContent.operation).toBe("update");
+
+    const runResponse = await callMcpTool(headers, sessionId, "get_posted_transaction_mutation_run", {
+      portfolio: { label: selfPortfolio.label },
+      runId: confirmBody.result.structuredContent.runId,
+    });
+    expect(runResponse.statusCode).toBe(200);
+    const runBody = parseMcpJson<{
+      result: {
+        isError?: boolean;
+        structuredContent: {
+          runId: string;
+          previewId: string;
+          status: string;
+          rebuildStatus: string;
+        };
+      };
+    }>(runResponse.body);
+    expect(runBody.result.isError).not.toBe(true);
+    expect(runBody.result.structuredContent.runId).toBe(confirmBody.result.structuredContent.runId);
+    expect(runBody.result.structuredContent.previewId).toBe(previewBody.result.structuredContent.previewId);
+    expect(runBody.result.structuredContent.status).toBe("completed");
+    expect(runBody.result.structuredContent.rebuildStatus).toBe("completed");
+
+    const transactions = await app.persistence.loadStore("user-1");
+    const updatedTrade = transactions.accounting.facts.tradeEvents.find((entry) => entry.id === trade.id);
+    expect(updatedTrade?.quantity).toBe(12);
+  });
+
+  it("requires delegated dividend:write before confirming posted-transaction deletes for shared portfolios", async () => {
+    await app.persistence.saveAiConnectorPolicySettings({ groupToggles: { write: true } });
+    const { userId: sharedUserId } = await app.persistence.resolveOrCreateUser("google", "shared-mcp-delete-user", {
+      email: "shared-mcp-delete@example.com",
+      name: "Shared MCP Delete User",
+    });
+    const trade = await createTrade(app);
+    const share = await app.persistence.createShareGrant({
+      ownerUserId: "user-1",
+      granteeUserId: sharedUserId,
+      auditInput: { actorUserId: "user-1", ipAddress: "127.0.0.1" },
+    });
+    await app.persistence.setShareCapabilities({
+      shareId: share.id,
+      capabilities: ["portfolio:mcp_read", "transaction:write"],
+      grantedByUserId: "user-1",
+    });
+
+    const previewHeaders = {
+      authorization: `Bearer ${devToken({ userId: sharedUserId, scopes: ["portfolio:mcp_read", "transaction:write"] })}`,
+      accept: "application/json, text/event-stream",
+    };
+    const previewSessionId = await initializeMcpSession(previewHeaders);
+    const sharedPortfolio = await callMcpTool(previewHeaders, previewSessionId, "list_portfolio_contexts", {});
+    const sharedPortfolioBody = parseMcpJson<{
+      result: { structuredContent: { portfolios: Array<{ label: string; isSelf: boolean }> } };
+    }>(sharedPortfolio.body);
+    const delegatedPortfolio = sharedPortfolioBody.result.structuredContent.portfolios.find((portfolio) => !portfolio.isSelf);
+    expect(delegatedPortfolio).toBeTruthy();
+
+    const previewResponse = await callMcpTool(previewHeaders, previewSessionId, "preview_delete_posted_transactions", {
+      portfolio: { label: delegatedPortfolio!.label },
+      reason: "Remove incorrect posted trade",
+      items: [{ transactionId: trade.id }],
+    });
+    expect(previewResponse.statusCode).toBe(200);
+    const previewBody = parseMcpJson<{
+      result: {
+        structuredContent: {
+          previewId: string;
+          previewVersion: number;
+          fingerprint: string;
+          confirmationSummary: string;
+          confirmationDigest: string;
+        };
+      };
+    }>(previewResponse.body);
+    const savedPreview = await app.persistence.getPostedTransactionMutationPreview(
+      previewBody.result.structuredContent.previewId,
+    );
+    expect(savedPreview).toBeTruthy();
+    await app.persistence.savePostedTransactionMutationPreview({
+      ...savedPreview!,
+      summary: {
+        ...savedPreview!.summary,
+        deletedDividendCount: 1,
+      },
+    });
+
+    const deniedConfirm = await callMcpTool(previewHeaders, previewSessionId, "delete_posted_transactions", {
+      portfolio: { label: delegatedPortfolio!.label },
+      previewId: previewBody.result.structuredContent.previewId,
+      previewVersion: previewBody.result.structuredContent.previewVersion,
+      operation: "delete",
+      fingerprint: previewBody.result.structuredContent.fingerprint,
+      confirmationSummary: previewBody.result.structuredContent.confirmationSummary,
+      confirmationDigest: previewBody.result.structuredContent.confirmationDigest,
+    });
+    expect(deniedConfirm.statusCode).toBe(200);
+    const deniedBody = parseMcpJson<{
+      result: {
+        isError?: boolean;
+        content?: Array<{ text?: string }>;
+        _meta?: { "mcp/www_authenticate"?: string[] };
+      };
+    }>(deniedConfirm.body);
+    expect(deniedBody.result.content?.[0]?.text ?? "").toContain("Authorization");
+    expect(deniedBody.result._meta?.["mcp/www_authenticate"]?.[0]).toContain("error=\"insufficient_scope\"");
+
+    const allowedHeaders = {
+      authorization: `Bearer ${devToken({ userId: sharedUserId, scopes: ["portfolio:mcp_read", "transaction:write", "dividend:write"] })}`,
+      accept: "application/json, text/event-stream",
+    };
+    const allowedSessionId = await initializeMcpSession(allowedHeaders);
+    const stillDenied = await callMcpTool(allowedHeaders, allowedSessionId, "delete_posted_transactions", {
+      portfolio: { label: delegatedPortfolio!.label },
+      previewId: previewBody.result.structuredContent.previewId,
+      previewVersion: previewBody.result.structuredContent.previewVersion,
+      operation: "delete",
+      fingerprint: previewBody.result.structuredContent.fingerprint,
+      confirmationSummary: previewBody.result.structuredContent.confirmationSummary,
+      confirmationDigest: previewBody.result.structuredContent.confirmationDigest,
+    });
+    expect(stillDenied.statusCode).toBe(200);
+    const stillDeniedBody = parseMcpJson<{
+      result: { isError?: boolean; structuredContent: { code: string; statusCode: number } };
+    }>(stillDenied.body);
+    expect(stillDeniedBody.result.isError).toBe(true);
+    expect(stillDeniedBody.result.structuredContent).toMatchObject({
+      code: "shared_capability_required",
+      statusCode: 403,
+    });
+
+    await app.persistence.setShareCapabilities({
+      shareId: share.id,
+      capabilities: ["portfolio:mcp_read", "transaction:write", "dividend:write"],
+      grantedByUserId: "user-1",
+    });
+    const allowedConfirm = await callMcpTool(allowedHeaders, allowedSessionId, "delete_posted_transactions", {
+      portfolio: { label: delegatedPortfolio!.label },
+      previewId: previewBody.result.structuredContent.previewId,
+      previewVersion: previewBody.result.structuredContent.previewVersion,
+      operation: "delete",
+      fingerprint: previewBody.result.structuredContent.fingerprint,
+      confirmationSummary: previewBody.result.structuredContent.confirmationSummary,
+      confirmationDigest: previewBody.result.structuredContent.confirmationDigest,
+    });
+    expect(allowedConfirm.statusCode).toBe(200);
+    const allowedBody = parseMcpJson<{
+      result: { isError?: boolean; structuredContent: { operation: string } };
+    }>(allowedConfirm.body);
+    expect(allowedBody.result.isError).not.toBe(true);
+    expect(allowedBody.result.structuredContent.operation).toBe("delete");
+  });
+
+  it("rate limits posted-transaction mutation writes after sixty calls per minute", async () => {
+    await app.persistence.saveAiConnectorPolicySettings({ groupToggles: { write: true } });
+    const trade = await createTrade(app);
+    const connection = await createAiConnectorConnection(
+      app,
+      {
+        userId: "user-1",
+        provider: "chatgpt",
+        displayName: "Rate Limit Connector",
+        scopes: ["portfolio:mcp_read", "transaction:write"],
+      },
+      { actorUserId: "user-1", ipAddress: "127.0.0.1" },
+    );
+    const headers = {
+      authorization: `Bearer ${devToken({ userId: "user-1", connectionId: connection.id, clientId: "chatgpt", scopes: ["portfolio:mcp_read", "transaction:write"] })}`,
+      accept: "application/json, text/event-stream",
+      "x-user-id": "mcp-rate-limit-test",
+    };
+    const sessionId = await initializeMcpSession(headers);
+    const selfPortfolio = await getSelfPortfolio(headers, sessionId);
+
+    for (let attempt = 1; attempt <= 60; attempt += 1) {
+      const response = await callMcpTool(headers, sessionId, "preview_update_posted_transactions", {
+        portfolio: { label: selfPortfolio.label },
+        reason: `Rate limit attempt ${attempt}`,
+        items: [{ transactionId: trade.id, patch: { quantity: 10 + attempt } }],
+      });
+      expect(response.statusCode).toBe(200);
+      const body = parseMcpJson<{
+        result: { isError?: boolean; structuredContent?: { code?: string } };
+      }>(response.body);
+      expect(body.result.isError).not.toBe(true);
+    }
+
+    const limited = await callMcpTool(headers, sessionId, "preview_update_posted_transactions", {
+      portfolio: { label: selfPortfolio.label },
+      reason: "Rate limit attempt 61",
+      items: [{ transactionId: trade.id, patch: { quantity: 1000 } }],
+    });
+    expect(limited.statusCode).toBe(200);
+    const limitedBody = parseMcpJson<{
+      result: { isError?: boolean; structuredContent: { code: string; statusCode: number } };
+    }>(limited.body);
+    expect(limitedBody.result.isError).toBe(true);
+    expect(limitedBody.result.structuredContent).toMatchObject({
+      code: "mcp_rate_limited",
+      statusCode: 429,
+    });
+
+    resetMcpRateLimitBucketsForTest();
+  });
+
   it("omits internal raw and normalized payloads from AI draft detail DTOs", async () => {
     const created = await createTransactionDraftBatch(
       { app, requestContext: createRequestContext() },
@@ -2392,6 +2942,8 @@ describe("mcp routes", () => {
       };
     }>(preview.body);
     expect(previewBody.result.isError).not.toBe(true);
+
+    resetMcpRateLimitBucketsForTest();
 
     const posted = await callMcpTool(headers, sessionId, "post_transaction_draft_rows_by_name", {
       portfolio: { label: selfPortfolio!.label },

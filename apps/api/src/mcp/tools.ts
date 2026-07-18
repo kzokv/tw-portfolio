@@ -36,11 +36,21 @@ const boundedWriteToolAnnotations: McpToolAnnotations = {
   openWorldHint: false,
 };
 
+const idempotentBoundedWriteToolAnnotations: McpToolAnnotations = {
+  ...boundedWriteToolAnnotations,
+  idempotentHint: true,
+};
+
 const destructiveWriteToolAnnotations: McpToolAnnotations = {
   readOnlyHint: false,
   destructiveHint: true,
   idempotentHint: false,
   openWorldHint: false,
+};
+
+const idempotentDestructiveWriteToolAnnotations: McpToolAnnotations = {
+  ...destructiveWriteToolAnnotations,
+  idempotentHint: true,
 };
 
 const userScopedIdSchema = z
@@ -121,6 +131,8 @@ const batchLabelSchema = z.string().trim().min(1).max(200);
 const confirmationSummarySchema = z.string().trim().min(1).max(10_000);
 const confirmationDigestSchema = z.string().trim().regex(/^[a-f0-9]{64}$/i);
 const appOnlyVisibilityMeta = { ui: { visibility: ["app"] as const } };
+const postedTransactionMutationReasonSchema = z.string().trim().min(1).max(500);
+const postedTransactionMutationNoteSchema = z.string().trim().max(500);
 
 const candidateSourceMetadataSchema = z.object({
   fileId: userScopedIdSchema.nullish(),
@@ -151,12 +163,54 @@ const importProvenanceSchema = z.object({
   warnings: z.array(z.string().trim().max(200)).max(10).optional(),
 }).strict();
 
+const postedTransactionMutationUpdatePatchSchema = z.object({
+  tradeDate: isoDateSchema.optional(),
+  quantity: z.number().int().positive().optional(),
+  unitPrice: z.number().positive().multipleOf(0.01).optional(),
+  side: z.enum(["BUY", "SELL"]).optional(),
+  isDayTrade: z.boolean().optional(),
+  commissionAmount: z.number().min(0).optional(),
+  taxAmount: z.number().min(0).optional(),
+  feeOverrideMode: z.enum(["preserve_recorded", "recalculate"]).optional(),
+}).strict();
+
+const postedTransactionMutationUpdateItemSchema = z.object({
+  transactionId: userScopedIdSchema,
+  note: postedTransactionMutationNoteSchema.optional(),
+  patch: postedTransactionMutationUpdatePatchSchema,
+}).strict();
+
+const postedTransactionMutationDeleteItemSchema = z.object({
+  transactionId: userScopedIdSchema,
+  note: postedTransactionMutationNoteSchema.optional(),
+}).strict();
+
+const postedTransactionMutationConfirmationSchema = z.object({
+  previewId: userScopedIdSchema,
+  previewVersion: z.number().int().positive(),
+  operation: z.enum(["update", "delete"]),
+  fingerprint: confirmationDigestSchema,
+  confirmationSummary: confirmationSummarySchema,
+  confirmationDigest: confirmationDigestSchema,
+}).strict();
+
 export const mcpSharedInputShape = {
   portfolioContextUserId: userScopedIdSchema.optional(),
   portfolio: portfolioSelectorSchema.optional(),
   reportingCurrency: currencyCodeSchema.optional(),
   locale: z.string().trim().min(2).max(32).optional(),
 } as const;
+
+const postedTransactionMutationPreviewQuerySchema = z.object({
+  ...mcpSharedInputShape,
+  previewId: userScopedIdSchema,
+  limit: z.number().int().positive().max(200).optional(),
+  offset: z.number().int().min(0).optional(),
+  accountId: userScopedIdSchema.optional(),
+  ticker: z.string().trim().min(1).max(32).optional(),
+  marketCode: marketCodeSchema.optional(),
+  status: z.enum(["changed", "deleted", "unchanged", "warning", "blocked"]).optional(),
+}).strict();
 
 export const mcpDraftCandidateSchema = z.object({
   rowNumber: z.number().int().positive(),
@@ -218,6 +272,59 @@ const toolDefinitions = {
       accountIds: z.array(userScopedIdSchema).max(100).optional(),
       accountNames: accountNameListSchema.optional(),
     }),
+    scope: "portfolio:mcp_read" as const,
+    accessKind: "read" as const,
+  },
+  preview_update_posted_transactions: {
+    description: `Preview explicit-ID updates to one or more posted transactions in one selected portfolio. Present the impact, then wait for explicit post-preview approval before calling update_posted_transactions. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      reason: postedTransactionMutationReasonSchema,
+      items: z.array(postedTransactionMutationUpdateItemSchema).min(1),
+    }).strict(),
+    scope: "transaction:write" as const,
+    accessKind: "write" as const,
+  },
+  update_posted_transactions: {
+    description: `Confirm one posted-transaction update preview for a selected portfolio using the exact previewId, previewVersion, fingerprint, confirmationSummary, and confirmationDigest returned by the latest preview. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      ...postedTransactionMutationConfirmationSchema.shape,
+    }).strict(),
+    scope: "transaction:write" as const,
+    accessKind: "write" as const,
+  },
+  preview_delete_posted_transactions: {
+    description: `Preview explicit-ID deletion of one or more posted transactions in one selected portfolio. Deletion is permanent and may require manual dividend receipt re-entry. Present the impact, then wait for explicit post-preview approval before calling delete_posted_transactions. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      reason: postedTransactionMutationReasonSchema,
+      items: z.array(postedTransactionMutationDeleteItemSchema).min(1),
+    }).strict(),
+    scope: "transaction:write" as const,
+    accessKind: "write" as const,
+  },
+  delete_posted_transactions: {
+    description: `Confirm one posted-transaction delete preview for a selected portfolio using the exact previewId, previewVersion, fingerprint, confirmationSummary, and confirmationDigest returned by the latest preview. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      ...postedTransactionMutationConfirmationSchema.shape,
+    }).strict(),
+    scope: "transaction:write" as const,
+    accessKind: "write" as const,
+  },
+  get_posted_transaction_mutation_preview: {
+    description: `Return the factual status, pagination, filters, warnings, blockers, and confirmation fields for one posted-transaction mutation preview in the selected portfolio. ${adviceBoundary}`,
+    inputSchema: postedTransactionMutationPreviewQuerySchema,
+    scope: "portfolio:mcp_read" as const,
+    accessKind: "read" as const,
+  },
+  get_posted_transaction_mutation_run: {
+    description: `Return the factual commit and rebuild status for one posted-transaction mutation run in the selected portfolio. ${adviceBoundary}`,
+    inputSchema: z.object({
+      ...mcpSharedInputShape,
+      runId: userScopedIdSchema,
+    }).strict(),
     scope: "portfolio:mcp_read" as const,
     accessKind: "read" as const,
   },
@@ -1083,9 +1190,12 @@ function getToolAnnotations(name: McpToolName, accessKind: AiConnectorAccessKind
     return readOnlyToolAnnotations;
   }
   if (accessKind === "read") return readOnlyToolAnnotations;
+  if (name === "update_posted_transactions") return idempotentBoundedWriteToolAnnotations;
+  if (name === "delete_posted_transactions") return idempotentDestructiveWriteToolAnnotations;
   if (
     name === "delete_unconfirmed_transaction_draft_batch"
     || name === "delete_unconfirmed_transaction_draft_batch_by_name"
+    || name === "preview_delete_posted_transactions"
     || name === "soft_delete_account"
     || name === "soft_delete_account_by_name"
   ) {

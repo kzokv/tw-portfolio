@@ -1,5 +1,5 @@
 import { test } from "@vakwen/test-e2e/fixtures/appPages";
-import { readAppConfig, resetAppConfig } from "./helpers/adminSettings.js";
+import { readAppConfig, readMcpSettings, resetAppConfig } from "./helpers/adminSettings.js";
 
 test.describe("admin settings — UI (KZO-142)", () => {
   test.beforeEach(async () => {
@@ -95,5 +95,29 @@ test.describe("admin settings — UI (KZO-142)", () => {
 
     await appShell.assert.adminSettingsValidationErrorIsVisible();
     await appShell.assert.adminSettingsSaveButtonIsDisabled();
+  });
+
+  test("[admin settings]: MCP batch limit above 200 shows warning and persists after save", async ({
+    appShell,
+    page,
+    testUser,
+  }) => {
+    await appShell.actions.navigateToRoute("/admin/settings?tab=mcp");
+    await appShell.assert.appIsReady();
+    await page.getByTestId("admin-settings-panel-mcp").waitFor({ state: "visible" });
+
+    const batchLimitInput = page.getByLabel("Maximum transactions per batch");
+    await batchLimitInput.fill("250");
+    await page.getByRole("alert").filter({ hasText: /Values above 200 are still allowed/i }).waitFor({ state: "visible" });
+
+    await page.getByRole("button", { name: "Save limits" }).click();
+    await page.getByRole("status").filter({ hasText: /saved/i }).waitFor({ state: "visible" });
+
+    const config = await readMcpSettings(testUser.userId);
+    await appShell.assert.mxAssertEqual(
+      config.postedTransactionMutationBatchLimit,
+      250,
+      "postedTransactionMutationBatchLimit",
+    );
   });
 });

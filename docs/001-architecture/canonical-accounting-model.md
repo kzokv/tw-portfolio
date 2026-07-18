@@ -74,7 +74,7 @@ The MVP model is split into four categories.
 
 Booked facts are records that represent posted accounting reality. They are append-oriented and must not be silently rewritten.
 
-Exception (KZO-114): `TradeEvent` facts support hard delete and inline edit via `DELETE /portfolio/transactions/:id` and `PATCH /portfolio/transactions/:id`. This is intentional for the single-tenant personal portfolio use case. See [Practical Mutation Model](#practical-mutation-model-kzo-114) below.
+Exception (KZO-114, revised): `TradeEvent` facts support user-approved hard delete and same-identity correction through a server-owned preview and atomic replay workflow. The legacy single-item routes are compatibility aliases over that canonical service. See [Practical Mutation Model](#practical-mutation-model-kzo-114) below.
 
 - `TradeEvent`
 - `CashLedgerEntry`
@@ -162,16 +162,18 @@ For posted `TradeEvent`, `CashLedgerEntry`, and `DividendLedgerEntry` facts:
 
 ### Practical Mutation Model (KZO-114)
 
-The reversal contract above applies to audit-grade shared financial records. For the user-owned MVP portfolio (single-tenant, personal bookkeeping), `KZO-114` introduces a practical hard-delete + cascade-recompute model as the primary correction path for trade events:
+The reversal contract above applies to audit-grade shared financial records. For a user-owned portfolio, `KZO-114` uses a practical permanent-delete or same-identity correction model as the primary correction path for trade events:
 
-- **Hard delete**: `DELETE /portfolio/transactions/:tradeEventId` removes the trade event row permanently. `ON DELETE CASCADE` database constraints automatically remove linked child rows (`cash_ledger_entries`, `lot_allocations`, `recompute_job_items`).
-- **Inline edit**: `PATCH /portfolio/transactions/:tradeEventId` edits trade fields in place (date, quantity, price, side). Not a reversal — the original row is mutated.
-- **Cascade recompute**: After any delete or edit, `replayPositionHistory` asynchronously replays all remaining trade events for the affected account+symbol in chronological order, rebuilding lots, lot allocations, and cash entries from scratch. The result is published as a `recompute_complete` or `recompute_failed` SSE event.
+- **Preview first**: update and delete requests target immutable transaction IDs. The service simulates the complete batch, recalculates fees and dividend effects, validates inventory, and persists a 30-minute preview with exact confirmation digest and account fingerprints.
+- **Explicit confirmation**: confirmation accepts only the server-owned preview identity and digest after user approval. Stale, expired, unauthorized, or changed previews cannot commit. Identical retries return the original durable run.
+- **Atomic core accounting**: confirmation updates or permanently deletes all targeted trade facts and replays quantities, cost basis, lots, allocations, realized P&L, settlement cash, and dividend expectations/actual effects in one transaction. Failure preserves the original state.
+- **Durable derived rebuild**: holding and wallet snapshot regeneration is recorded atomically as a rebuild run/outbox. Per-scope queued, running, completed, partially failed, or failed status is available after the core commit and survives request or worker restarts.
+- **Metadata audit**: the system retains mutation reason, actor/owner context, before/after facts, confirmation lineage, and deleted AI-draft linkage without retaining a soft-deleted financial payload.
 
 This model is intentionally different from the reversal-based audit contract because:
 1. Users of a personal portfolio tool expect to fix mistakes by editing or deleting, not by creating reversal chains.
 2. The data is single-tenant and user-owned — there are no counterparty audit obligations.
-3. Cascade recompute produces a mathematically identical state to booking a fresh set of trades, preserving correctness without preserving history.
+3. Atomic replay produces the same core accounting state as booking the corrected trade sequence from scratch, while the durable mutation audit preserves who approved the correction and its before/after impact.
 
 The reversal contract remains the target for any future multi-party reconciliation or import-source traceability work.
 

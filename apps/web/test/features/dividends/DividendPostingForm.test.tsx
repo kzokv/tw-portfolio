@@ -23,7 +23,24 @@ vi.mock("../../../features/dividends/services/dividendService", () => ({
   updateDividendReconciliation: vi.fn(),
 }));
 
+vi.mock("../../../features/dividends/services/dividendCalculationService", async () => {
+  const actual = await vi.importActual<typeof import("../../../features/dividends/services/dividendCalculationService")>(
+    "../../../features/dividends/services/dividendCalculationService",
+  );
+  return {
+    ...actual,
+    fetchAccountMarketDividendSettings: vi.fn(),
+    previewDividendCalculation: vi.fn(),
+    confirmDividendCalculation: vi.fn(),
+  };
+});
+
 import { updateDividendReconciliation } from "../../../features/dividends/services/dividendService";
+import {
+  confirmDividendCalculation,
+  fetchAccountMarketDividendSettings,
+  previewDividendCalculation,
+} from "../../../features/dividends/services/dividendCalculationService";
 
 function buildLedger(overrides?: Partial<DividendLedgerEntryDetails>): DividendLedgerEntryDetails {
   return {
@@ -117,6 +134,10 @@ describe("DividendPostingForm", () => {
     });
     vi.mocked(updateDividendReconciliation).mockReset();
     vi.mocked(updateDividendReconciliation).mockResolvedValue(buildLedger());
+    vi.mocked(fetchAccountMarketDividendSettings).mockReset();
+    vi.mocked(fetchAccountMarketDividendSettings).mockImplementation(() => new Promise(() => undefined));
+    vi.mocked(previewDividendCalculation).mockReset();
+    vi.mocked(confirmDividendCalculation).mockReset();
 
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -134,6 +155,13 @@ describe("DividendPostingForm", () => {
         eventType: "STOCK",
         expectedCashAmount: 0,
         expectedStockQuantity: 80,
+        provider: {
+          value: "0.08",
+          unit: "RATIO",
+          source: "finmind",
+          dataset: "TaiwanStockDividend",
+          authoritativeRatio: "0.08",
+        },
       },
     });
 
@@ -151,6 +179,209 @@ describe("DividendPostingForm", () => {
 
     expect(document.querySelector("[data-testid='dividend-received-cash']")).toBeNull();
     expect(document.querySelector("[data-testid='dividend-received-stock']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='dividend-calculation-panel']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='dividend-calculation-provider']")?.textContent).toContain("finmind");
+  });
+
+  it("keeps unresolved expected stock unavailable while preserving the received share input", async () => {
+    const row = buildRow({
+      event: {
+        eventType: "STOCK",
+        expectedCashAmount: 0,
+        expectedStockQuantity: null,
+        stockDistributionRatioState: "unresolved",
+      },
+      ledgerEntry: buildLedger({
+        eventType: "STOCK",
+        expectedCashAmount: 0,
+        expectedStockQuantity: null,
+        receivedStockQuantity: 150,
+        expectedStockCalcState: "needs_action",
+        stockDistributionRatioState: "unresolved",
+      }),
+    });
+
+    await act(async () => {
+      root.render(
+        <DividendPostingForm
+          row={row}
+          dict={dict}
+          locale="en"
+          onCancel={() => undefined}
+          onSaved={() => undefined}
+        />,
+      );
+    });
+
+    expect(document.querySelector("[data-testid='dividend-expected-stock-value']")?.textContent).toContain("—");
+    expect(document.querySelector("[data-testid='dividend-received-stock-hint']")).toBeNull();
+    expect((document.querySelector("[data-testid='dividend-received-stock']") as HTMLInputElement).value).toBe("150");
+  });
+
+  it("silently refreshes calculation settings on return without losing unsaved receipt values", async () => {
+    vi.mocked(fetchAccountMarketDividendSettings)
+      .mockResolvedValueOnce({
+        accountId: "acc-1",
+        marketCode: "TW",
+        version: 0,
+        fallbackParValue: null,
+        updatedAt: null,
+      })
+      .mockResolvedValueOnce({
+        accountId: "acc-1",
+        marketCode: "TW",
+        version: 1,
+        fallbackParValue: "10",
+        updatedAt: "2026-07-17T04:00:00.000Z",
+      });
+    const row = buildRow({
+      event: { eventType: "STOCK", expectedCashAmount: 0, expectedStockQuantity: 0 },
+      ledgerEntry: buildLedger({
+        eventType: "STOCK",
+        expectedCashAmount: 0,
+        expectedStockQuantity: 0,
+        receivedStockQuantity: 150,
+        stockDistributionRatioState: "unresolved",
+      }),
+    });
+
+    await act(async () => {
+      root.render(
+        <DividendPostingForm
+          row={row}
+          dict={dict}
+          locale="en"
+          onCancel={() => undefined}
+          onSaved={() => undefined}
+        />,
+      );
+    });
+
+    const receiptInput = document.querySelector("[data-testid='dividend-received-stock']") as HTMLInputElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(receiptInput, "175");
+      receiptInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("focus"));
+    });
+
+    expect(fetchAccountMarketDividendSettings).toHaveBeenCalledTimes(2);
+    expect(receiptInput.value).toBe("175");
+    expect((document.querySelector("[data-testid='dividend-calculation-par-value']") as HTMLInputElement).value).toBe("10");
+  });
+
+  it("preserves a dirty receipt draft when the same ledger row refreshes after calculation changes", async () => {
+    const initialRow = buildRow({
+      event: { eventType: "STOCK", expectedCashAmount: 0, expectedStockQuantity: 150 },
+      ledgerEntry: buildLedger({
+        eventType: "STOCK",
+        expectedCashAmount: 0,
+        expectedStockQuantity: 150,
+        receivedStockQuantity: 150,
+        correctionMode: "amend",
+      }),
+    });
+    await act(async () => {
+      root.render(
+        <DividendPostingForm row={initialRow} dict={dict} locale="en" onCancel={() => undefined} onSaved={() => undefined} />,
+      );
+    });
+    const receiptInput = document.querySelector("[data-testid='dividend-received-stock']") as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(receiptInput, "175");
+      receiptInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const refreshedRow = buildRow({
+      event: { eventType: "STOCK", expectedCashAmount: 0, expectedStockQuantity: 160 },
+      ledgerEntry: buildLedger({
+        version: 2,
+        eventType: "STOCK",
+        expectedCashAmount: 0,
+        expectedStockQuantity: 160,
+        receivedStockQuantity: 150,
+        correctionMode: "amend",
+      }),
+    });
+    await act(async () => {
+      root.render(
+        <DividendPostingForm row={refreshedRow} dict={dict} locale="en" onCancel={() => undefined} onSaved={() => undefined} />,
+      );
+    });
+
+    expect((document.querySelector("[data-testid='dividend-received-stock']") as HTMLInputElement).value).toBe("175");
+  });
+
+  it("submits a reviewed calculation atomically with a new stock receipt", async () => {
+    vi.mocked(fetchAccountMarketDividendSettings).mockResolvedValue({
+      accountId: "acc-1",
+      marketCode: "TW",
+      version: 1,
+      fallbackParValue: "10",
+      updatedAt: "2026-07-17T04:00:00.000Z",
+    });
+    vi.mocked(previewDividendCalculation).mockResolvedValue({
+      accountId: "acc-1",
+      dividendEventId: "event-1",
+      marketCode: "TW",
+      eligibleQuantity: 1_000,
+      method: "derived_from_par_value",
+      providerValue: "1.5",
+      providerUnit: "TWD_PER_SHARE",
+      providerSource: "finmind",
+      providerDataset: "TaiwanStockDividend",
+      providerAuthoritativeRatio: null,
+      ratio: "0.15",
+      selectedParValue: "10",
+      theoreticalShares: "150",
+      expectedWholeShares: 150,
+      fractionalRemainder: "0",
+      requiresHighRatioConfirmation: false,
+      drift: null,
+      activeCalculation: null,
+    });
+    const row = buildRow({
+      event: {
+        eventType: "STOCK",
+        expectedCashAmount: 0,
+        expectedStockQuantity: null,
+      },
+    });
+
+    await act(async () => {
+      root.render(
+        <DividendPostingForm
+          row={row}
+          dict={dict}
+          locale="en"
+          onCancel={() => undefined}
+          onSaved={() => undefined}
+        />,
+      );
+    });
+
+    const receiptInput = document.querySelector("[data-testid='dividend-received-stock']") as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(receiptInput, "155");
+      receiptInput.dispatchEvent(new Event("input", { bubbles: true }));
+      (document.querySelector("[data-testid='dividend-calculation-preview']") as HTMLButtonElement).click();
+    });
+    await act(async () => {
+      (document.querySelector("[data-testid='dividend-save']") as HTMLButtonElement).click();
+    });
+
+    expect(submitMock).toHaveBeenCalledWith(expect.objectContaining({
+      dividendEventId: "event-1",
+      accountId: "acc-1",
+      receivedStockQuantity: 155,
+      calculation: {
+        method: "derived_from_par_value",
+        selectedParValue: "10",
+      },
+    }));
+    expect(confirmDividendCalculation).not.toHaveBeenCalled();
   });
 
   it("clears source lines when disclosure is marked unknown again", () => {
@@ -437,7 +668,7 @@ describe("DividendPostingForm", () => {
         expectedCashAmount: 3_000,
         expectedStockQuantity: 0,
         receivedCashAmount: 2_927,
-        receivedStockQuantity: 0,
+        receivedStockQuantity: 150,
         expectedNetAmount: 2_927,
         actualNetAmount: 2_927,
         varianceAmount: 0,
@@ -487,7 +718,10 @@ describe("DividendPostingForm", () => {
     expect(container.textContent).toContain("Expected net");
     expect(container.textContent).toContain("Actual net");
     expect(container.textContent).toContain("Variance");
-    expect(container.textContent).toContain("Needs Action: unresolved");
+    expect(container.textContent).toContain("Needs Action: Needs calculation");
+    expect(container.textContent).toContain("Expected stock");
+    expect(document.querySelector("[data-testid='dividend-expected-stock-value']")?.textContent).toBe("—");
+    expect((document.querySelector("[data-testid='dividend-received-stock']") as HTMLInputElement).value).toBe("150");
     expect(container.textContent).toContain("NT$3,000 - NT$63 - NT$10 - NT$0 = NT$2,927");
     expect(container.textContent).toContain("NT$2,927 - NT$2,927 = NT$0");
 
@@ -533,7 +767,7 @@ describe("DividendPostingForm", () => {
     });
 
     expect(container.textContent).toContain("1,000 shares × 0.025 = 25");
-    expect(container.textContent).not.toContain("Needs Action: unresolved");
+    expect(container.textContent).not.toContain("Needs Action: Needs calculation");
 
     const stockInput = document.querySelector<HTMLInputElement>("[data-testid='dividend-received-stock']");
     expect(stockInput).not.toBeNull();
@@ -567,7 +801,7 @@ describe("DividendPostingForm", () => {
     });
 
     expect(container.textContent).toContain("1,000 shares × 0.025 = 25");
-    expect(container.textContent).not.toContain("Needs Action: unresolved");
+    expect(container.textContent).not.toContain("Needs Action: Needs calculation");
   });
 
   it("treats received cash as actual net when ledger net fields are absent", () => {

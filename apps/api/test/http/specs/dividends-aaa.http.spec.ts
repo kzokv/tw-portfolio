@@ -255,6 +255,304 @@ test.describe("dividends", () => {
     await dividendsApi.assert.hasErrorCode(await dividendsApi.arrange.postingBody(staleResponse), "dividend_version_conflict");
   });
 
+  test("POST stock receipt without a resolved ratio: review preserves received shares while calculation stays unresolved", async ({
+    dividendsApi,
+  }) => {
+    const seedResponse = await dividendsApi.actions.seedDividendEvent(
+      seededDividendEventPayload({
+        ticker: "2886",
+        eventType: "STOCK",
+        exDividendDate: "2026-07-15",
+        paymentDate: "2026-08-20",
+        cashDividendPerShare: 0,
+        stockDividendPerShare: 0.1,
+        stockDistributionRatio: null,
+        stockDistributionRatioState: "unresolved",
+        stockParValueAmount: null,
+        stockParValueCurrency: null,
+      }),
+    );
+    await dividendsApi.assert.statusIs(seedResponse, 200);
+    const dividendEventId = await dividendsApi.arrange.seededDividendEventId(await dividendsApi.arrange.seedBody(seedResponse));
+
+    const postResponse = await dividendsApi.actions.createOrUpdatePosting(
+      dividendPostingPayload({
+        ticker: "2886",
+        dividendEventId,
+        receivedCashAmount: 0,
+        receivedStockQuantity: 150,
+        deductions: [],
+        sourceCompositionStatus: "unknown_pending_disclosure",
+        sourceLines: [],
+      }),
+    );
+    await dividendsApi.assert.statusIs(postResponse, 200);
+    const postedLedgerEntry = await dividendsApi.arrange.dividendLedgerEntry(postResponse);
+    await dividendsApi.assert.fieldEquals(postedLedgerEntry, "receivedStockQuantity", 150);
+
+    const reviewResponse = await dividendsApi.actions.listReview({ ticker: "2886", limit: 10 });
+    await dividendsApi.assert.statusIs(reviewResponse, 200);
+    const reviewBody = await reviewResponse.json() as { reviewRows?: Array<Record<string, unknown>> };
+    const reviewRows = reviewBody.reviewRows ?? [];
+    const receiptRow = reviewRows.find((entry) => entry.id === postedLedgerEntry.id);
+    await dividendsApi.assert.mxAssertDefined(receiptRow, "reviewRows receipt row");
+    await dividendsApi.assert.fieldEquals(receiptRow!, "ticker", "2886", "reviewRows receipt row");
+    await dividendsApi.assert.fieldEquals(receiptRow!, "receivedStockQuantity", 150, "reviewRows receipt row");
+    await dividendsApi.assert.fieldEquals(
+      receiptRow!,
+      "stockDistributionRatioState",
+      "unresolved",
+      "reviewRows receipt row",
+    );
+    await dividendsApi.assert.fieldEquals(
+      receiptRow!,
+      "expectedStockCalcState",
+      "needs_action",
+      "reviewRows receipt row",
+    );
+  });
+
+  test("dividend calculation contracts: settings, preview/confirm/reset, inline confirm+post, amend, and filtered hero stay coherent", async ({
+    dividendsApi,
+    request,
+    testUser,
+  }) => {
+    const seedResponse = await dividendsApi.actions.seedDividendEvent(
+      seededDividendEventPayload({
+        ticker: "2330",
+        eventType: "STOCK",
+        exDividendDate: "2026-07-15",
+        paymentDate: "2026-08-20",
+        cashDividendPerShare: 0,
+        stockDividendPerShare: 1,
+        stockDistributionAmountRaw: 1,
+        stockDistributionRatio: null,
+        stockDistributionRatioState: "unresolved",
+        stockProviderValueUnit: "TWD_PER_SHARE",
+        stockProviderSource: "finmind",
+        stockProviderDataset: "TaiwanStockDividend",
+      }),
+    );
+    await dividendsApi.assert.statusIs(seedResponse, 200);
+    const dividendEventId = await dividendsApi.arrange.seededDividendEventId(await dividendsApi.arrange.seedBody(seedResponse));
+    const authHeaders = { cookie: testUser.sessionCookie ?? "" };
+
+    const initialSettingsResponse = await request.get(
+      new URL("/accounts/acc-1/dividend-settings/TW", TestEnv.apiBaseUrl).href,
+      { headers: authHeaders },
+    );
+    await dividendsApi.assert.statusIs(initialSettingsResponse, 200);
+    const initialSettings = await initialSettingsResponse.json() as {
+      version: number;
+      fallbackParValue: string | null;
+    };
+
+    const patchSettingsResponse = await request.patch(
+      new URL("/accounts/acc-1/dividend-settings/TW", TestEnv.apiBaseUrl).href,
+      {
+        headers: authHeaders,
+        data: {
+          expectedVersion: initialSettings.version,
+          fallbackParValue: "10",
+        },
+      },
+    );
+    await dividendsApi.assert.statusIs(patchSettingsResponse, 200);
+    const patchedSettings = await patchSettingsResponse.json() as {
+      version: number;
+      fallbackParValue: string | null;
+    };
+    await dividendsApi.assert.fieldEquals(patchedSettings, "fallbackParValue", "10", "patched settings");
+
+    const previewResponse = await request.post(
+      new URL("/portfolio/dividends/calculations/preview", TestEnv.apiBaseUrl).href,
+      {
+        headers: authHeaders,
+        data: {
+          accountId: "acc-1",
+          dividendEventId,
+          method: "derived_from_par_value",
+          selectedParValue: "10",
+        },
+      },
+    );
+    await dividendsApi.assert.statusIs(previewResponse, 200);
+    const previewBody = await previewResponse.json() as {
+      ratio: string;
+      expectedWholeShares: number;
+      providerUnit: string | null;
+      providerSource: string | null;
+      providerDataset: string | null;
+    };
+    await dividendsApi.assert.fieldEquals(previewBody, "ratio", "0.1", "preview body");
+    await dividendsApi.assert.fieldEquals(previewBody, "expectedWholeShares", 100, "preview body");
+    await dividendsApi.assert.fieldEquals(previewBody, "providerUnit", "TWD_PER_SHARE", "preview body");
+
+    const confirmResponse = await request.post(
+      new URL("/portfolio/dividends/calculations/confirm", TestEnv.apiBaseUrl).href,
+      {
+        headers: {
+          ...authHeaders,
+          "idempotency-key": "http-dividend-calculation-confirm",
+        },
+        data: {
+          accountId: "acc-1",
+          dividendEventId,
+          method: "derived_from_par_value",
+          selectedParValue: "10",
+          expectedActiveCalculationId: null,
+        },
+      },
+    );
+    await dividendsApi.assert.statusIs(confirmResponse, 200);
+    const confirmedCalculation = await confirmResponse.json() as {
+      id: string;
+      calculationVersion: number;
+      status: string;
+      method: string;
+      expectedWholeShares: number;
+    };
+    await dividendsApi.assert.fieldEquals(confirmedCalculation, "status", "confirmed", "confirmed calculation");
+    await dividendsApi.assert.fieldEquals(confirmedCalculation, "method", "derived_from_par_value", "confirmed calculation");
+    await dividendsApi.assert.fieldEquals(confirmedCalculation, "expectedWholeShares", 100, "confirmed calculation");
+
+    const resetResponse = await request.post(
+      new URL("/portfolio/dividends/calculations/reset", TestEnv.apiBaseUrl).href,
+      {
+        headers: {
+          ...authHeaders,
+          "idempotency-key": "http-dividend-calculation-reset",
+        },
+        data: {
+          accountId: "acc-1",
+          dividendEventId,
+          expectedActiveCalculationId: confirmedCalculation.id,
+          expectedCalculationVersion: confirmedCalculation.calculationVersion,
+        },
+      },
+    );
+    await dividendsApi.assert.statusIs(resetResponse, 200);
+    await dividendsApi.assert.fieldEquals(await resetResponse.json() as Record<string, unknown>, "status", "ok", "reset response");
+
+    const inlinePostResponse = await request.post(
+      new URL("/portfolio/dividends/postings", TestEnv.apiBaseUrl).href,
+      {
+        headers: {
+          ...authHeaders,
+          "idempotency-key": "http-inline-dividend-calculation-posting",
+        },
+        data: {
+          ...dividendPostingPayload({
+            ticker: "2330",
+            dividendEventId,
+            receivedCashAmount: 0,
+            receivedStockQuantity: 150,
+            deductions: [],
+            sourceCompositionStatus: "unknown_pending_disclosure",
+            sourceLines: [],
+          }),
+          calculation: {
+            method: "derived_from_par_value",
+            selectedParValue: "10",
+          },
+        },
+      },
+    );
+    await dividendsApi.assert.statusIs(inlinePostResponse, 200);
+    const inlinePostBody = await inlinePostResponse.json() as {
+      dividendLedgerEntry: { id: string };
+    };
+
+    const detailResponse = await request.get(
+      new URL(`/portfolio/dividends/postings/${inlinePostBody.dividendLedgerEntry.id}`, TestEnv.apiBaseUrl).href,
+      { headers: authHeaders },
+    );
+    await dividendsApi.assert.statusIs(detailResponse, 200);
+    const detailBody = await detailResponse.json() as {
+      expectedStockQuantity: number | null;
+      receivedStockQuantity: number;
+      stockVarianceQuantity: number | null;
+      activeCalculation: {
+        id: string;
+        calculationVersion: number;
+        status: string;
+        method: string;
+        expectedWholeShares: number;
+      };
+      calculationHistory?: Array<{ id: string; status: string }>;
+    };
+    await dividendsApi.assert.fieldEquals(detailBody, "expectedStockQuantity", 100, "detail body");
+    await dividendsApi.assert.fieldEquals(detailBody, "receivedStockQuantity", 150, "detail body");
+    await dividendsApi.assert.fieldEquals(detailBody, "stockVarianceQuantity", 50, "detail body");
+    await dividendsApi.assert.fieldEquals(detailBody.activeCalculation, "status", "confirmed", "detail activeCalculation");
+
+    const amendResponse = await request.post(
+      new URL("/portfolio/dividends/calculations/amend", TestEnv.apiBaseUrl).href,
+      {
+        headers: {
+          ...authHeaders,
+          "idempotency-key": "http-inline-dividend-calculation-amend",
+        },
+        data: {
+          accountId: "acc-1",
+          dividendEventId,
+          dividendLedgerEntryId: inlinePostBody.dividendLedgerEntry.id,
+          method: "custom_ratio",
+          customRatio: "0.2",
+          expectedActiveCalculationId: detailBody.activeCalculation.id,
+          expectedCalculationVersion: detailBody.activeCalculation.calculationVersion,
+        },
+      },
+    );
+    await dividendsApi.assert.statusIs(amendResponse, 200);
+    const amendedCalculation = await amendResponse.json() as {
+      status: string;
+      method: string;
+      expectedWholeShares: number;
+      dividendLedgerEntryId: string | null;
+    };
+    await dividendsApi.assert.fieldEquals(amendedCalculation, "status", "amended", "amended calculation");
+    await dividendsApi.assert.fieldEquals(amendedCalculation, "method", "custom_ratio", "amended calculation");
+    await dividendsApi.assert.fieldEquals(amendedCalculation, "expectedWholeShares", 200, "amended calculation");
+
+    const reviewPrimaryResponse = await request.get(
+      new URL("/portfolio/dividends/review/primary?cashStatus=open&stockStatus=variance&limit=10", TestEnv.apiBaseUrl).href,
+      { headers: authHeaders },
+    );
+    await dividendsApi.assert.statusIs(reviewPrimaryResponse, 200);
+    const reviewPrimaryBody = await reviewPrimaryResponse.json() as {
+      reviewRows?: Array<Record<string, unknown>>;
+    };
+    const amendedRow = (reviewPrimaryBody.reviewRows ?? []).find((row) => row.id === inlinePostBody.dividendLedgerEntry.id);
+    await dividendsApi.assert.mxAssertDefined(amendedRow, "filtered review row");
+    await dividendsApi.assert.fieldEquals(amendedRow!, "stockReconciliationStatus", "variance", "filtered review row");
+    await dividendsApi.assert.fieldEquals(amendedRow!, "expectedStockQuantity", 200, "filtered review row");
+    await dividendsApi.assert.fieldEquals(amendedRow!, "receivedStockQuantity", 150, "filtered review row");
+
+    const enrichmentResponse = await request.get(
+      new URL("/portfolio/dividends/review/enrichment?cashStatus=open&stockStatus=variance", TestEnv.apiBaseUrl).href,
+      { headers: authHeaders },
+    );
+    await dividendsApi.assert.statusIs(enrichmentResponse, 200);
+    const enrichmentBody = await enrichmentResponse.json() as {
+      hero?: {
+        stockAttentionCount?: number;
+        expectedStockTickers?: Array<Record<string, unknown>>;
+        receivedStockTickers?: Array<Record<string, unknown>>;
+      };
+    };
+    await dividendsApi.assert.mxAssertDefined(enrichmentBody.hero, "review enrichment hero");
+    await dividendsApi.assert.fieldEquals(enrichmentBody.hero!, "stockAttentionCount", 1, "review enrichment hero");
+    await dividendsApi.assert.mxAssertTruthy(
+      (enrichmentBody.hero?.expectedStockTickers ?? []).some((entry) => entry.ticker === "2330" && entry.expectedWholeShares === 200),
+      "expected stock hero includes amended 2330 row",
+    );
+    await dividendsApi.assert.mxAssertTruthy(
+      (enrichmentBody.hero?.receivedStockTickers ?? []).some((entry) => entry.ticker === "2330" && entry.receivedShares === 150),
+      "received stock hero includes posted 2330 row",
+    );
+  });
+
   test("PATCH reconciliation: validates note requirements and authorization", async ({
     dividendsApi,
     request,

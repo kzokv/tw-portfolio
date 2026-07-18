@@ -138,6 +138,57 @@ test.describe("user preferences API (KZO-159)", () => {
     });
   });
 
+  test("[user-prefs]: PATCH /user-preferences holdings selection + table contexts → 200 echoes and GET returns same", async ({
+    request,
+    adminApi,
+  }) => {
+    const session = await createOauthSession(request, {
+      sub: "user-prefs-holdings-selection-sub",
+      email: "user-prefs-holdings-selection@example.com",
+      name: "Prefs Holdings Selection",
+      role: "member",
+    });
+
+    const preferences = {
+      holdingsSelection: {
+        version: 1,
+        mode: "custom",
+        tickerIds: ["TW:2330", "US:MSFT"],
+      },
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          "portfolio.holdings": {
+            hiddenColumns: [],
+            columnOrder: ["ticker", "marketValue"],
+            columnWidths: { ticker: 180 },
+            rowOrder: ["TW:2330"],
+            selectedMarketCodes: ["TW"],
+            selectedAccountIds: ["acc-1"],
+            topHoldingsLimit: 8,
+            layoutStyle: "portfolio",
+            mobileSummaryCount: 3,
+          },
+        },
+      },
+    };
+
+    const patchResponse = await request.patch(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+      data: preferences,
+    });
+    await adminApi.assert.statusIs(patchResponse, 200);
+    const patchBody = await patchResponse.json() as PreferencesBody;
+    await adminApi.assert.mxAssertDeepEqual(patchBody.preferences, preferences);
+
+    const getResponse = await request.get(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+    });
+    await adminApi.assert.statusIs(getResponse, 200);
+    const getBody = await getResponse.json() as PreferencesBody;
+    await adminApi.assert.mxAssertDeepEqual(getBody.preferences, preferences);
+  });
+
   test("[user-prefs]: PATCH /user-preferences { priceColorConvention } → 200 echoes and GET returns same", async ({
     request,
     adminApi,

@@ -241,6 +241,7 @@ export const chatGptTransactionDraftCopy: Record<LocaleCode, ChatGptTransactionD
     rowStateLabels: {
       ready: "ready",
       confirmed: "confirmed",
+      posted_transaction_deleted: "posted transaction deleted",
       excluded: "excluded",
       rejected: "rejected",
       unsupported: "unsupported",
@@ -377,6 +378,7 @@ export const chatGptTransactionDraftCopy: Record<LocaleCode, ChatGptTransactionD
     rowStateLabels: {
       ready: "可送出",
       confirmed: "已確認",
+      posted_transaction_deleted: "已刪除已送出交易",
       excluded: "已排除",
       rejected: "已拒絕",
       unsupported: "不支援",

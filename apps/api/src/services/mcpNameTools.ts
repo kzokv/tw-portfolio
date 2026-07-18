@@ -165,9 +165,18 @@ function withPortfolio<T extends Record<string, unknown>>(
 }
 
 function formatDraftRow(row: AiTransactionDraftRowRecord, accountName: string | null) {
+  const deletedPostedTransaction = (row as AiTransactionDraftRowRecord & {
+    deletedPostedTransaction?: {
+      deletedAt: string;
+      deletedByUserId: string | null;
+      mutationRunId: string;
+    } | null;
+  }).deletedPostedTransaction ?? null;
   return {
     rowNumber: row.rowNumber,
     state: row.state,
+    displayState: deletedPostedTransaction ? "posted_transaction_deleted" : row.state,
+    statusCopy: deletedPostedTransaction ? "Posted transaction deleted" : row.state === "confirmed" ? "Posted transaction confirmed" : row.state,
     accountName,
     type: row.tradeType,
     ticker: row.ticker,
@@ -185,6 +194,7 @@ function formatDraftRow(row: AiTransactionDraftRowRecord, accountName: string | 
     warnings: row.warnings,
     issues: row.preflightIssues,
     confirmedAt: row.confirmedAt,
+    deletedPostedTransaction,
   };
 }
 

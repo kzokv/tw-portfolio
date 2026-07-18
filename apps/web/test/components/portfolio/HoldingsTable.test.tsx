@@ -257,7 +257,19 @@ describe("HoldingsTable", () => {
     await flushPromises();
 
     expect(container.querySelector("[data-testid='holding-group-row-AAPL-US']")).not.toBeNull();
-    expect(vi.mocked(patchJson)).not.toHaveBeenCalled();
+    expect(vi.mocked(patchJson)).toHaveBeenCalledWith(
+      "/user-preferences",
+      {
+        holdingsTableSettings: {
+          version: 1,
+          contexts: expect.objectContaining({
+            "holdings.shared": expect.objectContaining({ selectedMarketCodes: ["JP"] }),
+            "portfolio.holdings": expect.objectContaining({ selectedMarketCodes: ["JP"] }),
+          }),
+        },
+      },
+      { contextScope: "session" },
+    );
   });
 
   it("keeps market filter menu open while selecting multiple markets", async () => {
@@ -474,6 +486,17 @@ describe("HoldingsTable", () => {
         holdingsTableSettings: {
           version: 1,
           contexts: {
+            "holdings.shared": {
+              columnOrder: ["ticker", "marketValue"],
+              hiddenColumns: [],
+              columnWidths: { ticker: 120, marketValue: 160 },
+              layoutStyle: "portfolio",
+              mobileSummaryCount: 2,
+              rowOrder: [],
+              selectedMarketCodes: [],
+              selectedAccountIds: [],
+              topHoldingsLimit: 5,
+            },
             "holdings.other": {
               columnOrder: ["ticker", "marketValue"],
               hiddenColumns: [],
@@ -514,14 +537,6 @@ describe("HoldingsTable", () => {
         holdingsTableSettings: {
           version: 1,
           contexts: {
-            "holdings.other": {
-              columnOrder: ["ticker", "marketValue"],
-              hiddenColumns: [],
-              columnWidths: {},
-              layoutStyle: "portfolio",
-              selectedMarketCodes: ["JP"],
-              selectedAccountIds: ["acc-9"],
-            },
             "holdings.shared": {
               columnOrder: ["ticker", "marketValue"],
               hiddenColumns: [],

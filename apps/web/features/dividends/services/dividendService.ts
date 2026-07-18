@@ -6,6 +6,7 @@ import type {
   DividendReviewPrimaryDto,
   DividendReviewPrimaryQueryDto,
   DividendReviewRowDetailDto,
+  DividendStockReconciliationUpdateDto,
   MarketCode,
 } from "@vakwen/shared-types";
 import { getJson, patchJson, postJson } from "../../../lib/api";
@@ -36,6 +37,8 @@ export interface DividendReviewQuery {
   marketCode?: MarketCode;
   postingStatus?: string;
   reconciliationStatus?: string;
+  cashStatus?: DividendReviewFilterDto["cashStatus"];
+  stockStatus?: DividendReviewFilterDto["stockStatus"];
   excludeExpected?: boolean;
   sortBy?: string;
   sortOrder?: "asc" | "desc";
@@ -54,6 +57,10 @@ export interface DividendLedgerReviewResponse {
   total: number;
   aggregates: DividendLedgerAggregates;
 }
+
+type DividendStockReconciliationUpdateInput = Omit<DividendStockReconciliationUpdateDto, "note"> & {
+  note?: string | null;
+};
 
 function buildQuery(params: DividendQuery): string {
   const query = new URLSearchParams({
@@ -89,6 +96,8 @@ function buildReviewQuery(params: DividendReviewQuery | DividendReviewFilterDto 
   if (params.marketCode) query.set("marketCode", params.marketCode);
   if (params.postingStatus) query.set("postingStatus", params.postingStatus);
   if (params.reconciliationStatus) query.set("reconciliationStatus", params.reconciliationStatus);
+  if (params.cashStatus) query.set("cashStatus", params.cashStatus);
+  if (params.stockStatus) query.set("stockStatus", params.stockStatus);
   if (params.excludeExpected) query.set("excludeExpected", "true");
   if (params.sourceComposition) query.set("sourceComposition", params.sourceComposition);
   if ("sortBy" in params && params.sortBy) query.set("sortBy", params.sortBy);
@@ -202,6 +211,8 @@ export async function fetchDividendReviewEnrichment(
     marketCode: filters.marketCode,
     postingStatus: filters.postingStatus,
     reconciliationStatus: filters.reconciliationStatus,
+    cashStatus: filters.cashStatus,
+    stockStatus: filters.stockStatus,
     excludeExpected: filters.excludeExpected,
     sourceComposition: filters.sourceComposition,
   };
@@ -243,4 +254,16 @@ export async function updateDividendReconciliation(
 
   clearDividendReviewCaches();
   return response;
+}
+
+export async function updateDividendStockReconciliation(
+  dividendLedgerEntryId: string,
+  update: DividendStockReconciliationUpdateInput,
+): Promise<DividendReviewRowDetailDto> {
+  const response = await patchJson<{ ledgerEntry: DividendReviewRowDetailDto }>(
+    `/portfolio/dividends/postings/${encodeURIComponent(dividendLedgerEntryId)}/stock-reconciliation`,
+    update,
+  );
+  clearDividendReviewCaches();
+  return response.ledgerEntry;
 }

@@ -83,6 +83,11 @@ import {
   HoldingsGridMobileList,
 } from "../holdings/HoldingsGrid";
 import {
+  HoldingsSelectionInlineToggle,
+  HoldingsSelectionSummaryStrip,
+  HoldingsSelectionToolbar,
+} from "../holdings/HoldingsSelectionControls";
+import {
   HoldingsDataHealthBadges,
   getHoldingsQuoteStatusLabel,
 } from "../holdings/HoldingsDataHealth";
@@ -99,6 +104,12 @@ import {
   holdingsFinanceToneClass,
   holdingsStickyFirstColumnClassName,
 } from "../holdings/holdingsStyle";
+import { buildHoldingsSelectionVisibleSummary, type HoldingsSelectionSummaryRow } from "../holdings/holdingsSelectionSummary";
+import {
+  DASHBOARD_TOP_HOLDINGS_CONTEXT_KEY,
+  buildHoldingsTickerId,
+} from "../holdings/holdingsPreferenceHelpers";
+import { useHoldingsSelection } from "../holdings/useHoldingsSelection";
 import { buildMissingPriceState, buildPriceStateActivityPath, getPriceState, isNonCurrentPrice, priceStateSortRank, type PriceStateDtoLike } from "../../features/price-state/priceState";
 
 type HoldingsPreviewSort = "value" | "daily" | "pnl" | "unitPnl" | "ticker";
@@ -120,7 +131,6 @@ const DASHBOARD_HOLDINGS_COLUMNS: Array<HoldingsGridColumnDefinition<DashboardHo
 ];
 const DASHBOARD_MOBILE_FIELD_COLUMNS: DashboardHoldingsColumn[] = ["position", "avgCost", "price", "unitPnl", "marketValue", "costBasis", "daily", "pnl", "health"];
 const MAX_ANIMATED_DASHBOARD_HOLDING_ROWS = 6;
-const SHARED_HOLDINGS_SETTINGS_CONTEXT_KEY = "holdings.shared";
 
 const HOLDING_FOCUS_PRESETS: Array<{ id: DashboardHoldingFocusPreset; sortMode: HoldingsPreviewSort }> = [
   { id: "largest", sortMode: "value" },
@@ -158,7 +168,7 @@ export function DashboardHoldingsPreview({
   locale,
   reportingCurrency,
   quoteRefreshVersion = 0,
-  settingsContextKey = SHARED_HOLDINGS_SETTINGS_CONTEXT_KEY,
+  settingsContextKey = DASHBOARD_TOP_HOLDINGS_CONTEXT_KEY,
   showAdminActivityLinks = false,
   isRefreshing = false,
   onRefresh,
@@ -246,9 +256,26 @@ export function DashboardHoldingsPreview({
     () => filterAvailableHoldingsSelections(columnSettings.selectedAccountIds, accountOptionIds),
     [accountOptionIds, columnSettings.selectedAccountIds],
   );
+  const holdingsSelectionUniverse = useMemo(
+    () => groups.map((group) => ({
+      marketCode: group.marketCode,
+      ticker: group.ticker,
+      label: group.instrumentName?.trim() || group.ticker,
+      searchText: `${group.marketCode} ${group.ticker} ${group.instrumentName ?? ""}`.toLowerCase(),
+    })),
+    [groups],
+  );
+  const holdingsSelection = useHoldingsSelection(holdingsSelectionUniverse);
   const filteredGroups = useMemo(() => {
     const normalizedQuery = query.trim().toUpperCase();
     const baseGroups = groups.flatMap((group) => {
+      const groupTickerId = buildHoldingsTickerId(group.marketCode, group.ticker);
+      if (
+        holdingsSelection.selectionMode === "custom"
+        && !holdingsSelection.selectedTickerIdSet.has(groupTickerId)
+      ) {
+        return [];
+      }
       const marketMatches = selectedMarketCodes.length === 0 || selectedMarketCodes.includes(group.marketCode);
       const visibleChildren = getVisibleAccountRows(group, selectedAccountIds);
       const accountMatches = visibleChildren.length > 0;
@@ -262,7 +289,16 @@ export function DashboardHoldingsPreview({
       return [projectHoldingGroupToChildren(group, visibleChildren)];
     });
     return applyHoldingPreset(recalculateHoldingGroupAllocations(baseGroups), selectedPreset, reportingCurrency);
-  }, [groups, query, reportingCurrency, selectedAccountIds, selectedMarketCodes, selectedPreset]);
+  }, [
+    groups,
+    holdingsSelection.selectedTickerIdSet,
+    holdingsSelection.selectionMode,
+    query,
+    reportingCurrency,
+    selectedAccountIds,
+    selectedMarketCodes,
+    selectedPreset,
+  ]);
   const sortedFilteredGroups = useMemo(
     () => filteredGroups
       .slice()
@@ -283,6 +319,30 @@ export function DashboardHoldingsPreview({
     .filter((preset): preset is (typeof HOLDING_FOCUS_PRESETS)[number] => preset !== undefined);
   const reportScope = selectedMarketCodes.length === 1 ? selectedMarketCodes[0]! : "all";
   const mobileColumnSplit = splitMobileHoldingColumns(columnSettings, DASHBOARD_MOBILE_FIELD_COLUMNS);
+  const selectionSummaryRows = useMemo<HoldingsSelectionSummaryRow[]>(
+    () => visibleGroups.map((group) => ({
+      marketCode: group.marketCode,
+      ticker: group.ticker,
+      reportingCostBasisAmount: group.reportingCostBasisAmount,
+      reportingMarketValueAmount: group.reportingMarketValueAmount,
+      reportingUnrealizedPnlAmount: group.reportingUnrealizedPnlAmount,
+    })),
+    [visibleGroups],
+  );
+  const selectionSummary = useMemo(
+    () => buildHoldingsSelectionVisibleSummary({
+      mode: holdingsSelection.selectionMode,
+      rows: selectionSummaryRows,
+      selectedTickerIds: holdingsSelection.selectedTickerIds,
+      universeTickerIds: holdingsSelection.universeTickerIds,
+    }),
+    [
+      holdingsSelection.selectedTickerIds,
+      holdingsSelection.selectionMode,
+      holdingsSelection.universeTickerIds,
+      selectionSummaryRows,
+    ],
+  );
   const persistDashboardHoldingFocus = (preference: DashboardHoldingFocusPreferenceDto) => {
     setPresetError("");
     void patchJson("/user-preferences", { dashboardHoldingFocus: preference }, { contextScope: "session" })
@@ -504,6 +564,17 @@ export function DashboardHoldingsPreview({
                   </ToggleGroup>
                 </div>
                 <div className="flex flex-wrap justify-end gap-2">
+                  <HoldingsSelectionToolbar
+                    dict={dict}
+                    mode={holdingsSelection.selectionMode}
+                    universeItems={holdingsSelection.universeItems}
+                    selectedTickerIds={holdingsSelection.selectedTickerIds}
+                    availableSelectedTickerIds={holdingsSelection.availableSelectedTickerIds}
+                    unavailableTickerIds={holdingsSelection.unavailableTickerIds}
+                    onReset={holdingsSelection.setAll}
+                    onToggleTicker={holdingsSelection.toggleTicker}
+                    onRemoveTicker={holdingsSelection.removeTicker}
+                  />
                   {onRefresh ? (
                     <Button
                       type="button"
@@ -601,6 +672,19 @@ export function DashboardHoldingsPreview({
                   </Popover>
                 </div>
               </div>
+              {holdingsSelection.selectionError ? (
+                <p className="text-sm text-destructive" data-testid="dashboard-holdings-selection-error">
+                  {holdingsSelection.selectionError}
+                </p>
+              ) : null}
+              <HoldingsSelectionSummaryStrip
+                className="border-0 py-0"
+                dict={dict}
+                framed={false}
+                locale={locale}
+                reportingCurrency={reportingCurrency}
+                summary={selectionSummary}
+              />
               {visibleGroups.length === 0 ? (
                 <HoldingsGridEmptyState>
                   {dict.dashboardHome.topHoldingsNoMatches}
@@ -627,9 +711,12 @@ export function DashboardHoldingsPreview({
                       visibleColumns={[...mobileColumnSplit.summaryColumns, ...mobileColumnSplit.detailColumns]}
                       onOpen={() => setSelected(group)}
                       onOpenActivity={() => setSelectedActivity(group)}
+                      onToggleSelection={() => holdingsSelection.toggleTicker(buildHoldingsTickerId(group.marketCode, group.ticker))}
                       quoteRefreshVersion={index < MAX_ANIMATED_DASHBOARD_HOLDING_ROWS ? quoteRefreshVersion : 0}
                       reportingCurrency={reportingCurrency}
+                      selectionChecked={holdingsSelection.isTickerSelected(buildHoldingsTickerId(group.marketCode, group.ticker))}
                       showAdminActivityLinks={showAdminActivityLinks}
+                      showSelectionControl
                     />
                   ))}
                 </HoldingsGridMobileList>
@@ -644,8 +731,15 @@ export function DashboardHoldingsPreview({
                   selectedAccountIds={selectedAccountIds}
                   columnSettings={columnSettings}
                   onToggleExpanded={toggleExpandedRow}
+                  onToggleSelection={(group) => holdingsSelection.toggleTicker(buildHoldingsTickerId(group.marketCode, group.ticker))}
                   quoteRefreshVersion={quoteRefreshVersion}
                   reportingCurrency={reportingCurrency}
+                  selectionCheckedMap={new Map(
+                    visibleGroups.map((group) => [
+                      holdingRowKey(group),
+                      holdingsSelection.isTickerSelected(buildHoldingsTickerId(group.marketCode, group.ticker)),
+                    ]),
+                  )}
                   showAdminActivityLinks={showAdminActivityLinks}
                 />
                 </>
@@ -798,9 +892,12 @@ function DashboardHoldingRow({
   visibleColumns,
   onOpen,
   onOpenActivity,
+  onToggleSelection,
   quoteRefreshVersion,
   reportingCurrency,
+  selectionChecked,
   showAdminActivityLinks,
+  showSelectionControl,
 }: {
   dict: ReturnType<typeof getDictionary>;
   fxRate: number | null;
@@ -810,9 +907,12 @@ function DashboardHoldingRow({
   visibleColumns: DashboardHoldingsColumn[];
   onOpen: () => void;
   onOpenActivity: () => void;
+  onToggleSelection: () => void;
   quoteRefreshVersion: number;
   reportingCurrency: AccountDefaultCurrency;
+  selectionChecked: boolean;
   showAdminActivityLinks: boolean;
+  showSelectionControl: boolean;
 }) {
   const reportingPrice = getReportingUnitPrice(group, reportingCurrency);
   const reportingAvgCost = getDashboardReportingAverageCost(group, reportingCurrency);
@@ -826,18 +926,29 @@ function DashboardHoldingRow({
       data-testid={`dashboard-holding-preview-${group.ticker}-${group.marketCode}`}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <Link
-            href={`/tickers/${encodeURIComponent(group.ticker)}?marketCode=${encodeURIComponent(group.marketCode)}`}
-            className="font-semibold text-foreground underline decoration-primary/30 underline-offset-4 hover:text-primary"
-          >
-            {group.ticker}
-          </Link>
-          {group.instrumentName ? (
-            <p className="mt-1 break-words text-sm text-muted-foreground">{group.instrumentName}</p>
+        <div className="flex min-w-0 items-start gap-3">
+          {showSelectionControl ? (
+            <HoldingsSelectionInlineToggle
+              dict={dict}
+              tickerId={buildHoldingsTickerId(group.marketCode, group.ticker)}
+              checked={selectionChecked}
+              onToggle={onToggleSelection}
+              className="mt-1"
+            />
           ) : null}
-          <div className="mt-1 flex flex-wrap gap-1.5">
-            <Badge variant="outline">{group.marketCode}</Badge>
+          <div className="min-w-0">
+            <Link
+              href={`/tickers/${encodeURIComponent(group.ticker)}?marketCode=${encodeURIComponent(group.marketCode)}`}
+              className="font-semibold text-foreground underline decoration-primary/30 underline-offset-4 hover:text-primary"
+            >
+              {group.ticker}
+            </Link>
+            {group.instrumentName ? (
+              <p className="mt-1 break-words text-sm text-muted-foreground">{group.instrumentName}</p>
+            ) : null}
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              <Badge variant="outline">{group.marketCode}</Badge>
+            </div>
           </div>
         </div>
         <DashboardHoldingActivityQuickLink
@@ -892,9 +1003,11 @@ function DashboardHoldingsTable({
   locale,
   onOpen,
   onOpenActivity,
+  onToggleSelection,
   onToggleExpanded,
   quoteRefreshVersion,
   reportingCurrency,
+  selectionCheckedMap,
   showAdminActivityLinks,
 }: {
   selectedAccountIds: string[];
@@ -906,9 +1019,11 @@ function DashboardHoldingsTable({
   locale: LocaleCode;
   onOpen: (row: DashboardOverviewHoldingGroupDto) => void;
   onOpenActivity: (row: DashboardHoldingDetailRow) => void;
+  onToggleSelection: (row: DashboardOverviewHoldingGroupDto) => void;
   onToggleExpanded: (key: string) => void;
   quoteRefreshVersion: number;
   reportingCurrency: AccountDefaultCurrency;
+  selectionCheckedMap: Map<string, boolean>;
   showAdminActivityLinks: boolean;
 }) {
   const visibleColumns = columnSettings.orderedColumns.filter((column) => columnSettings.visibleColumns.includes(column.id));
@@ -967,11 +1082,13 @@ function DashboardHoldingsTable({
                     locale,
                     onOpen,
                     onOpenActivity,
+                    onToggleSelection: () => onToggleSelection(group),
                     onToggleExpanded: () => onToggleExpanded(rowKey),
                     quoteRefreshVersion: index < MAX_ANIMATED_DASHBOARD_HOLDING_ROWS ? quoteRefreshVersion : 0,
                     reportingCurrency,
                     reportingDailyMove,
                     reportingPrice,
+                    selectionChecked: selectionCheckedMap.get(rowKey) ?? false,
                     showAdminActivityLinks,
                     visibleChildren,
                   }))}
@@ -1048,11 +1165,13 @@ function renderDashboardGroupCell({
   locale,
   onOpen,
   onOpenActivity,
+  onToggleSelection,
   onToggleExpanded,
   quoteRefreshVersion,
   reportingCurrency,
   reportingDailyMove,
   reportingPrice,
+  selectionChecked,
   showAdminActivityLinks,
   visibleChildren,
 }: {
@@ -1065,11 +1184,13 @@ function renderDashboardGroupCell({
   locale: LocaleCode;
   onOpen: (group: DashboardOverviewHoldingGroupDto) => void;
   onOpenActivity: (row: DashboardHoldingDetailRow) => void;
+  onToggleSelection: () => void;
   onToggleExpanded: () => void;
   quoteRefreshVersion: number;
   reportingCurrency: AccountDefaultCurrency;
   reportingDailyMove: number | null;
   reportingPrice: number | null;
+  selectionChecked: boolean;
   showAdminActivityLinks: boolean;
   visibleChildren: DashboardOverviewHoldingChildDto[];
 }) {
@@ -1078,6 +1199,13 @@ function renderDashboardGroupCell({
     return (
       <td key={column} className={dashboardCellClassName(column)} style={style}>
         <div className="flex items-start gap-2">
+          <HoldingsSelectionInlineToggle
+            dict={dict}
+            tickerId={buildHoldingsTickerId(group.marketCode, group.ticker)}
+            checked={selectionChecked}
+            onToggle={onToggleSelection}
+            className="mt-2"
+          />
           <Button
             size="sm"
             variant="ghost"

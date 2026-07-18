@@ -29,6 +29,7 @@ export const MCP_REPLAY_POSITION_RUN_QUEUE = "mcp-replay-position-runs";
 const MAX_REPLAY_SCOPES = 50;
 const MAX_SNAPSHOT_PAGE_SIZE = 200;
 const REPLAY_CONFIRMATION_TTL_MS = 15 * 60 * 1000;
+const MUTATION_REBUILD_MAX_ATTEMPTS = 3;
 
 interface TickerMarketInput {
   ticker: string;
@@ -608,31 +609,71 @@ export async function replayPortfolioPositions(
 export async function executeReplayRun(app: FastifyInstance, userId: string, runId: string): Promise<void> {
   const run = await app.persistence.getMcpReplayRun(runId);
   if (!run || run.portfolioContextUserId !== userId) return;
-  await app.persistence.updateMcpReplayRunStatus({ runId, status: "running", startedAt: new Date().toISOString() });
+  const mutationRun = await app.persistence.getPostedTransactionMutationRun(runId);
+  const startedAt = new Date().toISOString();
+  await app.persistence.updateMcpReplayRunStatus({ runId, status: "running", startedAt });
+  if (mutationRun) {
+    await app.persistence.savePostedTransactionMutationRun({
+      ...mutationRun,
+      status: "running",
+      rebuildStatus: "running",
+      startedAt: mutationRun.startedAt ?? startedAt,
+    });
+    try {
+      await app.eventBus.publishEvent(mutationRun.ownerUserId, "posted_transaction_mutation_rebuild", {
+        runId: mutationRun.id,
+        previewId: mutationRun.previewId,
+        operation: mutationRun.operation,
+        status: "running",
+        affectedAccountIds: mutationRun.affectedAccountIds,
+        affectedTickers: mutationRun.affectedTickers,
+      });
+    } catch {
+      // The durable run remains authoritative if event delivery fails.
+    }
+  }
   let succeeded = 0;
   let failed = 0;
   for (const scope of run.scopes) {
     await app.persistence.updateMcpReplayRunScope({ ...scope, runId, status: "running", updatedAt: new Date().toISOString() });
-    try {
-      const summary = await replayPositionHistory(app.persistence, userId, scope.accountId, scope.ticker, {
-        marketCode: scope.marketCode,
-      });
-      const snapshotResult = await recomputeSnapshotsForTicker(userId, scope.accountId, scope.ticker, "1970-01-01", app.persistence, scope.marketCode);
-      await app.persistence.updateMcpReplayRunScope({
-        ...scope,
-        runId,
-        status: "succeeded",
-        replayedTradeCount: summary.affectedTradeCount,
-        snapshotGenerationRunId: snapshotResult.generationRunId,
-        updatedAt: new Date().toISOString(),
-      });
-      succeeded++;
-    } catch (error) {
+    const maxAttempts = mutationRun ? MUTATION_REBUILD_MAX_ATTEMPTS : 1;
+    let lastError: unknown = null;
+    let completed = false;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        const summary = await replayPositionHistory(app.persistence, userId, scope.accountId, scope.ticker, {
+          marketCode: scope.marketCode,
+          deletedTradeEventIds: scope.deletedTradeEventIds,
+        });
+        const snapshotResult = await recomputeSnapshotsForTicker(
+          userId,
+          scope.accountId,
+          scope.ticker,
+          scope.earliestReplayDate ?? "1970-01-01",
+          app.persistence,
+          scope.marketCode,
+        );
+        await app.persistence.updateMcpReplayRunScope({
+          ...scope,
+          runId,
+          status: "succeeded",
+          replayedTradeCount: summary.affectedTradeCount,
+          snapshotGenerationRunId: snapshotResult.generationRunId,
+          updatedAt: new Date().toISOString(),
+        });
+        completed = true;
+        succeeded++;
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (!completed) {
       await app.persistence.updateMcpReplayRunScope({
         ...scope,
         runId,
         status: "failed",
-        errorMessage: error instanceof Error ? error.message : String(error),
+        errorMessage: lastError instanceof Error ? lastError.message : String(lastError),
         updatedAt: new Date().toISOString(),
       });
       failed++;
@@ -643,11 +684,67 @@ export async function executeReplayRun(app: FastifyInstance, userId: string, run
   } catch {
     // Replay status is position-scoped; wallet refresh failures are surfaced by logs.
   }
+  const replayTerminalStatus = failed === 0
+    ? "completed"
+    : succeeded === 0
+      ? "failed"
+      : "completed_with_failures";
+  const mutationTerminalStatus = failed === 0
+    ? "completed"
+    : succeeded === 0
+      ? "failed"
+      : "partially_failed";
+  const completedAt = new Date().toISOString();
   await app.persistence.updateMcpReplayRunStatus({
     runId,
-    status: failed === 0 ? "completed" : succeeded === 0 ? "failed" : "completed_with_failures",
-    finishedAt: new Date().toISOString(),
+    status: replayTerminalStatus,
+    finishedAt: completedAt,
   });
+  if (mutationRun) {
+    const completedReplayRun = await app.persistence.getMcpReplayRun(runId);
+    const scopeKey = (scope: { accountId: string; ticker: string; marketCode: string }) =>
+      `${scope.accountId}\0${scope.ticker}\0${scope.marketCode}`;
+    await app.persistence.savePostedTransactionMutationRun({
+      ...mutationRun,
+      status: mutationTerminalStatus,
+      rebuildStatus: mutationTerminalStatus,
+      startedAt: mutationRun.startedAt ?? startedAt,
+      completedAt,
+      errors: [
+        ...mutationRun.errors,
+        ...(completedReplayRun?.scopes ?? [])
+          .filter((scope) => scope.status === "failed")
+          .map((scope) => ({
+            code: "posted_transaction_mutation_rebuild_failed",
+            message: scope.errorMessage ?? `Snapshot rebuild failed for ${scope.ticker}.${scope.marketCode}`,
+          })),
+      ],
+      scopes: mutationRun.scopes.map((scope) => {
+        const replayScope = completedReplayRun?.scopes.find((candidate) => scopeKey(candidate) === scopeKey(scope));
+        return {
+          ...scope,
+          status: replayScope?.status === "succeeded"
+            ? "completed"
+            : replayScope?.status === "pending"
+              ? "queued"
+              : replayScope?.status ?? scope.status,
+          errorMessage: replayScope?.errorMessage ?? scope.errorMessage,
+        };
+      }),
+    });
+    try {
+      await app.eventBus.publishEvent(mutationRun.ownerUserId, "posted_transaction_mutation_rebuild", {
+        runId: mutationRun.id,
+        previewId: mutationRun.previewId,
+        operation: mutationRun.operation,
+        status: mutationTerminalStatus,
+        affectedAccountIds: mutationRun.affectedAccountIds,
+        affectedTickers: mutationRun.affectedTickers,
+      });
+    } catch {
+      // The durable terminal state remains authoritative if event delivery fails.
+    }
+  }
 }
 
 export async function getReplayPortfolioPositionsRun(

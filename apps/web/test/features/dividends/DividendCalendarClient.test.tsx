@@ -18,6 +18,7 @@ const shellContext = vi.hoisted(() => ({ value: null as null | {
 vi.mock("../../../features/dividends/services/dividendService", () => ({
   fetchDividendCalendarSnapshot: vi.fn(),
   fetchDividendDailyHighlights: vi.fn(),
+  fetchDividendLedgerEntry: vi.fn(),
   updateDividendReconciliation: vi.fn(),
 }));
 
@@ -34,6 +35,7 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
 import {
   fetchDividendCalendarSnapshot,
   fetchDividendDailyHighlights,
+  fetchDividendLedgerEntry,
   updateDividendReconciliation,
 } from "../../../features/dividends/services/dividendService";
 
@@ -99,6 +101,9 @@ function buildLedger(overrides: Partial<DividendLedgerEntryDetails>): DividendLe
     receivedCashAmount: overrides.receivedCashAmount ?? 100,
     expectedStockQuantity: overrides.expectedStockQuantity ?? 0,
     receivedStockQuantity: overrides.receivedStockQuantity ?? 0,
+    expectedStockCalcState: overrides.expectedStockCalcState ?? null,
+    stockDistributionRatioState: overrides.stockDistributionRatioState ?? null,
+    stockDistributionRatio: overrides.stockDistributionRatio ?? null,
     eligibleQuantity: overrides.eligibleQuantity ?? 1_000,
     sourceLines: overrides.sourceLines ?? [],
     deductions: overrides.deductions ?? [],
@@ -138,6 +143,7 @@ describe("DividendCalendarClient", () => {
     capturedEventStreamConfig = null;
     shellContext.value = null;
     vi.mocked(fetchDividendDailyHighlights).mockResolvedValue(emptyDailyHighlights);
+    vi.mocked(fetchDividendLedgerEntry).mockImplementation(async (id) => buildLedger({ id }) as never);
   });
 
   afterEach(() => {
@@ -145,6 +151,7 @@ describe("DividendCalendarClient", () => {
     container.remove();
     vi.mocked(fetchDividendCalendarSnapshot).mockReset();
     vi.mocked(fetchDividendDailyHighlights).mockReset();
+    vi.mocked(fetchDividendLedgerEntry).mockReset();
     vi.mocked(updateDividendReconciliation).mockReset();
   });
 
@@ -161,6 +168,44 @@ describe("DividendCalendarClient", () => {
 
     expect(container.textContent).toContain(dict.dividends.emptyState);
     expect(window.location.search).toBe("?month=2026-04");
+  });
+
+  it("renders unresolved expected stock as unavailable and keeps a received 150-share fact", async () => {
+    const snapshot: DividendCalendarSnapshot = {
+      events: [buildEvent({
+        id: "event-2886",
+        ticker: "2886",
+        eventType: "STOCK",
+        expectedCashAmount: 0,
+        expectedStockQuantity: 0,
+        stockDistributionRatioState: "unresolved",
+        hasPostedLedgerEntry: true,
+        dividendLedgerEntryId: "ledger-2886",
+      })],
+      ledgerEntries: [buildLedger({
+        id: "ledger-2886",
+        dividendEventId: "event-2886",
+        ticker: "2886",
+        eventType: "STOCK",
+        expectedCashAmount: 0,
+        receivedCashAmount: 0,
+        expectedStockQuantity: 0,
+        receivedStockQuantity: 150,
+        expectedStockCalcState: "needs_action",
+        stockDistributionRatioState: "unresolved",
+      })],
+    };
+    vi.mocked(fetchDividendCalendarSnapshot).mockResolvedValue(snapshot);
+
+    act(() => {
+      root.render(<DividendCalendarClient initialSnapshot={snapshot} initialMonth="2026-04" dict={dict} locale="en" />);
+    });
+    await act(async () => {});
+
+    const eventRow = document.querySelector("[data-testid='dividend-row-event-2886']");
+    const receiptRow = document.querySelector("[data-testid='dividend-receipt-ledger-2886']");
+    expect(eventRow?.textContent).toContain("Expected stock: —");
+    expect(receiptRow?.textContent).toContain("Received stock: 150 shares");
   });
 
   it("renders overview metrics and marks open rows as matched", async () => {
@@ -263,6 +308,45 @@ describe("DividendCalendarClient", () => {
     expect(container.querySelector("[data-testid='dividend-post-event-unposted']")).toBeNull();
     expect(container.querySelector<HTMLButtonElement>("[data-testid='dividend-receipt-ledger-open']")?.disabled).toBe(true);
     expect(container.textContent).toContain(dict.dividends.overview.openReview);
+  });
+
+  it("keeps stock calculation details inspectable in a shared read-only context", async () => {
+    const snapshot: DividendCalendarSnapshot = {
+      events: [
+        buildEvent({
+          id: "event-stock",
+          eventType: "STOCK",
+          hasPostedLedgerEntry: true,
+          dividendLedgerEntryId: "ledger-stock",
+        }),
+      ],
+      ledgerEntries: [
+        buildLedger({
+          id: "ledger-stock",
+          dividendEventId: "event-stock",
+          eventType: "STOCK",
+          reconciliationStatus: "open",
+        }),
+      ],
+    };
+    shellContext.value = {
+      isSharedContext: true,
+      sharedContextPermissions: { canWriteDividends: false },
+      contextRefreshSignal: 0,
+      contextOwnerId: "owner-1",
+      sessionUserId: "viewer-1",
+    };
+    vi.mocked(fetchDividendCalendarSnapshot).mockResolvedValue(snapshot);
+
+    act(() => {
+      root.render(<DividendCalendarClient initialSnapshot={snapshot} initialMonth="2026-04" dict={dict} locale="en" />);
+    });
+    await act(async () => {});
+
+    const detailsButton = container.querySelector<HTMLButtonElement>("[data-testid='dividend-view-details-event-stock']");
+    expect(detailsButton?.textContent).toContain(dict.dividends.action.viewDetails);
+    expect(container.querySelector("[data-testid='dividend-edit-event-stock']")).toBeNull();
+    expect(container.querySelector<HTMLButtonElement>("[data-testid='dividend-receipt-ledger-stock']")?.disabled).toBe(false);
   });
 
   it("renders reconciliation labels for matched and explained rows", async () => {
@@ -392,6 +476,8 @@ describe("DividendCalendarClient", () => {
         buildEvent({
           id: "event-open",
           ticker: "2330",
+          eventType: "CASH_AND_STOCK",
+          expectedStockQuantity: 12,
           hasPostedLedgerEntry: true,
           dividendLedgerEntryId: "ledger-open",
         }),
@@ -401,6 +487,8 @@ describe("DividendCalendarClient", () => {
           id: "ledger-open",
           dividendEventId: "event-open",
           ticker: "2330",
+          eventType: "CASH_AND_STOCK",
+          expectedStockQuantity: 12,
           reconciliationStatus: "open",
         }),
       ],
@@ -410,6 +498,8 @@ describe("DividendCalendarClient", () => {
         buildEvent({
           id: "event-open",
           ticker: "2330",
+          eventType: "CASH_AND_STOCK",
+          expectedStockQuantity: 12,
           hasPostedLedgerEntry: true,
           dividendLedgerEntryId: "ledger-open",
         }),
@@ -419,6 +509,8 @@ describe("DividendCalendarClient", () => {
           id: "ledger-open",
           dividendEventId: "event-open",
           ticker: "2330",
+          eventType: "CASH_AND_STOCK",
+          expectedStockQuantity: 12,
           reconciliationStatus: "matched",
         }),
       ],
@@ -440,6 +532,20 @@ describe("DividendCalendarClient", () => {
         ],
         exDividendToday: [],
       });
+    vi.mocked(fetchDividendLedgerEntry).mockResolvedValueOnce({
+      ...initialSnapshot.ledgerEntries[0],
+      calculationHistory: [
+        {
+          id: "calc-history-2",
+          calculationVersion: 2,
+          status: "amended",
+          method: "custom_ratio",
+          expectedWholeShares: 12,
+          confirmedAt: "2026-07-17T04:00:00.000Z",
+          priorCalculationId: "calc-history-1",
+        },
+      ],
+    } as never);
 
     act(() => {
       root.render(<DividendCalendarClient initialSnapshot={initialSnapshot} initialMonth="2026-04" dict={dict} locale="en" />);
@@ -452,6 +558,7 @@ describe("DividendCalendarClient", () => {
     });
 
     expect(document.querySelector("[data-testid='dividend-posting-form']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='dividend-calculation-history-version-2']")).not.toBeNull();
     expect(capturedEventStreamConfig?.onEvent).toBeTypeOf("function");
 
     await act(async () => {

@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MemoryPersistence } from "../../src/persistence/memory.js";
 import { createDefaultFeeProfile, createStore } from "../../src/services/store.js";
 import {
   backfillTickers,
+  executeReplayRun,
   getDailySnapshots,
   getReplayPortfolioPositionsRun,
   previewRecomputePortfolioFees,
@@ -10,6 +11,10 @@ import {
   recomputePortfolioFees,
   replayPortfolioPositions,
 } from "../../src/services/mcpPortfolioMaintenance.js";
+import {
+  confirmPostedTransactionMutation,
+  previewPostedTransactionUpdateBatch,
+} from "../../src/services/postedTransactionMutations.js";
 import type { McpToolHandlerContext } from "../../src/mcp/types.js";
 
 function buildDeps(
@@ -352,6 +357,72 @@ describe("MCP portfolio maintenance service", () => {
         },
       },
     }, { runId: "run-1" })).rejects.toMatchObject({ code: "mcp_replay_run_not_found" });
+  });
+
+  it("worker replay execution synchronizes linked posted-mutation status and lifecycle events", async () => {
+    class FlakySnapshotPersistence extends MemoryPersistence {
+      snapshotAttempts = 0;
+      private armed = false;
+
+      armSnapshotFailures(): void {
+        this.armed = true;
+        this.snapshotAttempts = 0;
+      }
+
+      override async deleteHoldingSnapshotsForTicker(
+        ...args: Parameters<MemoryPersistence["deleteHoldingSnapshotsForTicker"]>
+      ): Promise<number> {
+        if (this.armed) {
+          this.snapshotAttempts += 1;
+          if (this.snapshotAttempts < 3) throw new Error("transient snapshot failure");
+          this.armed = false;
+        }
+        return super.deleteHoldingSnapshotsForTicker(...args);
+      }
+    }
+
+    const persistence = new FlakySnapshotPersistence();
+    await seedRecomputableTrade(persistence);
+    const preview = await previewPostedTransactionUpdateBatch(persistence, {
+      ownerUserId: "user-1",
+      actorUserId: "user-1",
+      reason: "Correct quantity",
+      appBaseUrl: "http://localhost",
+      items: [{ transactionId: "trade-1", patch: { quantity: 12 } }],
+    });
+    const confirmed = await confirmPostedTransactionMutation(persistence, {
+      ownerUserId: "user-1",
+      actorUserId: "user-1",
+      appBaseUrl: "http://localhost",
+      confirmation: {
+        previewId: preview.previewId,
+        previewVersion: preview.previewVersion,
+        operation: "update",
+        fingerprint: preview.fingerprint,
+        confirmationSummary: preview.confirmationSummary,
+        confirmationDigest: preview.confirmationDigest,
+      },
+    });
+    const publishEvent = vi.fn().mockResolvedValue(undefined);
+    persistence.armSnapshotFailures();
+
+    await executeReplayRun({
+      persistence,
+      eventBus: { publishEvent },
+    } as never, "user-1", confirmed.runId);
+
+    await expect(persistence.getPostedTransactionMutationRun(confirmed.runId)).resolves.toMatchObject({
+      status: "completed",
+      rebuildStatus: "completed",
+      scopes: [expect.objectContaining({ status: "completed" })],
+    });
+    expect(persistence.snapshotAttempts).toBe(3);
+    expect(publishEvent).toHaveBeenCalledWith("user-1", "posted_transaction_mutation_rebuild", expect.objectContaining({
+      status: "running",
+    }));
+    expect(publishEvent).toHaveBeenCalledWith("user-1", "posted_transaction_mutation_rebuild", expect.objectContaining({
+      status: "completed",
+    }));
   });
 
   it("queues backfills only for held or monitored ticker-market pairs", async () => {

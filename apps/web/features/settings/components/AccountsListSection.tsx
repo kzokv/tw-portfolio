@@ -6,6 +6,7 @@ import type {
   AccountDefaultCurrency,
   AccountDto,
   LocaleCode,
+  MarketCode,
 } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../../lib/i18n";
 import { Button } from "../../../components/ui/Button";
@@ -15,6 +16,7 @@ import { fromZhFoldValue, toZhFoldValue } from "../services/commissionDiscount";
 import { useEventStream } from "../../../hooks/useEventStream";
 import { AccountSoftDeleteModal, type AccountSoftDeleteWarnings } from "./AccountSoftDeleteModal";
 import { AccountPermanentDeleteModal } from "./AccountPermanentDeleteModal";
+import { AccountDividendSettingsSection } from "./AccountDividendSettingsSection";
 import {
   fetchSoftDeletedAccounts,
   permanentlyDeleteAccount,
@@ -58,6 +60,7 @@ interface AccountsListSectionProps {
     key: keyof SettingsProfileModel,
     value: string | number,
   ) => void;
+  onSaveProfile: (profileId: string) => Promise<void>;
   onRemoveProfileFromAccount: (accountId: string, profileId: string) => void;
   onDuplicateProfilesFromAccount: (
     sourceAccountId: string,
@@ -99,6 +102,7 @@ interface AccountsListSectionProps {
   dict: AppDictionary;
   canManage?: boolean;
   allowHardPurge?: boolean;
+  focusedDividendSettings?: { accountId: string; marketCode: MarketCode } | null;
 }
 
 const PROFILE_FIELDS: ReadonlyArray<{
@@ -143,6 +147,16 @@ function marketBadgeColorClass(currency: AccountDefaultCurrency): string {
   }
 }
 
+function marketCodeForAccount(currency: AccountDefaultCurrency): MarketCode {
+  switch (currency) {
+    case "TWD": return "TW";
+    case "USD": return "US";
+    case "AUD": return "AU";
+    case "KRW": return "KR";
+    case "JPY": return "JP";
+  }
+}
+
 function accountTypeLabel(account: AccountDto, dict: AppDictionary): string {
   switch (account.accountType) {
     case "broker": return dict.settings.accountsListAccountTypeBroker;
@@ -172,6 +186,7 @@ export function AccountsListSection({
   onRenameAccount,
   onAddProfileForAccount,
   onUpdateProfileField,
+  onSaveProfile,
   onRemoveProfileFromAccount,
   onDuplicateProfilesFromAccount,
   onAddBinding,
@@ -183,6 +198,7 @@ export function AccountsListSection({
   dict,
   canManage = true,
   allowHardPurge = true,
+  focusedDividendSettings = null,
 }: AccountsListSectionProps) {
   // Rename UI state.
   const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
@@ -197,6 +213,8 @@ export function AccountsListSection({
 
   // Profile editor state — only one profile per account is open at a time.
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+  const [savingProfileId, setSavingProfileId] = useState<string | null>(null);
+  const [profileErrorById, setProfileErrorById] = useState<Record<string, string>>({});
 
   // Search input.
   const [searchInput, setSearchInput] = useState("");
@@ -287,6 +305,15 @@ export function AccountsListSection({
     return matched;
   }, [profiles, search]);
 
+  useEffect(() => {
+    if (!focusedDividendSettings) return;
+    const targetAccount = accounts.find((account) => account.id === focusedDividendSettings.accountId);
+    if (!targetAccount || marketCodeForAccount(targetAccount.defaultCurrency) !== focusedDividendSettings.marketCode) return;
+    setManualExpanded((current) => current[targetAccount.id]
+      ? current
+      : { ...current, [targetAccount.id]: true });
+  }, [accounts, focusedDividendSettings]);
+
   // KZO-183 scope decision 27 + design E5: search filters EXPANSION state, not
   // visibility. All cards remain visible; matches expand, misses collapse.
 
@@ -330,6 +357,22 @@ export function AccountsListSection({
       setRenameError(dict.settings.accountRenameError);
     } finally {
       setSavingAccountId(null);
+    }
+  }
+
+  async function saveProfileEdit(profileId: string) {
+    setSavingProfileId(profileId);
+    setProfileErrorById((current) => ({ ...current, [profileId]: "" }));
+    try {
+      await onSaveProfile(profileId);
+      setEditingProfileId((current) => (current === profileId ? null : current));
+    } catch {
+      setProfileErrorById((current) => ({
+        ...current,
+        [profileId]: dict.settings.accountsListProfileSaveError,
+      }));
+    } finally {
+      setSavingProfileId((current) => (current === profileId ? null : current));
     }
   }
 
@@ -668,6 +711,17 @@ export function AccountsListSection({
 
               {expanded ? (
                 <div className="space-y-4 px-4 py-4">
+                  <AccountDividendSettingsSection
+                    accountId={account.id}
+                    marketCode={marketCodeForAccount(account.defaultCurrency)}
+                    canManage={canManage}
+                    dict={dict}
+                    focused={
+                      focusedDividendSettings?.accountId === account.id
+                      && focusedDividendSettings.marketCode === marketCodeForAccount(account.defaultCurrency)
+                    }
+                  />
+
                   {/* Default fee profile selector (scoped to this account's profiles). */}
                   <div className="space-y-1">
                     <label className="block text-xs text-muted-foreground">
@@ -938,16 +992,34 @@ export function AccountsListSection({
                                 </div>
                               ) : null}
 
+                              {isProfileEditing && profileErrorById[profile.id] ? (
+                                <p
+                                  className="mt-3 text-xs text-rose-600"
+                                  data-testid={`accounts-profile-error-${profile.id}`}
+                                >
+                                  {profileErrorById[profile.id]}
+                                </p>
+                              ) : null}
+
                               {isProfileEditing ? (
                                 <div className="mt-3 flex flex-wrap gap-2">
                                   <Button
                                     type="button"
                                     size="sm"
-                                    onClick={() => setEditingProfileId(null)}
+                                    onClick={() => void saveProfileEdit(profile.id)}
                                     data-testid={`accounts-profile-edit-done-${profile.id}`}
-                                    disabled={!canManage}
+                                    disabled={!canManage || savingProfileId === profile.id}
                                   >
-                                    {dict.settings.accountsListSaveProfileEdit}
+                                    {savingProfileId === profile.id ? dict.actions.submitting : dict.settings.accountsListSaveProfileEdit}
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={() => setEditingProfileId(null)}
+                                    disabled={!canManage || savingProfileId === profile.id}
+                                  >
+                                    {dict.settings.accountsListCancelProfileEdit}
                                   </Button>
                                 </div>
                               ) : null}

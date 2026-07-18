@@ -41,6 +41,7 @@ function buildPolicy(overrides: Partial<AiConnectorPolicySettingsDto> = {}): AiC
   return {
     enabled: true,
     maxActiveConnectionsPerUser: 3,
+    postedTransactionMutationBatchLimit: 50,
     allowedProviders: { chatgpt: true, self_hosted: true },
     allowedClientKinds: {
       chatgpt_app: true,
@@ -774,7 +775,7 @@ describe("AiConnectorsSettingsClient", () => {
     await flushEffects();
 
     expect(document.body.textContent).toContain("Posting");
-    expect(document.body.textContent).toContain("Post dividends and other financial writes");
+    expect(document.body.textContent).toContain("Write dividends and related portfolio accounting adjustments");
     expect(document.body.textContent).toContain("Advanced financial write");
   });
 

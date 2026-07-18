@@ -106,6 +106,12 @@ export function TransactionHistoryTable({
                         label={dict.tickerHistory.taxLabel}
                         value={formatCurrencyAmount(transaction.taxAmount, transaction.priceCurrency, locale)}
                       />
+                      <HistoryDetail
+                        label={dict.tickerHistory.bookedCostLabel}
+                        value={transaction.bookedCostAmount == null
+                          ? dict.tickerHistory.noRealizedPnl
+                          : formatCurrencyAmount(transaction.bookedCostAmount, transaction.priceCurrency, locale)}
+                      />
                       <HistoryDetailNode
                         label={dict.tickerHistory.realizedPnlLabel}
                         value={transaction.realizedPnlAmount === null
@@ -169,6 +175,7 @@ export function TransactionHistoryTable({
                 <th className="px-4 py-3 text-right font-medium">{dict.transactions.unitPriceTerm}</th>
                 <th className="px-4 py-3 text-right font-medium">{dict.tickerHistory.commissionLabel}</th>
                 <th className="px-4 py-3 text-right font-medium">{dict.tickerHistory.taxLabel}</th>
+                <th className="px-4 py-3 text-right font-medium">{dict.tickerHistory.bookedCostLabel}</th>
                 <th className="px-4 py-3 text-right font-medium">{dict.tickerHistory.realizedPnlLabel}</th>
                 <th className="px-4 py-3 text-left font-medium">{dict.tickerHistory.feeProfileLabel}</th>
                 <th className="px-4 py-3 text-left font-medium">{dict.tickerHistory.bookedAtLabel}</th>
@@ -214,6 +221,11 @@ export function TransactionHistoryTable({
                     <td className="px-4 py-4 text-right">{formatCurrencyAmount(transaction.unitPrice, transaction.priceCurrency, locale)}</td>
                     <td className="px-4 py-4 text-right">{formatCurrencyAmount(transaction.commissionAmount, transaction.priceCurrency, locale)}</td>
                     <td className="px-4 py-4 text-right">{formatCurrencyAmount(transaction.taxAmount, transaction.priceCurrency, locale)}</td>
+                    <td className="px-4 py-4 text-right">
+                      {transaction.bookedCostAmount == null
+                        ? dict.tickerHistory.noRealizedPnl
+                        : formatCurrencyAmount(transaction.bookedCostAmount, transaction.priceCurrency, locale)}
+                    </td>
                     <td className="px-4 py-4 text-right font-medium">
                       <RealizedPnlValue
                         amount={transaction.realizedPnlAmount}

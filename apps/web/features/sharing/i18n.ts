@@ -95,8 +95,8 @@ export const sharingI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "sharing">>
         "transaction_draft:edit": "Edit AI drafts",
         "transaction_draft:archive": "Archive AI drafts",
         "transaction_draft:delete": "Delete AI drafts",
-        "transaction:write": "Create, edit, and delete transactions",
-        "dividend:write": "Post, reconcile, and delete dividends",
+        "transaction:write": "Post, update, and delete confirmed transactions",
+        "dividend:write": "Write dividends and related accounting adjustments",
       },
       editPermissionsDialog: {
         title: "Edit permissions",
@@ -313,8 +313,8 @@ export const sharingI18n: Record<"en" | "zh-TW", Pick<AppDictionary, "sharing">>
         "transaction_draft:edit": "編輯 AI 草稿",
         "transaction_draft:archive": "封存 AI 草稿",
         "transaction_draft:delete": "刪除 AI 草稿",
-        "transaction:write": "新增、編輯與刪除交易",
-        "dividend:write": "登錄、核對與刪除股利",
+        "transaction:write": "送出、更新與刪除已確認交易",
+        "dividend:write": "寫入股利與相關帳務調整",
       },
       editPermissionsDialog: {
         title: "編輯權限",

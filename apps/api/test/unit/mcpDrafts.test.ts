@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../../src/app.js";
 import {
   createTransactionDraftBatch,
+  getTransactionDraftBatch,
   postTransactionDraftRows,
   preflightTransactionDraftCandidates,
 } from "../../src/services/mcpDrafts.js";
@@ -45,6 +46,7 @@ function createRequestContext(): McpRequestContext {
 describe("mcp draft services", () => {
   beforeEach(async () => {
     app = await buildApp({ persistenceBackend: "memory", seedMemoryCatalog: true });
+    await app.persistence.ensureDevBypassUser();
   });
 
   afterEach(async () => {
@@ -490,6 +492,66 @@ describe("mcp draft services", () => {
     expect(updated?.rows[0]).toMatchObject({
       state: "confirmed",
       confirmedTradeEventId: posted.createdTransactionIds[0],
+    });
+  });
+
+  it("shows deleted confirmed lineage for posted draft rows", async () => {
+    const created = await createTransactionDraftBatch(
+      { app, requestContext: createRequestContext() },
+      {
+        sourceLabel: "chatgpt import",
+        candidates: [{
+          rowNumber: 1,
+          recordType: "trade",
+          accountId: "acc-1",
+          type: "BUY",
+          ticker: "2330",
+          quantity: 1,
+          unitPrice: 100,
+          tradeDate: "2026-01-03",
+        }],
+      },
+    );
+    const aggregate = await app.persistence.getAiTransactionDraftBatch(created.batch.id);
+    const posted = await postTransactionDraftRows(
+      { app, requestContext: createRequestContext() },
+      {
+        batchId: created.batch.id,
+        rowIds: [aggregate!.rows[0]!.id],
+        expectedBatchVersion: aggregate!.batch.version,
+        expectedRowVersions: [{ rowId: aggregate!.rows[0]!.id, expectedVersion: aggregate!.rows[0]!.version }],
+        idempotencyKey: "mcp-post-deleted-lineage",
+      },
+    );
+
+    await app.persistence.savePostedTransactionMutationDeletedDraftLineage({
+      tradeEventId: posted.createdTransactionIds[0]!,
+      ownerUserId: "user-1",
+      batchId: created.batch.id,
+      rowId: aggregate!.rows[0]!.id,
+      deletedAt: "2026-07-16T10:00:00.000Z",
+      deletedByUserId: "user-1",
+      mutationRunId: "run-1",
+    });
+    const confirmedAggregate = await app.persistence.getAiTransactionDraftBatch(created.batch.id);
+    await app.persistence.saveAiTransactionDraftRow({
+      ...confirmedAggregate!.rows[0]!,
+      confirmedTradeEventId: null,
+    });
+
+    const detail = await getTransactionDraftBatch(
+      { app, requestContext: createRequestContext() },
+      created.batch.id,
+    );
+
+    expect(detail.rows[0]).toMatchObject({
+      state: "confirmed",
+      confirmedTradeEventId: null,
+      deletedPostedTransaction: {
+        deletedAt: "2026-07-16T10:00:00.000Z",
+        deletedByUserId: "user-1",
+        mutationRunId: "run-1",
+      },
     });
   });
 

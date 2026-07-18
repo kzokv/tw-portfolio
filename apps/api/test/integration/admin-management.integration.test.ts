@@ -202,6 +202,154 @@ describe("hard-purge cascade", () => {
     expect(invite).toBeDefined();
     expect(invite!.issuedByEmail).toBeNull();
   });
+
+  it("hard-purge anonymizes delegated mutation attribution without deleting owner history", async () => {
+    const ownerUserId = await createUser(app, "mutation-owner@example.com", "Mutation Owner");
+    const ownerStore = await app.persistence.loadStore(ownerUserId);
+    const createdAt = new Date().toISOString();
+    await app.persistence.saveAiTransactionDraftBatch({
+      id: "memory-purge-batch",
+      ownerUserId,
+      createdByUserId: targetUserId,
+      sourceChannel: "mcp",
+      status: "open",
+      version: 1,
+      rowCount: 1,
+      unsupportedCount: 0,
+    });
+    await app.persistence.saveAiTransactionDraftRow({
+      id: "memory-purge-row",
+      batchId: "memory-purge-batch",
+      ownerUserId,
+      rowNumber: 1,
+      state: "confirmed",
+      version: 1,
+    });
+    await app.persistence.appendAiTransactionDraftEvent({
+      id: "memory-purge-event",
+      batchId: "memory-purge-batch",
+      rowId: "memory-purge-row",
+      ownerUserId,
+      actorUserId: targetUserId,
+      eventType: "row_updated",
+    });
+    await app.persistence.savePostedTransactionMutationPreview({
+      id: "memory-purge-preview",
+      ownerUserId,
+      actorUserId: targetUserId,
+      operation: "delete",
+      status: "confirmed",
+      version: 2,
+      reason: "Memory purge regression",
+      confirmationSummary: "Confirm memory purge regression",
+      confirmationDigest: "a".repeat(64),
+      fingerprint: "b".repeat(64),
+      batchLimit: 50,
+      summary: {
+        quantityDelta: 0,
+        costBasisDelta: 0,
+        realizedPnlDelta: 0,
+        cashDelta: 0,
+        reopenedDividendCount: 0,
+        deletedDividendCount: 0,
+      },
+      warnings: [],
+      blockers: [],
+      errors: [],
+      affectedAccountIds: [],
+      affectedTickers: [],
+      scopes: [],
+      accountRevisions: {},
+      items: [],
+      finalAccounting: ownerStore.accounting,
+      replayScopes: [],
+      createdAt,
+      expiresAt: createdAt,
+      confirmedAt: createdAt,
+      confirmedRunId: "memory-purge-run",
+    });
+    await app.persistence.savePostedTransactionMutationRun({
+      id: "memory-purge-run",
+      previewId: "memory-purge-preview",
+      ownerUserId,
+      actorUserId: targetUserId,
+      operation: "delete",
+      status: "completed",
+      rebuildStatus: "completed",
+      reason: "Memory purge regression",
+      warnings: [],
+      blockers: [],
+      errors: [],
+      summary: {
+        quantityDelta: 0,
+        costBasisDelta: 0,
+        realizedPnlDelta: 0,
+        cashDelta: 0,
+        reopenedDividendCount: 0,
+        deletedDividendCount: 0,
+      },
+      affectedAccountIds: [],
+      affectedTickers: [],
+      scopes: [],
+      fingerprint: "b".repeat(64),
+      confirmationDigest: "a".repeat(64),
+      replayRunId: null,
+      createdAt,
+      startedAt: createdAt,
+      completedAt: createdAt,
+    });
+    await app.persistence.savePostedTransactionMutationDeletedDraftLineage({
+      tradeEventId: "memory-purge-trade",
+      ownerUserId,
+      batchId: "memory-purge-batch",
+      rowId: "memory-purge-row",
+      deletedAt: createdAt,
+      deletedByUserId: targetUserId,
+      mutationRunId: "memory-purge-run",
+    });
+
+    await app.persistence.hardPurgeUser(targetUserId, { actorUserId: "admin-actor" });
+
+    await expect(app.persistence.getPostedTransactionMutationPreview("memory-purge-preview")).resolves.toMatchObject({
+      ownerUserId,
+      actorUserId: null,
+    });
+    await expect(app.persistence.getPostedTransactionMutationRun("memory-purge-run")).resolves.toMatchObject({
+      ownerUserId,
+      actorUserId: null,
+    });
+    await expect(app.persistence.listPostedTransactionMutationDeletedDraftLineage(
+      ownerUserId,
+      ["memory-purge-trade"],
+    )).resolves.toMatchObject([{
+      deletedByUserId: null,
+      mutationRunId: "memory-purge-run",
+    }]);
+    await expect(app.persistence.getAiTransactionDraftBatch("memory-purge-batch")).resolves.toMatchObject({
+      batch: {
+        ownerUserId,
+        createdByUserId: null,
+      },
+      events: [expect.objectContaining({
+        id: "memory-purge-event",
+        ownerUserId,
+        actorUserId: null,
+      })],
+    });
+
+    await app.persistence.hardPurgeUser(ownerUserId, { actorUserId: "admin-actor" });
+
+    await expect(app.persistence.getAiTransactionDraftBatch("memory-purge-batch")).resolves.toBeNull();
+    await expect(app.persistence.listAiTransactionDraftEvents("memory-purge-batch")).resolves.toMatchObject([
+      {
+        id: "memory-purge-event",
+        ownerUserId: null,
+        actorUserId: null,
+      },
+    ]);
+    await expect(app.persistence.getPostedTransactionMutationPreview("memory-purge-preview")).resolves.toBeNull();
+    await expect(app.persistence.getPostedTransactionMutationRun("memory-purge-run")).resolves.toBeNull();
+  });
 });
 
 // ── role change audit metadata ───────────────────────────────────────────────
@@ -408,6 +556,162 @@ describePostgres("hard-purge cascade — Postgres ON DELETE CASCADE", () => {
     const outbound = await persistence!.listSharesForOwner(ownerId);
     expect(outbound.active).toEqual([]);
     expect(outbound.revoked).toEqual([]);
+  });
+
+  it("posted transaction mutations — delegated actor purged → anonymizes actor and preserves owner history", async () => {
+    const { userId: ownerId } = await persistence!.resolveOrCreateUser(
+      "google", "mutation-owner-sub", { email: "mutation-owner@example.com", name: "Mutation Owner" },
+    );
+    const { userId: delegateId } = await persistence!.resolveOrCreateUser(
+      "google", "mutation-delegate-sub", { email: "mutation-delegate@example.com", name: "Mutation Delegate" },
+    );
+    await persistence!.saveAiTransactionDraftBatch({
+      id: "purge-draft-batch",
+      ownerUserId: ownerId,
+      createdByUserId: delegateId,
+      sourceChannel: "mcp",
+      status: "open",
+      version: 1,
+      rowCount: 1,
+      unsupportedCount: 0,
+    });
+    await persistence!.saveAiTransactionDraftRow({
+      id: "purge-draft-row",
+      batchId: "purge-draft-batch",
+      ownerUserId: ownerId,
+      rowNumber: 1,
+      state: "confirmed",
+      version: 1,
+    });
+    await pool.query(
+      `INSERT INTO posted_transaction_mutation_previews (
+         id, owner_user_id, actor_user_id, operation, status, version, reason,
+         confirmation_summary, confirmation_digest, fingerprint, batch_limit,
+         summary_json, warnings_json, blockers_json, errors_json,
+         affected_account_ids_json, affected_tickers_json, scopes_json,
+         account_revisions_json, final_accounting_json, replay_scopes_json,
+         created_at, expires_at
+       ) VALUES (
+         'purge-preview', $1, $2, 'update', 'ready', 1, 'Purge regression',
+         'Confirm purge regression', repeat('a', 64), repeat('b', 64), 50,
+         '{}'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+         '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+         '{}'::jsonb, '{}'::jsonb, '[]'::jsonb,
+         NOW(), NOW() + INTERVAL '30 minutes'
+       )`,
+      [ownerId, delegateId],
+    );
+    await pool.query(
+      `INSERT INTO posted_transaction_mutation_runs (
+         id, preview_id, owner_user_id, actor_user_id, operation, status, rebuild_status,
+         reason, warnings_json, blockers_json, errors_json, summary_json,
+         affected_account_ids_json, affected_tickers_json, scopes_json,
+         fingerprint, confirmation_digest, created_at
+       ) VALUES (
+         'purge-run', 'purge-preview', $1, $2, 'update', 'completed', 'completed',
+         'Purge regression', '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '{}'::jsonb,
+         '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+         repeat('b', 64), repeat('a', 64), NOW()
+       )`,
+      [ownerId, delegateId],
+    );
+    await pool.query(
+      `INSERT INTO posted_transaction_mutation_deleted_draft_lineage (
+         trade_event_id, owner_user_id, batch_id, row_id, deleted_at, deleted_by_user_id, mutation_run_id
+       ) VALUES (
+         'purge-trade', $1, 'purge-draft-batch', 'purge-draft-row', NOW(), $2, 'purge-run'
+       )`,
+      [ownerId, delegateId],
+    );
+
+    await expect(persistence!.hardPurgeUser(delegateId, { actorUserId: adminActorId })).resolves.toBeUndefined();
+
+    const remaining = await pool.query<{
+      owner_count: string;
+      delegate_count: string;
+      preview_count: string;
+      run_count: string;
+      lineage_count: string;
+      preview_actor_user_id: string | null;
+      run_actor_user_id: string | null;
+      deleted_by_user_id: string | null;
+      batch_created_by_user_id: string | null;
+    }>(
+      `SELECT
+         (SELECT COUNT(*)::text FROM users WHERE id = $1) AS owner_count,
+         (SELECT COUNT(*)::text FROM users WHERE id = $2) AS delegate_count,
+         (SELECT COUNT(*)::text FROM posted_transaction_mutation_previews WHERE id = 'purge-preview') AS preview_count,
+         (SELECT COUNT(*)::text FROM posted_transaction_mutation_runs WHERE id = 'purge-run') AS run_count,
+         (SELECT COUNT(*)::text FROM posted_transaction_mutation_deleted_draft_lineage WHERE trade_event_id = 'purge-trade') AS lineage_count,
+         (SELECT actor_user_id FROM posted_transaction_mutation_previews WHERE id = 'purge-preview') AS preview_actor_user_id,
+         (SELECT actor_user_id FROM posted_transaction_mutation_runs WHERE id = 'purge-run') AS run_actor_user_id,
+         (SELECT deleted_by_user_id FROM posted_transaction_mutation_deleted_draft_lineage WHERE trade_event_id = 'purge-trade') AS deleted_by_user_id,
+         (SELECT created_by_user_id FROM ai_transaction_draft_batches WHERE id = 'purge-draft-batch') AS batch_created_by_user_id`,
+      [ownerId, delegateId],
+    );
+    expect(remaining.rows[0]).toEqual({
+      owner_count: "1",
+      delegate_count: "0",
+      preview_count: "1",
+      run_count: "1",
+      lineage_count: "1",
+      preview_actor_user_id: null,
+      run_actor_user_id: null,
+      deleted_by_user_id: null,
+      batch_created_by_user_id: null,
+    });
+
+    const constraints = await pool.query<{ conname: string; confdeltype: string }>(
+      `SELECT conname, confdeltype
+         FROM pg_constraint
+        WHERE conname = ANY($1::text[])
+        ORDER BY conname`,
+      [[
+        "fk_ptm_lineage_deleted_by",
+        "fk_ptm_lineage_batch",
+        "fk_ptm_lineage_row",
+        "fk_ai_draft_batches_created_by",
+        "fk_ptm_previews_actor",
+        "fk_ptm_runs_actor",
+        "fk_ptm_runs_preview",
+      ]],
+    );
+    expect(constraints.rows).toEqual([
+      { conname: "fk_ai_draft_batches_created_by", confdeltype: "n" },
+      { conname: "fk_ptm_lineage_batch", confdeltype: "c" },
+      { conname: "fk_ptm_lineage_deleted_by", confdeltype: "n" },
+      { conname: "fk_ptm_lineage_row", confdeltype: "c" },
+      { conname: "fk_ptm_previews_actor", confdeltype: "n" },
+      { conname: "fk_ptm_runs_actor", confdeltype: "n" },
+      { conname: "fk_ptm_runs_preview", confdeltype: "c" },
+    ]);
+
+    await expect(persistence!.hardPurgeUser(ownerId, { actorUserId: adminActorId })).resolves.toBeUndefined();
+    const ownerPurge = await pool.query<{
+      owner_count: string;
+      preview_count: string;
+      run_count: string;
+      lineage_count: string;
+      batch_count: string;
+      row_count: string;
+    }>(
+      `SELECT
+         (SELECT COUNT(*)::text FROM users WHERE id = $1) AS owner_count,
+         (SELECT COUNT(*)::text FROM posted_transaction_mutation_previews WHERE id = 'purge-preview') AS preview_count,
+         (SELECT COUNT(*)::text FROM posted_transaction_mutation_runs WHERE id = 'purge-run') AS run_count,
+         (SELECT COUNT(*)::text FROM posted_transaction_mutation_deleted_draft_lineage WHERE trade_event_id = 'purge-trade') AS lineage_count,
+         (SELECT COUNT(*)::text FROM ai_transaction_draft_batches WHERE id = 'purge-draft-batch') AS batch_count,
+         (SELECT COUNT(*)::text FROM ai_transaction_draft_rows WHERE id = 'purge-draft-row') AS row_count`,
+      [ownerId],
+    );
+    expect(ownerPurge.rows[0]).toEqual({
+      owner_count: "0",
+      preview_count: "0",
+      run_count: "0",
+      lineage_count: "0",
+      batch_count: "0",
+      row_count: "0",
+    });
   });
 
   it("anonymous_share_tokens — owner purged → ON DELETE CASCADE removes token", async () => {

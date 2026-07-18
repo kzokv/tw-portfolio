@@ -47,6 +47,8 @@ function reviewRow(index: number, overrides: Partial<DividendReviewRowSummaryDto
     expectedStockQuantity: 0,
     receivedStockQuantity: 0,
     postingStatus: "posted",
+    cashReconciliationStatus: index % 4 === 0 ? "open" : index % 4 === 1 ? "matched" : index % 4 === 2 ? "explained" : "resolved",
+    stockReconciliationStatus: null,
     reconciliationStatus: index % 4 === 0 ? "open" : index % 4 === 1 ? "matched" : index % 4 === 2 ? "explained" : "resolved",
     sourceCompositionStatus: index % 3 === 0 ? "unknown_pending_disclosure" : "provided",
     expectedGrossAmount: amount + 8,
@@ -378,7 +380,7 @@ test.describe("dividend review — filter auto-apply", () => {
     await dividendReview.actions.selectStatus("open");
 
     // ASSERT
-    await dividendReview.assert.urlContains("status=open");
+    await dividendReview.assert.urlContains("cashStatus=open");
     await dividendReview.assert.tableHasAtLeastRows(1);
   });
 });
@@ -1055,7 +1057,7 @@ test.describe("dividend review — request lifecycle and isolation", () => {
       await dividendReview.assert.enrichmentErrorIsVisible();
       await dividendReview.assert.tableBusy(false);
       await dividendReview.actions.retryEnrichment();
-      await dividendReview.assert.locatorContains(page.getByTestId("stat-open-items"), "3");
+      await dividendReview.assert.locatorContains(page.getByTestId("stat-needs-attention"), "3");
       await dividendReview.assert.valueEquals(await dividendReview.assert.orderedRowIds(), idsBefore);
     });
   }
@@ -1107,7 +1109,7 @@ test.describe("dividend review — enrichment filter integrity", () => {
         "desc",
       ).slice(0, 10).map((row) => row.id);
       await dividendReview.assert.orderedRowIdsAre(pendingRows);
-      await dividendReview.assert.locatorContains(page.getByTestId("stat-open-items"), "3");
+      await dividendReview.assert.locatorContains(page.getByTestId("stat-needs-attention"), "3");
       dividendReview.assert.valueContains(harness.primaryUrls.at(-1), "sourceComposition=pending");
       dividendReview.assert.valueContains(harness.enrichmentUrls.at(-1), "sourceComposition=pending");
       if (mobile) await dividendReview.assert.viewportHasNoHorizontalOverflow();
@@ -1173,7 +1175,7 @@ test.describe("dividend review — server seed and lazy drawer", () => {
         await dividendReview.actions.selectMobileSortField("ticker");
         await dividendReview.actions.selectMobileSortDirection("asc");
       } else await dividendReview.actions.clickColumnHeader("ticker");
-      const row = page.getByTestId("review-row-qa-expected-row");
+      const row = page.getByTestId("review-row-qa-expected-row-open");
       await row.focus();
       await row.press("Enter");
       await dividendReview.assert.drawerIsVisible();
@@ -1267,7 +1269,7 @@ test.describe("dividend review — server seed and lazy drawer", () => {
     await installReviewHarness(page, { rows: [ledger, ...Array.from({ length: 10 }, (_, index) => reviewRow(index + 1))] });
     await openHarnessedReview(page, () => dividendReview.actions.navigateToReview());
     await dividendReview.actions.clickColumnHeader("ticker");
-    const row = page.getByTestId("review-row-qa-focus-row");
+    const row = page.getByTestId("review-row-qa-focus-row-open");
     await row.focus();
     await row.press("Enter");
     await dividendReview.assert.locatorIsVisible(page.getByTestId("ui-drawer"));

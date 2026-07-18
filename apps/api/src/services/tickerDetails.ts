@@ -1456,6 +1456,10 @@ function mapTransactionHistoryItem(
   accountById: ReadonlyMap<string, { id: string; name: string }>,
   buildRealizedPnlBreakdown: (trade: Transaction) => TransactionHistoryItemDto["realizedPnlBreakdown"],
 ): TransactionHistoryItemDto {
+  const grossTradeValueAmount = roundToDecimal(trade.quantity * trade.unitPrice, 2);
+  const settlementAmount = trade.type === "BUY"
+    ? roundToDecimal(grossTradeValueAmount + trade.commissionAmount + trade.taxAmount, 2)
+    : roundToDecimal(grossTradeValueAmount - trade.commissionAmount - trade.taxAmount, 2);
   return {
     id: trade.id,
     accountId: trade.accountId,
@@ -1470,8 +1474,12 @@ function mapTransactionHistoryItem(
     tradeDate: trade.tradeDate,
     tradeTimestamp: trade.tradeTimestamp ?? null,
     bookingSequence: trade.bookingSequence ?? null,
+    grossTradeValueAmount,
     commissionAmount: trade.commissionAmount,
     taxAmount: trade.taxAmount,
+    settlementAmount,
+    settlementAvailable: true,
+    bookedCostAmount: trade.type === "BUY" ? settlementAmount : null,
     isDayTrade: trade.isDayTrade,
     realizedPnlAmount: trade.realizedPnlAmount ?? null,
     realizedPnlCurrency: trade.realizedPnlCurrency ?? null,

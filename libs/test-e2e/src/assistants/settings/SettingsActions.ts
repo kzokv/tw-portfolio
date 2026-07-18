@@ -224,6 +224,23 @@ export class SettingsActions extends AppBaseActions {
     await this.uiActions.click.perform(this.el.accountsList.profileEditDoneButton(profileId));
   }
 
+  @Step()
+  async editSelectedProfileDiscount(accountId: string, discount: string): Promise<void> {
+    const profileId = await this.el.accountsList.accountProfileSelect(accountId).inputValue();
+    if (!profileId) throw new Error(`Account ${accountId} has no selected fee profile`);
+    await this.uiActions.click.perform(this.el.accountsList.profileEditButton(profileId));
+    await this.uiActions.fill.perform(this.el.accountsList.profileDiscountInput(profileId), discount);
+    await this.uiActions.click.perform(this.el.accountsList.profileEditDoneButton(profileId));
+    await this.el.accountsList.profileDiscountInput(profileId).waitFor({ state: "hidden" });
+  }
+
+  @Step()
+  async openSelectedProfileEditor(accountId: string): Promise<void> {
+    const profileId = await this.el.accountsList.accountProfileSelect(accountId).inputValue();
+    if (!profileId) throw new Error(`Account ${accountId} has no selected fee profile`);
+    await this.uiActions.click.perform(this.el.accountsList.profileEditButton(profileId));
+  }
+
   // KZO-183: open the "Duplicate from another account" picker for an account.
   @Step()
   async clickDuplicateFromAnotherAccount(accountId: string): Promise<void> {
