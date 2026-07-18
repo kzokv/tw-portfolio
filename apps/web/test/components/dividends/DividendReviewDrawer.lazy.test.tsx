@@ -114,7 +114,7 @@ describe("DividendReviewDrawer lazy detail", () => {
     expect(document.querySelector("[data-testid='review-drawer-received-stock']")?.textContent).toContain("150");
   });
 
-  it("shows stock provider provenance to read-only reviewers", async () => {
+  it("shows an unresolved raw stock provider value to read-only reviewers", async () => {
     const stockRow: DividendReviewRowSummaryDto = {
       ...row,
       eventType: "STOCK",
@@ -125,11 +125,11 @@ describe("DividendReviewDrawer lazy detail", () => {
     vi.mocked(fetchDividendLedgerEntry).mockResolvedValue({
       ...stockRow,
       provider: {
-        value: "0.15",
-        unit: "RATIO",
+        value: "0.25",
+        unit: "UNKNOWN",
         source: "finmind",
-        dataset: "TaiwanStockDividend",
-        authoritativeRatio: "0.15",
+        dataset: null,
+        authoritativeRatio: null,
       },
       deductions: [],
       sourceLines: [],
@@ -139,8 +139,9 @@ describe("DividendReviewDrawer lazy detail", () => {
     await act(async () => {});
 
     expect(document.querySelector("[data-testid='posting-form']")).toBeNull();
+    expect(document.querySelector("[data-testid='dividend-calculation-provider']")?.textContent).toContain("0.25");
+    expect(document.querySelector("[data-testid='dividend-calculation-provider']")?.textContent).toContain("UNKNOWN");
     expect(document.querySelector("[data-testid='dividend-calculation-provider']")?.textContent).toContain("finmind");
-    expect(document.querySelector("[data-testid='dividend-calculation-provider']")?.textContent).toContain("TaiwanStockDividend");
     expect(document.querySelector("[data-testid='dividend-calculation-preview']")).toBeNull();
   });
 

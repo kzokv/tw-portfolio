@@ -271,6 +271,11 @@ describePostgres("dividend read model parity", () => {
     undatedEvent.paymentDate = null;
     undatedEvent.eventType = "CASH_AND_STOCK";
     undatedEvent.stockDividendPerShare = 1;
+    undatedEvent.stockDistributionAmountRaw = 0.25;
+    undatedEvent.stockProviderValue = "0.25";
+    undatedEvent.stockProviderValueUnit = "UNKNOWN";
+    undatedEvent.stockProviderSource = "finmind";
+    undatedEvent.stockProviderDataset = "TaiwanStockDividend";
     undatedEvent.stockDistributionRatio = null;
     undatedEvent.stockDistributionRatioState = "unresolved";
     await persistence.saveStore(store);
@@ -286,16 +291,29 @@ describePostgres("dividend read model parity", () => {
     const fullStoreRead = vi.spyOn(persistence, "loadStore").mockRejectedValue(
       new Error("targeted dividend detail must not load the full store"),
     );
+    type DividendReviewPersistenceInternals = {
+      loadDividendReviewSummariesSql: (...args: unknown[]) => Promise<unknown>;
+    };
+    const fullReviewRead = vi.spyOn(
+      persistence as unknown as DividendReviewPersistenceInternals,
+      "loadDividendReviewSummariesSql",
+    );
     const detail = await persistence.getDividendReviewRowDetail("user-1", "ledger-01");
     expect(detail).toMatchObject({
       id: "ledger-01", accountId: "review-account-01", ticker: "R01", postingStatus: "expected",
       paymentDate: null, stockDistributionRatio: null, expectedStockCalcState: "needs_action",
+      provider: {
+        value: "0.25", unit: "UNKNOWN", source: "finmind", dataset: "TaiwanStockDividend",
+        authoritativeRatio: null,
+      },
     });
     expect(detail).toHaveProperty("deductions");
     expect(detail).toHaveProperty("sourceLines");
     expect(await persistence.getDividendReviewRowDetail("user-2", "ledger-01")).toBeNull();
     expect(fullStoreRead).not.toHaveBeenCalled();
+    expect(fullReviewRead).not.toHaveBeenCalled();
     fullStoreRead.mockRestore();
+    fullReviewRead.mockRestore();
   });
 
   it("[postgres dividend review detail]: amended calculation → retains superseded history", async () => {
@@ -304,7 +322,8 @@ describePostgres("dividend read model parity", () => {
     event.eventType = "STOCK";
     event.cashDividendPerShare = 0;
     event.stockDividendPerShare = 1;
-    event.stockDistributionAmountRaw = 1;
+    event.stockDistributionAmountRaw = 2;
+    event.stockProviderValue = "2";
     event.stockDistributionRatio = null;
     event.stockDistributionRatioState = "unresolved";
     event.stockProviderValueUnit = "TWD_PER_SHARE";
@@ -372,6 +391,12 @@ describePostgres("dividend read model parity", () => {
     });
 
     const detail = await persistence.getDividendReviewRowDetail("user-1", ledger.id);
+    expect(detail?.provider).toMatchObject({
+      value: "1.000000000000",
+      unit: "TWD_PER_SHARE",
+      source: "finmind",
+      dataset: "TaiwanStockDividend",
+    });
     expect(detail?.activeCalculation).toMatchObject({
       id: amended.id,
       status: "amended",

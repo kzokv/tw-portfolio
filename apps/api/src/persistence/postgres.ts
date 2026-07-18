@@ -12493,7 +12493,7 @@ export class PostgresPersistence implements Persistence {
     return { ledgerEntries, total, aggregates };
   }
 
-  private dividendReviewNormalizedSql(): string {
+  private dividendReviewNormalizedSql(detailLedgerIdPlaceholder = "NULL"): string {
     return `
       RECURSIVE eligible_ledger AS (
         SELECT ledger.*, account.name AS account_name,
@@ -12531,6 +12531,7 @@ export class PostgresPersistence implements Persistence {
         ) AS active_calculation ON TRUE
         WHERE account.user_id = $1
           AND account.deleted_at IS NULL
+          AND (${detailLedgerIdPlaceholder}::text IS NULL OR ledger.id = ${detailLedgerIdPlaceholder})
           AND ($2::text IS NULL OR account.id = $2)
           AND (
             CASE WHEN $3::date IS NULL AND $4::date IS NULL THEN event.payment_date IS NOT NULL
@@ -12678,6 +12679,7 @@ export class PostgresPersistence implements Persistence {
         ) AS active_calculation ON TRUE
         WHERE account.user_id = $1
           AND account.deleted_at IS NULL
+          AND ${detailLedgerIdPlaceholder}::text IS NULL
           AND NOT $7::boolean
           AND ($5::text IS NULL OR $5 = 'open')
           AND ($6::text IS NULL OR $6 = 'expected')
@@ -13298,12 +13300,34 @@ export class PostgresPersistence implements Persistence {
     return result.rows.map((row) => this.mapDividendReviewSummaryRow(row));
   }
 
+  private async loadDividendReviewSummaryByLedgerIdSql(
+    userId: string,
+    dividendLedgerEntryId: string,
+  ): Promise<DividendReviewRowSummaryDto | null> {
+    const result = await this.pool.query(
+      `WITH ${this.dividendReviewNormalizedSql("$11")}
+       SELECT * FROM normalized
+       WHERE row_kind = 'ledger'
+       LIMIT 1`,
+      [
+        ...this.dividendReviewSqlParams(userId, {
+          fromPaymentDate: "0001-01-01",
+        }),
+        dividendLedgerEntryId,
+      ],
+    );
+    const row = result.rows[0] as Record<string, unknown> | undefined;
+    return row ? this.mapDividendReviewSummaryRow(row) : null;
+  }
+
   private async overlayDividendReviewSummaries(
     userId: string,
     summaries: DividendReviewRowSummaryDto[],
   ): Promise<DividendReviewRowSummaryDto[]> {
     if (summaries.length === 0) return [];
     const ledgerIds = summaries.filter((row) => row.rowKind === "ledger").map((row) => row.id);
+    const calculationAccountIds = summaries.map((row) => row.accountId);
+    const calculationDividendEventIds = summaries.map((row) => row.dividendEventId);
     const [ledgerStatusResult, calculationResult] = await Promise.all([
       ledgerIds.length === 0
         ? Promise.resolve<{ rows: Array<Record<string, unknown>> }>({ rows: [] })
@@ -13317,10 +13341,14 @@ export class PostgresPersistence implements Persistence {
         `SELECT DISTINCT ON (account_id, dividend_event_id) *
            FROM dividend_event_calculation_versions
           WHERE user_id = $1
+            AND (account_id, dividend_event_id) IN (
+              SELECT requested.account_id, requested.dividend_event_id
+              FROM UNNEST($2::text[], $3::text[]) AS requested(account_id, dividend_event_id)
+            )
             AND superseded_at IS NULL
             AND calculation_status IN ('confirmed', 'amended')
           ORDER BY account_id, dividend_event_id, calculation_version DESC, created_at DESC, id DESC`,
-        [userId],
+        [userId, calculationAccountIds, calculationDividendEventIds],
       ),
     ]);
     const ledgerStatusById = new Map(
@@ -13645,7 +13673,7 @@ export class PostgresPersistence implements Persistence {
         expectedStockCalcState: summary.expectedStockCalcState ?? undefined,
         deductions,
         sourceLines,
-        provider: activeCalculation?.provider ?? null,
+        provider: activeCalculation?.provider ?? summary.provider ?? null,
         activeCalculation,
         calculationHistory: calculationHistoryByLedgerId.get(summary.id) ?? [],
         reconciliationNote: metadata?.reconciliation_note == null ? undefined : String(metadata.reconciliation_note),
@@ -13669,11 +13697,9 @@ export class PostgresPersistence implements Persistence {
     dividendLedgerEntryId: string,
   ): Promise<DividendReviewResponseRowWithDetails | null> {
     await this.ensureDefaultPortfolioData(userId);
-    const summaries = await this.overlayDividendReviewSummaries(
-      userId,
-      await this.loadDividendReviewSummariesSql(userId, { fromPaymentDate: "0001-01-01" }),
-    );
-    const summary = summaries.find((row) => row.id === dividendLedgerEntryId && row.rowKind === "ledger");
+    const baseSummary = await this.loadDividendReviewSummaryByLedgerIdSql(userId, dividendLedgerEntryId);
+    if (!baseSummary) return null;
+    const [summary] = await this.overlayDividendReviewSummaries(userId, [baseSummary]);
     if (!summary) return null;
     return (await this.hydrateDividendReviewPage(userId, [summary]))[0] ?? null;
   }

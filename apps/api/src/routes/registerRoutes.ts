@@ -7696,17 +7696,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
   });
 
-  app.get("/portfolio/dividends/postings/:dividendLedgerEntryId", async (req) => {
+  app.get("/portfolio/dividends/postings/:dividendLedgerEntryId", async (req, reply) => {
     const params = z.object({ dividendLedgerEntryId: userScopedIdSchema }).parse(req.params);
-    const { contextUserId: userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
-    const ledgerEntry = await app.persistence.getDividendReviewRowDetail(
-      userId,
-      params.dividendLedgerEntryId,
-    );
-    if (!ledgerEntry) {
-      throw routeError(404, "dividend_ledger_entry_not_found", "Dividend ledger entry not found");
-    }
-    return ledgerEntry;
+    return withReadPathTiming(req, reply, "/portfolio/dividends/postings/:dividendLedgerEntryId", async (timing) => {
+      const { contextUserId: userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+      const ledgerEntry = await timing.measure("review_detail_db", "db", () =>
+        app.persistence.getDividendReviewRowDetail(userId, params.dividendLedgerEntryId));
+      if (!ledgerEntry) {
+        throw routeError(404, "dividend_ledger_entry_not_found", "Dividend ledger entry not found");
+      }
+      return ledgerEntry;
+    });
   });
 
   app.patch("/portfolio/dividends/postings/:dividendLedgerEntryId/reconciliation", async (req) => {
