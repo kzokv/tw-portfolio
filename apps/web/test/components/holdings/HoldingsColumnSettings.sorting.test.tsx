@@ -174,6 +174,40 @@ describe("shared holdings sort state and controls", () => {
     });
   });
 
+  it("persists the materialized stable context with a partial filter after legacy migration", async () => {
+    vi.mocked(getJson).mockResolvedValueOnce({
+      preferences: {
+        holdingsTableSettings: {
+          version: 1,
+          contexts: {
+            "holdings.shared": {
+              columnOrder: ["marketValue", "ticker"],
+              columnWidths: { marketValue: 240, ticker: 180 },
+              hiddenColumns: ["marketValue"],
+              selectedMarketCodes: ["TW"],
+            },
+          },
+        },
+      },
+    });
+    act(() => root.render(<HookHarness />));
+    await flush();
+
+    act(() => latestSettings?.setSelectedMarketCodes(["US"]));
+    await flush();
+
+    expect(patchJson).toHaveBeenCalledTimes(1);
+    const payload = vi.mocked(patchJson).mock.calls[0]?.[1] as {
+      holdingsTableSettings?: { contexts?: Record<string, Record<string, unknown>> };
+    };
+    expect(payload.holdingsTableSettings?.contexts?.["dashboard.topHoldings"]).toEqual(expect.objectContaining({
+      columnOrder: ["marketValue", "ticker"],
+      columnWidths: { marketValue: 240, ticker: 180 },
+      hiddenColumns: ["marketValue"],
+      selectedMarketCodes: ["US"],
+    }));
+  });
+
   it("keeps the optimistic local sort and exposes settings error when persistence fails", async () => {
     vi.mocked(patchJson).mockRejectedValueOnce(new Error("offline"));
     act(() => root.render(<HookHarness />));

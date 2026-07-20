@@ -270,6 +270,7 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
   const pendingDirtyContextRef = useRef<HoldingsTableContextPreferenceDto>({});
   const pendingIncludesRuntimeSortRef = useRef(false);
   const pendingSortIsExplicitRef = useRef(false);
+  const requiresContextMigrationPersistRef = useRef(false);
   const contextsRef = useRef(contexts);
   const settingsRef = useRef(settings);
 
@@ -320,9 +321,10 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
           };
         });
     void hydratePreferences
-      .then(({ contexts: hydratedContexts }) => {
+      .then(({ contexts: hydratedContexts, migrated }) => {
         if (cancelled) return;
         const nextContexts = hydratedContexts;
+        requiresContextMigrationPersistRef.current = migrated;
         hasHydratedPreferencesRef.current = true;
         if (hasLocalEditRef.current) {
           const localContext = resolveHoldingsTableContextPreference(contextsRef.current, contextKey) ?? serializeSettings(
@@ -354,7 +356,9 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
           setSettings((current) => columnSettingsEqual(current, nextSettings) ? current : nextSettings);
           const pendingDirtyContext = pendingDirtyContextRef.current;
           if (Object.keys(pendingDirtyContext).length > 0) {
-            let outboundContext = { ...pendingDirtyContext };
+            let outboundContext = migrated
+              ? { ...mergedContexts[contextKey] }
+              : { ...pendingDirtyContext };
             if (pendingIncludesRuntimeSortRef.current && !pendingSortIsExplicitRef.current) {
               delete outboundContext.sortMode;
               delete outboundContext.sortField;
@@ -471,7 +475,9 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     setSettings(next);
     setSettingsError("");
     if (hasHydratedPreferencesRef.current) {
-      persistContexts(mergedContexts, { [contextKey]: patch });
+      persistContexts(mergedContexts, {
+        [contextKey]: requiresContextMigrationPersistRef.current ? mergedContext : patch,
+      });
     } else {
       pendingDirtyContextRef.current = { ...pendingDirtyContextRef.current, ...patch };
     }
