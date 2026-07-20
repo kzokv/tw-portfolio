@@ -378,6 +378,15 @@ export function DashboardHoldingsPreview({
     .filter((presetId) => !hiddenPresetIds.has(presetId))
     .map((presetId) => HOLDING_FOCUS_PRESET_BY_ID.get(presetId))
     .filter((preset): preset is (typeof HOLDING_FOCUS_PRESETS)[number] => preset !== undefined);
+  const activePreset = isFilterHoldingFocusPreset(selectedPreset)
+    || holdingFocusPresetMatchesSort(
+      selectedPreset,
+      columnSettings.sortMode,
+      columnSettings.sortField,
+      columnSettings.sortDirection,
+    )
+    ? selectedPreset
+    : "";
   const reportScope = selectedMarketCodes.length === 1 ? selectedMarketCodes[0]! : "all";
   const mobileColumnSplit = splitMobileHoldingColumns(columnSettings, DASHBOARD_MOBILE_FIELD_COLUMNS);
   const selectionSummaryRows = useMemo<HoldingsSelectionSummaryRow[]>(
@@ -571,7 +580,7 @@ export function DashboardHoldingsPreview({
             <div className="flex flex-col gap-3">
               <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                 <div className="sm:hidden">
-                  <Select value={selectedPreset} onValueChange={handlePresetChange}>
+                  <Select value={activePreset} onValueChange={handlePresetChange}>
                     <SelectTrigger
                       aria-label={dict.dashboardHome.topHoldingsFocusPresetsAria}
                       className="w-full"
@@ -594,7 +603,7 @@ export function DashboardHoldingsPreview({
                   <ToggleGroup
                     className="w-full flex-wrap justify-start"
                     type="single"
-                    value={selectedPreset}
+                    value={activePreset}
                     onValueChange={handlePresetChange}
                     aria-label={dict.dashboardHome.topHoldingsFocusPresetsAria}
                     data-testid="dashboard-holdings-presets"
@@ -2273,6 +2282,23 @@ function sortAccountHoldingsForCustom(
 
 function isHoldingFocusPreset(value: string): value is DashboardHoldingFocusPreset {
   return (DASHBOARD_HOLDING_FOCUS_PRESETS as readonly string[]).includes(value);
+}
+
+function isFilterHoldingFocusPreset(preset: DashboardHoldingFocusPreset): boolean {
+  return preset === "fx-exposure" || preset === "stale-quotes";
+}
+
+function holdingFocusPresetMatchesSort(
+  presetId: DashboardHoldingFocusPreset,
+  sortMode: "field" | "custom" | undefined,
+  sortField: HoldingsSortField | null | undefined,
+  sortDirection: "asc" | "desc" | null | undefined,
+): boolean {
+  const preset = HOLDING_FOCUS_PRESET_BY_ID.get(presetId);
+  return preset !== undefined
+    && sortMode === "field"
+    && preset.sortField === sortField
+    && preset.sortDirection === sortDirection;
 }
 
 function normalizeDashboardHoldingFocusPreference(value: unknown): DashboardHoldingFocusPreferenceDto {

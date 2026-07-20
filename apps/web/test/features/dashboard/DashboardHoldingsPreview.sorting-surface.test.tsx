@@ -305,6 +305,7 @@ describe("DashboardHoldingsPreview sorting surface contract", () => {
 
     expect(desktopOrder(container)).toEqual(["WORST-US", "STALE-JP", "MISSING-AU", "LARGE-TW", "BEST-US"]);
     expectActiveSort(container, "ticker", "descending");
+    expect(presetButton(container, dict.dashboardHome.topHoldingsPresetWorstPnl).getAttribute("data-state")).toBe("off");
   });
 
   it("renders synchronized mobile sorting and lets Custom be selected directly in one persistence action", async () => {
@@ -429,6 +430,7 @@ describe("DashboardHoldingsPreview sorting surface contract", () => {
     await flush();
     expect(desktopOrder(container)).toEqual(["STALE-JP", "MISSING-AU"]);
     expectActiveSort(container, "marketValue", "descending");
+    expect(presetButton(container, dict.dashboardHome.topHoldingsPresetStaleQuotes).getAttribute("data-state")).toBe("on");
 
     click(presetButton(container, dict.dashboardHome.topHoldingsPresetLargest));
     click(presetButton(container, dict.dashboardHome.topHoldingsPresetStaleQuotes));
@@ -447,6 +449,7 @@ describe("DashboardHoldingsPreview sorting surface contract", () => {
     await flush();
     expect(desktopOrder(container)).toEqual(["BEST-US", "WORST-US"]);
     expectActiveSort(container, "unrealizedPnl", "descending");
+    expect(presetButton(container, dict.dashboardHome.topHoldingsPresetFxExposure).getAttribute("data-state")).toBe("on");
 
     click(presetButton(container, dict.dashboardHome.topHoldingsPresetLargest));
     click(presetButton(container, dict.dashboardHome.topHoldingsPresetFxExposure));
