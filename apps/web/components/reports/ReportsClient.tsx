@@ -71,6 +71,7 @@ import {
   holdingsColumnCellStyle,
   holdingsSortableHeaderCellProps,
   useHoldingsColumnSettings,
+  type HoldingsDefaultSort,
   type HoldingsColumnSettingsState,
   type HoldingsGridColumnDefinition,
 } from "../holdings/HoldingsColumnSettings";
@@ -1734,6 +1735,7 @@ function DailyReviewView({
         </Card>
         <HoldingsCard
           columns={holdingsColumns}
+          defaultSort={{ sortMode: "custom" }}
           dict={dict}
           title={dict.reports.topMoversTitle}
           contextKey={REPORTS_DAILY_REVIEW_TOP_MOVERS_CONTEXT_KEY}
@@ -2564,6 +2566,7 @@ function TickerAllocationRowContent({
 function HoldingsCard({
   columns,
   contextKey,
+  defaultSort = { sortDirection: "desc", sortField: "marketValue", sortMode: "field" },
   dict,
   locale,
   isRefreshing,
@@ -2577,6 +2580,7 @@ function HoldingsCard({
 }: {
   columns: Array<HoldingsGridColumnDefinition<ReportHoldingsColumn>>;
   contextKey: string;
+  defaultSort?: HoldingsDefaultSort;
   dict: AppDictionary;
   isRefreshing: boolean;
   locale: LocaleCode;
@@ -2592,7 +2596,7 @@ function HoldingsCard({
     columns,
     contextKey,
     defaultMobileSummaryCount: 6,
-    defaultSort: { sortDirection: "desc", sortField: "marketValue", sortMode: "field" },
+    defaultSort,
     defaultLayoutStyle: "portfolio",
     mobileSummaryColumnIds: REPORT_MOBILE_FIELD_COLUMNS,
     supportedSortFields: REPORT_HOLDINGS_SORT_FIELDS,

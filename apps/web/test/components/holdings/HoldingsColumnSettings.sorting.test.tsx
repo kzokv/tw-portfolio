@@ -120,6 +120,60 @@ describe("shared holdings sort state and controls", () => {
     expect(patchJson).toHaveBeenCalledTimes(1);
   });
 
+  it("queues only explicit sort keys when sorting before hydration completes", async () => {
+    let resolvePreferences: ((value: { preferences: Record<string, unknown> }) => void) | undefined;
+    vi.mocked(getJson).mockImplementationOnce(() => new Promise((resolve) => {
+      resolvePreferences = resolve as typeof resolvePreferences;
+    }));
+    act(() => root.render(<HookHarness />));
+
+    act(() => latestSettings?.setSort("ticker", "asc"));
+    expect(patchJson).not.toHaveBeenCalled();
+    await act(async () => {
+      resolvePreferences?.({
+        preferences: {
+          holdingsTableSettings: {
+            version: 1,
+            contexts: {
+              "dashboard.topHoldings": {
+                columnOrder: ["marketValue", "ticker"],
+                columnWidths: { marketValue: 240, ticker: 180 },
+                hiddenColumns: ["marketValue"],
+                layoutStyle: "dashboard",
+                mobileSummaryCount: 1,
+                selectedMarketCodes: ["TW"],
+                topHoldingsLimit: 7,
+              },
+            },
+          },
+        },
+      });
+    });
+    await flush();
+
+    expect(latestSettings?.orderedColumns.map((column) => column.id)).toEqual(["marketValue", "ticker"]);
+    expect(latestSettings?.visibleColumns).toEqual(["ticker"]);
+    expect(latestSettings).toMatchObject({
+      layoutStyle: "dashboard",
+      mobileSummaryCount: 1,
+      selectedMarketCodes: ["TW"],
+      sortDirection: "asc",
+      sortField: "ticker",
+      sortMode: "field",
+      topHoldingsLimit: 7,
+    });
+    expect(latestSettings?.getColumnWidth("marketValue")).toBe(240);
+    expect(patchJson).toHaveBeenCalledTimes(1);
+    const payload = vi.mocked(patchJson).mock.calls[0]?.[1] as {
+      holdingsTableSettings?: { contexts?: Record<string, Record<string, unknown>> };
+    };
+    expect(payload.holdingsTableSettings?.contexts?.["dashboard.topHoldings"]).toEqual({
+      sortDirection: "asc",
+      sortField: "ticker",
+      sortMode: "field",
+    });
+  });
+
   it("keeps the optimistic local sort and exposes settings error when persistence fails", async () => {
     vi.mocked(patchJson).mockRejectedValueOnce(new Error("offline"));
     act(() => root.render(<HookHarness />));

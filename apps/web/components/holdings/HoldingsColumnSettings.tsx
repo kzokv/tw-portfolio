@@ -479,20 +479,24 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
 
   function persistSort(next: ColumnRuntimeSettings<ColumnId>, sort: RuntimeHoldingsSortPreference) {
     hasLocalEditRef.current = true;
+    const sortPatch: HoldingsTableContextPreferenceDto = { sortMode: sort.sortMode };
+    if (sort.sortMode === "field" && sort.sortField && sort.sortDirection) {
+      sortPatch.sortField = sort.sortField;
+      sortPatch.sortDirection = sort.sortDirection;
+    }
     const mergedContext: HoldingsTableContextPreferenceDto = {
       ...contextsRef.current[contextKey],
-      ...serializeSettings(
-        next,
-        contextKey,
-        preferenceNamespace,
-        contextsRef.current[contextKey],
-      ),
-      sortMode: sort.sortMode,
+      ...(hasHydratedPreferencesRef.current
+        ? serializeSettings(
+            next,
+            contextKey,
+            preferenceNamespace,
+            contextsRef.current[contextKey],
+          )
+        : {}),
+      ...sortPatch,
     };
-    if (sort.sortMode === "field" && sort.sortField && sort.sortDirection) {
-      mergedContext.sortField = sort.sortField;
-      mergedContext.sortDirection = sort.sortDirection;
-    } else {
+    if (sort.sortMode !== "field") {
       delete mergedContext.sortField;
       delete mergedContext.sortDirection;
     }
@@ -508,16 +512,8 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     } else {
       pendingDirtyContextRef.current = {
         ...pendingDirtyContextRef.current,
-        ...serializeSettings(next, contextKey, preferenceNamespace),
-        sortMode: sort.sortMode,
+        ...sortPatch,
       };
-      if (sort.sortMode === "field" && sort.sortField && sort.sortDirection) {
-        pendingDirtyContextRef.current.sortField = sort.sortField;
-        pendingDirtyContextRef.current.sortDirection = sort.sortDirection;
-      } else {
-        delete pendingDirtyContextRef.current.sortField;
-        delete pendingDirtyContextRef.current.sortDirection;
-      }
       pendingSortIsExplicitRef.current = true;
     }
   }

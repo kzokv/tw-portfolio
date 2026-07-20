@@ -722,12 +722,26 @@ describe("ReportsClient", () => {
     expect(document.body.textContent).not.toContain("Weight");
   });
 
+  it("[Reports reports.dailyReview.topMovers]: preserve API mover rank by default without PATCH", async () => {
+    const topMovers = [
+      reportHoldingRow({ ticker: "BIGGEST_MOVE", reportingMarketValueAmount: 100 }),
+      reportHoldingRow({ ticker: "LARGEST_HOLDING", reportingMarketValueAmount: 900 }),
+    ];
+    act(() => {
+      root.render(<ReportsClient
+        initialReport={{ ...fixture, topMovers } as DailyReviewReportDto}
+        initialState={parseReportRouteState({})}
+      />);
+    });
+    await act(async () => {});
+
+    expect(reportHoldingTickerOrder("reports.dailyReview.topMovers")).toEqual(["BIGGEST_MOVE", "LARGEST_HOLDING"]);
+    const table = document.querySelector("[data-testid='reports-holdings-table-reports.dailyReview.topMovers']");
+    expect(table?.querySelector("th[aria-sort]")).toBeNull();
+    expect(reportsPreferencePatches()).toEqual([]);
+  });
+
   it.each([
-    {
-      contextKey: "reports.dailyReview.topMovers",
-      initialReport: { ...fixture, topMovers: fixture.holdings.rows } as DailyReviewReportDto,
-      route: {},
-    },
     { contextKey: "reports.dailyReview.holdings", initialReport: fixture, route: {} },
     {
       contextKey: "reports.portfolio.holdings",
