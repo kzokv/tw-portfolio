@@ -249,8 +249,15 @@ export function HoldingsTable({
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [selectedHolding, setSelectedHolding] = useState<DetailHoldingRow | null>(null);
   const deferredQuery = useDeferredValue(query);
+  const portfolioHoldingColumns = useMemo(
+    () => PORTFOLIO_HOLDINGS_COLUMNS.map((column) => ({
+      ...column,
+      label: portfolioColumnLabel(dict, column.id),
+    })),
+    [dict],
+  );
   const columnSettings = useHoldingsColumnSettings<HoldingsColumn>({
-    columns: PORTFOLIO_HOLDINGS_COLUMNS,
+    columns: portfolioHoldingColumns,
     contextKey: settingsContextKey,
     defaultLayoutStyle: variant === "compact" ? "dashboard" : "portfolio",
     defaultHiddenColumns: variant === "compact" ? PORTFOLIO_COMPACT_DEFAULT_HIDDEN_COLUMNS : PORTFOLIO_DETAILED_DEFAULT_HIDDEN_COLUMNS,
@@ -724,11 +731,11 @@ export function HoldingsTable({
         </div>
 
         <div className="mt-4 sm:hidden">
-          <HoldingsMobileSortControls columns={PORTFOLIO_HOLDINGS_COLUMNS} dict={dict} settings={columnSettings} />
+          <HoldingsMobileSortControls columns={portfolioHoldingColumns} dict={dict} settings={columnSettings} />
         </div>
         <div className="mt-4 hidden sm:flex">
           <HoldingsHiddenSortChip
-            columns={PORTFOLIO_HOLDINGS_COLUMNS}
+            columns={portfolioHoldingColumns}
             dict={dict}
             settings={columnSettings}
             visibleSortFields={visibleSortFields}

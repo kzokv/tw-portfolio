@@ -104,17 +104,20 @@ function response(contextKey: string, context: Record<string, unknown> = {}) {
 function renderPortfolio({
   groups = fixtures,
   contextKey = "portfolio.surface-contract",
+  locale = "en",
   variant = "default",
 }: {
   groups?: DashboardOverviewHoldingGroupDto[];
   contextKey?: string;
+  locale?: "en" | "zh-TW";
   variant?: "default" | "compact";
 } = {}) {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
+  const renderDict = getDictionary(locale);
   act(() => {
-    root.render(<HoldingsTable accounts={[]} allocationBasis="market_value" dict={dict} holdingGroups={groups} holdings={[]} instruments={[]} locale="en" settingsContextKey={contextKey} variant={variant} />);
+    root.render(<HoldingsTable accounts={[]} allocationBasis="market_value" dict={renderDict} holdingGroups={groups} holdings={[]} instruments={[]} locale={locale} settingsContextKey={contextKey} variant={variant} />);
   });
   return { container, root };
 }
@@ -258,6 +261,28 @@ describe("HoldingsTable sorting surface contract", () => {
     const settingsOrder = Array.from(document.querySelectorAll<HTMLElement>("[data-testid^='holdings-row-drag-']"))
       .map((row) => row.dataset.testid!.replace("holdings-row-drag-", ""));
     expect(settingsOrder).toEqual(["JP:MISS", "TW:TIE-A", "US:TIE-B", "TW:TOP"]);
+  });
+
+  it("localizes Portfolio mobile and hidden-sort field labels in zh-TW", async () => {
+    const zhDict = getDictionary("zh-TW");
+    vi.mocked(getJson).mockResolvedValue(
+      response("portfolio.localized-sort", {
+        hiddenColumns: ["allocation"],
+        sortMode: "field",
+        sortField: "allocation",
+        sortDirection: "desc",
+      }),
+    );
+    ({ root, container } = renderPortfolio({ contextKey: "portfolio.localized-sort", locale: "zh-TW" }));
+    await flush();
+
+    expect(required(container, "[data-testid='holdings-hidden-sort-chip']").textContent)
+      .toContain(zhDict.holdings.allocationTerm);
+    click(required(container, "[data-testid='holdings-mobile-sort-field']"));
+    await flush();
+    const allocationOption = Array.from(document.querySelectorAll("[role='option']"))
+      .find((option) => option.textContent === zhDict.holdings.allocationTerm);
+    expect(allocationOption).toBeDefined();
   });
 
   it("sorts aggregates, each expanded group's children, and Accounts mode with the documented hierarchy semantics", async () => {
