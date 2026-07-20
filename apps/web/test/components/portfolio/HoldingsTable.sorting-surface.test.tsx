@@ -371,6 +371,69 @@ describe("HoldingsTable sorting surface contract", () => {
     expect(required(container, "[data-testid='holding-group-row-MIXED-US']").textContent).toContain("25%");
   });
 
+  it("preserves available aggregate values when a projected group also contains a missing lot", async () => {
+    const partial = group("PARTIAL", "US", 1_000, [
+      ["acc-valid", "Valid account"],
+      ["acc-missing", "Missing account"],
+      ["acc-excluded", "Excluded account"],
+    ]);
+    partial.children = partial.children.map((child) => {
+      if (child.accountId === "acc-valid") {
+        return {
+          ...child,
+          quantity: 2,
+          marketValueAmount: 200,
+          unrealizedPnlAmount: 40,
+          reportingMarketValueAmount: 200,
+          reportingUnrealizedPnlAmount: 40,
+        };
+      }
+      if (child.accountId === "acc-missing") {
+        return {
+          ...child,
+          quantity: 3,
+          currentUnitPrice: null,
+          marketValueAmount: null,
+          unrealizedPnlAmount: null,
+          reportingCurrentUnitPrice: null,
+          reportingMarketValueAmount: null,
+          reportingUnrealizedPnlAmount: null,
+        };
+      }
+      return {
+        ...child,
+        quantity: 8,
+        marketValueAmount: 800,
+        unrealizedPnlAmount: 160,
+        reportingMarketValueAmount: 800,
+        reportingUnrealizedPnlAmount: 160,
+      };
+    });
+    const focused = group("FOCUS", "TW", 600, [["acc-valid", "Valid account"]]);
+    vi.mocked(getJson).mockResolvedValue(
+      response("portfolio.partial-projection", {
+        selectedAccountIds: ["acc-valid", "acc-missing"],
+        sortMode: "field",
+        sortField: "allocation",
+        sortDirection: "desc",
+      }),
+    );
+
+    ({ root, container } = renderPortfolio({
+      groups: [partial, focused],
+      contextKey: "portfolio.partial-projection",
+    }));
+    await flush();
+
+    expect(groupOrder(container)).toEqual(["FOCUS-TW", "PARTIAL-US"]);
+    const aggregate = required(container, "[data-testid='holding-group-row-PARTIAL-US']");
+    expect(aggregate.querySelectorAll("td")[1]?.textContent).toBe("2");
+    expect(aggregate.querySelectorAll("td")[2]?.textContent).toBe("5");
+    expect(aggregate.textContent).toContain("200");
+    expect(aggregate.textContent).toContain("40");
+    expect(aggregate.textContent).toContain("25%");
+  });
+
   it("sorts Price by finite reporting-currency unit price across currencies", async () => {
     const usd = group("USD-HIGH", "US", 1_000, [], {
       currency: "USD",

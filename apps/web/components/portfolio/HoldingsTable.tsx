@@ -2071,8 +2071,9 @@ function finitePortfolioSortPrice(value: number | null | undefined): number | nu
 }
 
 function sumPortfolioValues(values: Array<number | null | undefined>): number | null {
-  if (values.length === 0 || values.some((value) => value == null || !Number.isFinite(value))) return null;
-  return values.reduce<number>((sum, value) => sum + (value ?? 0), 0);
+  const present = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (present.length === 0) return null;
+  return present.reduce((sum, value) => sum + value, 0);
 }
 
 function firstFinitePortfolioValue(values: Array<number | null | undefined>): number | null {
@@ -2135,7 +2136,11 @@ function projectPortfolioHoldingGroup(
     reportingCostBasisAmount: sumPortfolioValues(children.map((child) => child.reportingCostBasisAmount)),
     reportingMarketValueAmount: sumPortfolioValues(children.map((child) => child.reportingMarketValueAmount)),
     reportingUnrealizedPnlAmount: sumPortfolioValues(children.map((child) => child.reportingUnrealizedPnlAmount)),
-    reportingDailyChangeAmount: sumPortfolioValues(children.map((child) => child.reportingDailyChangeAmount)),
+    reportingDailyChangeAmount: children.some((child) => (
+      child.reportingDailyChangeAmount == null || !Number.isFinite(child.reportingDailyChangeAmount)
+    ))
+      ? null
+      : sumPortfolioValues(children.map((child) => child.reportingDailyChangeAmount)),
     reportingAllocationPercent: null,
     reportingMarketAllocationPercent: null,
     fxStatus: fxStatuses.length > 0 && fxStatuses.every((status) => status === "complete")
