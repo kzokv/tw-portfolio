@@ -150,7 +150,7 @@ export function PortfolioClient({
             <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-primary/78">{dict.navigation.portfolioLabel}</p>
             <h1 className="mt-2 text-2xl font-semibold text-foreground sm:text-3xl">{dict.navigation.portfolioLabel}</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              {formatPortfolioMessage(dict.dashboardHome.positionsCount, { count: formatNumber(holdingGroups.length, locale) })}
+              {formatPortfolioMessage(dict.dashboardHome.holdingsCount, { count: formatNumber(holdingGroups.length, locale) })}
               {" · "}
               {formatPortfolioMessage(dict.dashboardHome.marketsCount, { count: formatNumber(marketCount, locale) })}
               {" · "}
@@ -175,7 +175,7 @@ export function PortfolioClient({
         </div>
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <CompactMetric
-            label={dict.dashboardHome.largestPositionLabel}
+            label={dict.dashboardHome.largestHoldingLabel}
             value={largestHolding?.ticker ?? "-"}
             detail={largestHolding
               ? largestHoldingCostBasis == null

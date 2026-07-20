@@ -1,10 +1,21 @@
-import { act, type AnchorHTMLAttributes } from "react";
+import { Profiler, act, type AnchorHTMLAttributes } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import type { DailyReviewReportDto, PortfolioReportDto } from "@vakwen/shared-types";
+import {
+  holdingsTableSettingsPreferenceSchema,
+  type DailyReviewReportDto,
+  type MarketReportDto,
+  type PortfolioReportDto,
+  type ReportHoldingRowDto,
+} from "@vakwen/shared-types";
 import { ReportsClient } from "../../../components/reports/ReportsClient";
 import { parseReportRouteState, type ReportRouteState } from "../../../features/reports/reportState";
+import { getDictionary } from "../../../lib/i18n";
 import { testPriceState } from "../../fixtures/priceState";
+import {
+  createCommitProfilerRecorder,
+  recordPerformanceScenario,
+} from "../../performance/holdingsSortingPerformanceHarness";
 
 const refreshMock = vi.hoisted(() => vi.fn());
 const replaceMock = vi.hoisted(() => vi.fn());
@@ -103,7 +114,7 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         basisFxUnavailableForPairs: "FX unavailable for {pairs}",
         basisFxNotRequired: "No FX conversion required",
         marketValue: "Market value",
-        bookCost: "Book Cost",
+        costBasis: "Cost basis",
         unrealizedPnl: "Unrealized P&L",
         realizedPnl: "Realized P&L",
         dailyChange: "Daily change",
@@ -127,8 +138,8 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         tickerAllocationTopNLabel: "Top N",
         tickerAllocationTopNAuto: "Auto",
         tickerAllocationTopNAll: "All",
-        tickerAllocationPortfolioWeight: "Portfolio weight",
-        tickerAllocationSelectedWeight: "Selected weight",
+        tickerAllocationPortfolioAllocation: "Portfolio allocation",
+        tickerAllocationSelectedAllocation: "Selected allocation",
         tickerAllocationOtherLabel: "Other",
         tickerAllocationOtherDescription: "Combined remainder outside the visible top slice.",
         tickerAllocationDetailTitle: "Allocation details",
@@ -162,8 +173,10 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         unitsLabel: "{count} units",
         accountAbbrev: "{count} acct",
         price: "Price",
-        pnl: "P&L",
-        weight: "Weight",
+        averageCost: "Average cost",
+        pnl: "Unrealized P&L",
+        weight: "Allocation",
+        actions: "Actions",
         openTicker: "Open ticker",
         openTickerAria: "Open {ticker} ticker page",
         viewDetails: "View details",
@@ -172,7 +185,7 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         reportingPrice: "Reporting price",
         nativePrice: "Native price",
         nativeMarketValue: "Native market value",
-        nativeBookCost: "Native book cost",
+        nativeCostBasis: "Native cost basis",
         fxRate: "FX rate",
         accounts: "Accounts",
         quantity: "Quantity",
@@ -269,7 +282,7 @@ vi.mock("../../../components/layout/AppShellDataContext", () => ({
         priceStateDelaySeconds: "{count} seconds",
         priceStateDelayMinutes: "{count} minutes",
         priceStateCloseDetailsLabel: "Close",
-        avgCostTerm: "Avg Cost",
+        averageCostTerm: "Avg Cost",
         unitPnlTerm: "Unit P&L",
         columnSettingsButtonLabel: "Columns",
         columnSettingsTitle: "Column settings",
@@ -527,6 +540,40 @@ const portfolioFixture: PortfolioReportDto = {
   holdings: fixture.holdings,
 };
 
+const marketFixture: MarketReportDto = {
+  query: { ...portfolioFixture.query, scope: "AU" },
+  summary: portfolioFixture.summary,
+  fxStatus: portfolioFixture.fxStatus,
+  dataHealth: portfolioFixture.dataHealth,
+  diagnostics: portfolioFixture.diagnostics,
+  performance: portfolioFixture.performance,
+  marketSummary: portfolioFixture.allocation.byMarket,
+  topHoldings: fixture.holdings.rows,
+  detail: fixture.holdings,
+};
+
+function reportHoldingRow(overrides: Partial<ReportHoldingRowDto>): ReportHoldingRowDto {
+  const source = fixture.holdings.rows[0];
+  if (!source) throw new Error("Expected report holding fixture row");
+  return { ...source, ...overrides };
+}
+
+function reportHoldingTickerOrder(contextKey: string): string[] {
+  const table = document.querySelector(`[data-testid='reports-holdings-table-${contextKey}']`);
+  if (!table) return [];
+  return Array.from(table.querySelectorAll("tbody tr")).map((row) => {
+    const tickerLink = row.querySelector<HTMLAnchorElement>("a[href^='/tickers/']");
+    return tickerLink?.getAttribute("href")?.match(/\/tickers\/([^?]+)/)?.[1] ?? "";
+  });
+}
+
+function reportsPreferencePatches(): Array<Record<string, unknown>> {
+  return fetchMock.mock.calls.flatMap(([_input, init]) => {
+    if (init?.method !== "PATCH") return [];
+    return [JSON.parse(String(init.body)) as Record<string, unknown>];
+  });
+}
+
 describe("ReportsClient", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -557,6 +604,470 @@ describe("ReportsClient", () => {
   afterEach(() => {
     act(() => root.unmount());
     container.remove();
+  });
+
+  it("[Holdings terminology]: uses Cost basis and holdings consistently in English and Traditional Chinese", () => {
+    const en = getDictionary("en");
+    const zh = getDictionary("zh-TW");
+    expect(en.dashboardHome.totalCostLabel).toBe("Cost basis");
+    expect(en.dashboardHome.topHoldingsShowingSummary).toContain("grouped holdings");
+    expect(en.dashboardHome.topHoldingsAccountHolding).toBe("Account holding");
+    expect(en.reports.holding).toBe("Holding");
+    expect(zh.dashboardHome.totalCostLabel).toBe("成本基礎");
+    expect(zh.dashboardHome.topHoldingsAccountHolding).toBe("帳戶持倉");
+    expect(zh.reports.holding).toBe("持倉");
+  });
+
+  it.runIf(process.env.HOLDINGS_PERF_CAPTURE === "1")("captures the current Reports deterministic sort-to-commit baseline", async () => {
+    const sourceRow = fixture.holdings.rows[0];
+    if (!sourceRow) throw new Error("Expected report holding fixture row");
+    const fixtureRows = Array.from({ length: 25 }, (_, index) => ({
+      ...sourceRow,
+      ticker: `R${String(index).padStart(4, "0")}`,
+      marketCode: index % 2 === 0 ? "AU" as const : "US" as const,
+      quantity: 5 + index * 11,
+      reportingMarketValueAmount: 1_200 + ((index * 7_919) % 400_000),
+      reportingCostBasisAmount: 1_000 + ((index * 3_571) % 350_000),
+      reportingUnrealizedPnlAmount: ((index * 1_013) % 90_000) - 45_000,
+      dailyChangeAmount: ((index * 71) % 4_000) - 2_000,
+      dailyChangePercent: ((index * 17) % 230 - 115) / 10,
+      reportingAllocationPercent: ((index * 37) % 1_000) / 10,
+    }));
+    const largeFixture: DailyReviewReportDto = {
+      ...fixture,
+      dataHealth: { ...fixture.dataHealth, holdingCount: fixtureRows.length },
+      diagnostics: {
+        ...fixture.diagnostics,
+        rowCounts: {
+          ...fixture.diagnostics.rowCounts,
+          holdingsReturned: fixtureRows.length,
+          holdingsTotal: fixtureRows.length,
+        },
+      },
+      holdings: {
+        ...fixture.holdings,
+        limit: fixtureRows.length,
+        rows: fixtureRows,
+        total: fixtureRows.length,
+      },
+    };
+    const recorder = createCommitProfilerRecorder({
+      measuredCount: 8,
+      name: "reports-current-sort-to-commit",
+      warmupCount: 3,
+    });
+    act(() => {
+      root.render(
+        <Profiler id="reports-current-sort" onRender={recorder.onRender}>
+          <ReportsClient initialReport={largeFixture} initialState={parseReportRouteState({})} />
+        </Profiler>,
+      );
+    });
+    await act(async () => {});
+
+    const presetGroup = document.querySelector('[data-testid="reports-holdings-presets-reports.dailyReview.holdings"]');
+    const buttons = Array.from(presetGroup?.querySelectorAll("button") ?? []);
+    const largest = buttons.find((button) => button.textContent?.includes("Largest"));
+    const worstPnl = buttons.find((button) => button.textContent?.includes("Worst P&L first"));
+    if (!largest || !worstPnl) throw new Error("Expected Reports focus preset buttons");
+    for (let iteration = 0; iteration < 11; iteration += 1) {
+      const button = iteration % 2 === 0 ? worstPnl : largest;
+      recorder.arm(iteration % 2 === 0 ? "worst-pnl" : "largest");
+      act(() => {
+        button.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      recorder.assertCommitted();
+    }
+    recordPerformanceScenario(recorder.scenario({
+      interaction: "alternate existing Worst P&L and Largest focus controls",
+      measuredCount: 8,
+      renderedDesktopRowCount: fixtureRows.length,
+      renderedMobileRowCount: fixtureRows.length,
+      sourceRowCount: fixtureRows.length,
+      warmupCount: 3,
+    }));
+  }, 60_000);
+
+  it("[Reports holdings]: render canonical columns → market code stays in Ticker and account/quantity values are not duplicated", async () => {
+    act(() => {
+      root.render(<ReportsClient initialReport={fixture} initialState={parseReportRouteState({})} />);
+    });
+    await act(async () => {});
+
+    const table = document.querySelector("[data-testid='reports-holdings-table-reports.dailyReview.holdings']");
+    const headers = Array.from(table?.querySelectorAll("thead th") ?? []).map((header) => header.textContent?.trim());
+    expect(headers).toEqual([
+      "Ticker",
+      "Accounts",
+      "Quantity",
+      "Average cost",
+      "Price",
+      "Unit P&L",
+      "Market value",
+      "Cost basis",
+      "Daily change",
+      "Unrealized P&L",
+      "Allocation",
+      "Data health",
+      "Actions",
+    ]);
+    const cells = Array.from(table?.querySelectorAll("tbody tr:first-child td") ?? []);
+    expect(cells[0]?.textContent).toContain("BHP");
+    expect(cells[0]?.textContent).toContain("AU");
+    expect(cells[1]?.textContent?.trim()).toBe("1");
+    expect(cells[2]?.textContent?.trim()).toBe("5");
+    expect(cells[0]?.textContent).not.toContain("acct");
+    expect(cells[0]?.textContent).not.toContain("units");
+    expect(document.body.textContent).not.toContain("Book Cost");
+    expect(document.body.textContent).not.toContain("Weight");
+  });
+
+  it.each([
+    {
+      contextKey: "reports.dailyReview.topMovers",
+      initialReport: { ...fixture, topMovers: fixture.holdings.rows } as DailyReviewReportDto,
+      route: {},
+    },
+    { contextKey: "reports.dailyReview.holdings", initialReport: fixture, route: {} },
+    {
+      contextKey: "reports.portfolio.holdings",
+      initialReport: portfolioFixture,
+      route: { tab: "portfolio", range: "1Y" },
+    },
+    {
+      contextKey: "reports.market.topHoldings",
+      initialReport: marketFixture,
+      route: { tab: "market", scope: "AU", range: "1Y" },
+    },
+    {
+      contextKey: "reports.market.detail",
+      initialReport: marketFixture,
+      route: { tab: "market", scope: "AU", range: "1Y" },
+    },
+  ])("[Reports $contextKey]: hydrate defaults → Market value descending is active without PATCH", async ({ contextKey, initialReport, route }) => {
+    searchParamsMock.value = new URLSearchParams(
+      Object.entries(route).map(([key, value]) => [key, String(value)]),
+    ).toString();
+    act(() => {
+      root.render(<ReportsClient initialReport={initialReport} initialState={parseReportRouteState(route)} />);
+    });
+    await act(async () => {});
+
+    const table = document.querySelector(`[data-testid='reports-holdings-table-${contextKey}']`);
+    const marketValueHeader = table?.querySelector("[data-testid$='column-sort-marketValue']")?.closest("th");
+    expect(marketValueHeader?.getAttribute("aria-sort")).toBe("descending");
+    expect(reportsPreferencePatches()).toEqual([]);
+  });
+
+  it("[Reports legacy hydration]: materialize multiple contexts in memory without PATCH until an explicit interaction", async () => {
+    userPreferencesMock.value = {
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          "holdings.shared": {
+            columnOrder: ["ticker", "pnl", "health"],
+            hiddenColumns: ["health"],
+            rowOrder: ["AU:BHP"],
+          },
+        },
+      },
+    };
+    const rows = [reportHoldingRow({ ticker: "BHP", marketCode: "AU" })];
+    const data = {
+      ...fixture,
+      topMovers: rows,
+      holdings: { ...fixture.holdings, rows, total: rows.length },
+    } as DailyReviewReportDto;
+    act(() => root.render(<ReportsClient initialReport={data} initialState={parseReportRouteState({})} />));
+    await act(async () => {});
+
+    expect(document.querySelector("[data-testid='reports-holdings-table-reports.dailyReview.topMovers']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='reports-holdings-table-reports.dailyReview.holdings']")).not.toBeNull();
+    expect(reportsPreferencePatches()).toEqual([]);
+  });
+
+  it("[Reports contexts]: commit one header sort → only that stable context is persisted once", async () => {
+    const rows = [
+      reportHoldingRow({ ticker: "ALPHA", marketCode: "AU", reportingMarketValueAmount: 100 }),
+      reportHoldingRow({ ticker: "ZULU", marketCode: "US", reportingMarketValueAmount: 900 }),
+    ];
+    const data = {
+      ...fixture,
+      topMovers: rows,
+      holdings: { ...fixture.holdings, rows, total: rows.length },
+    } as DailyReviewReportDto;
+    userPreferencesMock.value = {
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          "reports.dailyReview.topMovers": { sortDirection: "desc", sortField: "marketValue", sortMode: "field" },
+          "reports.dailyReview.holdings": { sortDirection: "asc", sortField: "ticker", sortMode: "field" },
+        },
+      },
+    };
+    act(() => {
+      root.render(<ReportsClient initialReport={data} initialState={parseReportRouteState({})} />);
+    });
+    await act(async () => {});
+    expect(reportHoldingTickerOrder("reports.dailyReview.topMovers")).toEqual(["ZULU", "ALPHA"]);
+    expect(reportHoldingTickerOrder("reports.dailyReview.holdings")).toEqual(["ALPHA", "ZULU"]);
+    expect(reportsPreferencePatches()).toEqual([]);
+
+    const topMoversTable = document.querySelector("[data-testid='reports-holdings-table-reports.dailyReview.topMovers']");
+    const tickerSort = topMoversTable?.querySelector<HTMLButtonElement>("[data-testid$='column-sort-ticker']");
+    expect(tickerSort).not.toBeNull();
+    act(() => tickerSort?.click());
+    await act(async () => {});
+
+    const patches = reportsPreferencePatches();
+    expect(patches).toHaveLength(1);
+    expect(patches[0]).toEqual({
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          "reports.dailyReview.topMovers": expect.objectContaining({
+            sortDirection: "asc",
+            sortField: "ticker",
+            sortMode: "field",
+          }),
+        },
+      },
+    });
+  });
+
+  it("[Reports adapter]: hydrate Average cost ascending → reporting values sort once with missing last and identity ties", async () => {
+    const rows = [
+      reportHoldingRow({ ticker: "MISSING", marketCode: "US", nativeAverageCostPerShare: 1, reportingAverageCostPerShare: null, reportingMarketValueAmount: 900 }),
+      reportHoldingRow({ ticker: "BETA", marketCode: "US", nativeAverageCostPerShare: 2, reportingAverageCostPerShare: 10, reportingMarketValueAmount: 800 }),
+      reportHoldingRow({ ticker: "ALPHA", marketCode: "AU", nativeAverageCostPerShare: 999, reportingAverageCostPerShare: 10, reportingMarketValueAmount: 100 }),
+      reportHoldingRow({ ticker: "MID", marketCode: "AU", nativeAverageCostPerShare: 0, reportingAverageCostPerShare: 30, reportingMarketValueAmount: 700 }),
+    ];
+    userPreferencesMock.value = {
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          "reports.dailyReview.holdings": { sortDirection: "asc", sortField: "averageCost", sortMode: "field" },
+        },
+      },
+    };
+    const data = { ...fixture, holdings: { ...fixture.holdings, rows, total: rows.length } } as DailyReviewReportDto;
+    act(() => root.render(<ReportsClient initialReport={data} initialState={parseReportRouteState({})} />));
+    await act(async () => {});
+
+    expect(reportHoldingTickerOrder("reports.dailyReview.holdings")).toEqual(["ALPHA", "BETA", "MID", "MISSING"]);
+    const largestPreset = Array.from(document.querySelectorAll("[data-testid='reports-holdings-presets-reports.dailyReview.holdings'] button"))
+      .find((button) => button.textContent?.includes("Largest"));
+    expect(largestPreset?.getAttribute("data-state")).toBe("off");
+    expect(reportsPreferencePatches()).toEqual([]);
+  });
+
+  it("[Reports controls]: hide the active sort field → desktop, keyboard, mobile, and hidden-sort controls remain isolated", async () => {
+    userPreferencesMock.value = {
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          "reports.dailyReview.holdings": {
+            hiddenColumns: ["allocation"],
+            sortDirection: "desc",
+            sortField: "allocation",
+            sortMode: "field",
+          },
+        },
+      },
+    };
+    act(() => root.render(<ReportsClient initialReport={fixture} initialState={parseReportRouteState({})} />));
+    await act(async () => {});
+
+    const prefix = "reports-holdings-reports.dailyReview.holdings";
+    const table = document.querySelector("[data-testid='reports-holdings-table-reports.dailyReview.holdings']");
+    const marketValueSort = table?.querySelector<HTMLButtonElement>("[data-testid='holdings-column-sort-marketValue']");
+    const marketValueDrag = table?.querySelector("[data-testid='holdings-column-drag-marketValue']");
+    const marketValueResize = table?.querySelector("[data-testid='holdings-column-resize-marketValue']");
+    expect(marketValueSort).not.toBeNull();
+    expect(marketValueSort?.closest("[draggable='true']")).toBeNull();
+    expect(marketValueDrag?.contains(marketValueSort ?? null)).toBe(false);
+    expect(marketValueResize).not.toBe(marketValueSort);
+    expect(document.querySelector(`[data-testid='${prefix}-mobile-sort-field']`)).not.toBeNull();
+    expect(document.querySelector(`[data-testid='${prefix}-mobile-sort-direction']`)).not.toBeNull();
+    expect(document.querySelector(`[data-testid='${prefix}-hidden-sort-chip']`)?.textContent).toMatch(/Allocation.*descending/i);
+  });
+
+  it("[Reports presets]: explicit sort after Stale quotes → filter remains; selecting Largest reapplies Market value descending", async () => {
+    const rows = [
+      reportHoldingRow({ ticker: "STALE_LOW", quantity: 2, reportingMarketValueAmount: 200, priceState: testPriceState({ basis: "stale_close", chipState: "stale" }) }),
+      reportHoldingRow({ ticker: "STALE_HIGH", quantity: 9, reportingMarketValueAmount: 300, priceState: testPriceState({ basis: "stale_close", chipState: "stale" }) }),
+      reportHoldingRow({ ticker: "CURRENT", quantity: 5, reportingMarketValueAmount: 1_000, priceState: testPriceState() }),
+    ];
+    const data = { ...fixture, holdings: { ...fixture.holdings, rows, total: rows.length } } as DailyReviewReportDto;
+    act(() => root.render(<ReportsClient initialReport={data} initialState={parseReportRouteState({})} />));
+    await act(async () => {});
+
+    const presets = document.querySelector("[data-testid='reports-holdings-presets-reports.dailyReview.holdings']");
+    const stale = Array.from(presets?.querySelectorAll("button") ?? []).find((button) => button.textContent?.includes("Stale quotes"));
+    const largest = Array.from(presets?.querySelectorAll("button") ?? []).find((button) => button.textContent?.includes("Largest"));
+    expect(largest?.getAttribute("data-state")).toBe("on");
+    act(() => stale?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(stale?.getAttribute("data-state")).toBe("on");
+    const table = document.querySelector("[data-testid='reports-holdings-table-reports.dailyReview.holdings']");
+    const quantitySort = table?.querySelector<HTMLButtonElement>("[data-testid$='column-sort-quantity']");
+    expect(quantitySort).not.toBeNull();
+    act(() => quantitySort?.click());
+    expect(reportHoldingTickerOrder("reports.dailyReview.holdings")).toEqual(["STALE_HIGH", "STALE_LOW"]);
+    expect(stale?.getAttribute("data-state")).toBe("on");
+
+    act(() => largest?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(reportHoldingTickerOrder("reports.dailyReview.holdings")).toEqual(["CURRENT", "STALE_HIGH", "STALE_LOW"]);
+    expect(table?.querySelector("[data-testid$='column-sort-marketValue']")?.closest("th")?.getAttribute("aria-sort")).toBe("descending");
+    expect(largest?.getAttribute("data-state")).toBe("on");
+
+    act(() => quantitySort?.click());
+    expect(largest?.getAttribute("data-state")).toBe("off");
+    expect(quantitySort?.closest("th")?.getAttribute("aria-sort")).toBe("descending");
+    expect(document.querySelector("[data-testid='reports-holdings-presets-select-reports.dailyReview.holdings']")?.hasAttribute("data-placeholder")).toBe(true);
+  });
+
+  it("[Reports top-N]: hydrate a semantic sort → complete loaded rows sort before limiting without URL/API sort state", async () => {
+    const loadedRows = [
+      reportHoldingRow({ ticker: "Q40", quantity: 40, reportingMarketValueAmount: 4_000 }),
+      reportHoldingRow({ ticker: "Q10", quantity: 10, reportingMarketValueAmount: 1_000 }),
+      reportHoldingRow({ ticker: "Q30", quantity: 30, reportingMarketValueAmount: 3_000 }),
+      reportHoldingRow({ ticker: "Q20", quantity: 20, reportingMarketValueAmount: 2_000 }),
+    ];
+    userPreferencesMock.value = {
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          "reports.dailyReview.topMovers": {
+            sortDirection: "asc",
+            sortField: "quantity",
+            sortMode: "field",
+            topHoldingsLimit: 2,
+          },
+        },
+      },
+    };
+    const data = {
+      ...fixture,
+      diagnostics: {
+        ...fixture.diagnostics,
+        rowCounts: { ...fixture.diagnostics.rowCounts, holdingsReturned: 1_000, holdingsTotal: 1_000 },
+      },
+      topMovers: loadedRows,
+      holdings: { ...fixture.holdings, limit: 1_000, rows: loadedRows, total: 1_000 },
+    } as DailyReviewReportDto;
+    act(() => root.render(<ReportsClient initialReport={data} initialState={parseReportRouteState({})} />));
+    await act(async () => {});
+
+    expect(reportHoldingTickerOrder("reports.dailyReview.topMovers")).toEqual(["Q10", "Q20"]);
+    expect(useReportDataMock).toHaveBeenLastCalledWith(expect.objectContaining({
+      state: expect.not.objectContaining({ sortDirection: expect.anything(), sortField: expect.anything() }),
+    }));
+    expect(replaceMock.mock.calls.map((call) => String(call[0])).join(" ")).not.toMatch(/sort(Field|Direction|Mode)?=/i);
+    expect(fetchMock.mock.calls.map((call) => String(call[0])).join(" ")).not.toMatch(/[?&]sort/i);
+  });
+
+  it.each([
+    { contextKey: "reports.dailyReview.topMovers", tab: "daily" as const },
+    { contextKey: "reports.market.topHoldings", tab: "market" as const },
+  ])("[Reports $contextKey]: sort full detail source before local top-N when the winner is absent from the API shortcut", async ({ contextKey, tab }) => {
+    const shortcutRow = reportHoldingRow({ ticker: "SHORTCUT", quantity: 50, reportingMarketValueAmount: 500 });
+    const fullRows = [
+      shortcutRow,
+      reportHoldingRow({ ticker: "FULL_WINNER", quantity: 1, reportingMarketValueAmount: 100 }),
+      reportHoldingRow({ ticker: "FULL_THIRD", quantity: 20, reportingMarketValueAmount: 200 }),
+    ];
+    userPreferencesMock.value = {
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          [contextKey]: { sortDirection: "asc", sortField: "quantity", sortMode: "field", topHoldingsLimit: 1 },
+        },
+      },
+    };
+    if (tab === "market") {
+      searchParamsMock.value = "tab=market&scope=AU&range=1Y";
+      const data = {
+        ...marketFixture,
+        topHoldings: [shortcutRow],
+        detail: { ...marketFixture.detail, rows: fullRows, total: fullRows.length },
+      } as MarketReportDto;
+      act(() => root.render(<ReportsClient initialReport={data} initialState={parseReportRouteState({ tab: "market", scope: "AU", range: "1Y" })} />));
+    } else {
+      const data = {
+        ...fixture,
+        topMovers: [shortcutRow],
+        holdings: { ...fixture.holdings, rows: fullRows, total: fullRows.length },
+      } as DailyReviewReportDto;
+      act(() => root.render(<ReportsClient initialReport={data} initialState={parseReportRouteState({})} />));
+    }
+    await act(async () => {});
+
+    expect(reportHoldingTickerOrder(contextKey)).toEqual(["FULL_WINNER"]);
+  });
+
+  it("[Reports allocation]: filter rows → displayed allocation is recalculated from the filtered local universe before sorting", async () => {
+    const rows = [
+      reportHoldingRow({ ticker: "AU_ONLY", marketCode: "AU", reportingMarketValueAmount: 100, reportingAllocationPercent: 25 }),
+      reportHoldingRow({ ticker: "US_ONLY", marketCode: "US", reportingMarketValueAmount: 300, reportingAllocationPercent: 75 }),
+    ];
+    const data = { ...fixture, holdings: { ...fixture.holdings, rows, total: rows.length } } as DailyReviewReportDto;
+    act(() => root.render(<ReportsClient initialReport={data} initialState={parseReportRouteState({})} />));
+    await act(async () => {});
+
+    const search = document.querySelector<HTMLInputElement>("[data-testid='reports-holdings-search-reports.dailyReview.holdings']");
+    if (!search) throw new Error("Expected Reports holdings search");
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(search, "AU_ONLY");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const table = document.querySelector("[data-testid='reports-holdings-table-reports.dailyReview.holdings']");
+    const row = table?.querySelector("tbody tr");
+    expect(row?.textContent).toContain("AU_ONLY");
+    expect(row?.textContent).toContain("100%");
+    expect(row?.textContent).not.toContain("25%");
+  });
+
+  it("[Reports data health]: sort inferred fallback with deterministic quote, freshness, FX, and fallback precedence", async () => {
+    const rows = [
+      reportHoldingRow({ ticker: "HEALTHY", reportingMarketValueAmount: 100, reportingCostBasisAmount: 90, quoteStatus: "current", fxStatus: "complete", priceState: testPriceState() }),
+      reportHoldingRow({ ticker: "FALLBACK", reportingMarketValueAmount: null, reportingCostBasisAmount: 90, quoteStatus: "current", fxStatus: "complete", priceState: testPriceState() }),
+      reportHoldingRow({ ticker: "PARTIAL_FX", reportingMarketValueAmount: 100, quoteStatus: "current", fxStatus: "partial", priceState: testPriceState() }),
+      reportHoldingRow({ ticker: "STALE", reportingMarketValueAmount: 100, quoteStatus: "current", fxStatus: "complete", priceState: testPriceState({ basis: "stale_close", chipState: "stale" }) }),
+      reportHoldingRow({ ticker: "MISSING_QUOTE", reportingMarketValueAmount: null, reportingCostBasisAmount: null, quoteStatus: "missing", fxStatus: "complete", priceState: testPriceState() }),
+    ];
+    userPreferencesMock.value = {
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          "reports.dailyReview.holdings": { sortDirection: "desc", sortField: "dataHealth", sortMode: "field" },
+        },
+      },
+    };
+    const data = { ...fixture, holdings: { ...fixture.holdings, rows, total: rows.length } } as DailyReviewReportDto;
+    act(() => root.render(<ReportsClient initialReport={data} initialState={parseReportRouteState({})} />));
+    await act(async () => {});
+
+    expect(reportHoldingTickerOrder("reports.dailyReview.holdings")).toEqual([
+      "MISSING_QUOTE",
+      "STALE",
+      "PARTIAL_FX",
+      "FALLBACK",
+      "HEALTHY",
+    ]);
+  });
+
+  it("[Reports mobile]: reserves lower card space so the quick-action FAB does not cover a holding metric", async () => {
+    act(() => root.render(<ReportsClient initialReport={fixture} initialState={parseReportRouteState({})} />));
+    await act(async () => {});
+    const table = document.querySelector("[data-testid='reports-holdings-table-reports.dailyReview.holdings']");
+    expect(table?.closest(".pb-24")).not.toBeNull();
+    const metrics = document.querySelector("[data-testid='reports-mobile-metrics-BHP-AU']");
+    expect(metrics?.classList.contains("pr-12")).toBe(true);
+    expect(metrics?.classList.contains("pb-14")).toBe(true);
+    expect(metrics?.classList.contains("sm:pr-0")).toBe(true);
+    expect(metrics?.classList.contains("sm:pb-0")).toBe(true);
   });
 
   it("renders daily report summary, controls, and mobile detail rows", async () => {
@@ -595,9 +1106,9 @@ describe("ReportsClient", () => {
       viewDetailsButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     const dialog = document.body.querySelector("[role='dialog']");
-    expect(dialog?.textContent).toContain("Book Cost");
+    expect(dialog?.textContent).toContain("Cost basis");
     expect(dialog?.textContent).toContain("Daily change");
-    expect(dialog?.textContent).toContain("Weight");
+    expect(dialog?.textContent).toContain("Allocation");
     expect(dialog?.textContent).toContain("Daily change %");
     expect(dialog?.textContent).toContain("Allocation");
 
@@ -1124,16 +1635,12 @@ describe("ReportsClient", () => {
         contexts?: Record<string, unknown>;
       };
     };
-    expect(patchBody.holdingsTableSettings?.contexts?.["holdings.shared"]).toEqual({
-      columnOrder: ["ticker", "health", "position", "avgCost", "price", "unitPnl", "marketValue", "costBasis", "unrealized", "daily", "weight"],
-      hiddenColumns: ["health", "daily"],
-      columnWidths: { ticker: 260 },
-      layoutStyle: "portfolio",
-    });
+    expect(patchBody.holdingsTableSettings?.contexts?.["holdings.shared"]).toBeUndefined();
     expect(patchBody.holdingsTableSettings?.contexts?.["reports.portfolio.tickerAllocation"]).toEqual({
       tickerAllocationChartMode: "pie",
       tickerAllocationTopN: "auto",
     });
+    expect(holdingsTableSettingsPreferenceSchema.safeParse(patchBody.holdingsTableSettings).success).toBe(true);
   });
 
   it("clears a forced market filter when returning ticker allocation to all markets", async () => {
@@ -1527,10 +2034,10 @@ describe("ReportsClient", () => {
     const holdingsTable = document.querySelector("[data-testid='reports-holdings-table-reports.dailyReview.holdings']");
     expect(holdingsTable).not.toBeNull();
     const firstHeader = holdingsTable?.querySelector("[data-testid^='holdings-column-drag-']");
-    expect(firstHeader?.getAttribute("data-testid")).toBe("holdings-column-drag-health");
+    expect(firstHeader?.getAttribute("data-testid")).toBe("holdings-column-drag-dataHealth");
     expect(firstHeader?.getAttribute("draggable")).toBe("true");
     expect((firstHeader?.closest("th") as HTMLTableCellElement | null)?.style.width).toBe("234px");
-    expect(holdingsTable?.querySelector("[data-testid='holdings-column-resize-health']")).not.toBeNull();
+    expect(holdingsTable?.querySelector("[data-testid='holdings-column-resize-dataHealth']")).not.toBeNull();
   });
 
   it("keeps hidden report mobile columns out of card/details and avoids duplicate detail rows", async () => {
@@ -1638,7 +2145,7 @@ describe("ReportsClient", () => {
     expect(dialog?.textContent).toContain("FX rate");
     expect(dialog?.textContent).toContain("1.52");
     expect(dialog?.textContent).toContain("Native market value");
-    expect(dialog?.textContent).toContain("Native book cost");
+    expect(dialog?.textContent).toContain("Native cost basis");
     expect(dialog?.textContent).toContain("Daily change %");
     expect(dialog?.textContent).toContain("-0.8%");
   });

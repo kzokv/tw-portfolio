@@ -1376,6 +1376,25 @@ export interface UnrealizedPnlAnalysisSettingsPreferenceDto {
 
 export type HoldingsTableLayoutStyle = "dashboard" | "portfolio";
 export type HoldingsSelectionMode = "all" | "custom";
+export const HOLDINGS_SORT_FIELDS = [
+  "ticker",
+  "accountCount",
+  "quantity",
+  "averageCost",
+  "price",
+  "unitPnl",
+  "marketValue",
+  "costBasis",
+  "dailyChangePercent",
+  "unrealizedPnl",
+  "allocation",
+  "dataHealth",
+  "nextDividendDate",
+  "lastDividendDate",
+] as const;
+export type HoldingsSortField = (typeof HOLDINGS_SORT_FIELDS)[number];
+export type HoldingsSortDirection = "asc" | "desc";
+export type HoldingsSortMode = "custom" | "field";
 
 export interface HoldingsSelectionPreferenceDto {
   version: 1;
@@ -1383,7 +1402,7 @@ export interface HoldingsSelectionPreferenceDto {
   tickerIds?: string[];
 }
 
-export interface HoldingsTableContextPreferenceDto {
+export interface TableContextPreferenceDto {
   columnOrder?: string[];
   hiddenColumns?: string[];
   columnWidths?: Record<string, number>;
@@ -1397,6 +1416,14 @@ export interface HoldingsTableContextPreferenceDto {
   tickerAllocationTopN?: TickerAllocationTopN;
 }
 
+export interface HoldingsTableContextPreferenceDto extends TableContextPreferenceDto {
+  sortMode?: HoldingsSortMode;
+  sortField?: HoldingsSortField;
+  sortDirection?: HoldingsSortDirection;
+}
+
+export type AdminMarketDataTableContextPreferenceDto = TableContextPreferenceDto;
+
 export interface HoldingsTableSettingsPreferenceDto {
   version: 1;
   contexts: Record<string, HoldingsTableContextPreferenceDto>;
@@ -1404,7 +1431,7 @@ export interface HoldingsTableSettingsPreferenceDto {
 
 export interface AdminMarketDataTableSettingsPreferenceDto {
   version: 1;
-  contexts: Record<string, HoldingsTableContextPreferenceDto>;
+  contexts: Record<string, AdminMarketDataTableContextPreferenceDto>;
 }
 
 const dashboardHoldingFocusPresetSchema = z.enum(DASHBOARD_HOLDING_FOCUS_PRESETS);
@@ -1536,6 +1563,7 @@ const holdingsSelectionTickerIdListSchema = z
   );
 const tickerAllocationChartModeSchema = z.enum(TICKER_ALLOCATION_CHART_MODES);
 const tickerAllocationTopNSchema = z.enum(TICKER_ALLOCATION_TOP_N_OPTIONS);
+const holdingsSortFieldSchema = z.enum(HOLDINGS_SORT_FIELDS);
 
 export const holdingsSelectionPreferenceSchema: z.ZodType<HoldingsSelectionPreferenceDto> = z
   .object({
@@ -1585,8 +1613,40 @@ export const holdingsTableSettingsPreferenceSchema: z.ZodType<HoldingsTableSetti
             topHoldingsLimit: z.number().int().min(1).max(100).optional(),
             tickerAllocationChartMode: tickerAllocationChartModeSchema.optional(),
             tickerAllocationTopN: tickerAllocationTopNSchema.optional(),
+            sortMode: z.enum(["custom", "field"]).optional(),
+            sortField: holdingsSortFieldSchema.optional(),
+            sortDirection: z.enum(["asc", "desc"]).optional(),
           })
-          .strict(),
+          .strict()
+          .superRefine((value, ctx) => {
+            if (value.sortMode === "field") {
+              if (value.sortField === undefined) {
+                ctx.addIssue({
+                  code: z.ZodIssueCode.custom,
+                  message: "holdings_sort_field_mode_requires_field",
+                  path: ["sortField"],
+                });
+              }
+              if (value.sortDirection === undefined) {
+                ctx.addIssue({
+                  code: z.ZodIssueCode.custom,
+                  message: "holdings_sort_field_mode_requires_direction",
+                  path: ["sortDirection"],
+                });
+              }
+              return;
+            }
+
+            if (value.sortField !== undefined || value.sortDirection !== undefined) {
+              ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: value.sortMode === "custom"
+                  ? "holdings_sort_custom_forbids_active_field"
+                  : "holdings_sort_active_field_requires_mode",
+                path: [value.sortField !== undefined ? "sortField" : "sortDirection"],
+              });
+            }
+          }),
       )
       .superRefine((value, ctx) => {
         if (Object.keys(value).length > 20) {

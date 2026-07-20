@@ -191,14 +191,11 @@ export default async function PublicSharePage({ params }: PublicSharePageProps) 
                     <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                       {copy.colTicker}
                     </th>
-                    <th className="px-4 py-2.5 text-left text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                      {copy.colMarket}
-                    </th>
                     <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                       {copy.colAccounts}
                     </th>
                     <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                      {copy.colShares}
+                      {copy.colQuantity}
                     </th>
                     <th className="px-4 py-2.5 text-right text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                       {copy.colMarketValue}
@@ -218,6 +215,9 @@ export default async function PublicSharePage({ params }: PublicSharePageProps) 
                         <div className="flex min-w-0 flex-col">
                           <span>{row.ticker}</span>
                           {row.instrumentName ? <span className="text-xs font-normal text-muted-foreground">{row.instrumentName}</span> : null}
+                          <span className="text-xs font-normal text-muted-foreground">
+                            {row.marketCode === "UNKNOWN" ? "-" : row.marketCode}
+                          </span>
                         </div>
                         {row.quoteStatus === "missing" ? (
                           <span
@@ -227,9 +227,6 @@ export default async function PublicSharePage({ params }: PublicSharePageProps) 
                             {copy.quoteMissingLabel}
                           </span>
                         ) : null}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground">
-                        {row.marketCode === "UNKNOWN" ? "-" : row.marketCode}
                       </td>
                       <td
                         className="px-4 py-3 text-right text-sm text-muted-foreground"

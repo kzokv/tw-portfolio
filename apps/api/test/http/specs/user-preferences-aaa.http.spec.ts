@@ -502,6 +502,78 @@ test.describe("user preferences API (KZO-159)", () => {
     });
   });
 
+  test("[holdings-sort-preferences]: PATCH field sort state → 200 and GET returns the same state", async ({
+    request,
+    adminApi,
+  }) => {
+    const session = await createOauthSession(request, {
+      sub: "user-prefs-holdings-sort-state-sub",
+      email: "user-prefs-holdings-sort-state@example.com",
+      name: "Prefs Holdings Sort State",
+      role: "member",
+    });
+    const holdingsTableSettings = {
+      version: 1,
+      contexts: {
+        "dashboard.topHoldings": {
+          columnOrder: ["ticker", "marketValue"],
+          sortMode: "field",
+          sortField: "marketValue",
+          sortDirection: "desc",
+        },
+      },
+    };
+
+    const patchResponse = await request.patch(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+      data: { holdingsTableSettings },
+    });
+    await adminApi.assert.statusIs(patchResponse, 200);
+    const patchBody = await patchResponse.json() as PreferencesBody;
+    await adminApi.assert.mxAssertDeepEqual(patchBody.preferences, { holdingsTableSettings });
+
+    const getResponse = await request.get(apiPath("/user-preferences"), {
+      headers: { cookie: session.cookieHeader },
+    });
+    await adminApi.assert.statusIs(getResponse, 200);
+    const getBody = await getResponse.json() as PreferencesBody;
+    await adminApi.assert.mxAssertDeepEqual(getBody.preferences, { holdingsTableSettings });
+  });
+
+  test("[holdings-sort-preferences]: PATCH contradictory or mode-less active sort state → 400", async ({
+    request,
+    adminApi,
+  }) => {
+    const session = await createOauthSession(request, {
+      sub: "user-prefs-invalid-holdings-sort-state-sub",
+      email: "user-prefs-invalid-holdings-sort-state@example.com",
+      name: "Invalid Holdings Sort State",
+      role: "member",
+    });
+    const invalidContexts = [
+      { sortMode: "custom", sortField: "ticker", sortDirection: "asc" },
+      { sortField: "ticker", sortDirection: "asc" },
+      { sortMode: "field", sortField: "ticker" },
+    ];
+
+    for (const context of invalidContexts) {
+      const response = await request.patch(apiPath("/user-preferences"), {
+        headers: { cookie: session.cookieHeader },
+        data: {
+          holdingsTableSettings: {
+            version: 1,
+            contexts: { "dashboard.topHoldings": context },
+          },
+        },
+      });
+      await adminApi.assert.statusIs(response, 400);
+      await adminApi.assert.errorCodeIs(
+        await response.json() as { error: string },
+        "invalid_preference",
+      );
+    }
+  });
+
   test("[user-prefs]: PATCH /user-preferences { adminMarketDataTableSettings } → 200 echoes, GET returns same", async ({
     request,
     adminApi,

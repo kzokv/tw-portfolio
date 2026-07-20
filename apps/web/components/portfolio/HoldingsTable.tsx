@@ -7,6 +7,7 @@ import type {
   AccountDto,
   AccountDefaultCurrency,
   DashboardOverviewHoldingDto,
+  HoldingsSortField,
   InstrumentOptionDto,
   LocaleCode,
 } from "@vakwen/shared-types";
@@ -40,14 +41,18 @@ import {
 import {
   HoldingsColumnHeaderContent,
   HoldingsColumnSettingsMenu,
+  HoldingsHiddenSortChip,
+  HoldingsMobileSortControls,
   HoldingsRowSettingsMenu,
   applyHoldingsRowOrder,
   filterAvailableHoldingsSelections,
   holdingsColumnCellStyle,
+  holdingsSortableHeaderCellProps,
   useHoldingsColumnSettings,
   type HoldingsColumnSettingsState,
   type HoldingsGridColumnDefinition,
 } from "../holdings/HoldingsColumnSettings";
+import { sortHoldingsRows, type HoldingsSortPrimitive } from "../holdings/holdingsSorting";
 import { HoldingsDataHealthBadges } from "../holdings/HoldingsDataHealth";
 import {
   HoldingsSelectionInlineToggle,
@@ -68,7 +73,7 @@ import { buildHoldingsTickerId } from "../holdings/holdingsPreferenceHelpers";
 import { HoldingsDetailSheet } from "../holdings/HoldingsDetailSheet";
 import { useHoldingsSelection } from "../holdings/useHoldingsSelection";
 import { HoldingActivityDetail } from "../holdings/HoldingActivityDetail";
-import { buildPriceStateActivityPath, getPriceState } from "../../features/price-state/priceState";
+import { buildPriceStateActivityPath, getPriceState, priceStateSortRank } from "../../features/price-state/priceState";
 
 type HoldingsDisplayMode = "aggregated" | "expanded" | "accounts";
 type DetailHoldingRow = DashboardOverviewHoldingGroupDto | DashboardOverviewHoldingChildDto;
@@ -76,17 +81,17 @@ type HoldingsColumn =
   | "ticker"
   | "accounts"
   | "quantity"
-  | "avgCost"
+  | "averageCost"
   | "unitPnl"
   | "price"
   | "dailyChange"
   | "marketValue"
-  | "pnl"
-  | "health"
+  | "unrealizedPnl"
+  | "dataHealth"
   | "costBasis"
   | "allocation"
-  | "nextDividend"
-  | "lastDividend";
+  | "nextDividendDate"
+  | "lastDividendDate";
 
 interface HoldingsTableProps {
   holdings: DashboardOverviewHoldingDto[];
@@ -108,40 +113,57 @@ interface HoldingsTableProps {
 }
 
 const PORTFOLIO_HOLDINGS_COLUMNS: Array<HoldingsGridColumnDefinition<HoldingsColumn>> = [
-  { id: "ticker", label: "Ticker", defaultWidth: 224, canHide: false },
-  { id: "accounts", label: "Accounts", defaultWidth: 112, align: "right" },
-  { id: "quantity", label: "Quantity", defaultWidth: 128, canHide: false, align: "right" },
-  { id: "avgCost", label: "Average cost", defaultWidth: 144, align: "right" },
-  { id: "unitPnl", label: "Unit P&L", defaultWidth: 152, align: "right" },
-  { id: "price", label: "Price", defaultWidth: 144, align: "right" },
-  { id: "dailyChange", label: "Daily change", defaultWidth: 144, align: "right" },
-  { id: "marketValue", label: "Market value", defaultWidth: 160, align: "right" },
-  { id: "pnl", label: "P&L", defaultWidth: 144, align: "right" },
-  { id: "health", label: "Data health", defaultWidth: 192 },
-  { id: "costBasis", label: "Cost basis", defaultWidth: 160, align: "right" },
-  { id: "allocation", label: "Allocation", defaultWidth: 148, align: "right" },
-  { id: "nextDividend", label: "Next dividend", defaultWidth: 152, align: "right" },
-  { id: "lastDividend", label: "Last dividend", defaultWidth: 152, align: "right" },
+  { id: "ticker", label: "Ticker", defaultWidth: 224, canHide: false, sortField: "ticker" },
+  { id: "accounts", label: "Accounts", defaultWidth: 112, align: "right", sortField: "accountCount" },
+  { id: "quantity", label: "Quantity", defaultWidth: 128, canHide: false, align: "right", sortField: "quantity" },
+  { id: "averageCost", label: "Average cost", defaultWidth: 144, align: "right", sortField: "averageCost" },
+  { id: "unitPnl", label: "Unit P&L", defaultWidth: 152, align: "right", sortField: "unitPnl" },
+  { id: "price", label: "Price", defaultWidth: 144, align: "right", sortField: "price" },
+  { id: "dailyChange", label: "Daily change", defaultWidth: 144, align: "right", sortField: "dailyChangePercent" },
+  { id: "marketValue", label: "Market value", defaultWidth: 160, align: "right", sortField: "marketValue" },
+  { id: "unrealizedPnl", label: "Unrealized P&L", defaultWidth: 144, align: "right", sortField: "unrealizedPnl" },
+  { id: "dataHealth", label: "Data health", defaultWidth: 192, sortField: "dataHealth" },
+  { id: "costBasis", label: "Cost basis", defaultWidth: 160, align: "right", sortField: "costBasis" },
+  { id: "allocation", label: "Allocation", defaultWidth: 148, align: "right", sortField: "allocation" },
+  { id: "nextDividendDate", label: "Next dividend", defaultWidth: 152, align: "right", sortField: "nextDividendDate" },
+  { id: "lastDividendDate", label: "Last dividend", defaultWidth: 152, align: "right", sortField: "lastDividendDate" },
 ];
+const PORTFOLIO_DETAILED_MIN_COLUMN_WIDTHS: Record<HoldingsColumn, number> = {
+  ticker: 224,
+  accounts: 160,
+  quantity: 160,
+  averageCost: 192,
+  unitPnl: 160,
+  price: 144,
+  dailyChange: 192,
+  marketValue: 192,
+  unrealizedPnl: 224,
+  dataHealth: 192,
+  costBasis: 176,
+  allocation: 168,
+  nextDividendDate: 200,
+  lastDividendDate: 192,
+};
 const PORTFOLIO_MOBILE_FIELD_COLUMNS: HoldingsColumn[] = [
   "accounts",
   "quantity",
-  "avgCost",
+  "averageCost",
   "unitPnl",
   "price",
   "dailyChange",
   "marketValue",
-  "pnl",
-  "health",
+  "unrealizedPnl",
+  "dataHealth",
   "costBasis",
   "allocation",
-  "nextDividend",
-  "lastDividend",
+  "nextDividendDate",
+  "lastDividendDate",
 ];
+const PORTFOLIO_SUPPORTED_SORT_FIELDS = PORTFOLIO_HOLDINGS_COLUMNS.flatMap((column) => column.sortField ? [column.sortField] : []);
 const MAX_ANIMATED_HOLDING_VALUE_ROWS = 8;
 
 const PORTFOLIO_COMPACT_DEFAULT_HIDDEN_COLUMNS: HoldingsColumn[] = [];
-const PORTFOLIO_DETAILED_DEFAULT_HIDDEN_COLUMNS: HoldingsColumn[] = ["avgCost", "unitPnl"];
+const PORTFOLIO_DETAILED_DEFAULT_HIDDEN_COLUMNS: HoldingsColumn[] = ["averageCost", "unitPnl"];
 const SHARED_HOLDINGS_SETTINGS_CONTEXT_KEY = "holdings.shared";
 
 function isHoldingsDisplayMode(value: string): value is HoldingsDisplayMode {
@@ -232,11 +254,22 @@ export function HoldingsTable({
     contextKey: settingsContextKey,
     defaultLayoutStyle: variant === "compact" ? "dashboard" : "portfolio",
     defaultHiddenColumns: variant === "compact" ? PORTFOLIO_COMPACT_DEFAULT_HIDDEN_COLUMNS : PORTFOLIO_DETAILED_DEFAULT_HIDDEN_COLUMNS,
+    defaultSort: variant === "compact"
+      ? { sortMode: "field", sortField: "marketValue", sortDirection: "desc" }
+      : { sortMode: "custom" },
     mobileSummaryColumnIds: PORTFOLIO_MOBILE_FIELD_COLUMNS,
+    supportedSortFields: PORTFOLIO_SUPPORTED_SORT_FIELDS,
   });
   const visibleColumnDefs = columnSettings.orderedColumns.filter((column) => columnSettings.visibleColumns.includes(column.id));
   const visibleColumns = visibleColumnDefs.map((column) => column.id);
+  const detailedDesktopTableMinWidth = variant === "default"
+    ? visibleColumns.reduce((total, column) => total + portfolioDetailedColumnWidth(columnSettings, column), 0)
+    : undefined;
   const mobileColumnSplit = splitMobileHoldingColumns(columnSettings, PORTFOLIO_MOBILE_FIELD_COLUMNS);
+  const visibleSortFields = useMemo(
+    () => visibleColumnDefs.flatMap((column) => column.sortField ? [column.sortField] : []),
+    [visibleColumnDefs],
+  );
 
   const groups = useMemo(
     () => resolveHoldingGroups({ holdings, holdingGroups, instruments, accounts }),
@@ -303,10 +336,81 @@ export function HoldingsTable({
     selectedStatuses,
   ]);
 
-  const orderedFilteredGroups = useMemo(
-    () => applyHoldingsRowOrder(filteredGroups, holdingGroupRowId, columnSettings.rowOrder),
-    [columnSettings.rowOrder, filteredGroups],
+  const projectedGroups = useMemo(() => {
+    const normalizedQuery = deferredQuery.trim().toUpperCase();
+    return filteredGroups.map((group) => {
+      const visibleChildren = group.children.filter((child) => {
+        if (selectedAccountIds.length > 0 && !selectedAccountIds.includes(child.accountId)) return false;
+        if (selectedStatuses.length > 0 && !selectedStatuses.includes(child.quoteStatus)) return false;
+        return !normalizedQuery
+          || child.ticker.toUpperCase().includes(normalizedQuery)
+          || (child.accountName ?? child.accountId).toUpperCase().includes(normalizedQuery)
+          || child.accountId.toUpperCase().includes(normalizedQuery);
+      });
+      return projectPortfolioHoldingGroup(group, visibleChildren);
+    });
+  }, [deferredQuery, filteredGroups, selectedAccountIds, selectedStatuses]);
+
+  const groupAllocationMap = useMemo(
+    () => buildAllocationPercentages(projectedGroups, effectiveAllocationBasis),
+    [effectiveAllocationBasis, projectedGroups],
   );
+
+  const projectedChildRows = useMemo(() => projectedGroups.flatMap((group) => group.children), [projectedGroups]);
+  const childAllocationMap = useMemo(() => {
+    const values = projectedChildRows.map((child) => ({
+      key: `${child.accountId}:${child.ticker}:${child.marketCode}`,
+      ...getAmountForAllocationBasis(child, effectiveAllocationBasis),
+    }));
+    const total = values.reduce((sum, value) => sum + value.amount, 0);
+    return new Map(values.map((value) => [value.key, total > 0 ? (value.amount / total) * 100 : 0]));
+  }, [effectiveAllocationBasis, projectedChildRows]);
+
+  const orderedFilteredGroups = useMemo(() => {
+    const ordered = displayMode !== "accounts"
+      && columnSettings.sortMode === "field"
+      && columnSettings.sortField
+      && columnSettings.sortDirection
+      ? sortHoldingsRows({
+          rows: projectedGroups,
+          field: columnSettings.sortField,
+          direction: columnSettings.sortDirection,
+          extractKey: (group, field) => portfolioHoldingSortKey(
+            group,
+            field,
+            groupAllocationMap.get(`${group.ticker}::${group.marketCode}`) ?? null,
+          ),
+          getIdentity: (group) => ({ ticker: group.ticker, marketCode: group.marketCode }),
+        })
+      : applyHoldingsRowOrder(projectedGroups, holdingGroupRowId, columnSettings.rowOrder);
+
+    if (displayMode !== "expanded") return ordered;
+    return ordered.map((group) => ({
+      ...group,
+      children: columnSettings.sortMode === "field" && columnSettings.sortField && columnSettings.sortDirection
+        ? sortHoldingsRows({
+            rows: group.children,
+            field: columnSettings.sortField,
+            direction: columnSettings.sortDirection,
+            extractKey: (child, field) => portfolioHoldingSortKey(
+              child,
+              field,
+              childAllocationMap.get(`${child.accountId}:${child.ticker}:${child.marketCode}`) ?? null,
+            ),
+            getIdentity: (child) => ({ ticker: child.ticker, marketCode: child.marketCode, accountId: child.accountId }),
+          })
+        : sortPortfolioAccountHoldings(group.children),
+    }));
+  }, [
+    childAllocationMap,
+    columnSettings.rowOrder,
+    columnSettings.sortDirection,
+    columnSettings.sortField,
+    columnSettings.sortMode,
+    displayMode,
+    groupAllocationMap,
+    projectedGroups,
+  ]);
 
   const visibleGroupKeys = useMemo(
     () => new Set(orderedFilteredGroups.map((group) => `${group.ticker}::${group.marketCode}`)),
@@ -321,32 +425,29 @@ export function HoldingsTable({
   }, [displayMode, expandedKeys, visibleGroupKeys]);
 
   const visibleChildRows = useMemo(() => {
-    return orderedFilteredGroups.flatMap((group) =>
-      group.children.filter((child) => {
-        if (selectedAccountIds.length > 0 && !selectedAccountIds.includes(child.accountId)) return false;
-        if (selectedStatuses.length > 0 && !selectedStatuses.includes(child.quoteStatus)) return false;
-        if (!deferredQuery.trim()) return true;
-        const normalized = deferredQuery.trim().toUpperCase();
-        return child.ticker.toUpperCase().includes(normalized)
-          || (child.accountName ?? child.accountId).toUpperCase().includes(normalized)
-          || child.accountId.toUpperCase().includes(normalized);
-      }),
-    );
-  }, [deferredQuery, orderedFilteredGroups, selectedAccountIds, selectedStatuses]);
-
-  const groupAllocationMap = useMemo(
-    () => buildAllocationPercentages(orderedFilteredGroups, effectiveAllocationBasis),
-    [effectiveAllocationBasis, orderedFilteredGroups],
-  );
-
-  const childAllocationMap = useMemo(() => {
-    const values = visibleChildRows.map((child) => ({
-      key: `${child.accountId}:${child.ticker}:${child.marketCode}`,
-      ...getAmountForAllocationBasis(child, effectiveAllocationBasis),
-    }));
-    const total = values.reduce((sum, value) => sum + value.amount, 0);
-    return new Map(values.map((value) => [value.key, total > 0 ? (value.amount / total) * 100 : 0]));
-  }, [effectiveAllocationBasis, visibleChildRows]);
+    const rows = orderedFilteredGroups.flatMap((group) => group.children);
+    if (displayMode !== "accounts") return rows;
+    return columnSettings.sortMode === "field" && columnSettings.sortField && columnSettings.sortDirection
+      ? sortHoldingsRows({
+          rows,
+          field: columnSettings.sortField,
+          direction: columnSettings.sortDirection,
+          extractKey: (child, field) => portfolioHoldingSortKey(
+            child,
+            field,
+            childAllocationMap.get(`${child.accountId}:${child.ticker}:${child.marketCode}`) ?? null,
+          ),
+          getIdentity: (child) => ({ ticker: child.ticker, marketCode: child.marketCode, accountId: child.accountId }),
+        })
+      : orderedFilteredGroups.flatMap((group) => sortPortfolioAccountHoldings(group.children));
+  }, [
+    childAllocationMap,
+    columnSettings.sortDirection,
+    columnSettings.sortField,
+    columnSettings.sortMode,
+    displayMode,
+    orderedFilteredGroups,
+  ]);
   const selectionSummary = useMemo(
     () => buildHoldingsSelectionVisibleSummary({
       mode: holdingsSelection.selectionMode,
@@ -618,6 +719,23 @@ export function HoldingsTable({
           </div>
         </div>
 
+        <div className="mt-4 sm:hidden">
+          <HoldingsMobileSortControls columns={PORTFOLIO_HOLDINGS_COLUMNS} dict={dict} settings={columnSettings} />
+        </div>
+        <div className="mt-4 hidden sm:flex">
+          <HoldingsHiddenSortChip
+            columns={PORTFOLIO_HOLDINGS_COLUMNS}
+            dict={dict}
+            settings={columnSettings}
+            visibleSortFields={visibleSortFields}
+          />
+        </div>
+        {columnSettings.settingsError ? (
+          <p className="mt-3 text-sm text-destructive" data-testid="holdings-settings-error">
+            {columnSettings.settingsError}
+          </p>
+        ) : null}
+
         {enableSelectionWorkflow ? (
           <div className="mt-4 space-y-2">
             {holdingsSelection.selectionError ? (
@@ -667,10 +785,7 @@ export function HoldingsTable({
                   const groupKey = `${group.ticker}::${group.marketCode}`;
                   const groupTickerId = buildHoldingsTickerId(group.marketCode, group.ticker);
                   const showChildren = expandedState.has(groupKey);
-                  const visibleChildren = group.children.filter((child) =>
-                    (selectedAccountIds.length === 0 || selectedAccountIds.includes(child.accountId))
-                    && (selectedStatuses.length === 0 || selectedStatuses.includes(child.quoteStatus)),
-                  );
+                  const visibleChildren = group.children;
 
                   return (
                     <div key={groupKey} className="flex flex-col gap-2">
@@ -719,19 +834,30 @@ export function HoldingsTable({
                 })}
             </HoldingsGridMobileList>
 
-            <HoldingsGridDesktopFrame className={cn("mt-6 max-h-[42rem] overflow-x-auto rounded-xl bg-card", layoutStyle === "dashboard" && "[&_td]:py-2.5 [&_th]:py-2.5")}>
-            <HoldingsGridNativeTable testId="holdings-table">
+            <HoldingsGridDesktopFrame
+              className={cn(
+                "mt-6 max-h-[42rem] overflow-x-auto overflow-y-auto overscroll-x-contain rounded-xl bg-card",
+                layoutStyle === "dashboard" && "[&_td]:py-2.5 [&_th]:py-2.5",
+              )}
+              testId="portfolio-holdings-desktop-scroll"
+            >
+            <HoldingsGridNativeTable
+              className={cn(variant === "default" && "min-w-max")}
+              style={detailedDesktopTableMinWidth === undefined ? undefined : { minWidth: detailedDesktopTableMinWidth }}
+              testId="holdings-table"
+            >
               <thead>
                 <tr className="bg-muted/40 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
                   {visibleColumnDefs.map((column) => (
                     <th
                       key={column.id}
+                      {...holdingsSortableHeaderCellProps(columnSettings, column.id)}
                       className={cn(
-                        "sticky top-0 z-20 px-4 py-3 align-top font-medium",
+                        "sticky top-0 z-20 px-4 py-3 align-top font-medium [&_[data-testid^='holdings-column-sort-']>span]:whitespace-nowrap",
                         holdingsStickyFirstColumnClassName(column.id === "ticker", "header", "bg-muted/95"),
                         column.align === "right" ? "text-right" : "text-left",
                       )}
-                      style={holdingsColumnCellStyle(columnSettings, column.id)}
+                      style={portfolioHeaderCellStyle(columnSettings, column.id, variant === "default")}
                     >
                       <HoldingsColumnHeaderContent
                         align={column.align}
@@ -771,10 +897,7 @@ export function HoldingsTable({
                     const groupKey = `${group.ticker}::${group.marketCode}`;
                     const groupTickerId = buildHoldingsTickerId(group.marketCode, group.ticker);
                     const showChildren = expandedState.has(groupKey);
-                    const visibleChildren = group.children.filter((child) =>
-                      (selectedAccountIds.length === 0 || selectedAccountIds.includes(child.accountId))
-                      && (selectedStatuses.length === 0 || selectedStatuses.includes(child.quoteStatus)),
-                    );
+                    const visibleChildren = group.children;
 
                     return (
                       <React.Fragment key={groupKey}>
@@ -1168,10 +1291,10 @@ function PortfolioMobileColumnMetric({
       return <MobileHoldingMetric label={dict.holdings.columnAccounts} value={accountCount === null ? "-" : formatNumber(accountCount, locale)} />;
     case "quantity":
       return <MobileHoldingMetric label={dict.holdings.quantityTerm} value={formatNumber(row.quantity, locale)} />;
-    case "avgCost":
+    case "averageCost":
       return (
         <MobileHoldingMetric
-          label={dict.holdings.avgCostTerm}
+          label={dict.holdings.averageCostTerm}
           value={avgCost == null ? "-" : formatCurrencyAmount(avgCost, reportingCurrency, locale)}
           secondary={row.currency !== reportingCurrency ? formatCurrencyAmount(row.averageCostPerShare, row.currency, locale) : undefined}
         />
@@ -1232,7 +1355,7 @@ function PortfolioMobileColumnMetric({
           valueClassName="break-all"
         />
       );
-    case "pnl":
+    case "unrealizedPnl":
       return (
         <MobileHoldingMetric
           label={dict.holdings.pnlTerm}
@@ -1240,7 +1363,7 @@ function PortfolioMobileColumnMetric({
           value={row.reportingUnrealizedPnlAmount == null ? "-" : formatCurrencyAmount(row.reportingUnrealizedPnlAmount, reportingCurrency, locale)}
         />
       );
-    case "health":
+    case "dataHealth":
       return (
         <MobileHoldingMetric
           label={dict.holdings.dataHealthTerm}
@@ -1249,7 +1372,7 @@ function PortfolioMobileColumnMetric({
         />
       );
     case "costBasis":
-      return <MobileHoldingMetric label={dict.holdings.totalCostTerm} value={row.reportingCostBasisAmount == null ? "-" : formatCurrencyAmount(row.reportingCostBasisAmount, reportingCurrency, locale)} />;
+      return <MobileHoldingMetric label={dict.holdings.costBasisTerm} value={row.reportingCostBasisAmount == null ? "-" : formatCurrencyAmount(row.reportingCostBasisAmount, reportingCurrency, locale)} />;
     case "allocation":
       return (
         <MobileHoldingMetric
@@ -1258,9 +1381,9 @@ function PortfolioMobileColumnMetric({
           detail={allocation.usedFallback ? `${dict.dashboardHome.allocationFallbackLabel}: ${formatCurrencyAmount(allocation.amount, reportingCurrency, locale)}` : undefined}
         />
       );
-    case "nextDividend":
+    case "nextDividendDate":
       return <MobileHoldingMetric label={dict.dashboardHome.nextDividendLabel} value={row.nextDividendDate ? formatDateLabel(row.nextDividendDate, locale) : "-"} />;
-    case "lastDividend":
+    case "lastDividendDate":
       return <MobileHoldingMetric label={dict.dashboardHome.lastDividendLabel} value={row.lastDividendPostedDate ? formatDateLabel(row.lastDividendPostedDate, locale) : "-"} />;
     case "ticker":
       return null;
@@ -1411,29 +1534,47 @@ function portfolioColumnLabel(dict: AppDictionary, column: HoldingsColumn) {
       return dict.holdings.parentAccountCountLabel;
     case "quantity":
       return dict.holdings.quantityTerm;
-    case "avgCost":
-      return dict.holdings.avgCostTerm;
+    case "averageCost":
+      return dict.holdings.averageCostTerm;
     case "unitPnl":
       return dict.holdings.unitPnlTerm;
     case "price":
       return dict.holdings.priceTerm;
     case "dailyChange":
-      return dict.dashboardHome.dailyChangeLabel;
+      return dict.reports.dailyChange;
     case "marketValue":
       return dict.holdings.marketValueTerm;
-    case "pnl":
-      return dict.holdings.pnlTerm;
-    case "health":
+    case "unrealizedPnl":
+      return dict.dashboardHome.unrealizedPnlLabel;
+    case "dataHealth":
       return dict.holdings.dataHealthTerm;
     case "costBasis":
-      return dict.holdings.totalCostTerm;
+      return dict.holdings.costBasisTerm;
     case "allocation":
       return dict.holdings.allocationTerm;
-    case "nextDividend":
+    case "nextDividendDate":
       return dict.dashboardHome.nextDividendLabel;
-    case "lastDividend":
+    case "lastDividendDate":
       return dict.dashboardHome.lastDividendLabel;
   }
+}
+
+function portfolioDetailedColumnWidth(
+  settings: HoldingsColumnSettingsState<HoldingsColumn>,
+  column: HoldingsColumn,
+): number {
+  return Math.max(settings.getColumnWidth(column), PORTFOLIO_DETAILED_MIN_COLUMN_WIDTHS[column]);
+}
+
+function portfolioHeaderCellStyle(
+  settings: HoldingsColumnSettingsState<HoldingsColumn>,
+  column: HoldingsColumn,
+  enforceReadableMinimum: boolean,
+): CSSProperties {
+  const style = holdingsColumnCellStyle(settings, column);
+  if (!enforceReadableMinimum) return style;
+  const width = portfolioDetailedColumnWidth(settings, column);
+  return { maxWidth: width, minWidth: width, width };
 }
 
 function HoldingGroupCell({
@@ -1527,7 +1668,7 @@ function HoldingGroupCell({
   if (column === "quantity") {
     return <td className="px-4 py-3 text-right text-foreground" style={style}>{formatNumber(group.quantity, locale)}</td>;
   }
-  if (column === "avgCost") {
+  if (column === "averageCost") {
     const avgCost = getDashboardReportingAverageCost(group, reportingCurrency);
     return (
       <td className="px-4 py-3 text-right font-mono tabular-nums" style={style}>
@@ -1594,7 +1735,7 @@ function HoldingGroupCell({
       </td>
     );
   }
-  if (column === "pnl") {
+  if (column === "unrealizedPnl") {
     return (
       <td className={cn("px-4 py-3 text-right font-medium", getUnrealizedPnlTone(unrealizedPnlAmount))} style={style}>
         {unrealizedPnlAmount != null ? formatCurrencyAmount(unrealizedPnlAmount, reportingCurrency, locale) : "-"}
@@ -1602,7 +1743,7 @@ function HoldingGroupCell({
       </td>
     );
   }
-  if (column === "health") {
+  if (column === "dataHealth") {
     return (
       <td className="px-4 py-3" style={style}>
         <HoldingsDataHealthBadges dict={dict} locale={locale} row={group} showAllocationFallback />
@@ -1624,7 +1765,7 @@ function HoldingGroupCell({
       </td>
     );
   }
-  if (column === "nextDividend") {
+  if (column === "nextDividendDate") {
     return <td className="px-4 py-3 text-right" style={style}>{group.nextDividendDate ? formatDateLabel(group.nextDividendDate, locale) : "-"}</td>;
   }
   return <td className="px-4 py-3 text-right" style={style}>{group.lastDividendPostedDate ? formatDateLabel(group.lastDividendPostedDate, locale) : "-"}</td>;
@@ -1706,7 +1847,7 @@ function HoldingChildCell({
   if (column === "quantity") {
     return <td className="px-4 py-3 text-right" style={style}>{formatNumber(child.quantity, locale)}</td>;
   }
-  if (column === "avgCost") {
+  if (column === "averageCost") {
     const avgCost = getDashboardReportingAverageCost(child, reportingCurrency);
     return (
       <td className="px-4 py-3 text-right font-mono tabular-nums" style={style}>
@@ -1765,7 +1906,7 @@ function HoldingChildCell({
       </td>
     );
   }
-  if (column === "pnl") {
+  if (column === "unrealizedPnl") {
     return (
       <td className={cn("px-4 py-3 text-right font-medium", getUnrealizedPnlTone(unrealizedPnlAmount))} style={style}>
         {unrealizedPnlAmount != null ? formatCurrencyAmount(unrealizedPnlAmount, reportingCurrency, locale) : "-"}
@@ -1773,7 +1914,7 @@ function HoldingChildCell({
       </td>
     );
   }
-  if (column === "health") {
+  if (column === "dataHealth") {
     return (
       <td className="px-4 py-3" style={style}>
         <HoldingsDataHealthBadges dict={dict} locale={locale} row={child} showAllocationFallback />
@@ -1795,7 +1936,7 @@ function HoldingChildCell({
       </td>
     );
   }
-  if (column === "nextDividend") {
+  if (column === "nextDividendDate") {
     return <td className="px-4 py-3 text-right" style={style}>{child.nextDividendDate ? formatDateLabel(child.nextDividendDate, locale) : "-"}</td>;
   }
   return <td className="px-4 py-3 text-right" style={style}>{child.lastDividendPostedDate ? formatDateLabel(child.lastDividendPostedDate, locale) : "-"}</td>;
@@ -1868,6 +2009,131 @@ function getDailyChangeTone(change: number): string {
 
 function getUnrealizedPnlTone(value: number | null): string {
   return holdingsFinanceToneClass(value, "text-muted-foreground");
+}
+
+export function portfolioHoldingSortKey(
+  row: DetailHoldingRow,
+  field: HoldingsSortField,
+  allocationPercent: number | null,
+): HoldingsSortPrimitive {
+  switch (field) {
+    case "ticker":
+      return row.ticker;
+    case "accountCount":
+      return "accountCount" in row ? row.accountCount : 1;
+    case "quantity":
+      return row.quantity;
+    case "averageCost":
+      return getDashboardReportingAverageCost(row, row.reportingCurrency);
+    case "price":
+      return finitePortfolioSortPrice(row.reportingCurrentUnitPrice) ?? finitePortfolioSortPrice(row.currentUnitPrice);
+    case "unitPnl":
+      return getDashboardUnitPnl(row, row.reportingCurrency).amount;
+    case "marketValue":
+      return row.reportingMarketValueAmount;
+    case "costBasis":
+      return row.reportingCostBasisAmount;
+    case "dailyChangePercent":
+      return row.changePercent;
+    case "unrealizedPnl":
+      return row.reportingUnrealizedPnlAmount;
+    case "allocation":
+      return allocationPercent;
+    case "dataHealth": {
+      const fxRank = row.fxStatus === "missing" ? 50 : row.fxStatus === "partial" ? 25 : 0;
+      const allocationRank = row.allocationBasisFallbackReason ? 10 : 0;
+      return (priceStateSortRank(row) * 100) + fxRank + allocationRank;
+    }
+    case "nextDividendDate":
+      return row.nextDividendDate;
+    case "lastDividendDate":
+      return row.lastDividendPostedDate;
+  }
+}
+
+function finitePortfolioSortPrice(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function sumPortfolioValues(values: Array<number | null | undefined>): number | null {
+  if (values.length === 0 || values.some((value) => value == null || !Number.isFinite(value))) return null;
+  return values.reduce<number>((sum, value) => sum + (value ?? 0), 0);
+}
+
+function firstFinitePortfolioValue(values: Array<number | null | undefined>): number | null {
+  return values.find((value): value is number => typeof value === "number" && Number.isFinite(value)) ?? null;
+}
+
+function sortPortfolioAccountHoldings(
+  rows: DashboardOverviewHoldingChildDto[],
+): DashboardOverviewHoldingChildDto[] {
+  return rows.slice().sort((left, right) =>
+    (left.accountName?.trim() || left.accountId).localeCompare(right.accountName?.trim() || right.accountId)
+    || left.accountId.localeCompare(right.accountId));
+}
+
+function projectPortfolioHoldingGroup(
+  group: DashboardOverviewHoldingGroupDto,
+  children: DashboardOverviewHoldingChildDto[],
+): DashboardOverviewHoldingGroupDto {
+  if (children.length === group.children.length) return group;
+  const quantity = children.reduce((sum, child) => sum + child.quantity, 0);
+  const previousValue = children.every((child) => child.previousClose != null)
+    ? children.reduce((sum, child) => sum + ((child.previousClose ?? 0) * child.quantity), 0)
+    : null;
+  const change = sumPortfolioValues(children.map((child) => child.change));
+  const worstPriceStateChild = children.reduce<DashboardOverviewHoldingChildDto | null>(
+    (worst, child) => worst === null || priceStateSortRank(child) > priceStateSortRank(worst) ? child : worst,
+    null,
+  );
+  const fxStatuses = children.map((child) => child.fxStatus);
+
+  return {
+    ...group,
+    quantity,
+    accountCount: children.length,
+    averageCostPerShare: quantity > 0
+      ? children.reduce((sum, child) => sum + (child.averageCostPerShare * child.quantity), 0) / quantity
+      : 0,
+    currentUnitPrice: firstFinitePortfolioValue(children.map((child) => child.currentUnitPrice)),
+    costBasisAmount: children.reduce((sum, child) => sum + child.costBasisAmount, 0),
+    marketValueAmount: sumPortfolioValues(children.map((child) => child.marketValueAmount)),
+    unrealizedPnlAmount: sumPortfolioValues(children.map((child) => child.unrealizedPnlAmount)),
+    allocationPct: null,
+    change,
+    changePercent: change != null && previousValue != null && previousValue > 0 ? (change / previousValue) * 100 : null,
+    previousClose: previousValue != null && previousValue > 0 && quantity > 0 ? previousValue / quantity : null,
+    quoteStatus: children.some((child) => child.quoteStatus === "missing")
+      ? "missing"
+      : children.some((child) => child.quoteStatus === "provisional") ? "provisional" : "current",
+    nextDividendDate: children
+      .map((child) => child.nextDividendDate)
+      .filter((value): value is string => Boolean(value))
+      .sort()[0] ?? null,
+    lastDividendPostedDate: children
+      .map((child) => child.lastDividendPostedDate)
+      .filter((value): value is string => Boolean(value))
+      .sort()
+      .at(-1) ?? null,
+    priceState: worstPriceStateChild?.priceState ?? group.priceState,
+    reportingCurrentUnitPrice: firstFinitePortfolioValue(children.map((child) => child.reportingCurrentUnitPrice)),
+    reportingCostBasisAmount: sumPortfolioValues(children.map((child) => child.reportingCostBasisAmount)),
+    reportingMarketValueAmount: sumPortfolioValues(children.map((child) => child.reportingMarketValueAmount)),
+    reportingUnrealizedPnlAmount: sumPortfolioValues(children.map((child) => child.reportingUnrealizedPnlAmount)),
+    reportingDailyChangeAmount: sumPortfolioValues(children.map((child) => child.reportingDailyChangeAmount)),
+    reportingAllocationPercent: null,
+    reportingMarketAllocationPercent: null,
+    fxStatus: fxStatuses.length > 0 && fxStatuses.every((status) => status === "complete")
+      ? "complete"
+      : fxStatuses.includes("missing") ? "missing" : "partial",
+    allocationBasisUsed: children.every((child) => child.allocationBasisUsed === children[0]?.allocationBasisUsed)
+      ? children[0]?.allocationBasisUsed ?? group.allocationBasisUsed
+      : group.allocationBasisUsed,
+    allocationBasisFallbackReason: children.some((child) => child.allocationBasisFallbackReason === "missing_quote")
+      ? "missing_quote"
+      : null,
+    children,
+  };
 }
 
 function splitMobileHoldingColumns<ColumnId extends string>(

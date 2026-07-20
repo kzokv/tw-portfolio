@@ -6571,13 +6571,22 @@ export class MemoryPersistence implements Persistence {
           ? currentSettings.contexts
           : {};
         const patchContexts = isPlainObject(value.contexts) ? value.contexts : {};
+        const mergedContexts: Record<string, unknown> = { ...currentContexts };
+        for (const [contextKey, patchContext] of Object.entries(patchContexts)) {
+          const currentContext = currentContexts[contextKey];
+          const mergedContext = isPlainObject(currentContext) && isPlainObject(patchContext)
+            ? { ...currentContext, ...patchContext }
+            : patchContext;
+          if (isPlainObject(mergedContext) && isPlainObject(patchContext) && patchContext.sortMode === "custom") {
+            delete mergedContext.sortField;
+            delete mergedContext.sortDirection;
+          }
+          mergedContexts[contextKey] = mergedContext;
+        }
         next.holdingsTableSettings = {
           ...currentSettings,
           ...value,
-          contexts: {
-            ...currentContexts,
-            ...patchContexts,
-          },
+          contexts: mergedContexts,
         };
       } else if (
         key === "adminMarketDataTableSettings"

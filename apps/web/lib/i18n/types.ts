@@ -433,7 +433,7 @@ export interface AppDictionary {
         colTicker: string;
         colMarket: string;
         colAccounts: string;
-        colShares: string;
+        colQuantity: string;
         colMarketValue: string;
         colAllocation: string;
         unavailableValue: string;
@@ -520,7 +520,7 @@ export interface AppDictionary {
     topHoldingsDetailsLabel: string;
     topHoldingsAccountRowsShowAria: string;
     topHoldingsAccountRowsHideAria: string;
-    topHoldingsAccountPosition: string;
+    topHoldingsAccountHolding: string;
     topHoldingsFxUsedTitle: string;
     topHoldingsFxNoConversion: string;
     topHoldingsFxConverted: string;
@@ -543,7 +543,7 @@ export interface AppDictionary {
     topHoldingsDailyMove: string;
     topHoldingsNativeDailyMove: string;
     topHoldingsReportingAverageCost: string;
-    largestPositionLabel: string;
+    largestHoldingLabel: string;
     concentrationLabel: string;
     allocationLabel: string;
     averageCostLabel: string;
@@ -612,7 +612,7 @@ export interface AppDictionary {
     commandUnrealizedLabel: string;
     reportingCurrencyTitle: string;
     reportingCurrencyBaseline: string;
-    positionsCount: string;
+    holdingsCount: string;
     marketsCount: string;
     range1MLabel: string;
     range3MLabel: string;
@@ -763,7 +763,7 @@ export interface AppDictionary {
     basisFxUnavailableForPairs: string;
     basisFxNotRequired: string;
     marketValue: string;
-    bookCost: string;
+    costBasis: string;
     unrealizedPnl: string;
     realizedPnl: string;
     dailyChange: string;
@@ -787,8 +787,8 @@ export interface AppDictionary {
     tickerAllocationTopNLabel: string;
     tickerAllocationTopNAuto: string;
     tickerAllocationTopNAll: string;
-    tickerAllocationPortfolioWeight: string;
-    tickerAllocationSelectedWeight: string;
+    tickerAllocationPortfolioAllocation: string;
+    tickerAllocationSelectedAllocation: string;
     tickerAllocationOtherLabel: string;
     tickerAllocationOtherDescription: string;
     tickerAllocationDetailTitle: string;
@@ -818,12 +818,14 @@ export interface AppDictionary {
     noAllocationBuckets: string;
     totalRows: string;
     ticker: string;
-    position: string;
-    unitsLabel: string;
+    holding: string;
+    quantityLabel: string;
     accountAbbrev: string;
     price: string;
+    averageCost: string;
     pnl: string;
-    weight: string;
+    allocationLabel: string;
+    actions: string;
     openTicker: string;
     openTickerAria: string;
     viewDetails: string;
@@ -832,7 +834,7 @@ export interface AppDictionary {
     reportingPrice: string;
     nativePrice: string;
     nativeMarketValue: string;
-    nativeBookCost: string;
+    nativeCostBasis: string;
     fxRate: string;
     accounts: string;
     quantity: string;
@@ -2032,7 +2034,7 @@ export interface AppDictionary {
     tickerTerm: string;
     quantityTerm: string;
     currencyTerm: string;
-    totalCostTerm: string;
+    costBasisTerm: string;
     displayModeLabel: string;
     displayModeAggregated: string;
     displayModeExpanded: string;
@@ -2051,7 +2053,7 @@ export interface AppDictionary {
     parentAccountCountLabel: string;
     dividendTerm: string;
     pnlTerm: string;
-    avgCostTerm: string;
+    averageCostTerm: string;
     unitPnlTerm: string;
     priceTerm: string;
     marketValueTerm: string;
@@ -2068,6 +2070,15 @@ export interface AppDictionary {
     columnSettingsTitle: string;
     dragColumnTitle: string;
     dragRowTitle: string;
+    hiddenSortLabel: string;
+    customSortLabel: string;
+    mobileSortDirectionLabel: string;
+    mobileSortDirectionUnavailableLabel: string;
+    mobileSortFieldLabel: string;
+    resetSortLabel: string;
+    sortAscendingLabel: string;
+    sortDescendingLabel: string;
+    sortTooltip: string;
     fxStatusComplete: string;
     fxStatusPartial: string;
     fxStatusMissing: string;
