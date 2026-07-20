@@ -618,6 +618,55 @@ describe("HoldingsTable", () => {
     expect(holdingGroupMatchesStatusFilter(mixedGroup, ["current"], "accounts")).toBe(true);
   });
 
+  it("preserves full ticker totals when an aggregated status filter matches the group", async () => {
+    const mixedGroup: DashboardOverviewHoldingGroupDto = {
+      ...baseGroup,
+      ticker: "MIXED",
+      quantity: 579,
+      quoteStatus: "missing",
+      accountCount: 2,
+      children: [
+        {
+          ...baseGroup,
+          accountId: "acc-current",
+          accountName: "Current account",
+          ticker: "MIXED",
+          quantity: 123,
+          quoteStatus: "current",
+        },
+        {
+          ...baseGroup,
+          accountId: "acc-missing",
+          accountName: "Missing account",
+          ticker: "MIXED",
+          quantity: 456,
+          quoteStatus: "missing",
+          currentUnitPrice: null,
+          marketValueAmount: null,
+          unrealizedPnlAmount: null,
+          reportingMarketValueAmount: null,
+          reportingUnrealizedPnlAmount: null,
+        },
+      ],
+    };
+    const rendered = renderTable([mixedGroup]);
+    root = rendered.root;
+    container = rendered.container;
+
+    pointerDown(container.querySelector("[data-testid='holdings-filter-status']")!);
+    await flushPromises();
+    const missingStatusLabel = Array.from(document.body.querySelectorAll("label"))
+      .find((label) => label.textContent?.includes(dict.holdings.statusMissing));
+    expect(missingStatusLabel).toBeDefined();
+    click(missingStatusLabel!.querySelector("[role='checkbox']")!);
+    await flushPromises();
+
+    const aggregateRow = container.querySelector("[data-testid='holding-group-row-MIXED-US']");
+    expect(aggregateRow).not.toBeNull();
+    expect(aggregateRow?.textContent).toContain("579");
+    expect(aggregateRow?.textContent).toContain("2");
+  });
+
   it("keeps mobile current price comparisons on the fixed success/destructive palette", async () => {
     vi.mocked(getJson).mockResolvedValue({
       preferences: {

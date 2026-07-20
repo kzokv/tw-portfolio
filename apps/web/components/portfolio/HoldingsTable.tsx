@@ -351,7 +351,11 @@ export function HoldingsTable({
           || group.marketCode.toUpperCase().includes(normalizedQuery));
       const visibleChildren = group.children.filter((child) => {
         if (selectedAccountIds.length > 0 && !selectedAccountIds.includes(child.accountId)) return false;
-        if (selectedStatuses.length > 0 && !selectedStatuses.includes(child.quoteStatus)) return false;
+        if (
+          displayMode !== "aggregated"
+          && selectedStatuses.length > 0
+          && !selectedStatuses.includes(child.quoteStatus)
+        ) return false;
         return !normalizedQuery
           || groupIdentityMatchesQuery
           || child.ticker.toUpperCase().includes(normalizedQuery)
@@ -360,7 +364,7 @@ export function HoldingsTable({
       });
       return projectPortfolioHoldingGroup(group, visibleChildren);
     });
-  }, [deferredQuery, filteredGroups, selectedAccountIds, selectedStatuses]);
+  }, [deferredQuery, displayMode, filteredGroups, selectedAccountIds, selectedStatuses]);
 
   const groupAllocationMap = useMemo(
     () => buildAllocationPercentages(projectedGroups, effectiveAllocationBasis),
