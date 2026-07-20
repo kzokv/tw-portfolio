@@ -255,6 +255,58 @@ describe("DashboardHoldingsPreview sorting surface contract", () => {
     expect(vi.mocked(patchJson)).toHaveBeenCalledTimes(1);
   });
 
+  it("maps a hydrated legacy preset to its sort when the table has no persisted sort", async () => {
+    vi.mocked(getJson).mockResolvedValue({
+      preferences: {
+        dashboardHoldingFocus: {
+          selectedPreset: "worst-pnl",
+          hiddenPresets: [],
+          presetOrder: ["largest", "highest-allocation", "worst-pnl", "best-pnl", "fx-exposure", "stale-quotes"],
+        },
+        holdingsTableSettings: {
+          version: 1,
+          contexts: {
+            "dashboard.surface-contract": { topHoldingsLimit: 8 },
+          },
+        },
+      },
+    });
+    ({ root, container } = renderDashboard(presetFixtures));
+    await flush();
+    await flush();
+
+    expect(desktopOrder(container)).toEqual(["WORST-US", "STALE-JP", "LARGE-TW", "BEST-US", "MISSING-AU"]);
+    expectActiveSort(container, "unrealizedPnl", "ascending");
+    expect(vi.mocked(patchJson)).not.toHaveBeenCalled();
+  });
+
+  it("keeps an explicit table sort authoritative over a hydrated legacy preset", async () => {
+    vi.mocked(getJson).mockResolvedValue({
+      preferences: {
+        dashboardHoldingFocus: {
+          selectedPreset: "worst-pnl",
+          hiddenPresets: [],
+          presetOrder: ["largest", "highest-allocation", "worst-pnl", "best-pnl", "fx-exposure", "stale-quotes"],
+        },
+        holdingsTableSettings: {
+          version: 1,
+          contexts: {
+            "dashboard.surface-contract": {
+              sortMode: "field",
+              sortField: "ticker",
+              sortDirection: "desc",
+            },
+          },
+        },
+      },
+    });
+    ({ root, container } = renderDashboard(presetFixtures));
+    await flush();
+
+    expect(desktopOrder(container)).toEqual(["WORST-US", "STALE-JP", "MISSING-AU", "LARGE-TW", "BEST-US"]);
+    expectActiveSort(container, "ticker", "descending");
+  });
+
   it("renders synchronized mobile sorting and lets Custom be selected directly in one persistence action", async () => {
     vi.mocked(getJson).mockResolvedValue(response({
       rowOrder: ["TW:TOP", "US:TIE-B"],

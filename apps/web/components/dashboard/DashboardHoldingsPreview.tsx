@@ -81,6 +81,10 @@ import {
   type HoldingsGridColumnDefinition,
   type HoldingsColumnSettingsState,
 } from "../holdings/HoldingsColumnSettings";
+import {
+  resolveHoldingsTableContextPreference,
+  resolveHoldingsTableSettingsPreference,
+} from "../holdings/holdingsPreferenceHelpers";
 import { sortHoldingsRows, type HoldingsSortPrimitive } from "../holdings/holdingsSorting";
 import {
   HoldingsGridDesktopFrame,
@@ -153,6 +157,7 @@ const HOLDING_FOCUS_PRESET_BY_ID = new Map(HOLDING_FOCUS_PRESETS.map((preset) =>
 interface UserPreferencesResponse {
   preferences?: {
     dashboardHoldingFocus?: unknown;
+    holdingsTableSettings?: unknown;
   };
 }
 
@@ -196,6 +201,15 @@ export function DashboardHoldingsPreview({
   const [selectedPreset, setSelectedPreset] = useState<DashboardHoldingFocusPreset>(
     DEFAULT_DASHBOARD_HOLDING_FOCUS_PREFERENCE.selectedPreset,
   );
+  const [defaultSort, setDefaultSort] = useState<{
+    sortMode: "field";
+    sortField: HoldingsSortField;
+    sortDirection: "asc" | "desc";
+  }>(() => ({
+    sortMode: "field" as const,
+    sortField: "marketValue" as const,
+    sortDirection: "desc" as const,
+  }));
   const dashboardHoldingColumns = useMemo(
     () => {
       const localizedDict = getDictionary(locale);
@@ -210,7 +224,7 @@ export function DashboardHoldingsPreview({
     columns: dashboardHoldingColumns,
     contextKey: settingsContextKey,
     defaultLayoutStyle: "dashboard",
-    defaultSort: { sortMode: "field", sortField: "marketValue", sortDirection: "desc" },
+    defaultSort,
     mobileSummaryColumnIds: DASHBOARD_MOBILE_FIELD_COLUMNS,
     supportedSortFields: DASHBOARD_SUPPORTED_SORT_FIELDS,
   });
@@ -232,6 +246,20 @@ export function DashboardHoldingsPreview({
         setPresetOrder([...preference.presetOrder]);
         setHiddenPresetIds(new Set(preference.hiddenPresets));
         setSelectedPreset(preference.selectedPreset);
+        const tableSettings = resolveHoldingsTableSettingsPreference(
+          response?.preferences?.holdingsTableSettings,
+        );
+        const persistedContext = resolveHoldingsTableContextPreference(tableSettings.contexts, settingsContextKey);
+        if (persistedContext?.sortMode === undefined) {
+          const preset = HOLDING_FOCUS_PRESET_BY_ID.get(preference.selectedPreset);
+          if (preset) {
+            setDefaultSort({
+              sortMode: "field",
+              sortField: preset.sortField,
+              sortDirection: preset.sortDirection,
+            });
+          }
+        }
       })
       .catch(() => {
         // Keep the built-in preset defaults when preferences cannot be loaded.
@@ -239,7 +267,7 @@ export function DashboardHoldingsPreview({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [settingsContextKey]);
   const accountOptions = useMemo(() => {
     const accounts = new Map<string, string>();
     for (const group of groups) {

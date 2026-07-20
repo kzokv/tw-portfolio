@@ -281,8 +281,14 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
 
   useEffect(() => {
     setSettings((current) => {
+      const persistedContext = resolveHoldingsTableContextPreference(contextsRef.current, contextKey);
+      const normalizationSource = hasHydratedPreferencesRef.current
+        && !hasLocalEditRef.current
+        && persistedContext?.sortMode === undefined
+        ? persistedContext
+        : current;
       const next = normalizeContextSettings(
-        current,
+        normalizationSource,
         columns,
         defaultLayoutStyle,
         defaultHiddenColumns,
@@ -294,7 +300,7 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
       );
       return columnSettingsEqual(current, next) ? current : next;
     });
-  }, [columns, defaultHiddenColumns, defaultLayoutStyle, defaultMobileSummaryCount, mobileSummaryCountMax, normalizedSupportedSortFields, pinnedLeadingOrder, resolvedDefaultSort]);
+  }, [columns, contextKey, defaultHiddenColumns, defaultLayoutStyle, defaultMobileSummaryCount, mobileSummaryCountMax, normalizedSupportedSortFields, pinnedLeadingOrder, resolvedDefaultSort]);
 
   useEffect(() => {
     let cancelled = false;
