@@ -408,7 +408,7 @@ describe("shared holdings sort state and controls", () => {
     expect(headerCellProps!(settings, "ticker")).toEqual({});
   });
 
-  it("announces the ascending activation default for an inactive ticker header", () => {
+  it("announces an action for an inactive ticker header instead of claiming it is sorted", () => {
     const setSort = vi.fn();
     const settings = {
       headerProps: () => ({ draggable: true }),
@@ -427,7 +427,8 @@ describe("shared holdings sort state and controls", () => {
       />,
     ));
     const sort = container.querySelector<HTMLButtonElement>('[data-testid="holdings-column-sort-ticker"]');
-    expect(sort?.getAttribute("aria-label")).toMatch(/Ticker.*ascending/i);
+    expect(sort?.getAttribute("aria-label")).toMatch(/Sort Ticker ascending/i);
+    expect(sort?.getAttribute("aria-label")).not.toMatch(/sorted/i);
     act(() => sort?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     expect(setSort).toHaveBeenCalledWith("ticker");
   });

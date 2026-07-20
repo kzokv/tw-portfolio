@@ -92,6 +92,7 @@ export interface HoldingsColumnSettingsCopy {
   mobileSortFieldLabel: string;
   resetSortLabel: string;
   sortAscendingLabel: string;
+  sortActionTooltip: string;
   sortDescendingLabel: string;
   sortTooltip: string;
 }
@@ -219,6 +220,7 @@ const HOLDINGS_SETTINGS_FALLBACK_COPY = {
   mobileSortFieldLabel: "Sort field",
   resetSortLabel: "Reset sort",
   sortAscendingLabel: "ascending",
+  sortActionTooltip: "Sort {column} {direction}",
   sortDescendingLabel: "descending",
   sortTooltip: "{column} sorted {direction}",
 } satisfies HoldingsColumnSettingsCopy;
@@ -1126,7 +1128,7 @@ export function HoldingsColumnHeaderContent<ColumnId extends string>({
   const directionLabel = displayedDirection === "asc"
     ? resolvedCopy.sortAscendingLabel
     : resolvedCopy.sortDescendingLabel;
-  const sortDescription = resolvedCopy.sortTooltip
+  const sortDescription = (activeDirection ? resolvedCopy.sortTooltip : resolvedCopy.sortActionTooltip)
     .replace("{column}", label)
     .replace("{direction}", directionLabel);
   return (

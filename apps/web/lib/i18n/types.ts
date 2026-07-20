@@ -2077,6 +2077,7 @@ export interface AppDictionary {
     mobileSortFieldLabel: string;
     resetSortLabel: string;
     sortAscendingLabel: string;
+    sortActionTooltip: string;
     sortDescendingLabel: string;
     sortTooltip: string;
     fxStatusComplete: string;
