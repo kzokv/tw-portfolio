@@ -22,6 +22,7 @@ import { cn } from "../../lib/utils";
 import {
   canonicalizeHoldingsTableContextColumns,
   fetchHoldingsPreferences,
+  LEGACY_SHARED_HOLDINGS_CONTEXT_KEY,
   persistHoldingsTableContexts,
   sanitizeHoldingsTableContextPatches,
   normalizeHoldingsSortPreference,
@@ -324,7 +325,9 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
       .then(({ contexts: hydratedContexts, migrated }) => {
         if (cancelled) return;
         const nextContexts = hydratedContexts;
-        requiresContextMigrationPersistRef.current = migrated;
+        const requiresContextMigrationPersist = migrated
+          && contextKey !== LEGACY_SHARED_HOLDINGS_CONTEXT_KEY;
+        requiresContextMigrationPersistRef.current = requiresContextMigrationPersist;
         hasHydratedPreferencesRef.current = true;
         if (hasLocalEditRef.current) {
           const localContext = resolveHoldingsTableContextPreference(contextsRef.current, contextKey) ?? serializeSettings(
@@ -356,7 +359,7 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
           setSettings((current) => columnSettingsEqual(current, nextSettings) ? current : nextSettings);
           const pendingDirtyContext = pendingDirtyContextRef.current;
           if (Object.keys(pendingDirtyContext).length > 0) {
-            let outboundContext = migrated
+            let outboundContext = requiresContextMigrationPersist
               ? { ...mergedContexts[contextKey] }
               : { ...pendingDirtyContext };
             if (pendingIncludesRuntimeSortRef.current && !pendingSortIsExplicitRef.current) {
