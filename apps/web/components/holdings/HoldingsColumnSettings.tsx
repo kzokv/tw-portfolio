@@ -3,23 +3,33 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import type {
   AdminMarketDataTableSettingsPreferenceDto,
+  HoldingsSortDirection,
+  HoldingsSortField,
+  HoldingsSortMode,
   HoldingsTableContextPreferenceDto,
   HoldingsTableLayoutStyle,
   HoldingsTableSettingsPreferenceDto,
 } from "@vakwen/shared-types";
 import {
   adminMarketDataTableSettingsPreferenceSchema,
+  HOLDINGS_SORT_FIELDS,
   holdingsTableSettingsPreferenceSchema,
 } from "@vakwen/shared-types";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, GripVertical, ListOrdered, Minus, Plus, RotateCw, RotateCcw, Rows3, Settings2 } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ArrowUpDown, GripVertical, ListOrdered, Minus, Plus, RotateCw, RotateCcw, Rows3, Settings2, X } from "lucide-react";
 import { getJson, patchJson } from "../../lib/api";
 import type { AppDictionary } from "../../lib/i18n/types";
 import { cn } from "../../lib/utils";
 import {
+  canonicalizeHoldingsTableContextColumns,
   fetchHoldingsPreferences,
+  LEGACY_SHARED_HOLDINGS_CONTEXT_KEY,
   persistHoldingsTableContexts,
+  sanitizeHoldingsTableContextPatches,
+  normalizeHoldingsSortPreference,
   resolveHoldingsTableContextPreference,
+  type RuntimeHoldingsSortPreference,
 } from "./holdingsPreferenceHelpers";
+import { defaultHoldingsSortDirection } from "./holdingsSorting";
 import { Button } from "../ui/Button";
 import { Checkbox } from "../ui/shadcn/checkbox";
 import {
@@ -30,6 +40,8 @@ import {
   DropdownMenuTrigger,
 } from "../ui/shadcn/dropdown-menu";
 import { ToggleGroup, ToggleGroupItem } from "../ui/shadcn/toggle-group";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "../ui/shadcn/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "../ui/shadcn/tooltip";
 
 export type HoldingsColumnAlign = "left" | "right";
 
@@ -39,6 +51,7 @@ export interface HoldingsGridColumnDefinition<ColumnId extends string> {
   defaultWidth: number;
   canHide?: boolean;
   align?: HoldingsColumnAlign;
+  sortField?: HoldingsSortField;
 }
 
 interface UserPreferencesResponse {
@@ -73,11 +86,25 @@ export interface HoldingsColumnSettingsCopy {
   topHoldingsLimitLabel: string;
   topHoldingsLimitDecreaseAria: string;
   topHoldingsLimitIncreaseAria: string;
+  hiddenSortLabel: string;
+  customSortLabel: string;
+  mobileSortDirectionLabel: string;
+  mobileSortDirectionUnavailableLabel: string;
+  mobileSortFieldLabel: string;
+  resetSortLabel: string;
+  sortAscendingLabel: string;
+  sortActionTooltip: string;
+  sortDescendingLabel: string;
+  sortTooltip: string;
 }
 
 type ColumnSettingsPreferenceNamespace = "holdingsTableSettings" | "adminMarketDataTableSettings";
 
-interface UseHoldingsColumnSettingsOptions<ColumnId extends string> {
+export type HoldingsDefaultSort =
+  | { sortDirection: HoldingsSortDirection; sortField: HoldingsSortField; sortMode: "field" }
+  | { sortMode: "custom" };
+
+export interface UseHoldingsColumnSettingsOptions<ColumnId extends string> {
   columns: Array<HoldingsGridColumnDefinition<ColumnId>>;
   contextKey: string;
   defaultLayoutStyle?: HoldingsTableLayoutStyle;
@@ -86,6 +113,8 @@ interface UseHoldingsColumnSettingsOptions<ColumnId extends string> {
   mobileSummaryColumnIds?: ColumnId[];
   pinnedLeadingColumns?: ColumnId[];
   preferenceNamespace?: ColumnSettingsPreferenceNamespace;
+  defaultSort?: HoldingsDefaultSort;
+  supportedSortFields?: HoldingsSortField[];
 }
 
 interface ColumnRuntimeSettings<ColumnId extends string> {
@@ -98,6 +127,9 @@ interface ColumnRuntimeSettings<ColumnId extends string> {
   selectedMarketCodes: string[];
   selectedAccountIds: string[];
   topHoldingsLimit: number;
+  sortDirection?: HoldingsSortDirection;
+  sortField?: HoldingsSortField;
+  sortMode?: HoldingsSortMode;
 }
 
 export interface HoldingsColumnSettingsState<ColumnId extends string> {
@@ -113,6 +145,9 @@ export interface HoldingsColumnSettingsState<ColumnId extends string> {
   selectedAccountIds: string[];
   settingsError: string;
   topHoldingsLimit: number;
+  sortDirection?: HoldingsSortDirection;
+  sortField?: HoldingsSortField;
+  sortMode?: HoldingsSortMode;
   getColumnWidth: (column: ColumnId) => number;
   headerProps: (column: ColumnId) => {
     draggable: true;
@@ -133,6 +168,9 @@ export interface HoldingsColumnSettingsState<ColumnId extends string> {
   setSelectedAccountIds: (accountIds: string[]) => void;
   setTopHoldingsLimit: (limit: number) => void;
   toggleColumn: (column: ColumnId) => void;
+  resetSort?: () => void;
+  setCustomSort?: () => void;
+  setSort?: (field: HoldingsSortField, direction?: HoldingsSortDirection) => void;
 }
 
 const MIN_COLUMN_WIDTH = 72;
@@ -141,6 +179,16 @@ const MIN_TOP_HOLDINGS_LIMIT = 1;
 const MAX_TOP_HOLDINGS_LIMIT = 100;
 const DEFAULT_TOP_HOLDINGS_LIMIT = 12;
 const EMPTY_DEFAULT_HIDDEN_COLUMNS: never[] = [];
+const LEGACY_RUNTIME_COLUMN_IDS: Readonly<Record<string, readonly string[]>> = {
+  actions: ["action"],
+  allocation: ["weight"],
+  averageCost: ["avgCost"],
+  dailyChange: ["daily"],
+  dataHealth: ["health"],
+  lastDividendDate: ["lastDividend"],
+  nextDividendDate: ["nextDividend"],
+  unrealizedPnl: ["pnl", "unrealized"],
+};
 const HOLDINGS_SETTINGS_FALLBACK_COPY = {
   columnSettingsButtonLabel: "Columns",
   columnSettingsTitle: "Column settings",
@@ -166,6 +214,16 @@ const HOLDINGS_SETTINGS_FALLBACK_COPY = {
   resizeColumnAria: "Resize {column} column",
   resetColumnsLabel: "Reset",
   toggleColumnAria: "Show {column} column",
+  hiddenSortLabel: "Sorted by {column} {direction}",
+  customSortLabel: "Custom order",
+  mobileSortDirectionLabel: "Change sort direction to {direction}",
+  mobileSortDirectionUnavailableLabel: "Choose a sort field before changing direction",
+  mobileSortFieldLabel: "Sort field",
+  resetSortLabel: "Reset sort",
+  sortAscendingLabel: "ascending",
+  sortActionTooltip: "Sort {column} {direction}",
+  sortDescendingLabel: "descending",
+  sortTooltip: "{column} sorted {direction}",
 } satisfies HoldingsColumnSettingsCopy;
 
 export function useHoldingsColumnSettings<ColumnId extends string>({
@@ -177,7 +235,23 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
   mobileSummaryColumnIds,
   pinnedLeadingColumns = EMPTY_DEFAULT_HIDDEN_COLUMNS,
   preferenceNamespace = "holdingsTableSettings",
+  defaultSort,
+  supportedSortFields,
 }: UseHoldingsColumnSettingsOptions<ColumnId>): HoldingsColumnSettingsState<ColumnId> {
+  const supportedSortFieldsKey = supportedSortFields?.join("|") ?? "";
+  const normalizedSupportedSortFields = useMemo(
+    () => supportedSortFieldsKey.split("|").filter((field): field is HoldingsSortField => field.length > 0),
+    [supportedSortFieldsKey],
+  );
+  const sortEnabled = preferenceNamespace === "holdingsTableSettings"
+    && defaultSort !== undefined
+    && normalizedSupportedSortFields.length > 0;
+  const resolvedDefaultSort = useMemo<RuntimeHoldingsSortPreference | undefined>(() => {
+    if (!sortEnabled || !defaultSort) return undefined;
+    return defaultSort.sortMode === "custom"
+      ? { sortMode: "custom" }
+      : { sortDirection: defaultSort.sortDirection, sortField: defaultSort.sortField, sortMode: "field" };
+  }, [defaultSort?.sortMode, defaultSort?.sortMode === "field" ? defaultSort.sortDirection : undefined, defaultSort?.sortMode === "field" ? defaultSort.sortField : undefined, sortEnabled]);
   const columnIds = useMemo(() => columns.map((column) => column.id), [columns]);
   const pinnedLeadingOrder = useMemo(
     () => pinnedLeadingColumns.filter((column, index) => columnIds.includes(column) && pinnedLeadingColumns.indexOf(column) === index),
@@ -185,8 +259,8 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
   );
   const mobileSummaryCountMax = Math.max(1, mobileSummaryColumnIds?.length ?? columns.length);
   const defaultSettings = useMemo(
-    () => buildDefaultSettings(columns, defaultLayoutStyle, defaultHiddenColumns, defaultMobileSummaryCount, mobileSummaryCountMax, pinnedLeadingOrder),
-    [columns, defaultLayoutStyle, defaultHiddenColumns, defaultMobileSummaryCount, mobileSummaryCountMax, pinnedLeadingOrder],
+    () => buildDefaultSettings(columns, defaultLayoutStyle, defaultHiddenColumns, defaultMobileSummaryCount, mobileSummaryCountMax, pinnedLeadingOrder, resolvedDefaultSort),
+    [columns, defaultLayoutStyle, defaultHiddenColumns, defaultMobileSummaryCount, mobileSummaryCountMax, pinnedLeadingOrder, resolvedDefaultSort],
   );
   const [contexts, setContexts] = useState<Record<string, HoldingsTableContextPreferenceDto>>({});
   const [draggedColumn, setDraggedColumn] = useState<ColumnId | null>(null);
@@ -194,6 +268,10 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
   const [settingsError, setSettingsError] = useState("");
   const hasHydratedPreferencesRef = useRef(false);
   const hasLocalEditRef = useRef(false);
+  const pendingDirtyContextRef = useRef<HoldingsTableContextPreferenceDto>({});
+  const pendingIncludesRuntimeSortRef = useRef(false);
+  const pendingSortIsExplicitRef = useRef(false);
+  const requiresContextMigrationPersistRef = useRef(false);
   const contextsRef = useRef(contexts);
   const settingsRef = useRef(settings);
 
@@ -207,18 +285,26 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
 
   useEffect(() => {
     setSettings((current) => {
+      const persistedContext = resolveHoldingsTableContextPreference(contextsRef.current, contextKey);
+      const normalizationSource = hasHydratedPreferencesRef.current
+        && !hasLocalEditRef.current
+        && persistedContext?.sortMode === undefined
+        ? persistedContext
+        : current;
       const next = normalizeContextSettings(
-        current,
+        normalizationSource,
         columns,
         defaultLayoutStyle,
         defaultHiddenColumns,
         defaultMobileSummaryCount,
         mobileSummaryCountMax,
         pinnedLeadingOrder,
+        resolvedDefaultSort,
+        normalizedSupportedSortFields,
       );
       return columnSettingsEqual(current, next) ? current : next;
     });
-  }, [columns, defaultHiddenColumns, defaultLayoutStyle, defaultMobileSummaryCount, mobileSummaryCountMax, pinnedLeadingOrder]);
+  }, [columns, contextKey, defaultHiddenColumns, defaultLayoutStyle, defaultMobileSummaryCount, mobileSummaryCountMax, normalizedSupportedSortFields, pinnedLeadingOrder, resolvedDefaultSort]);
 
   useEffect(() => {
     let cancelled = false;
@@ -236,12 +322,19 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
           };
         });
     void hydratePreferences
-      .then(({ contexts: hydratedContexts }) => {
+      .then(({ contexts: hydratedContexts, migrated }) => {
         if (cancelled) return;
         const nextContexts = hydratedContexts;
+        const requiresContextMigrationPersist = migrated
+          && contextKey !== LEGACY_SHARED_HOLDINGS_CONTEXT_KEY;
+        requiresContextMigrationPersistRef.current = requiresContextMigrationPersist;
         hasHydratedPreferencesRef.current = true;
         if (hasLocalEditRef.current) {
-          const localContext = resolveHoldingsTableContextPreference(contextsRef.current, contextKey) ?? serializeSettings(settingsRef.current);
+          const localContext = resolveHoldingsTableContextPreference(contextsRef.current, contextKey) ?? serializeSettings(
+            settingsRef.current,
+            contextKey,
+            preferenceNamespace,
+          );
           const mergedContexts = {
             ...nextContexts,
             ...contextsRef.current,
@@ -252,19 +345,40 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
           };
           contextsRef.current = mergedContexts;
           setContexts(mergedContexts);
-          setSettings((current) => {
-            const next = normalizeContextSettings(
-              resolveHoldingsTableContextPreference(mergedContexts, contextKey),
-              columns,
-              defaultLayoutStyle,
-              defaultHiddenColumns,
-              defaultMobileSummaryCount,
-              mobileSummaryCountMax,
-              pinnedLeadingOrder,
-            );
-            return columnSettingsEqual(current, next) ? current : next;
-          });
-          persistContexts(mergedContexts, [contextKey]);
+          const nextSettings = normalizeContextSettings(
+            resolveHoldingsTableContextPreference(mergedContexts, contextKey),
+            columns,
+            defaultLayoutStyle,
+            defaultHiddenColumns,
+            defaultMobileSummaryCount,
+            mobileSummaryCountMax,
+            pinnedLeadingOrder,
+            resolvedDefaultSort,
+            normalizedSupportedSortFields,
+          );
+          setSettings((current) => columnSettingsEqual(current, nextSettings) ? current : nextSettings);
+          const pendingDirtyContext = pendingDirtyContextRef.current;
+          if (Object.keys(pendingDirtyContext).length > 0) {
+            let outboundContext = requiresContextMigrationPersist
+              ? { ...mergedContexts[contextKey] }
+              : { ...pendingDirtyContext };
+            if (pendingIncludesRuntimeSortRef.current && !pendingSortIsExplicitRef.current) {
+              delete outboundContext.sortMode;
+              delete outboundContext.sortField;
+              delete outboundContext.sortDirection;
+              outboundContext = withPersistedRuntimeSort(
+                outboundContext,
+                nextSettings,
+                preferenceNamespace,
+                resolveHoldingsTableContextPreference(nextContexts, contextKey),
+                normalizedSupportedSortFields,
+              );
+            }
+            persistContexts(mergedContexts, { [contextKey]: outboundContext });
+          }
+          pendingDirtyContextRef.current = {};
+          pendingIncludesRuntimeSortRef.current = false;
+          pendingSortIsExplicitRef.current = false;
           return;
         }
         contextsRef.current = nextContexts;
@@ -278,6 +392,8 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
             defaultMobileSummaryCount,
             mobileSummaryCountMax,
             pinnedLeadingOrder,
+            resolvedDefaultSort,
+            normalizedSupportedSortFields,
           );
           return columnSettingsEqual(current, next) ? current : next;
         });
@@ -290,7 +406,7 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     return () => {
       cancelled = true;
     };
-  }, [columns, contextKey, defaultHiddenColumns, defaultLayoutStyle, defaultMobileSummaryCount, mobileSummaryCountMax, pinnedLeadingOrder, preferenceNamespace]);
+  }, [columns, contextKey, defaultHiddenColumns, defaultLayoutStyle, defaultMobileSummaryCount, mobileSummaryCountMax, normalizedSupportedSortFields, pinnedLeadingOrder, preferenceNamespace, resolvedDefaultSort]);
 
   const orderedColumns = useMemo(
     () => settings.columnOrder
@@ -299,19 +415,20 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     [columns, settings.columnOrder],
   );
 
-  function persistContexts(nextContexts: Record<string, HoldingsTableContextPreferenceDto>, dirtyContextKeys: string[]) {
+  function persistContexts(
+    nextContexts: Record<string, HoldingsTableContextPreferenceDto>,
+    dirtyContexts: Record<string, HoldingsTableContextPreferenceDto>,
+  ) {
     if (preferenceNamespace === "holdingsTableSettings") {
-      const dirtyContexts = dirtyContextKeys.reduce<Record<string, HoldingsTableContextPreferenceDto>>((acc, key) => {
-        const context = nextContexts[key];
-        if (context) acc[key] = context;
-        return acc;
-      }, {});
       void persistHoldingsTableContexts(dirtyContexts, nextContexts).catch((error) => {
         setSettingsError(error instanceof Error ? error.message : String(error));
       });
       return;
     }
-    const payload = buildPreferencePayload(preferenceNamespace, nextContexts);
+    const payload = buildPreferencePayload(
+      preferenceNamespace,
+      sanitizeAdminMarketDataContextPatches(dirtyContexts),
+    );
     void patchJson("/user-preferences", { [preferenceNamespace]: payload }, { contextScope: "session" })
       .catch((error) => {
         setSettingsError(error instanceof Error ? error.message : String(error));
@@ -320,14 +437,32 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
 
   function persist(next: ColumnRuntimeSettings<ColumnId>) {
     hasLocalEditRef.current = true;
-    const serialized = serializeSettings(next);
-    const mergedContexts = { ...contextsRef.current, [contextKey]: serialized };
+    const serialized = serializeSettings(
+      next,
+      contextKey,
+      preferenceNamespace,
+      contextsRef.current[contextKey],
+    );
+    const mergedContexts = {
+      ...contextsRef.current,
+      [contextKey]: { ...contextsRef.current[contextKey], ...serialized },
+    };
     contextsRef.current = mergedContexts;
     setContexts(mergedContexts);
     setSettings(next);
     setSettingsError("");
     if (hasHydratedPreferencesRef.current) {
-      persistContexts(mergedContexts, [contextKey]);
+      const dirtyContext = withPersistedRuntimeSort(
+        serialized,
+        next,
+        preferenceNamespace,
+        contextsRef.current[contextKey],
+        normalizedSupportedSortFields,
+      );
+      persistContexts(mergedContexts, { [contextKey]: dirtyContext });
+    } else {
+      pendingDirtyContextRef.current = { ...pendingDirtyContextRef.current, ...serialized };
+      pendingIncludesRuntimeSortRef.current = true;
     }
   }
 
@@ -343,7 +478,52 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     setSettings(next);
     setSettingsError("");
     if (hasHydratedPreferencesRef.current) {
-      persistContexts(mergedContexts, [contextKey]);
+      persistContexts(mergedContexts, {
+        [contextKey]: requiresContextMigrationPersistRef.current ? mergedContext : patch,
+      });
+    } else {
+      pendingDirtyContextRef.current = { ...pendingDirtyContextRef.current, ...patch };
+    }
+  }
+
+  function persistSort(next: ColumnRuntimeSettings<ColumnId>, sort: RuntimeHoldingsSortPreference) {
+    hasLocalEditRef.current = true;
+    const sortPatch: HoldingsTableContextPreferenceDto = { sortMode: sort.sortMode };
+    if (sort.sortMode === "field" && sort.sortField && sort.sortDirection) {
+      sortPatch.sortField = sort.sortField;
+      sortPatch.sortDirection = sort.sortDirection;
+    }
+    const mergedContext: HoldingsTableContextPreferenceDto = {
+      ...contextsRef.current[contextKey],
+      ...(hasHydratedPreferencesRef.current
+        ? serializeSettings(
+            next,
+            contextKey,
+            preferenceNamespace,
+            contextsRef.current[contextKey],
+          )
+        : {}),
+      ...sortPatch,
+    };
+    if (sort.sortMode !== "field") {
+      delete mergedContext.sortField;
+      delete mergedContext.sortDirection;
+    }
+    const mergedContexts = { ...contextsRef.current, [contextKey]: mergedContext };
+    contextsRef.current = mergedContexts;
+    setContexts(mergedContexts);
+    setSettings(next);
+    setSettingsError("");
+    if (hasHydratedPreferencesRef.current) {
+      persistContexts(mergedContexts, {
+        [contextKey]: sanitizeHoldingsTableContextPatches({ [contextKey]: mergedContext })[contextKey] ?? {},
+      });
+    } else {
+      pendingDirtyContextRef.current = {
+        ...pendingDirtyContextRef.current,
+        ...sortPatch,
+      };
+      pendingSortIsExplicitRef.current = true;
     }
   }
 
@@ -387,6 +567,9 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
       selectedMarketCodes: settings.selectedMarketCodes,
       selectedAccountIds: settings.selectedAccountIds,
       topHoldingsLimit: settings.topHoldingsLimit,
+      sortMode: settings.sortMode,
+      sortField: settings.sortField,
+      sortDirection: settings.sortDirection,
     });
   }
 
@@ -403,7 +586,43 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
   }
 
   function setRowOrder(rowOrder: string[]) {
-    persist({ ...settings, rowOrder: normalizeRowOrder(rowOrder) });
+    const next = { ...settings, rowOrder: normalizeRowOrder(rowOrder) };
+    if (sortEnabled) {
+      next.sortMode = "custom";
+      delete next.sortField;
+      delete next.sortDirection;
+      persistSort(next, { sortMode: "custom" });
+      return;
+    }
+    persist(next);
+  }
+
+  function setSort(field: HoldingsSortField, direction?: HoldingsSortDirection) {
+    if (!sortEnabled || !normalizedSupportedSortFields.includes(field)) return;
+    const nextDirection = direction
+      ?? (settings.sortMode === "field" && settings.sortField === field
+        ? settings.sortDirection === "asc" ? "desc" : "asc"
+        : defaultHoldingsSortDirection(field));
+    const next = { ...settings, sortMode: "field" as const, sortField: field, sortDirection: nextDirection };
+    persistSort(next, { sortMode: "field", sortField: field, sortDirection: nextDirection });
+  }
+
+  function setCustomSort() {
+    if (!sortEnabled) return;
+    const next = { ...settings, sortMode: "custom" as const };
+    delete next.sortField;
+    delete next.sortDirection;
+    persistSort(next, { sortMode: "custom" });
+  }
+
+  function resetSort() {
+    if (!sortEnabled || !resolvedDefaultSort) return;
+    const next = { ...settings, ...resolvedDefaultSort };
+    if (resolvedDefaultSort.sortMode === "custom") {
+      delete next.sortField;
+      delete next.sortDirection;
+    }
+    persistSort(next, resolvedDefaultSort);
   }
 
   function setSelectedMarketCodes(selectedMarketCodes: string[]) {
@@ -482,6 +701,15 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     };
   }
 
+  const sortState = sortEnabled ? {
+    resetSort,
+    setCustomSort,
+    setSort,
+    sortDirection: settings.sortDirection,
+    sortField: settings.sortField,
+    sortMode: settings.sortMode,
+  } : {};
+
   return {
     allColumns: columns,
     orderedColumns,
@@ -508,6 +736,7 @@ export function useHoldingsColumnSettings<ColumnId extends string>({
     setSelectedAccountIds,
     setTopHoldingsLimit,
     toggleColumn,
+    ...sortState,
   };
 }
 
@@ -658,10 +887,30 @@ export function HoldingsColumnSettingsMenu<ColumnId extends string>({
         <DropdownMenuSeparator />
         <div className="flex items-center justify-between gap-2 px-2 py-1.5">
           {settings.settingsError ? <p className="min-w-0 flex-1 break-words text-xs text-destructive">{settings.settingsError}</p> : <span />}
-          <Button type="button" variant="ghost" size="sm" onClick={settings.resetColumns}>
-            <RotateCcw data-icon="inline-start" aria-hidden="true" />
-            {resolvedCopy.resetColumnsLabel}
-          </Button>
+          <div className="flex flex-wrap justify-end gap-1">
+            {settings.resetSort ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={settings.resetSort}
+                data-testid={`${testIdPrefix}-reset-sort`}
+              >
+                <RotateCw data-icon="inline-start" aria-hidden="true" />
+                {resolvedCopy.resetSortLabel}
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={settings.resetColumns}
+              data-testid={`${testIdPrefix}-reset-columns`}
+            >
+              <RotateCcw data-icon="inline-start" aria-hidden="true" />
+              {resolvedCopy.resetColumnsLabel}
+            </Button>
+          </div>
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -875,18 +1124,66 @@ export function HoldingsColumnHeaderContent<ColumnId extends string>({
   testIdPrefix?: string;
 }) {
   const resolvedCopy = { ...HOLDINGS_SETTINGS_FALLBACK_COPY, ...dict?.holdings, ...copy };
+  const [tooltipOpen, setTooltipOpen] = useState(false);
+  const sortField = resolveColumnSortField(settings, column);
+  const activeDirection = settings.sortMode === "field" && settings.sortField === sortField
+    ? settings.sortDirection
+    : undefined;
+  const displayedDirection = activeDirection ?? (sortField ? defaultHoldingsSortDirection(sortField) : undefined);
+  const directionLabel = displayedDirection === "asc"
+    ? resolvedCopy.sortAscendingLabel
+    : resolvedCopy.sortDescendingLabel;
+  const sortDescription = (activeDirection ? resolvedCopy.sortTooltip : resolvedCopy.sortActionTooltip)
+    .replace("{column}", label)
+    .replace("{direction}", directionLabel);
   return (
     <div
-      {...settings.headerProps(column)}
       className={cn(
-        "group relative flex min-h-9 cursor-grab select-none items-center gap-1 pr-3 active:cursor-grabbing",
+        "group relative flex min-h-9 select-none items-center gap-1 pr-3",
         align === "right" ? "justify-end text-right" : "justify-start text-left",
       )}
-      data-testid={`${testIdPrefix}-column-drag-${column}`}
-      title={resolvedCopy.dragColumnTitle.replace("{column}", label)}
     >
-      <GripVertical className="shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" aria-hidden="true" />
-      <span className="min-w-0 break-words leading-tight">{label}</span>
+      <span
+        {...settings.headerProps(column)}
+        className="inline-flex shrink-0 cursor-grab items-center active:cursor-grabbing"
+        data-testid={`${testIdPrefix}-column-drag-${column}`}
+        title={resolvedCopy.dragColumnTitle.replace("{column}", label)}
+      >
+        <GripVertical className="text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" aria-hidden="true" />
+      </span>
+      {sortField && settings.setSort ? (
+        <TooltipProvider delayDuration={150}>
+          <Tooltip open={tooltipOpen} onOpenChange={setTooltipOpen}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex min-w-0 items-center gap-1 rounded-sm text-inherit outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={sortDescription}
+                data-testid={`${testIdPrefix}-column-sort-${column}`}
+                onBlur={() => setTooltipOpen(false)}
+                onClick={() => settings.setSort?.(sortField)}
+                onFocus={() => setTooltipOpen(true)}
+                onMouseEnter={() => setTooltipOpen(true)}
+                onMouseLeave={() => setTooltipOpen(false)}
+              >
+                <span className="min-w-0 break-words leading-tight">{label}</span>
+                {activeDirection === "asc" ? (
+                  <ArrowUp className="size-3.5 shrink-0" aria-hidden="true" />
+                ) : activeDirection === "desc" ? (
+                  <ArrowDown className="size-3.5 shrink-0" aria-hidden="true" />
+                ) : (
+                  <ArrowUpDown className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top" sideOffset={6} data-testid={`${testIdPrefix}-column-sort-tooltip-${column}`}>
+              {sortDescription}
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      ) : (
+        <span className="min-w-0 break-words leading-tight">{label}</span>
+      )}
       <span
         {...settings.resizeProps(column)}
         role="separator"
@@ -896,6 +1193,173 @@ export function HoldingsColumnHeaderContent<ColumnId extends string>({
       />
     </div>
   );
+}
+
+export function holdingsSortableHeaderCellProps<ColumnId extends string>(
+  settings: HoldingsColumnSettingsState<ColumnId>,
+  column: ColumnId,
+): { "aria-sort"?: "ascending" | "descending" } {
+  const sortField = resolveColumnSortField(settings, column);
+  if (!sortField || settings.sortMode !== "field" || settings.sortField !== sortField) return {};
+  return { "aria-sort": settings.sortDirection === "asc" ? "ascending" : "descending" };
+}
+
+export function HoldingsMobileSortControls<ColumnId extends string>({
+  columns,
+  copy,
+  dict,
+  settings,
+  testIdPrefix = "holdings",
+}: {
+  columns: Array<HoldingsGridColumnDefinition<ColumnId>>;
+  copy?: Partial<HoldingsColumnSettingsCopy>;
+  dict?: AppDictionary;
+  settings: HoldingsColumnSettingsState<ColumnId>;
+  testIdPrefix?: string;
+}) {
+  const resolvedCopy = { ...HOLDINGS_SETTINGS_FALLBACK_COPY, ...dict?.holdings, ...copy };
+  const sortableColumns = uniqueSortableColumns(columns);
+  if (!settings.setSort || sortableColumns.length === 0) return null;
+  const hasActiveField = settings.sortMode === "field" && settings.sortField !== undefined && settings.sortDirection !== undefined;
+  const nextDirection = settings.sortDirection === "asc" ? "desc" : "asc";
+  const nextDirectionLabel = nextDirection === "asc" ? resolvedCopy.sortAscendingLabel : resolvedCopy.sortDescendingLabel;
+  return (
+    <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+      <label className="grid gap-1 text-xs font-medium text-muted-foreground">
+        <span>{resolvedCopy.mobileSortFieldLabel}</span>
+        <Select
+          value={hasActiveField ? settings.sortField : "custom"}
+          onValueChange={(value) => {
+            if (value === "custom") settings.setCustomSort?.();
+            else if (isHoldingsSortField(value)) settings.setSort?.(value, defaultHoldingsSortDirection(value));
+          }}
+        >
+          <SelectTrigger data-testid={`${testIdPrefix}-mobile-sort-field`} aria-label={resolvedCopy.mobileSortFieldLabel}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              <SelectItem value="custom" disabled={!settings.setCustomSort}>{resolvedCopy.customSortLabel}</SelectItem>
+              {sortableColumns.map((column) => (
+                <SelectItem key={column.sortField} value={column.sortField}>{column.label}</SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </label>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="self-end"
+        aria-label={hasActiveField
+          ? resolvedCopy.mobileSortDirectionLabel.replace("{direction}", nextDirectionLabel)
+          : resolvedCopy.mobileSortDirectionUnavailableLabel}
+        data-testid={`${testIdPrefix}-mobile-sort-direction`}
+        disabled={!hasActiveField}
+        onClick={() => {
+          if (hasActiveField) settings.setSort?.(settings.sortField!, nextDirection);
+        }}
+      >
+        {hasActiveField && settings.sortDirection === "asc" ? <ArrowUp aria-hidden="true" /> : <ArrowDown aria-hidden="true" />}
+        {hasActiveField
+          ? settings.sortDirection === "asc" ? resolvedCopy.sortAscendingLabel : resolvedCopy.sortDescendingLabel
+          : resolvedCopy.customSortLabel}
+      </Button>
+      {settings.resetSort ? (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="self-end"
+          aria-label={resolvedCopy.resetSortLabel}
+          data-testid={`${testIdPrefix}-mobile-reset-sort`}
+          onClick={settings.resetSort}
+        >
+          <RotateCw aria-hidden="true" />
+          {resolvedCopy.resetSortLabel}
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
+export function HoldingsHiddenSortChip<ColumnId extends string>({
+  columns,
+  copy,
+  dict,
+  settings,
+  testIdPrefix = "holdings",
+  visibleSortFields,
+}: {
+  columns: Array<HoldingsGridColumnDefinition<ColumnId>>;
+  copy?: Partial<HoldingsColumnSettingsCopy>;
+  dict?: AppDictionary;
+  settings: HoldingsColumnSettingsState<ColumnId>;
+  testIdPrefix?: string;
+  visibleSortFields: readonly HoldingsSortField[];
+}) {
+  const resolvedCopy = { ...HOLDINGS_SETTINGS_FALLBACK_COPY, ...dict?.holdings, ...copy };
+  if (
+    !settings.setSort
+    || !settings.resetSort
+    || settings.sortMode !== "field"
+    || !settings.sortField
+    || !settings.sortDirection
+    || visibleSortFields.includes(settings.sortField)
+  ) return null;
+  const column = uniqueSortableColumns(columns).find((candidate) => candidate.sortField === settings.sortField);
+  if (!column) return null;
+  const directionLabel = settings.sortDirection === "asc" ? resolvedCopy.sortAscendingLabel : resolvedCopy.sortDescendingLabel;
+  const nextDirection = settings.sortDirection === "asc" ? "desc" : "asc";
+  return (
+    <div
+      className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-1 text-xs"
+      data-testid={`${testIdPrefix}-hidden-sort-chip`}
+    >
+      <span>{resolvedCopy.hiddenSortLabel.replace("{column}", column.label).replace("{direction}", directionLabel)}</span>
+      <button
+        type="button"
+        className="rounded-sm p-0.5 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+        data-testid={`${testIdPrefix}-hidden-sort-direction`}
+        aria-label={resolvedCopy.mobileSortDirectionLabel.replace("{direction}", nextDirection === "asc" ? resolvedCopy.sortAscendingLabel : resolvedCopy.sortDescendingLabel)}
+        onClick={() => settings.setSort?.(settings.sortField!, nextDirection)}
+      >
+        {settings.sortDirection === "asc" ? <ArrowUp className="size-3" aria-hidden="true" /> : <ArrowDown className="size-3" aria-hidden="true" />}
+      </button>
+      <button
+        type="button"
+        className="rounded-sm p-0.5 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+        data-testid={`${testIdPrefix}-hidden-sort-reset`}
+        aria-label={resolvedCopy.resetSortLabel}
+        onClick={() => settings.resetSort?.()}
+      >
+        <X className="size-3" aria-hidden="true" />
+      </button>
+    </div>
+  );
+}
+
+function resolveColumnSortField<ColumnId extends string>(
+  settings: HoldingsColumnSettingsState<ColumnId>,
+  column: ColumnId,
+): HoldingsSortField | undefined {
+  const configured = settings.allColumns?.find((candidate) => candidate.id === column)?.sortField;
+  if (configured) return configured;
+  return isHoldingsSortField(column) ? column : undefined;
+}
+
+function uniqueSortableColumns<ColumnId extends string>(columns: Array<HoldingsGridColumnDefinition<ColumnId>>) {
+  const seen = new Set<HoldingsSortField>();
+  return columns.flatMap((column) => {
+    if (!column.sortField || seen.has(column.sortField)) return [];
+    seen.add(column.sortField);
+    return [{ label: column.label, sortField: column.sortField }];
+  });
+}
+
+function isHoldingsSortField(value: string): value is HoldingsSortField {
+  return (HOLDINGS_SORT_FIELDS as readonly string[]).includes(value);
 }
 
 export function holdingsColumnCellStyle<ColumnId extends string>(
@@ -923,6 +1387,7 @@ function buildDefaultSettings<ColumnId extends string>(
   defaultMobileSummaryCount: number,
   mobileSummaryCountMax: number,
   pinnedLeadingColumns: ColumnId[],
+  defaultSort?: RuntimeHoldingsSortPreference,
 ): ColumnRuntimeSettings<ColumnId> {
   return {
     columnOrder: withPinnedLeadingColumns(columns.map((column) => column.id), pinnedLeadingColumns),
@@ -934,6 +1399,7 @@ function buildDefaultSettings<ColumnId extends string>(
     selectedMarketCodes: [],
     selectedAccountIds: [],
     topHoldingsLimit: DEFAULT_TOP_HOLDINGS_LIMIT,
+    ...(defaultSort ?? {}),
   };
 }
 
@@ -945,26 +1411,32 @@ function normalizeContextSettings<ColumnId extends string>(
   defaultMobileSummaryCount: number,
   mobileSummaryCountMax: number,
   pinnedLeadingColumns: ColumnId[],
+  defaultSort: RuntimeHoldingsSortPreference | undefined,
+  supportedSortFields: readonly HoldingsSortField[],
 ): ColumnRuntimeSettings<ColumnId> {
-  const defaults = buildDefaultSettings(columns, defaultLayoutStyle, defaultHiddenColumns, defaultMobileSummaryCount, mobileSummaryCountMax, pinnedLeadingColumns);
+  const defaults = buildDefaultSettings(columns, defaultLayoutStyle, defaultHiddenColumns, defaultMobileSummaryCount, mobileSummaryCountMax, pinnedLeadingColumns, defaultSort);
   const validIds = new Set(columns.map((column) => column.id));
   const rawOrder = Array.isArray(rawSettings?.columnOrder) ? rawSettings.columnOrder : [];
+  const normalizedRawOrder = normalizeRuntimeColumnIds(rawOrder, validIds);
   const columnOrder = withPinnedLeadingColumns([
-    ...rawOrder.filter((column): column is ColumnId => validIds.has(column as ColumnId)) as ColumnId[],
-    ...defaults.columnOrder.filter((column) => !rawOrder.includes(column)),
+    ...normalizedRawOrder,
+    ...defaults.columnOrder.filter((column) => !normalizedRawOrder.includes(column)),
   ], pinnedLeadingColumns);
-  const rawHiddenColumns = (Array.isArray(rawSettings?.hiddenColumns) ? rawSettings.hiddenColumns : [])
-    .filter((column): column is ColumnId => validIds.has(column as ColumnId));
+  const rawHiddenColumns = normalizeRuntimeColumnIds(
+    Array.isArray(rawSettings?.hiddenColumns) ? rawSettings.hiddenColumns : [],
+    validIds,
+  );
   const hiddenColumns = rawSettings
     ? [
         ...rawHiddenColumns,
-        ...defaultHiddenColumns.filter((column) => !rawOrder.includes(column) && !rawHiddenColumns.includes(column)),
+        ...defaultHiddenColumns.filter((column) => !normalizedRawOrder.includes(column) && !rawHiddenColumns.includes(column)),
       ]
     : defaults.hiddenColumns;
   const columnWidths = { ...defaults.columnWidths };
   for (const [column, width] of Object.entries(rawSettings?.columnWidths ?? {})) {
-    if (validIds.has(column as ColumnId) && typeof width === "number" && Number.isFinite(width)) {
-      columnWidths[column as ColumnId] = clampWidth(width);
+    const runtimeColumn = resolveRuntimeColumnId(column, validIds);
+    if (runtimeColumn && typeof width === "number" && Number.isFinite(width)) {
+      columnWidths[runtimeColumn] = clampWidth(width);
     }
   }
   const layoutStyle = rawSettings?.layoutStyle === "dashboard" || rawSettings?.layoutStyle === "portfolio"
@@ -979,13 +1451,44 @@ function normalizeContextSettings<ColumnId extends string>(
   const topHoldingsLimit = typeof rawSettings?.topHoldingsLimit === "number"
     ? clampTopHoldingsLimit(rawSettings.topHoldingsLimit)
     : defaults.topHoldingsLimit;
-  return { columnOrder, hiddenColumns, columnWidths, layoutStyle, mobileSummaryCount, rowOrder, selectedMarketCodes, selectedAccountIds, topHoldingsLimit };
+  const normalizedSort = defaultSort
+    ? normalizeHoldingsSortPreference({
+        defaultSort,
+        rawContext: rawSettings as unknown as Record<string, unknown> | undefined,
+        supportedFields: supportedSortFields,
+      })
+    : {};
+  return { columnOrder, hiddenColumns, columnWidths, layoutStyle, mobileSummaryCount, rowOrder, selectedMarketCodes, selectedAccountIds, topHoldingsLimit, ...normalizedSort };
+}
+
+function normalizeRuntimeColumnIds<ColumnId extends string>(
+  storedIds: readonly string[],
+  validIds: ReadonlySet<ColumnId>,
+): ColumnId[] {
+  const normalized: ColumnId[] = [];
+  for (const storedId of storedIds) {
+    const runtimeId = resolveRuntimeColumnId(storedId, validIds);
+    if (runtimeId && !normalized.includes(runtimeId)) normalized.push(runtimeId);
+  }
+  return normalized;
+}
+
+function resolveRuntimeColumnId<ColumnId extends string>(
+  storedId: string,
+  validIds: ReadonlySet<ColumnId>,
+): ColumnId | undefined {
+  if (validIds.has(storedId as ColumnId)) return storedId as ColumnId;
+  return LEGACY_RUNTIME_COLUMN_IDS[storedId]
+    ?.find((candidate): candidate is ColumnId => validIds.has(candidate as ColumnId));
 }
 
 function serializeSettings<ColumnId extends string>(
   settings: ColumnRuntimeSettings<ColumnId>,
+  contextKey?: string,
+  preferenceNamespace?: ColumnSettingsPreferenceNamespace,
+  existingContext?: HoldingsTableContextPreferenceDto,
 ): HoldingsTableContextPreferenceDto {
-  return {
+  const serialized: HoldingsTableContextPreferenceDto = {
     columnOrder: settings.columnOrder,
     hiddenColumns: settings.hiddenColumns,
     columnWidths: settings.columnWidths,
@@ -996,6 +1499,15 @@ function serializeSettings<ColumnId extends string>(
     selectedAccountIds: settings.selectedAccountIds,
     topHoldingsLimit: settings.topHoldingsLimit,
   };
+  if (preferenceNamespace !== "holdingsTableSettings" || !contextKey) return serialized;
+  const canonical = canonicalizeHoldingsTableContextColumns(contextKey, serialized);
+  return {
+    ...canonical,
+    columnWidths: {
+      ...existingContext?.columnWidths,
+      ...canonical.columnWidths,
+    },
+  };
 }
 
 function columnSettingsEqual<ColumnId extends string>(
@@ -1005,6 +1517,9 @@ function columnSettingsEqual<ColumnId extends string>(
   return left.layoutStyle === right.layoutStyle
     && left.mobileSummaryCount === right.mobileSummaryCount
     && left.topHoldingsLimit === right.topHoldingsLimit
+    && left.sortMode === right.sortMode
+    && left.sortField === right.sortField
+    && left.sortDirection === right.sortDirection
     && arraysEqual(left.columnOrder, right.columnOrder)
     && arraysEqual(left.hiddenColumns, right.hiddenColumns)
     && arraysEqual(left.rowOrder, right.rowOrder)
@@ -1096,6 +1611,57 @@ function buildPreferencePayload(
   return namespace === "adminMarketDataTableSettings"
     ? { version: 1, contexts }
     : { version: 1, contexts };
+}
+
+const ADMIN_MARKET_DATA_CONTEXT_PATCH_KEYS = [
+  "columnOrder",
+  "hiddenColumns",
+  "columnWidths",
+  "layoutStyle",
+  "mobileSummaryCount",
+  "rowOrder",
+  "selectedMarketCodes",
+  "selectedAccountIds",
+  "topHoldingsLimit",
+  "tickerAllocationChartMode",
+  "tickerAllocationTopN",
+] as const;
+
+function sanitizeAdminMarketDataContextPatches(
+  contexts: Record<string, HoldingsTableContextPreferenceDto>,
+): Record<string, HoldingsTableContextPreferenceDto> {
+  const candidates = Object.fromEntries(Object.entries(contexts).map(([contextKey, context]) => {
+    const raw = context as Record<string, unknown>;
+    return [contextKey, Object.fromEntries(ADMIN_MARKET_DATA_CONTEXT_PATCH_KEYS.flatMap((key) => (
+      raw[key] === undefined ? [] : [[key, raw[key]]]
+    )))];
+  }));
+  return adminMarketDataTableSettingsPreferenceSchema.parse({ version: 1, contexts: candidates }).contexts;
+}
+
+function withPersistedRuntimeSort<ColumnId extends string>(
+  serialized: HoldingsTableContextPreferenceDto,
+  settings: ColumnRuntimeSettings<ColumnId>,
+  namespace: ColumnSettingsPreferenceNamespace,
+  storedContext: HoldingsTableContextPreferenceDto | undefined,
+  supportedSortFields: readonly HoldingsSortField[],
+): HoldingsTableContextPreferenceDto {
+  if (namespace !== "holdingsTableSettings") return serialized;
+  const raw = storedContext as Record<string, unknown> | undefined;
+  const hasUnsupportedStoredSort = raw?.sortMode === "field"
+    && typeof raw.sortField === "string"
+    && !supportedSortFields.includes(raw.sortField as HoldingsSortField);
+  if (hasUnsupportedStoredSort) return serialized;
+  if (settings.sortMode === "custom") return { ...serialized, sortMode: "custom" };
+  if (settings.sortMode === "field" && settings.sortField && settings.sortDirection) {
+    return {
+      ...serialized,
+      sortMode: "field",
+      sortField: settings.sortField,
+      sortDirection: settings.sortDirection,
+    };
+  }
+  return serialized;
 }
 
 function withPinnedLeadingColumns<ColumnId extends string>(columnOrder: ColumnId[], pinnedLeadingColumns: ColumnId[]) {

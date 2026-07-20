@@ -1,7 +1,7 @@
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { DashboardOverviewHoldingGroupDto } from "@vakwen/shared-types";
+import { holdingsTableSettingsPreferenceSchema, type DashboardOverviewHoldingGroupDto } from "@vakwen/shared-types";
 import {
   HoldingsRowSettingsMenu,
   useHoldingsColumnSettings,
@@ -25,7 +25,7 @@ type TestColumn = "ticker" | "marketValue";
 
 const testColumns: Array<HoldingsGridColumnDefinition<TestColumn>> = [
   { id: "ticker", label: "Ticker", defaultWidth: 120, canHide: false },
-  { id: "marketValue", label: "Market Value", defaultWidth: 160, align: "right" },
+  { id: "marketValue", label: "Market value", defaultWidth: 160, align: "right" },
 ];
 
 const baseGroup: DashboardOverviewHoldingGroupDto = {
@@ -257,19 +257,7 @@ describe("HoldingsTable", () => {
     await flushPromises();
 
     expect(container.querySelector("[data-testid='holding-group-row-AAPL-US']")).not.toBeNull();
-    expect(vi.mocked(patchJson)).toHaveBeenCalledWith(
-      "/user-preferences",
-      {
-        holdingsTableSettings: {
-          version: 1,
-          contexts: expect.objectContaining({
-            "holdings.shared": expect.objectContaining({ selectedMarketCodes: ["JP"] }),
-            "portfolio.holdings": expect.objectContaining({ selectedMarketCodes: ["JP"] }),
-          }),
-        },
-      },
-      { contextScope: "session" },
-    );
+    expect(vi.mocked(patchJson)).not.toHaveBeenCalled();
   });
 
   it("keeps market filter menu open while selecting multiple markets", async () => {
@@ -434,15 +422,7 @@ describe("HoldingsTable", () => {
           version: 1,
           contexts: {
             "holdings.shared": {
-              columnOrder: ["marketValue", "ticker"],
-              hiddenColumns: ["marketValue"],
-              columnWidths: {
-                ticker: 132,
-                marketValue: 188,
-              },
-              layoutStyle: "portfolio",
               selectedMarketCodes: ["US", "TW"],
-              selectedAccountIds: ["acc-9"],
             },
           },
         },
@@ -538,18 +518,7 @@ describe("HoldingsTable", () => {
           version: 1,
           contexts: {
             "holdings.shared": {
-              columnOrder: ["ticker", "marketValue"],
-              hiddenColumns: [],
-              columnWidths: {
-                ticker: 120,
-                marketValue: 160,
-              },
-              layoutStyle: "portfolio",
-              mobileSummaryCount: 2,
-              rowOrder: ["US:AAPL"],
-              selectedMarketCodes: ["US", "TW"],
               selectedAccountIds: ["acc-1", "acc-2"],
-              topHoldingsLimit: 8,
             },
           },
         },
@@ -602,26 +571,15 @@ describe("HoldingsTable", () => {
           version: 1,
           contexts: {
             "holdings.shared": {
-              columnOrder: ["ticker", "accounts", "quantity", "marketValue"],
-              hiddenColumns: ["quantity"],
-              columnWidths: {
-                ticker: 144,
-                accounts: 116,
-                quantity: 88,
-                marketValue: 176,
-              },
-              layoutStyle: "portfolio",
-              mobileSummaryCount: 3,
-              rowOrder: ["US:AAPL"],
               selectedMarketCodes: ["US", "TW"],
-              selectedAccountIds: ["acc-9"],
-              topHoldingsLimit: 9,
             },
           },
         },
       },
       { contextScope: "session" },
     );
+    const payload = vi.mocked(patchJson).mock.calls.at(-1)?.[1] as { holdingsTableSettings?: unknown };
+    expect(holdingsTableSettingsPreferenceSchema.safeParse(payload.holdingsTableSettings).success).toBe(true);
   });
 
   it("keeps mixed-status tickers visible when account-row status filters match a child row", () => {
@@ -658,6 +616,55 @@ describe("HoldingsTable", () => {
     expect(holdingGroupMatchesStatusFilter(mixedGroup, ["current"], "aggregated")).toBe(false);
     expect(holdingGroupMatchesStatusFilter(mixedGroup, ["current"], "expanded")).toBe(true);
     expect(holdingGroupMatchesStatusFilter(mixedGroup, ["current"], "accounts")).toBe(true);
+  });
+
+  it("preserves full ticker totals when an aggregated status filter matches the group", async () => {
+    const mixedGroup: DashboardOverviewHoldingGroupDto = {
+      ...baseGroup,
+      ticker: "MIXED",
+      quantity: 579,
+      quoteStatus: "missing",
+      accountCount: 2,
+      children: [
+        {
+          ...baseGroup,
+          accountId: "acc-current",
+          accountName: "Current account",
+          ticker: "MIXED",
+          quantity: 123,
+          quoteStatus: "current",
+        },
+        {
+          ...baseGroup,
+          accountId: "acc-missing",
+          accountName: "Missing account",
+          ticker: "MIXED",
+          quantity: 456,
+          quoteStatus: "missing",
+          currentUnitPrice: null,
+          marketValueAmount: null,
+          unrealizedPnlAmount: null,
+          reportingMarketValueAmount: null,
+          reportingUnrealizedPnlAmount: null,
+        },
+      ],
+    };
+    const rendered = renderTable([mixedGroup]);
+    root = rendered.root;
+    container = rendered.container;
+
+    pointerDown(container.querySelector("[data-testid='holdings-filter-status']")!);
+    await flushPromises();
+    const missingStatusLabel = Array.from(document.body.querySelectorAll("label"))
+      .find((label) => label.textContent?.includes(dict.holdings.statusMissing));
+    expect(missingStatusLabel).toBeDefined();
+    click(missingStatusLabel!.querySelector("[role='checkbox']")!);
+    await flushPromises();
+
+    const aggregateRow = container.querySelector("[data-testid='holding-group-row-MIXED-US']");
+    expect(aggregateRow).not.toBeNull();
+    expect(aggregateRow?.textContent).toContain("579");
+    expect(aggregateRow?.textContent).toContain("2");
   });
 
   it("keeps mobile current price comparisons on the fixed success/destructive palette", async () => {

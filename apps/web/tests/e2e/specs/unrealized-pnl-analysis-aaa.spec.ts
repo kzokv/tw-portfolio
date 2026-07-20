@@ -272,7 +272,7 @@ test("[analysis-unrealized-pnl-G]: selected detail disclosure and total stay use
   await detail.getByText("snapshot-date FX").waitFor({ state: "visible" });
   await detail.getByText(/Snapshot sources:/).waitFor({ state: "visible" });
   await detail.getByText(/Snapshot FX as of:/).waitFor({ state: "visible" });
-  await detail.getByText("Active selected end P&L").waitFor({ state: "visible" });
+  await detail.getByText("Active selected end unrealized P&L").waitFor({ state: "visible" });
   await detail.getByText("NT$1,020,000").waitFor({ state: "visible" });
   await page.getByTestId("analysis-chart-y-axis-max").getByText(/Max/).waitFor({ state: "visible" });
   await page.getByTestId("analysis-chart-y-axis-zero").getByText(/Zero/).waitFor({ state: "visible" });
@@ -280,7 +280,7 @@ test("[analysis-unrealized-pnl-G]: selected detail disclosure and total stay use
 
   await page.setViewportSize({ width: 390, height: 844 });
   await detail.getByText("Snapshot basis: selected detail uses holding snapshots and snapshot-date FX instead of the live report valuation path.").waitFor({ state: "visible" });
-  await detail.getByText("Active selected end P&L").waitFor({ state: "visible" });
+  await detail.getByText("Active selected end unrealized P&L").waitFor({ state: "visible" });
   await appShell.assert.mxAssertEqual(
     await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1),
     true,

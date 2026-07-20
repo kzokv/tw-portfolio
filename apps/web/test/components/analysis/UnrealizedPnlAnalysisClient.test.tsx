@@ -29,11 +29,11 @@ vi.mock("../../../lib/api", () => ({
   patchJson: patchJsonMock,
 }));
 
-function buildShellData(): AppShellData {
-  const dict = getDictionary("en");
+function buildShellData(locale: "en" | "zh-TW" = "en"): AppShellData {
+  const dict = getDictionary(locale);
   return {
     uiDict: dict,
-    locale: "en",
+    locale,
     sessionUserId: "user-1",
     isSharedContext: false,
     switcherLoaded: true,
@@ -1176,8 +1176,57 @@ describe("UnrealizedPnlAnalysisClient", () => {
     expect(containsClass(detailCards!, financeLossTextClass)).toBe(true);
     expect(containsClass(detailTable!, financeGainTextClass)).toBe(true);
     expect(containsClass(detailTable!, financeLossTextClass)).toBe(true);
-    expect(detailCards?.textContent).toContain("Period P&L change");
-    expect(detailTable?.textContent).toContain("Period P&L change");
+    expect(detailCards?.textContent).toContain("Period unrealized P&L change");
+    expect(detailTable?.textContent).toContain("Period unrealized P&L change");
+  });
+
+  it("[Analysis metrics EN]: render holdings-derived detail → canonical metric terms coexist with valid Rank, Period change, and Position status", () => {
+    const initialState = { ...ANALYSIS_DEFAULT_STATE, detailLayout: "table" as const };
+    const initialData = buildPreviewUnrealizedPnlAnalysis(initialState);
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData("en")}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={initialState} />
+        </AppShellDataProvider>,
+      );
+    });
+
+    const detail = container.querySelector("[data-testid='analysis-selected-detail']");
+    expect(detail?.textContent).toContain("End unrealized P&L");
+    expect(detail?.textContent).toContain("Period unrealized P&L change");
+    expect(detail?.textContent).toContain("Focused unrealized P&L");
+    expect(detail?.textContent).toContain("Cost basis");
+    expect(detail?.textContent).toContain("Market value");
+    expect(detail?.textContent).toContain("Quantity");
+    expect(container.textContent).toContain("Ranking");
+    expect(container.textContent).toContain("Open positions");
+    expect(container.textContent).toContain("Open position");
+    expect(container.querySelector("[data-testid*='mobile-sort']")).toBeNull();
+    expect(container.querySelector("[data-testid*='column-sort']")).toBeNull();
+  });
+
+  it("[Analysis metrics zh-TW]: render holdings-derived detail → canonical metric vocabulary is localized without erasing Position status", () => {
+    const initialState = { ...ANALYSIS_DEFAULT_STATE, detailLayout: "table" as const };
+    const initialData = buildPreviewUnrealizedPnlAnalysis(initialState);
+    act(() => {
+      root!.render(
+        <AppShellDataProvider value={buildShellData("zh-TW")}>
+          <UnrealizedPnlAnalysisClient initialData={initialData} initialState={initialState} />
+        </AppShellDataProvider>,
+      );
+    });
+
+    const detail = container.querySelector("[data-testid='analysis-selected-detail']");
+    expect(detail?.textContent).toContain("期末未實現損益");
+    expect(detail?.textContent).toContain("期間未實現損益變動");
+    expect(detail?.textContent).toContain("焦點未實現損益");
+    expect(detail?.textContent).toContain("成本基礎");
+    expect(detail?.textContent).toContain("市值");
+    expect(detail?.textContent).toContain("數量");
+    expect(container.textContent).toContain("排名");
+    expect(container.textContent).toContain("開放部位");
+    expect(container.querySelector("[data-testid*='mobile-sort']")).toBeNull();
+    expect(container.querySelector("[data-testid*='column-sort']")).toBeNull();
   });
 
   it("keeps stale response values in their original currency while refreshing the selected reporting currency", async () => {

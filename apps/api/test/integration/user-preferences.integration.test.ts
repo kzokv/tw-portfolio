@@ -403,6 +403,99 @@ describePostgres("user_preferences + effective-ranges (Postgres)", () => {
     });
   });
 
+  describe("setUserPreferencePatch — holdingsTableSettings deep context merge", () => {
+    it("preserves sibling contexts, existing context fields, and unknown future properties", async () => {
+      await persistence!.setUserPreferencePatch(userId, {
+        holdingsTableSettings: {
+          version: 1,
+          futureRootProperty: { retained: true },
+          contexts: {
+            "dashboard.topHoldings": {
+              columnOrder: ["ticker", "quantity"],
+              hiddenColumns: ["quantity"],
+              futureContextProperty: { renderer: "sparkline-v2" },
+            },
+            "portfolio.holdings": {
+              layoutStyle: "portfolio",
+              rowOrder: ["TW:2330", "US:NVDA"],
+            },
+          },
+        },
+      });
+
+      const merged = await persistence!.setUserPreferencePatch(userId, {
+        holdingsTableSettings: {
+          version: 1,
+          contexts: {
+            "dashboard.topHoldings": {
+              sortMode: "field",
+              sortField: "marketValue",
+              sortDirection: "desc",
+            },
+          },
+        },
+      });
+
+      expect(merged.holdingsTableSettings).toEqual({
+        version: 1,
+        futureRootProperty: { retained: true },
+        contexts: {
+          "dashboard.topHoldings": {
+            columnOrder: ["ticker", "quantity"],
+            hiddenColumns: ["quantity"],
+            futureContextProperty: { renderer: "sparkline-v2" },
+            sortMode: "field",
+            sortField: "marketValue",
+            sortDirection: "desc",
+          },
+          "portfolio.holdings": {
+            layoutStyle: "portfolio",
+            rowOrder: ["TW:2330", "US:NVDA"],
+          },
+        },
+      });
+    });
+
+    it("clears active field-sort keys when a context resets to custom order without losing siblings or opaque fields", async () => {
+      await persistence!.setUserPreferencePatch(userId, {
+        holdingsTableSettings: {
+          version: 1,
+          futureRootProperty: { retained: true },
+          contexts: {
+            "dashboard.topHoldings": {
+              columnOrder: ["ticker", "marketValue"],
+              futureContextProperty: { renderer: "sparkline-v2" },
+              sortMode: "field",
+              sortField: "marketValue",
+              sortDirection: "desc",
+            },
+            "portfolio.holdings": { layoutStyle: "portfolio" },
+          },
+        },
+      });
+
+      const reset = await persistence!.setUserPreferencePatch(userId, {
+        holdingsTableSettings: {
+          version: 1,
+          contexts: { "dashboard.topHoldings": { sortMode: "custom" } },
+        },
+      });
+
+      expect(reset.holdingsTableSettings).toEqual({
+        version: 1,
+        futureRootProperty: { retained: true },
+        contexts: {
+          "dashboard.topHoldings": {
+            columnOrder: ["ticker", "marketValue"],
+            futureContextProperty: { renderer: "sparkline-v2" },
+            sortMode: "custom",
+          },
+          "portfolio.holdings": { layoutStyle: "portfolio" },
+        },
+      });
+    });
+  });
+
   describe("_setUserPreferences — shallow merge (test-only seed helper)", () => {
     // KZO-177: switched from full-replace to shallow merge at top-level keys.
     // Reason: parallel E2E specs seeding `{ cardOrder: ... }` on the shared
@@ -883,6 +976,97 @@ describe("user_preferences + effective-ranges (Memory parity)", () => {
           "dashboard.topHoldings": { topHoldingsLimit: 8 },
           "portfolio.holdings": { layoutStyle: "portfolio", mobileSummaryCount: 4 },
         },
+      },
+    });
+  });
+
+  it("M13c — holdings settings deep-merge inner context fields and unknown future properties", async () => {
+    await persistence.setUserPreferencePatch(userId, {
+      holdingsTableSettings: {
+        version: 1,
+        futureRootProperty: { retained: true },
+        contexts: {
+          "dashboard.topHoldings": {
+            columnOrder: ["ticker", "quantity"],
+            hiddenColumns: ["quantity"],
+            futureContextProperty: { renderer: "sparkline-v2" },
+          },
+          "portfolio.holdings": {
+            layoutStyle: "portfolio",
+            rowOrder: ["TW:2330", "US:NVDA"],
+          },
+        },
+      },
+    });
+
+    const merged = await persistence.setUserPreferencePatch(userId, {
+      holdingsTableSettings: {
+        version: 1,
+        contexts: {
+          "dashboard.topHoldings": {
+            sortMode: "field",
+            sortField: "marketValue",
+            sortDirection: "desc",
+          },
+        },
+      },
+    });
+
+    expect(merged.holdingsTableSettings).toEqual({
+      version: 1,
+      futureRootProperty: { retained: true },
+      contexts: {
+        "dashboard.topHoldings": {
+          columnOrder: ["ticker", "quantity"],
+          hiddenColumns: ["quantity"],
+          futureContextProperty: { renderer: "sparkline-v2" },
+          sortMode: "field",
+          sortField: "marketValue",
+          sortDirection: "desc",
+        },
+        "portfolio.holdings": {
+          layoutStyle: "portfolio",
+          rowOrder: ["TW:2330", "US:NVDA"],
+        },
+      },
+    });
+  });
+
+  it("M13d — custom-order reset clears active sort keys and preserves sibling and opaque settings", async () => {
+    await persistence.setUserPreferencePatch(userId, {
+      holdingsTableSettings: {
+        version: 1,
+        futureRootProperty: { retained: true },
+        contexts: {
+          "dashboard.topHoldings": {
+            columnOrder: ["ticker", "marketValue"],
+            futureContextProperty: { renderer: "sparkline-v2" },
+            sortMode: "field",
+            sortField: "marketValue",
+            sortDirection: "desc",
+          },
+          "portfolio.holdings": { layoutStyle: "portfolio" },
+        },
+      },
+    });
+
+    const reset = await persistence.setUserPreferencePatch(userId, {
+      holdingsTableSettings: {
+        version: 1,
+        contexts: { "dashboard.topHoldings": { sortMode: "custom" } },
+      },
+    });
+
+    expect(reset.holdingsTableSettings).toEqual({
+      version: 1,
+      futureRootProperty: { retained: true },
+      contexts: {
+        "dashboard.topHoldings": {
+          columnOrder: ["ticker", "marketValue"],
+          futureContextProperty: { renderer: "sparkline-v2" },
+          sortMode: "custom",
+        },
+        "portfolio.holdings": { layoutStyle: "portfolio" },
       },
     });
   });

@@ -243,6 +243,71 @@ describe("PublicSharePage", () => {
     expect(html).not.toContain("costBasisAmount");
   });
 
+  it("[Public Share holdings]: render EN and zh-TW → canonical explicit columns appear with market in Ticker and no sort controls", async () => {
+    const response = {
+      ownerDisplayName: "Portfolio owner",
+      expiresAt: "2026-05-18T10:00:00.000Z",
+      quoteAsOf: null,
+      holdings: [],
+      holdingGroups: [{
+        ticker: "2330",
+        instrumentName: "TSMC",
+        marketCode: "TW",
+        quantity: 500,
+        accountCount: 2,
+        marketValueAmount: 625000,
+        marketValueCurrency: "TWD",
+        allocationPercent: 50.6,
+        quoteStatus: "current",
+      }],
+      summary: {
+        totalValueByCurrency: [{ currency: "TWD", amount: 625000 }],
+        returnByCurrency: [{ currency: "TWD", returnPercent: 14.2 }],
+      },
+      dataHealth: { holdingCount: 1, missingQuoteCount: 0, provisionalQuoteCount: 0 },
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => response,
+    }));
+
+    async function renderFor(language: string) {
+      headersMock.mockResolvedValue(new Map([["accept-language", language]]) as never);
+      const element = await PublicSharePage({ params: Promise.resolve({ token: `Canonical${language}Token123` }) });
+      const host = document.createElement("div");
+      host.innerHTML = renderToStaticMarkup(element);
+      return host;
+    }
+
+    const en = await renderFor("en-US");
+    expect(Array.from(en.querySelectorAll("[data-testid='public-share-holdings-table'] thead th"), (header) => header.textContent?.trim())).toEqual([
+      "Ticker",
+      "Accounts",
+      "Quantity",
+      "Market value",
+      "Allocation",
+    ]);
+    expect(en.querySelector("[data-testid='public-share-holding-group-2330-TW']")?.textContent).toContain("TW");
+    expect(en.querySelector("[data-testid='public-share-holdings-table'] button")).toBeNull();
+    expect(en.querySelector("[data-testid='public-share-holdings-table'] [aria-sort]")).toBeNull();
+    expect(en.textContent).not.toContain("positions");
+    expect(en.textContent).not.toContain("Shares");
+    expect(en.textContent).not.toContain("Weight");
+
+    const zh = await renderFor("zh-TW");
+    expect(Array.from(zh.querySelectorAll("[data-testid='public-share-holdings-table'] thead th"), (header) => header.textContent?.trim())).toEqual([
+      "代號",
+      "帳戶",
+      "數量",
+      "市值",
+      "配置比例",
+    ]);
+    expect(zh.querySelector("[data-testid='public-share-holding-group-2330-TW']")?.textContent).toContain("TW");
+    expect(zh.textContent).not.toContain("部位");
+    expect(zh.querySelector("[data-testid='public-share-holdings-table'] button")).toBeNull();
+  });
+
   it("delegates missing tokens to next/navigation.notFound()", async () => {
     vi.stubGlobal(
       "fetch",
