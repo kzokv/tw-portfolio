@@ -734,10 +734,10 @@ export function HoldingsTable({
           </div>
         </div>
 
-        <div className="mt-4 sm:hidden">
+        <div className="mt-4 lg:hidden">
           <HoldingsMobileSortControls columns={portfolioHoldingColumns} dict={dict} settings={columnSettings} />
         </div>
-        <div className="mt-4 hidden sm:flex">
+        <div className="mt-4 hidden lg:flex">
           <HoldingsHiddenSortChip
             columns={portfolioHoldingColumns}
             dict={dict}

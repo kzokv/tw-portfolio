@@ -276,8 +276,10 @@ describe("HoldingsTable sorting surface contract", () => {
     ({ root, container } = renderPortfolio({ contextKey: "portfolio.localized-sort", locale: "zh-TW" }));
     await flush();
 
-    expect(required(container, "[data-testid='holdings-hidden-sort-chip']").textContent)
-      .toContain(zhDict.holdings.allocationTerm);
+    const hiddenSortChip = required(container, "[data-testid='holdings-hidden-sort-chip']");
+    expect(hiddenSortChip.textContent).toContain(zhDict.holdings.allocationTerm);
+    expect(hiddenSortChip.parentElement?.className).toContain("lg:flex");
+    expect(hiddenSortChip.parentElement?.className).not.toContain("sm:flex");
     click(required(container, "[data-testid='holdings-mobile-sort-field']"));
     await flush();
     const allocationOption = Array.from(document.querySelectorAll("[role='option']"))
@@ -474,6 +476,9 @@ describe("HoldingsTable sorting surface contract", () => {
 
     const field = required(container, "[data-testid='holdings-mobile-sort-field']");
     const direction = required(container, "[data-testid='holdings-mobile-sort-direction']") as HTMLButtonElement;
+    const mobileSortWrapper = field.closest("label")?.parentElement?.parentElement;
+    expect(mobileSortWrapper?.className).toContain("lg:hidden");
+    expect(mobileSortWrapper?.className).not.toContain("sm:hidden");
     await selectOption(field, "Custom order");
     expect(direction.disabled).toBe(true);
     expect(groupOrder(container).slice(0, 2)).toEqual(["TOP-TW", "TIE-B-US"]);
