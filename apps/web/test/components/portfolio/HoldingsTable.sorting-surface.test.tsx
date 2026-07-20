@@ -435,6 +435,48 @@ describe("HoldingsTable sorting surface contract", () => {
     expect(aggregate.textContent).toContain("25%");
   });
 
+  it("drops a group when account and status filters match different child rows", async () => {
+    const mixed = group("MIXED", "US", 1_000, [
+      ["acc-current", "Current account"],
+      ["acc-missing", "Missing account"],
+    ]);
+    mixed.children = mixed.children.map((child) => child.accountId === "acc-missing"
+      ? {
+          ...child,
+          quoteStatus: "missing",
+          currentUnitPrice: null,
+          marketValueAmount: null,
+          unrealizedPnlAmount: null,
+          reportingCurrentUnitPrice: null,
+          reportingMarketValueAmount: null,
+          reportingUnrealizedPnlAmount: null,
+        }
+      : { ...child, quoteStatus: "current" });
+    vi.mocked(getJson).mockResolvedValue(
+      response("portfolio.empty-intersection", { selectedAccountIds: ["acc-current"] }),
+    );
+
+    ({ root, container } = renderPortfolio({
+      groups: [mixed],
+      contextKey: "portfolio.empty-intersection",
+    }));
+    await flush();
+
+    await selectOption(
+      required(container, "[data-testid='holdings-display-mode-select']"),
+      dict.holdings.displayModeExpanded,
+    );
+    pointerDown(required(container, "[data-testid='holdings-filter-status']"));
+    await flush();
+    const missingStatusLabel = Array.from(document.body.querySelectorAll("label"))
+      .find((label) => label.textContent?.includes(dict.holdings.statusMissing));
+    expect(missingStatusLabel).toBeDefined();
+    click(required(missingStatusLabel!, "[role='checkbox']"));
+    await flush();
+
+    expect(groupOrder(container)).toEqual([]);
+  });
+
   it("sorts Price by finite reporting-currency unit price across currencies", async () => {
     const usd = group("USD-HIGH", "US", 1_000, [], {
       currency: "USD",
