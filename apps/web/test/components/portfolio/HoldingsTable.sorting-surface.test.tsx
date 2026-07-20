@@ -6,6 +6,7 @@ import { HoldingsTable } from "../../../components/portfolio/HoldingsTable";
 import * as holdingsSorting from "../../../components/holdings/holdingsSorting";
 import { getJson, patchJson } from "../../../lib/api";
 import { getDictionary } from "../../../lib/i18n";
+import { formatCurrencyAmount } from "../../../lib/utils";
 import { testPriceState } from "../../fixtures/priceState";
 
 vi.mock("../../../lib/api", () => ({
@@ -460,6 +461,11 @@ describe("HoldingsTable sorting surface contract", () => {
     await flush();
 
     expect(groupOrder(container)).toEqual(["USD-HIGH-US", "TWD-LOW-TW"]);
+    const usdRow = required(container, "[data-testid='holding-group-row-USD-HIGH-US']");
+    expect(usdRow.textContent).toContain(formatCurrencyAmount(10, "TWD", "en"));
+    expect(usdRow.textContent).toContain(formatCurrencyAmount(100, "USD", "en"));
+    const twdRow = required(container, "[data-testid='holding-group-row-TWD-LOW-TW']");
+    expect(twdRow.textContent).toContain(formatCurrencyAmount(20, "TWD", "en"));
   });
 
   it("keeps detailed desktop headers readable after narrow persisted resizes", async () => {

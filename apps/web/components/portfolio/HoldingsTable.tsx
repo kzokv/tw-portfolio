@@ -1328,11 +1328,17 @@ function PortfolioMobileColumnMetric({
       const isChildRow = "accountId" in row;
       const priceState = isChildRow ? null : getPriceState(row);
       const priceStateTestId = `holdings-mobile-price-state-${row.ticker}-${row.marketCode}`;
+      const displayedPrice = getPortfolioDisplayedPrice(row);
       return (
         <MobileHoldingMetric
           label={dict.holdings.priceTerm}
           toneClassName={getCurrentPriceTone(row.currentUnitPrice, row.averageCostPerShare)}
-          value={row.currentUnitPrice == null ? dict.holdings.quoteMissing : formatCurrencyAmount(row.currentUnitPrice, row.currency, locale)}
+          value={displayedPrice.amount == null
+            ? dict.holdings.quoteMissing
+            : formatCurrencyAmount(displayedPrice.amount, displayedPrice.currency, locale)}
+          secondary={displayedPrice.nativeAmount == null
+            ? undefined
+            : formatCurrencyAmount(displayedPrice.nativeAmount, row.currency, locale)}
           detail={showFreshnessBadge && priceState ? (
             <div className="flex justify-start">
               <PriceStateChip
@@ -1711,10 +1717,18 @@ function HoldingGroupCell({
   }
   if (column === "price") {
     const priceState = getPriceState(group);
+    const displayedPrice = getPortfolioDisplayedPrice(group);
     return (
       <td className={cn("px-4 py-3 text-right font-medium", getCurrentPriceTone(group.currentUnitPrice, group.averageCostPerShare))} style={style}>
         <div className="flex min-w-0 flex-col items-end text-right">
-          <span>{group.currentUnitPrice != null ? formatCurrencyAmount(group.currentUnitPrice, group.currency, locale) : dict.holdings.quoteMissing}</span>
+          <span>{displayedPrice.amount == null
+            ? dict.holdings.quoteMissing
+            : formatCurrencyAmount(displayedPrice.amount, displayedPrice.currency, locale)}</span>
+          {displayedPrice.nativeAmount == null ? null : (
+            <span className="text-xs text-muted-foreground">
+              {formatCurrencyAmount(displayedPrice.nativeAmount, group.currency, locale)}
+            </span>
+          )}
           {showFreshnessBadge && priceState ? (
             <div className="mt-1 flex w-full justify-end">
               <PriceStateChip activityPath={showAdminActivityLinks ? buildPriceStateActivityPath({ marketCode: group.marketCode, priceState, ticker: group.ticker }) : null} className="mt-0 w-full max-w-full justify-start text-left md:justify-end md:text-right" dict={dict} locale={locale} priceState={priceState} testId={`holdings-price-state-${group.ticker}-${group.marketCode}`} />
@@ -1889,9 +1903,19 @@ function HoldingChildCell({
     );
   }
   if (column === "price") {
+    const displayedPrice = getPortfolioDisplayedPrice(child);
     return (
       <td className={cn("px-4 py-3 text-right font-medium", getCurrentPriceTone(child.currentUnitPrice, child.averageCostPerShare))} style={style}>
-        {child.currentUnitPrice != null ? formatCurrencyAmount(child.currentUnitPrice, child.currency, locale) : dict.holdings.quoteMissing}
+        <div className="flex min-w-0 flex-col items-end text-right">
+          <span>{displayedPrice.amount == null
+            ? dict.holdings.quoteMissing
+            : formatCurrencyAmount(displayedPrice.amount, displayedPrice.currency, locale)}</span>
+          {displayedPrice.nativeAmount == null ? null : (
+            <span className="text-xs text-muted-foreground">
+              {formatCurrencyAmount(displayedPrice.nativeAmount, child.currency, locale)}
+            </span>
+          )}
+        </div>
       </td>
     );
   }
@@ -2041,7 +2065,7 @@ export function portfolioHoldingSortKey(
     case "averageCost":
       return getDashboardReportingAverageCost(row, row.reportingCurrency);
     case "price":
-      return finitePortfolioSortPrice(row.reportingCurrentUnitPrice) ?? finitePortfolioSortPrice(row.currentUnitPrice);
+      return getPortfolioDisplayedPrice(row).amount;
     case "unitPnl":
       return getDashboardUnitPnl(row, row.reportingCurrency).amount;
     case "marketValue":
@@ -2068,6 +2092,20 @@ export function portfolioHoldingSortKey(
 
 function finitePortfolioSortPrice(value: number | null | undefined): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function getPortfolioDisplayedPrice(row: DetailHoldingRow) {
+  const reportingAmount = finitePortfolioSortPrice(row.reportingCurrentUnitPrice);
+  const nativeAmount = finitePortfolioSortPrice(row.currentUnitPrice);
+  if (reportingAmount === null) {
+    return { amount: nativeAmount, currency: row.currency, nativeAmount: null };
+  }
+  const reportingCurrency = row.reportingCurrency ?? row.currency;
+  return {
+    amount: reportingAmount,
+    currency: reportingCurrency,
+    nativeAmount: reportingCurrency !== row.currency ? nativeAmount : null,
+  };
 }
 
 function sumPortfolioValues(values: Array<number | null | undefined>): number | null {
