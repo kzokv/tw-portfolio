@@ -1004,7 +1004,7 @@ describe("ReportsClient", () => {
     expect(reportHoldingTickerOrder(contextKey)).toEqual(["SERVER_LEADER"]);
   });
 
-  it("[Reports allocation]: filter rows → displayed allocation is recalculated from the filtered local universe before sorting", async () => {
+  it("[Reports allocation]: filter rows → displayed allocation preserves the API report-scope percentage", async () => {
     const rows = [
       reportHoldingRow({ ticker: "AU_ONLY", marketCode: "AU", reportingMarketValueAmount: 100, reportingAllocationPercent: 25 }),
       reportHoldingRow({ ticker: "US_ONLY", marketCode: "US", reportingMarketValueAmount: 300, reportingAllocationPercent: 75 }),
@@ -1024,8 +1024,8 @@ describe("ReportsClient", () => {
     const table = document.querySelector("[data-testid='reports-holdings-table-reports.dailyReview.holdings']");
     const row = table?.querySelector("tbody tr");
     expect(row?.textContent).toContain("AU_ONLY");
-    expect(row?.textContent).toContain("100%");
-    expect(row?.textContent).not.toContain("25%");
+    expect(row?.textContent).toContain("25%");
+    expect(row?.textContent).not.toContain("100%");
   });
 
   it("[Reports data health]: sort inferred fallback with deterministic quote, freshness, FX, and fallback precedence", async () => {

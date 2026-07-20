@@ -2702,9 +2702,7 @@ function HoldingsCard({
           account.name.toUpperCase().includes(normalizedQuery) || account.id.toUpperCase().includes(normalizedQuery));
       return marketMatches && accountMatches && queryMatches;
     });
-    const presetFilteredRows = recalculateReportHoldingAllocations(
-      applyReportHoldingPreset(baseRows, selectedPreset),
-    );
+    const presetFilteredRows = applyReportHoldingPreset(baseRows, selectedPreset);
     if (columnSettings.sortMode === "field" && columnSettings.sortField && columnSettings.sortDirection) {
       return sortHoldingsRows({
         direction: columnSettings.sortDirection,
@@ -3320,23 +3318,6 @@ function reportHoldingDataHealthRank(row: ReportHoldingRowDto): number {
   const fxRank = row.fxStatus === "missing" ? 50 : row.fxStatus === "partial" ? 25 : 0;
   const allocationFallbackRank = inferReportHoldingAllocationFallback(row) ? 10 : 0;
   return (quoteRank * 10_000) + (priceStateSortRank(row) * 100) + fxRank + allocationFallbackRank;
-}
-
-function recalculateReportHoldingAllocations(rows: ReportHoldingRowDto[]): ReportHoldingRowDto[] {
-  const amounts = rows.map(reportHoldingAllocationAmount);
-  const denominator = amounts.reduce<number>((sum, amount) => sum + (amount ?? 0), 0);
-  return rows.map((row, index) => ({
-    ...row,
-    reportingAllocationPercent: denominator > 0 && amounts[index] !== null
-      ? (amounts[index]! / denominator) * 100
-      : null,
-  }));
-}
-
-function reportHoldingAllocationAmount(row: ReportHoldingRowDto): number | null {
-  if (Number.isFinite(row.reportingMarketValueAmount)) return Math.max(0, row.reportingMarketValueAmount!);
-  if (Number.isFinite(row.reportingCostBasisAmount)) return Math.max(0, row.reportingCostBasisAmount!);
-  return null;
 }
 
 function inferReportHoldingAllocationFallback(row: ReportHoldingRowDto): boolean {
