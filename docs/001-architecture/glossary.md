@@ -38,6 +38,27 @@ Curated domain terms, project conventions, and system concepts used throughout t
 | Posting status | State of a dividend ledger entry lifecycle: `expected` (computed from eligible quantity), `posted` (actual amounts received), or `adjusted` (corrected after posting). |
 | Store | The in-memory `Store` object loaded by `loadStore(userId)` containing all user settings, accounts, fee profiles, and accounting facts/projections. Mutated first, then persisted. |
 
+## Holdings Presentation
+
+These terms are canonical for user-facing holdings tables, cards, summaries, accessibility copy, and matching Analysis metrics. Accounting and inventory workflows may retain narrower domain terms where noted.
+
+| Term | Definition |
+|------|-----------|
+| Holding | One instrument aggregated across the accounts in the current selection. Use **holding**, not **position**, as the generic presentation term. |
+| Account holding | One instrument held within one account. |
+| Quantity | The number of instrument units held. Use **Quantity**, not **Units**, **Shares**, or **Position**, in holdings presentation. |
+| Accounts | The count or list of accounts contributing to a holding. |
+| Average cost | Cost basis per unit. |
+| Price | The current unit price. |
+| Unit P&L | Signed unrealized profit or loss per unit. |
+| Market value | The current total value of a holding. Use this capitalization in English UI copy. |
+| Cost basis | Total acquisition cost. Use **Cost basis**, not **Book Cost** or **Total Cost**, in holdings presentation. |
+| Daily change | Signed daily performance. Explicit column sorting uses signed percentage; mover presets may rank by absolute percentage. |
+| Unrealized P&L | Current market value minus cost basis. Use the full label instead of bare **P&L** or **Unrealized** table labels. |
+| Allocation | A holding's percentage of the selected portfolio. Use **Allocation**, not **Weight**, in holdings presentation. |
+| Data health | The composite quote, FX, freshness, and allocation-fallback condition for a holding. |
+| Position | Reserved for accounting or inventory workflows that explicitly mean a position, position status, or position action. Do not use it as a generic holdings-table column or summary term. |
+
 ## Fees and Taxation
 
 | Term | Definition |
@@ -126,7 +147,7 @@ Curated domain terms, project conventions, and system concepts used throughout t
 
 | Term | Definition |
 |------|-----------|
-| Full test suite | The seven required test suites: (1) lint, (2) typecheck, (3) web unit, (4) API integration, (5) E2E bypass, (6) E2E OAuth, (7) API HTTP. All must pass before declaring "tests pass." |
+| Full test suite | The eight required suites: (1) full-project lint, (2) typecheck, (3) web unit tests, (4) API package tests using unit and memory-backed integration coverage, (5) managed Postgres/Redis API integration tests in host mode, (6) E2E bypass, (7) E2E OAuth, and (8) API HTTP. Suite 4 does not replace suite 5. All eight must pass before declaring "tests pass." |
 | E2E bypass | Playwright E2E tests running with `AUTH_MODE=dev_bypass` and `PERSISTENCE_BACKEND=memory`. Tests in `specs/`. |
 | E2E OAuth | Playwright E2E tests running with `AUTH_MODE=oauth`. Tests in `specs-oauth/`. Uses `/__e2e/oauth-session` for session seeding. |
 | API HTTP tests | Playwright-based API contract tests running with `AUTH_MODE=oauth`, API-only (no web server). Tests in `apps/api/test/http/specs/`. Uses `libs/test-api` assistants. |

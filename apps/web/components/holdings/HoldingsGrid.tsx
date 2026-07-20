@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { cn } from "../../lib/utils";
 
 export function HoldingsGridEmptyState({
@@ -55,16 +55,19 @@ export function HoldingsGridDesktopFrame({
 export function HoldingsGridNativeTable({
   children,
   className,
+  style,
   testId,
 }: {
   children: ReactNode;
   className?: string;
+  style?: CSSProperties;
   testId?: string;
 }) {
   return (
     <table
       className={cn("w-full table-fixed border-collapse text-sm text-muted-foreground [&_td]:whitespace-normal [&_td]:break-words [&_th]:whitespace-normal [&_th]:break-words", className)}
       data-testid={testId}
+      style={style}
     >
       {children}
     </table>

@@ -1,4 +1,4 @@
-import React, { act } from "react";
+import React, { Profiler, act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -24,6 +24,10 @@ import { TransactionHistoryTable } from "../../../components/portfolio/Transacti
 import { buildHoldingGroupsFromHoldings } from "../../../features/portfolio/holdingGroups";
 import { getDictionary } from "../../../lib/i18n";
 import { testPriceState, testPriceStateRollup } from "../../fixtures/priceState";
+import {
+  createCommitProfilerRecorder,
+  recordPerformanceScenario,
+} from "../../performance/holdingsSortingPerformanceHarness";
 
 vi.mock("recharts", () => ({
   Cell: () => null,
@@ -214,6 +218,64 @@ describe("dashboard components", () => {
   // slim 2-card layout (total + day Δ). Hero rendering is covered by
   // the new E2E spec in Phase 5f (commit 5f).
 
+  it.runIf(process.env.HOLDINGS_PERF_CAPTURE === "1")("captures the current Dashboard deterministic sort-to-commit baseline", async () => {
+    mockUserPreferencesFetch();
+    const base = buildHoldingGroupsFromHoldings({ holdings })[0];
+    if (!base) throw new Error("Expected holding group");
+    const fixtureGroups = Array.from({ length: 40 }, (_, index) => ({
+      ...base,
+      ticker: `D${String(index).padStart(4, "0")}`,
+      marketCode: index % 2 === 0 ? "TW" as const : "US" as const,
+      reportingCurrency: "AUD" as const,
+      reportingMarketValueAmount: 60_000 + ((index * 7_919) % 400_000),
+      reportingCostBasisAmount: 58_000 + ((index * 3_571) % 350_000),
+      reportingUnrealizedPnlAmount: ((index * 1_013) % 90_000) - 45_000,
+      reportingDailyChangeAmount: ((index * 71) % 4_000) - 2_000,
+      reportingAllocationPercent: ((index * 37) % 1_000) / 10,
+      children: base.children.map((child) => ({
+        ...child,
+        accountId: `${child.accountId}-${index}`,
+        ticker: `D${String(index).padStart(4, "0")}`,
+      })),
+    }));
+    const recorder = createCommitProfilerRecorder({
+      measuredCount: 10,
+      name: "dashboard-current-sort-to-commit",
+      warmupCount: 3,
+    });
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <Profiler id="dashboard-current-sort" onRender={recorder.onRender}>
+          <DashboardHoldingsPreview groups={fixtureGroups} locale="en" reportingCurrency="AUD" />
+        </Profiler>,
+      );
+    });
+    await flushPromises();
+
+    const presetGroup = container.querySelector('[data-testid="dashboard-holdings-presets"]');
+    const buttons = Array.from(presetGroup?.querySelectorAll("button") ?? []);
+    const largest = buttons.find((button) => button.textContent?.includes(dict.dashboardHome.topHoldingsPresetLargest));
+    const worstPnl = buttons.find((button) => button.textContent?.includes(dict.dashboardHome.topHoldingsPresetWorstPnl));
+    if (!largest || !worstPnl) throw new Error("Expected Dashboard focus preset buttons");
+    for (let iteration = 0; iteration < 13; iteration += 1) {
+      const button = iteration % 2 === 0 ? worstPnl : largest;
+      recorder.arm(iteration % 2 === 0 ? "worst-pnl" : "largest");
+      click(button);
+      recorder.assertCommitted();
+    }
+    recordPerformanceScenario(recorder.scenario({
+      interaction: "alternate existing Worst P&L and Largest focus controls",
+      measuredCount: 10,
+      renderedDesktopRowCount: 5,
+      renderedMobileRowCount: 5,
+      sourceRowCount: fixtureGroups.length,
+      warmupCount: 3,
+    }));
+  }, 60_000);
+
   it("shows reporting currency status and simplified report links", () => {
     const groups = buildHoldingGroupsFromHoldings({ holdings })
       .map((group) => ({
@@ -365,6 +427,8 @@ describe("dashboard components", () => {
     expect(html).toContain("TWD to AUD");
     expect(html).toContain("0.049");
     expect(html).toContain("1 visible holding");
+    expect(html).toContain("Showing 1 of 1 matching holdings.");
+    expect(html).not.toContain("grouped position(s)");
     expect(html).toContain("Price (AUD)");
     expect(html).toContain("Market value (AUD)");
     expect(html).toContain('href="/tickers/2330?marketCode=TW"');
@@ -475,7 +539,8 @@ describe("dashboard components", () => {
     expect(html).toContain('data-testid="dashboard-holdings-preset-settings"');
     expect(html).toContain('aria-label="Market"');
     expect(html).toContain('aria-label="Account"');
-    expect(html).toContain('aria-label="Sort by"');
+    expect(html).toContain('data-testid="dashboard-holdings-mobile-sort-field"');
+    expect(html).toContain('aria-label="Sort field"');
     expect(html).toContain("Largest");
     expect(html).toContain("Worst P&amp;L");
     expect(html).toContain("Best P&amp;L");
@@ -558,6 +623,8 @@ describe("dashboard components", () => {
     expect(container.querySelector('[data-testid="dashboard-holding-account-row-2330-acc-2"]')).not.toBeNull();
     expect(container.textContent).toContain("Main Brokerage");
     expect(container.textContent).toContain("Retirement Brokerage");
+    expect(container.textContent).toContain("Account holding");
+    expect(container.textContent).not.toContain("Account position");
     expect(container.textContent).toContain("Open ticker");
   });
 
@@ -626,11 +693,11 @@ describe("dashboard components", () => {
 
     expect(accountTrigger?.textContent).toContain("Retirement Brokerage");
     expect(accountTrigger?.textContent).not.toContain("acc-2");
-    expect(container.textContent).toContain("500 units");
-    expect(container.textContent).toContain("1 acct");
+    expect(container.textContent).toContain("Quantity500");
+    expect(container.textContent).toContain("Accounts1");
     expect(container.textContent).toContain("A$15,000");
     expect(container.textContent).toContain("+A$500");
-    expect(container.textContent).not.toContain("2,500.00 units");
+    expect(container.textContent).not.toContain("Quantity2,500");
     expect(container.textContent).not.toContain("A$75,000");
     expect(container.textContent).not.toContain("+A$2,500");
   });
@@ -680,8 +747,11 @@ describe("dashboard components", () => {
       />,
     );
 
-    expect(html).toContain("1 acct · 50%");
-    expect(html).not.toContain("1 acct · 100%");
+    expect(html).toContain("Accounts</p><p");
+    expect(html).toContain(">1</p>");
+    expect(html).toContain("Allocation</p><p");
+    expect(html).toContain(">50%</p>");
+    expect(html).not.toContain(">100%</p>");
   });
 
   it("opens holding focus detail sheet with account, cost, and FX sections", () => {
@@ -734,9 +804,9 @@ describe("dashboard components", () => {
 
     expect(document.body.textContent).toContain("Summary");
     expect(document.body.textContent).toContain("Accounts");
-    expect(document.body.textContent).toContain("Cost/P&L");
+    expect(document.body.textContent).toContain("Cost basis / Unrealized P&L");
     expect(document.body.textContent).toContain("FX/Price");
-    expect(document.body.textContent).toContain("Book Cost");
+    expect(document.body.textContent).toContain("Cost basis");
     expect(document.body.textContent).toContain("Portfolio allocation");
     expect(document.body.textContent).toContain("Average cost");
     expect(document.body.textContent).toContain("Latest price");
@@ -842,24 +912,24 @@ describe("dashboard components", () => {
     });
     await flushPromises();
 
-    const headers = [...container.querySelectorAll('[data-testid^="holdings-column-drag-"]')];
-    expect(headers[0]?.getAttribute("data-testid")).toBe("holdings-column-drag-pnl");
+    const headers = [...container.querySelectorAll('[data-testid^="dashboard-holdings-column-drag-"]')];
+    expect(headers[0]?.getAttribute("data-testid")).toBe("dashboard-holdings-column-drag-unrealizedPnl");
     expect(headers[0]?.getAttribute("draggable")).toBe("true");
     expect((headers[0]?.closest("th") as HTMLTableCellElement | null)?.style.width).toBe("222px");
-    expect(container.querySelector('[data-testid="holdings-column-resize-pnl"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="dashboard-holdings-column-resize-unrealizedPnl"]')).not.toBeNull();
 
     const settingsButton = container.querySelector('[data-testid="holdings-column-settings"]');
     expect(settingsButton).not.toBeNull();
     pointerDown(settingsButton!);
     await flushPromises();
 
-    const moveRight = document.body.querySelector('[data-testid="holdings-column-move-right-pnl"]');
+    const moveRight = document.body.querySelector('[data-testid="holdings-column-move-right-unrealizedPnl"]');
     expect(moveRight).not.toBeNull();
     click(moveRight!);
     await flushPromises();
 
-    const reorderedHeaders = [...container.querySelectorAll('[data-testid^="holdings-column-drag-"]')];
-    expect(reorderedHeaders[0]?.getAttribute("data-testid")).toBe("holdings-column-drag-ticker");
+    const reorderedHeaders = [...container.querySelectorAll('[data-testid^="dashboard-holdings-column-drag-"]')];
+    expect(reorderedHeaders[0]?.getAttribute("data-testid")).toBe("dashboard-holdings-column-drag-ticker");
     const patchCall = fetchMock.mock.calls.find(([, init]) => {
       if (init?.method !== "PATCH") return false;
       const body = JSON.parse(String(init.body)) as {
@@ -872,12 +942,25 @@ describe("dashboard components", () => {
       holdingsTableSettings: { contexts: Record<string, { columnOrder: string[]; columnWidths: Record<string, number> }> };
     };
     expect(patchBody.holdingsTableSettings.contexts["dashboard.topHoldings"]?.columnOrder).toEqual(
-      ["ticker", "pnl", "position", "avgCost", "price", "unitPnl", "marketValue", "costBasis", "daily", "health", "action"],
+      [
+        "ticker",
+        "unrealizedPnl",
+        "quantity",
+        "accounts",
+        "allocation",
+        "averageCost",
+        "price",
+        "unitPnl",
+        "marketValue",
+        "costBasis",
+        "dailyChange",
+        "dataHealth",
+        "actions",
+      ],
     );
-    expect(patchBody.holdingsTableSettings.contexts["dashboard.topHoldings"]?.columnWidths.pnl).toBe(222);
+    expect(patchBody.holdingsTableSettings.contexts["dashboard.topHoldings"]?.columnWidths.unrealizedPnl).toBe(222);
 
-    const resetButton = [...document.body.querySelectorAll("button")]
-      .find((button) => button.textContent?.includes(dict.holdings.resetColumnsLabel));
+    const resetButton = document.body.querySelector('[data-testid="holdings-reset-columns"]');
     expect(resetButton).toBeDefined();
     click(resetButton!);
     await flushPromises();
@@ -886,7 +969,21 @@ describe("dashboard components", () => {
       holdingsTableSettings: { contexts: Record<string, { columnOrder: string[]; rowOrder: string[]; topHoldingsLimit: number }> };
     };
     expect(resetPatchBody.holdingsTableSettings.contexts["dashboard.topHoldings"]).toMatchObject({
-      columnOrder: ["ticker", "position", "avgCost", "price", "unitPnl", "marketValue", "costBasis", "daily", "pnl", "health", "action"],
+      columnOrder: [
+        "ticker",
+        "quantity",
+        "accounts",
+        "allocation",
+        "averageCost",
+        "price",
+        "unitPnl",
+        "marketValue",
+        "costBasis",
+        "dailyChange",
+        "unrealizedPnl",
+        "dataHealth",
+        "actions",
+      ],
       rowOrder: ["US:AAPL", "TW:2330"],
       topHoldingsLimit: 8,
     });
@@ -997,7 +1094,8 @@ describe("dashboard components", () => {
 
     expect(container.querySelector("[data-testid='dashboard-holding-preview-AAPL-US']")).not.toBeNull();
     expect(container.querySelector("[data-testid='dashboard-holding-preview-2330-TW']")).toBeNull();
-    expect(container.textContent).toContain("Total Cost");
+    expect(container.textContent).toContain("Cost basis");
+    expect(container.textContent).not.toContain("Total Cost");
 
     const settingsButton = container.querySelector('[data-testid="dashboard-holdings-row-settings"]');
     expect(settingsButton).not.toBeNull();
@@ -1057,7 +1155,7 @@ describe("dashboard components", () => {
     await flushPromises();
 
     const priceHeader = container
-      .querySelector('[data-testid="holdings-column-drag-price"]')
+      .querySelector('[data-testid="dashboard-holdings-column-drag-price"]')
       ?.closest("th") as HTMLTableCellElement | null;
     expect(priceHeader?.style.width).toBe("72px");
     expect(priceHeader?.style.minWidth).toBe("72px");
@@ -1261,7 +1359,7 @@ describe("dashboard components", () => {
       holdingsTableSettings: { contexts: Record<string, { columnOrder: string[]; hiddenColumns: string[]; columnWidths: Record<string, number> }> };
     };
     expect(patchBody.holdingsTableSettings.contexts["reports.market.topHoldings"]).toBeUndefined();
-    expect(patchBody.holdingsTableSettings.contexts["dashboard.topHoldings"]?.columnOrder.slice(0, 2)).toEqual(["position", "ticker"]);
+    expect(patchBody.holdingsTableSettings.contexts["dashboard.topHoldings"]?.columnOrder.slice(0, 2)).toEqual(["quantity", "ticker"]);
   });
 
   it("does not persist holdings table contexts when preference hydration fails", async () => {
@@ -1676,9 +1774,10 @@ describe("dashboard components", () => {
     const html = renderToStaticMarkup(<HoldingsTable holdings={holdings} dict={dict} locale="en" />);
 
     expect(html).toContain("Price");
-    expect(html).toContain("Market Value");
+    expect(html).toContain("Market value");
     expect(html).toContain("P&amp;L");
-    expect(html).toContain("Total Cost");
+    expect(html).toContain("Cost basis");
+    expect(html).not.toContain("Total Cost");
     expect(html).toContain("Last Posted");
     expect(html).toContain("href=\"/tickers/2330?marketCode=TW\"");
     expect(html).not.toContain("href=\"/tickers/2330?marketCode=TW&amp;accountId=acc-1\"");
@@ -1957,8 +2056,8 @@ describe("dashboard components", () => {
 
     expect(html).toContain("Portfolio Trend");
     expect(html).toContain("dashboard-performance-range-1m");
-    expect(html).toContain("Market Value");
-    expect(html).toContain("Book Cost");
+    expect(html).toContain("Market value");
+    expect(html).toContain("Cost basis");
   });
 
   it("keeps the requested trend timeline when snapshot points start later", () => {

@@ -12,6 +12,7 @@ import {
   type DailyReviewReportDto,
   type DashboardPerformanceDto,
   type FxConversionRateDto,
+  type HoldingsSortField,
   type LocaleCode,
   type MarketReportDto,
   type PortfolioReportDto,
@@ -24,7 +25,6 @@ import {
   type ReportTickerAllocationRowDto,
   type TickerAllocationChartMode,
   type TickerAllocationTopN,
-  holdingsTableSettingsPreferenceSchema,
 } from "@vakwen/shared-types";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
 import { ChevronDown, ExternalLink, RefreshCw, Search } from "lucide-react";
@@ -63,14 +63,19 @@ import { ToggleGroup, ToggleGroupItem } from "../ui/shadcn/toggle-group";
 import {
   HoldingsColumnHeaderContent,
   HoldingsColumnSettingsMenu,
+  HoldingsHiddenSortChip,
+  HoldingsMobileSortControls,
   HoldingsRowSettingsMenu,
   applyHoldingsRowOrder,
   filterAvailableHoldingsSelections,
   holdingsColumnCellStyle,
+  holdingsSortableHeaderCellProps,
   useHoldingsColumnSettings,
+  type HoldingsDefaultSort,
   type HoldingsColumnSettingsState,
   type HoldingsGridColumnDefinition,
 } from "../holdings/HoldingsColumnSettings";
+import { sortHoldingsRows } from "../holdings/holdingsSorting";
 import {
   HoldingsSelectionInlineToggle,
   HoldingsSelectionSummaryStrip,
@@ -93,6 +98,8 @@ import {
 import { buildHoldingsSelectionVisibleSummary, type HoldingsSelectionSummaryRow } from "../holdings/holdingsSelectionSummary";
 import {
   buildHoldingsTickerId,
+  fetchHoldingsPreferences,
+  persistHoldingsTableContexts,
   REPORTS_DAILY_REVIEW_HOLDINGS_CONTEXT_KEY,
   REPORTS_DAILY_REVIEW_TOP_MOVERS_CONTEXT_KEY,
   REPORTS_MARKET_DETAIL_CONTEXT_KEY,
@@ -132,7 +139,6 @@ import {
   type ReportHealthReason,
 } from "../../features/reports/reportHealthDeepLinks";
 import type { AnyReportDto } from "../../features/reports/services/reportService";
-import { getJson, patchJson } from "../../lib/api";
 import type { AppDictionary } from "../../lib/i18n";
 import { getRouteDtoContextScope } from "../../lib/routeDtoCache";
 import { buildTimelineAxis, type TimelineMode } from "../../lib/timelineAxis";
@@ -151,23 +157,20 @@ type OptionalFxRateDto = {
   toCurrency?: string;
 };
 
-interface UserPreferencesResponse {
-  preferences?: {
-    holdingsTableSettings?: unknown;
-  };
-}
-
-type ReportHoldingsColumn = "ticker" | "position" | "avgCost" | "price" | "unitPnl" | "marketValue" | "costBasis" | "unrealized" | "daily" | "weight" | "health";
+type ReportHoldingsColumn = "ticker" | "accounts" | "quantity" | "averageCost" | "price" | "unitPnl" | "marketValue" | "costBasis" | "dailyChange" | "unrealizedPnl" | "allocation" | "dataHealth" | "actions";
 type ReportHoldingFocusPreset = "largest" | "highest-allocation" | "worst-pnl" | "best-pnl" | "stale-quotes" | "fx-exposure";
-type ReportHoldingSort = "value" | "daily" | "pnl" | "unitPnl" | "ticker";
 
-const REPORT_HOLDING_FOCUS_PRESETS: Array<{ id: ReportHoldingFocusPreset; sortMode: ReportHoldingSort }> = [
-  { id: "largest", sortMode: "value" },
-  { id: "highest-allocation", sortMode: "value" },
-  { id: "worst-pnl", sortMode: "pnl" },
-  { id: "best-pnl", sortMode: "pnl" },
-  { id: "stale-quotes", sortMode: "ticker" },
-  { id: "fx-exposure", sortMode: "value" },
+const REPORT_HOLDING_FOCUS_PRESETS: Array<{
+  direction: "asc" | "desc";
+  field: HoldingsSortField;
+  id: ReportHoldingFocusPreset;
+}> = [
+  { direction: "desc", field: "marketValue", id: "largest" },
+  { direction: "desc", field: "allocation", id: "highest-allocation" },
+  { direction: "asc", field: "unrealizedPnl", id: "worst-pnl" },
+  { direction: "desc", field: "unrealizedPnl", id: "best-pnl" },
+  { direction: "desc", field: "dataHealth", id: "stale-quotes" },
+  { direction: "desc", field: "marketValue", id: "fx-exposure" },
 ];
 
 const TICKER_ALLOCATION_CHART_CONTEXT_KEY = "reports.portfolio.tickerAllocation";
@@ -175,44 +178,51 @@ const DEFAULT_TICKER_ALLOCATION_CHART_MODE: TickerAllocationChartMode = "bars";
 const DEFAULT_TICKER_ALLOCATION_TOP_N: TickerAllocationTopN = "auto";
 
 const REPORT_HOLDINGS_COLUMNS: Array<HoldingsGridColumnDefinition<ReportHoldingsColumn>> = [
-  { id: "ticker", label: "Ticker", defaultWidth: 176, canHide: false },
-  { id: "position", label: "Position", defaultWidth: 156 },
-  { id: "avgCost", label: "Avg cost", defaultWidth: 148, align: "right" },
-  { id: "price", label: "Price", defaultWidth: 148, align: "right" },
-  { id: "unitPnl", label: "Unit P&L", defaultWidth: 148, align: "right" },
-  { id: "marketValue", label: "Market value", defaultWidth: 168, align: "right" },
-  { id: "costBasis", label: "Book Cost", defaultWidth: 156, align: "right" },
-  { id: "unrealized", label: "Unrealized", defaultWidth: 156, align: "right" },
-  { id: "daily", label: "Daily", defaultWidth: 156, align: "right" },
-  { id: "weight", label: "Weight", defaultWidth: 128, align: "right" },
-  { id: "health", label: "Data health", defaultWidth: 192 },
+  { id: "ticker", label: "Ticker", defaultWidth: 176, canHide: false, sortField: "ticker" },
+  { id: "accounts", label: "Accounts", defaultWidth: 116, align: "right", sortField: "accountCount" },
+  { id: "quantity", label: "Quantity", defaultWidth: 132, align: "right", sortField: "quantity" },
+  { id: "averageCost", label: "Average cost", defaultWidth: 148, align: "right", sortField: "averageCost" },
+  { id: "price", label: "Price", defaultWidth: 148, align: "right", sortField: "price" },
+  { id: "unitPnl", label: "Unit P&L", defaultWidth: 148, align: "right", sortField: "unitPnl" },
+  { id: "marketValue", label: "Market value", defaultWidth: 168, align: "right", sortField: "marketValue" },
+  { id: "costBasis", label: "Cost basis", defaultWidth: 156, align: "right", sortField: "costBasis" },
+  { id: "dailyChange", label: "Daily change", defaultWidth: 156, align: "right", sortField: "dailyChangePercent" },
+  { id: "unrealizedPnl", label: "Unrealized P&L", defaultWidth: 156, align: "right", sortField: "unrealizedPnl" },
+  { id: "allocation", label: "Allocation", defaultWidth: 128, align: "right", sortField: "allocation" },
+  { id: "dataHealth", label: "Data health", defaultWidth: 192, sortField: "dataHealth" },
+  { id: "actions", label: "Actions", defaultWidth: 132, align: "right", canHide: false },
 ];
-const REPORT_MOBILE_FIELD_COLUMNS: ReportHoldingsColumn[] = ["position", "avgCost", "price", "unitPnl", "marketValue", "costBasis", "unrealized", "daily", "weight", "health"];
+const REPORT_MOBILE_FIELD_COLUMNS: ReportHoldingsColumn[] = ["quantity", "accounts", "marketValue", "unrealizedPnl", "averageCost", "price", "unitPnl", "costBasis", "dailyChange", "allocation", "dataHealth"];
+const REPORT_HOLDINGS_SORT_FIELDS = REPORT_HOLDINGS_COLUMNS.flatMap((column) => column.sortField ? [column.sortField] : []);
 
 function reportHoldingColumnLabel(dict: AppDictionary, column: ReportHoldingsColumn): string {
   switch (column) {
     case "ticker":
       return dict.reports.ticker;
-    case "position":
-      return dict.reports.position;
+    case "accounts":
+      return dict.reports.accounts;
+    case "quantity":
+      return dict.reports.quantity;
     case "price":
       return dict.reports.price;
-    case "avgCost":
-      return dict.holdings.avgCostTerm;
+    case "averageCost":
+      return dict.reports.averageCost;
     case "unitPnl":
       return dict.holdings.unitPnlTerm;
     case "marketValue":
       return dict.reports.marketValue;
     case "costBasis":
-      return dict.reports.bookCost;
-    case "unrealized":
+      return dict.reports.costBasis;
+    case "unrealizedPnl":
       return dict.reports.unrealizedPnl;
-    case "daily":
+    case "dailyChange":
       return dict.reports.dailyChange;
-    case "weight":
-      return dict.reports.weight;
-    case "health":
+    case "allocation":
+      return dict.reports.allocation;
+    case "dataHealth":
       return dict.holdings.dataHealthTerm;
+    case "actions":
+      return dict.reports.actions;
   }
 }
 
@@ -227,7 +237,7 @@ function buildPerformanceChartConfig(totalReturnAmount: number | null | undefine
       color: "hsl(var(--chart-primary))",
     },
     totalCostAmount: {
-      label: "Book Cost",
+      label: "Cost basis",
       color: "hsl(var(--chart-muted))",
     },
     totalReturnAmount: {
@@ -618,17 +628,19 @@ function ReportBody({
       label: reportHoldingColumnLabel(uiDict, column.id),
     })),
     [
-      uiDict.holdings.avgCostTerm,
       uiDict.holdings.dataHealthTerm,
       uiDict.holdings.unitPnlTerm,
-      uiDict.reports.bookCost,
+      uiDict.reports.accounts,
+      uiDict.reports.actions,
+      uiDict.reports.allocation,
+      uiDict.reports.averageCost,
+      uiDict.reports.costBasis,
       uiDict.reports.dailyChange,
       uiDict.reports.marketValue,
-      uiDict.reports.pnl,
-      uiDict.reports.position,
       uiDict.reports.price,
+      uiDict.reports.quantity,
       uiDict.reports.ticker,
-      uiDict.reports.weight,
+      uiDict.reports.unrealizedPnl,
     ],
   );
   const dataHealthRef = useRef<HTMLDivElement | null>(null);
@@ -1359,7 +1371,7 @@ function SummaryGrid({
       healthLinkLabel: dict.reports.viewDataHealth,
       healthLinkTestId: "reports-summary-market-value-data-health-link",
     },
-    { label: dict.reports.bookCost, value: summary.costBasisAmount },
+    { label: dict.reports.costBasis, value: summary.costBasisAmount },
     {
       label: dict.reports.unrealizedPnl,
       toneValue: strictTotalsUnavailable ? null : summary.unrealizedPnlAmount,
@@ -1723,11 +1735,18 @@ function DailyReviewView({
         </Card>
         <HoldingsCard
           columns={holdingsColumns}
+          defaultSort={{ sortMode: "custom" }}
           dict={dict}
           title={dict.reports.topMoversTitle}
           contextKey={REPORTS_DAILY_REVIEW_TOP_MOVERS_CONTEXT_KEY}
-          selectionUniverseRows={data.holdings.rows}
-          rows={{ total: data.topMovers.length, limit: data.topMovers.length, offset: 0, rows: data.topMovers }}
+          selectionUniverseRows={data.topMovers}
+          rows={{
+            ...data.holdings,
+            limit: data.topMovers.length,
+            offset: 0,
+            rows: data.topMovers,
+            total: data.topMovers.length,
+          }}
           isRefreshing={isRefreshing}
           locale={locale}
           onRefresh={onRefresh}
@@ -1862,8 +1881,14 @@ function MarketReportView({
           dict={dict}
           title={dict.reports.topHoldingsTitle}
           contextKey={REPORTS_MARKET_TOP_HOLDINGS_CONTEXT_KEY}
-          selectionUniverseRows={data.detail.rows}
-          rows={{ total: data.topHoldings.length, limit: data.topHoldings.length, offset: 0, rows: data.topHoldings }}
+          selectionUniverseRows={data.topHoldings}
+          rows={{
+            ...data.detail,
+            limit: data.topHoldings.length,
+            offset: 0,
+            rows: data.topHoldings,
+            total: data.topHoldings.length,
+          }}
           isRefreshing={isRefreshing}
           locale={locale}
           onRefresh={onRefresh}
@@ -2132,11 +2157,10 @@ function TickerAllocationCard({
 
   useEffect(() => {
     let cancelled = false;
-    void getJson<UserPreferencesResponse>("/user-preferences", { contextScope: "session" })
+    void fetchHoldingsPreferences()
       .then((response) => {
         if (cancelled) return;
-        const parsed = holdingsTableSettingsPreferenceSchema.safeParse(response?.preferences?.holdingsTableSettings);
-        const contexts = parsed.success ? parsed.data.contexts : {};
+        const contexts = response.holdingsTableSettings.contexts;
         const context = contexts[TICKER_ALLOCATION_CHART_CONTEXT_KEY];
         setChartMode(context?.tickerAllocationChartMode ?? DEFAULT_TICKER_ALLOCATION_CHART_MODE);
         setTopN(context?.tickerAllocationTopN ?? DEFAULT_TICKER_ALLOCATION_TOP_N);
@@ -2157,20 +2181,20 @@ function TickerAllocationCard({
       : selectedMarketCodes.length === 0 || selectedMarketCodes.includes(row.marketCode)),
     [lockedMarketCode, rows, selectedMarketCodes],
   );
-  const rowsWithSelectedWeight = useMemo(
+  const rowsWithSelectedAllocation = useMemo(
     () => buildTickerAllocationRows(filteredRows, topN),
     [filteredRows, topN],
   );
 
   useEffect(() => {
-    if (rowsWithSelectedWeight.length === 0) {
+    if (rowsWithSelectedAllocation.length === 0) {
       setSelectedKey(null);
       return;
     }
-    setSelectedKey((current) => rowsWithSelectedWeight.some((row) => row.key === current) ? current : rowsWithSelectedWeight[0]!.key);
-  }, [rowsWithSelectedWeight]);
+    setSelectedKey((current) => rowsWithSelectedAllocation.some((row) => row.key === current) ? current : rowsWithSelectedAllocation[0]!.key);
+  }, [rowsWithSelectedAllocation]);
 
-  const selectedRow = rowsWithSelectedWeight.find((row) => row.key === selectedKey) ?? rowsWithSelectedWeight[0] ?? null;
+  const selectedRow = rowsWithSelectedAllocation.find((row) => row.key === selectedKey) ?? rowsWithSelectedAllocation[0] ?? null;
   const marketFilterLabel = lockedMarketCode
     ? lockedMarketCode
     : formatFilterSummary(selectedMarketCodes, dict.dashboardHome.topHoldingsAllMarkets, dict.dashboardHome.topHoldingsMarketLabel);
@@ -2191,24 +2215,12 @@ function TickerAllocationCard({
   function persistChartSettings(nextMode: TickerAllocationChartMode, nextTopN: TickerAllocationTopN) {
     if (!settingsHydrated) return;
     setSettingsError("");
-    void (async () => {
-      const response = await getJson<UserPreferencesResponse>("/user-preferences", { contextScope: "session" });
-      const parsed = holdingsTableSettingsPreferenceSchema.safeParse(response?.preferences?.holdingsTableSettings);
-      const latestContexts = parsed.success ? parsed.data.contexts : {};
-      const nextContexts = {
-        ...latestContexts,
-        [TICKER_ALLOCATION_CHART_CONTEXT_KEY]: {
-          ...latestContexts[TICKER_ALLOCATION_CHART_CONTEXT_KEY],
-          tickerAllocationChartMode: nextMode,
-          tickerAllocationTopN: nextTopN,
-        },
-      };
-      await patchJson(
-        "/user-preferences",
-        { holdingsTableSettings: { version: 1, contexts: nextContexts } },
-        { contextScope: "session" },
-      );
-    })().catch((error) => {
+    void persistHoldingsTableContexts({
+      [TICKER_ALLOCATION_CHART_CONTEXT_KEY]: {
+        tickerAllocationChartMode: nextMode,
+        tickerAllocationTopN: nextTopN,
+      },
+    }).catch((error) => {
       setSettingsError(error instanceof Error ? error.message : String(error));
     });
   }
@@ -2273,14 +2285,14 @@ function TickerAllocationCard({
         </div>
       </CardHeader>
       <CardContent>
-        {rowsWithSelectedWeight.length === 0 ? (
+        {rowsWithSelectedAllocation.length === 0 ? (
           <HoldingsGridEmptyState className="p-6">{dict.reports.noAllocationBuckets}</HoldingsGridEmptyState>
         ) : (
           <div className="grid gap-4">
             <div className="grid gap-4">
               {chartMode === "bars" ? (
                 <div className="grid gap-2" data-testid="reports-ticker-allocation-bars">
-                  {rowsWithSelectedWeight.map((row) => (
+                  {rowsWithSelectedAllocation.map((row) => (
                     <Popover key={row.key}>
                       <PopoverTrigger asChild>
                         <button
@@ -2306,12 +2318,12 @@ function TickerAllocationCard({
                   <TickerAllocationPieChart
                     dict={dict}
                     locale={locale}
-                    rows={rowsWithSelectedWeight}
+                    rows={rowsWithSelectedAllocation}
                     selectedKey={selectedRow?.key ?? null}
                     onSelect={setSelectedKey}
                   />
                   <div className="grid gap-2">
-                    {rowsWithSelectedWeight.map((row, index) => (
+                    {rowsWithSelectedAllocation.map((row, index) => (
                       <Popover key={row.key}>
                         <PopoverTrigger asChild>
                           <button
@@ -2341,8 +2353,8 @@ function TickerAllocationCard({
               <div className="grid gap-2 rounded-xl border border-border px-3 py-3 text-xs text-muted-foreground md:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_4.75rem_4.75rem]">
                 <span>{dict.reports.ticker}</span>
                 <span>{dict.reports.reportingValue}</span>
-                <span className="text-right">{dict.reports.tickerAllocationPortfolioWeight}</span>
-                <span className="text-right">{dict.reports.tickerAllocationSelectedWeight}</span>
+                <span className="text-right">{dict.reports.tickerAllocationPortfolioAllocation}</span>
+                <span className="text-right">{dict.reports.tickerAllocationSelectedAllocation}</span>
               </div>
             </div>
           </div>
@@ -2470,8 +2482,8 @@ function TickerAllocationDetailPanel({
 }) {
   const detailRows = [
     [dict.reports.reportingValue, row.reportingAmount === null ? "-" : formatCurrencyAmount(row.reportingAmount, row.reportingCurrency, locale)],
-    [dict.reports.tickerAllocationPortfolioWeight, row.portfolioAllocationPercent === null ? "-" : formatPercent(row.portfolioAllocationPercent, locale)],
-    [dict.reports.tickerAllocationSelectedWeight, row.selectedAllocationPercent === null ? "-" : formatPercent(row.selectedAllocationPercent, locale)],
+    [dict.reports.tickerAllocationPortfolioAllocation, row.portfolioAllocationPercent === null ? "-" : formatPercent(row.portfolioAllocationPercent, locale)],
+    [dict.reports.tickerAllocationSelectedAllocation, row.selectedAllocationPercent === null ? "-" : formatPercent(row.selectedAllocationPercent, locale)],
     [dict.reports.accounts, formatNumber(row.accountCount, locale)],
     [dict.reports.quoteStatus, reportQuoteStatusLabel(dict, row.quoteStatus)],
     [dict.reports.tickerAllocationFxStatus, reportFxStatusLabel(dict, row.fxStatus)],
@@ -2554,6 +2566,7 @@ function TickerAllocationRowContent({
 function HoldingsCard({
   columns,
   contextKey,
+  defaultSort = { sortDirection: "desc", sortField: "marketValue", sortMode: "field" },
   dict,
   locale,
   isRefreshing,
@@ -2567,6 +2580,7 @@ function HoldingsCard({
 }: {
   columns: Array<HoldingsGridColumnDefinition<ReportHoldingsColumn>>;
   contextKey: string;
+  defaultSort?: HoldingsDefaultSort;
   dict: AppDictionary;
   isRefreshing: boolean;
   locale: LocaleCode;
@@ -2581,13 +2595,51 @@ function HoldingsCard({
   const columnSettings = useHoldingsColumnSettings<ReportHoldingsColumn>({
     columns,
     contextKey,
+    defaultMobileSummaryCount: 6,
+    defaultSort,
     defaultLayoutStyle: "portfolio",
     mobileSummaryColumnIds: REPORT_MOBILE_FIELD_COLUMNS,
+    supportedSortFields: REPORT_HOLDINGS_SORT_FIELDS,
   });
   const reportingCurrency = rows.rows[0]?.reportingCurrency ?? null;
   const [query, setQuery] = useState("");
-  const [selectedPreset, setSelectedPreset] = useState<ReportHoldingFocusPreset>("largest");
-  const [sortMode, setSortMode] = useState<ReportHoldingSort>("value");
+  const [selectedPreset, setSelectedPreset] = useState<ReportHoldingFocusPreset | null>("largest");
+  const clearRankOnlyPreset = useCallback(() => {
+    setSelectedPreset((current) => current !== null && isRankOnlyReportHoldingPreset(current) ? null : current);
+  }, []);
+  const explicitSortSettings = useMemo<HoldingsColumnSettingsState<ReportHoldingsColumn>>(() => ({
+    ...columnSettings,
+    resetSort: columnSettings.resetSort
+      ? () => {
+        clearRankOnlyPreset();
+        columnSettings.resetSort?.();
+      }
+      : undefined,
+    setCustomSort: columnSettings.setCustomSort
+      ? () => {
+        clearRankOnlyPreset();
+        columnSettings.setCustomSort?.();
+      }
+      : undefined,
+    setSort: columnSettings.setSort
+      ? (field, direction) => {
+        clearRankOnlyPreset();
+        columnSettings.setSort?.(field, direction);
+      }
+      : undefined,
+  }), [clearRankOnlyPreset, columnSettings]);
+  useEffect(() => {
+    setSelectedPreset((current) => {
+      if (current === null || !isRankOnlyReportHoldingPreset(current)) return current;
+      const preset = REPORT_HOLDING_FOCUS_PRESETS.find((candidate) => candidate.id === current);
+      return preset
+        && columnSettings.sortMode === "field"
+        && columnSettings.sortField === preset.field
+        && columnSettings.sortDirection === preset.direction
+        ? current
+        : null;
+    });
+  }, [columnSettings.sortDirection, columnSettings.sortField, columnSettings.sortMode]);
   const visibleColumns = columnSettings.orderedColumns.filter((column) => columnSettings.visibleColumns.includes(column.id));
   const mobileColumnSplit = splitMobileHoldingColumns(columnSettings, REPORT_MOBILE_FIELD_COLUMNS);
   const holdingsSelectionUniverse = useMemo(
@@ -2654,15 +2706,22 @@ function HoldingsCard({
           account.name.toUpperCase().includes(normalizedQuery) || account.id.toUpperCase().includes(normalizedQuery));
       return marketMatches && accountMatches && queryMatches;
     });
-    return applyHoldingsRowOrder(
-      applyReportHoldingPreset(baseRows, selectedPreset)
-        .slice()
-        .sort((left, right) => compareReportHoldingRows(left, right, sortMode, selectedPreset)),
-      reportHoldingRowId,
-      columnSettings.rowOrder,
-    );
+    const presetFilteredRows = applyReportHoldingPreset(baseRows, selectedPreset);
+    if (columnSettings.sortMode === "field" && columnSettings.sortField && columnSettings.sortDirection) {
+      return sortHoldingsRows({
+        direction: columnSettings.sortDirection,
+        extractKey: reportHoldingSortKey,
+        field: columnSettings.sortField,
+        getIdentity: (row) => ({ marketCode: row.marketCode, ticker: row.ticker }),
+        rows: presetFilteredRows,
+      });
+    }
+    return applyHoldingsRowOrder(presetFilteredRows, reportHoldingRowId, columnSettings.rowOrder);
   }, [
     columnSettings.rowOrder,
+    columnSettings.sortDirection,
+    columnSettings.sortField,
+    columnSettings.sortMode,
     holdingsSelection.selectedTickerIdSet,
     holdingsSelection.selectionMode,
     query,
@@ -2670,7 +2729,6 @@ function HoldingsCard({
     selectedAccountIds,
     selectedMarketCodes,
     selectedPreset,
-    sortMode,
   ]);
   const visibleRows = useMemo(
     () => showTopHoldingsLimit ? filteredRows.slice(0, columnSettings.topHoldingsLimit) : filteredRows,
@@ -2711,7 +2769,8 @@ function HoldingsCard({
   function handlePresetChange(value: string) {
     if (!isReportHoldingFocusPreset(value)) return;
     setSelectedPreset(value);
-    setSortMode(REPORT_HOLDING_FOCUS_PRESETS.find((preset) => preset.id === value)?.sortMode ?? "value");
+    const preset = REPORT_HOLDING_FOCUS_PRESETS.find((candidate) => candidate.id === value);
+    if (preset) columnSettings.setSort?.(preset.field, preset.direction);
   }
 
   return (
@@ -2747,7 +2806,7 @@ function HoldingsCard({
           <SectionRefreshButton dict={dict} isRefreshing={isRefreshing} onRefresh={onRefresh} testId={`reports-${title.toLowerCase().replace(/\s+/g, "-")}-refresh`} />
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="pb-24 sm:pb-6">
         <div className="mb-4 flex flex-col gap-3">
           <div className="flex flex-wrap items-center justify-end gap-2">
             <HoldingsSelectionToolbar
@@ -2762,7 +2821,7 @@ function HoldingsCard({
               onRemoveTicker={holdingsSelection.removeTicker}
             />
           </div>
-          <div className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_auto_auto_auto]">
+          <div className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_auto_auto]">
             <label className="relative block min-w-0">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
               <span className="sr-only">{dict.dashboardHome.topHoldingsSearchLabel}</span>
@@ -2792,20 +2851,6 @@ function HoldingsCard({
               setSelectedIds={columnSettings.setSelectedAccountIds}
               testId={`reports-holdings-account-filter-${contextKey}`}
             />
-            <Select value={sortMode} onValueChange={(value) => setSortMode(value as ReportHoldingSort)}>
-              <SelectTrigger aria-label={dict.dashboardHome.topHoldingsSortLabel} className="min-w-36" data-testid={`reports-holdings-sort-${contextKey}`}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="value">{dict.dashboardHome.topHoldingsSortValue}</SelectItem>
-                  <SelectItem value="daily">{dict.dashboardHome.topHoldingsSortDaily}</SelectItem>
-                  <SelectItem value="pnl">{dict.dashboardHome.topHoldingsSortPnl}</SelectItem>
-                  <SelectItem value="unitPnl">{dict.holdings.unitPnlTerm}</SelectItem>
-                  <SelectItem value="ticker">{dict.dashboardHome.topHoldingsSortTicker}</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
           </div>
           {holdingsSelection.selectionError ? (
             <p className="text-sm text-destructive" data-testid={`reports-holdings-selection-error-${contextKey}`}>
@@ -2822,13 +2867,21 @@ function HoldingsCard({
           />
         </div>
         <div className="mb-4 sm:hidden">
-          <Select value={selectedPreset} onValueChange={handlePresetChange}>
+          <HoldingsMobileSortControls
+            columns={columns}
+            dict={dict}
+            settings={explicitSortSettings}
+            testIdPrefix={`reports-holdings-${contextKey}`}
+          />
+        </div>
+        <div className="mb-4 sm:hidden">
+          <Select value={selectedPreset ?? ""} onValueChange={handlePresetChange}>
             <SelectTrigger
               aria-label={dict.dashboardHome.topHoldingsFocusPresetsAria}
               className="w-full"
               data-testid={`reports-holdings-presets-select-${contextKey}`}
             >
-              <SelectValue />
+              <SelectValue placeholder={dict.holdings.customSortLabel} />
             </SelectTrigger>
             <SelectContent>
               <SelectGroup>
@@ -2845,7 +2898,7 @@ function HoldingsCard({
           <ToggleGroup
             className="w-max"
             type="single"
-            value={selectedPreset}
+            value={selectedPreset ?? ""}
             onValueChange={handlePresetChange}
             aria-label={dict.dashboardHome.topHoldingsFocusPresetsAria}
             data-testid={`reports-holdings-presets-${contextKey}`}
@@ -2856,6 +2909,15 @@ function HoldingsCard({
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
+        </div>
+        <div className="mb-4 hidden sm:flex">
+          <HoldingsHiddenSortChip
+            columns={columns}
+            dict={dict}
+            settings={explicitSortSettings}
+            testIdPrefix={`reports-holdings-${contextKey}`}
+            visibleSortFields={visibleColumns.flatMap((column) => column.sortField ? [column.sortField] : [])}
+          />
         </div>
         <HoldingsMobileList
           detailColumns={mobileColumnSplit.detailColumns}
@@ -2873,6 +2935,7 @@ function HoldingsCard({
                 {visibleColumns.map((column) => (
                   <th
                     key={column.id}
+                    {...holdingsSortableHeaderCellProps(columnSettings, column.id)}
                     className={cn(
                       "sticky top-0 z-20 whitespace-normal break-words bg-card align-top font-medium",
                       holdingsStickyFirstColumnClassName(stickyFirstColumn && column.id === "ticker", "header"),
@@ -2884,8 +2947,8 @@ function HoldingsCard({
                       align={column.align}
                       column={column.id}
                       dict={dict}
-                      label={column.label}
-                      settings={columnSettings}
+                      label={reportHoldingColumnLabel(dict, column.id)}
+                      settings={explicitSortSettings}
                     />
                   </th>
                 ))}
@@ -3039,30 +3102,24 @@ function ReportHoldingTableCell({
           />
           <div className="flex min-w-0 flex-col gap-1">
             <TickerLink marketCode={row.marketCode} ticker={row.ticker} />
-            <Link
-              href={reportHoldingAnalysisHref(row)}
-              className="w-fit text-xs font-medium text-primary underline decoration-primary/30 underline-offset-4 hover:text-primary/80"
-              aria-label={dict.reports.openUnrealizedPnlAnalysis}
-              data-testid={`reports-holding-analysis-link-${row.ticker}-${row.marketCode}`}
-            >
-              {dict.navigation.analysisLabel}
-            </Link>
             {row.instrumentName ? <span className="text-xs text-muted-foreground">{row.instrumentName}</span> : null}
-            <span className="text-xs text-muted-foreground">
-              {formatReportMessage(dict.reports.accountAbbrev, { count: formatNumber(row.accountCount, locale) })} · {formatReportMessage(dict.reports.unitsLabel, { count: formatNumber(row.quantity, locale, 2) })}
-            </span>
+            <span className="text-xs text-muted-foreground">{row.marketCode}</span>
           </div>
         </div>
       </td>
     );
   }
-  if (column === "position") {
+  if (column === "accounts") {
     return (
-      <td className={className} style={style}>
-        <div className="flex min-w-0 flex-col gap-1">
-          <Badge variant="outline" className="w-fit">{row.marketCode}</Badge>
-          <span className="text-xs text-muted-foreground">{formatReportMessage(dict.reports.accountAbbrev, { count: formatNumber(row.accountCount, locale) })}</span>
-        </div>
+      <td className={cn(className, "text-right font-mono tabular-nums")} style={style}>
+        {formatNumber(row.accountCount, locale)}
+      </td>
+    );
+  }
+  if (column === "quantity") {
+    return (
+      <td className={cn(className, "text-right font-mono tabular-nums")} style={style}>
+        {formatNumber(row.quantity, locale, 4)}
       </td>
     );
   }
@@ -3073,7 +3130,7 @@ function ReportHoldingTableCell({
       </td>
     );
   }
-  if (column === "avgCost") {
+  if (column === "averageCost") {
     return (
       <ReportMoneyTableCell
         className={className}
@@ -3111,29 +3168,50 @@ function ReportHoldingTableCell({
       <ReportMoneyTableCell className={className} currency={row.reportingCurrency} locale={locale} style={style} value={row.reportingCostBasisAmount} compact />
     );
   }
-  if (column === "unrealized") {
+  if (column === "unrealizedPnl") {
     return (
       <ReportMoneyTableCell className={className} currency={row.reportingCurrency} locale={locale} style={style} value={row.reportingUnrealizedPnlAmount} tone compact />
     );
   }
-  if (column === "daily") {
+  if (column === "dailyChange") {
     return (
       <ReportMoneyTableCell className={className} currency={row.reportingCurrency} locale={locale} percent={row.dailyChangePercent} style={style} value={row.dailyChangeAmount} tone compact />
     );
   }
-  if (column === "weight") {
+  if (column === "allocation") {
     return (
       <td className={cn(className, "font-mono tabular-nums")} style={style}>
         {row.reportingAllocationPercent === null ? "-" : formatPercent(row.reportingAllocationPercent, locale)}
       </td>
     );
   }
-  return (
+  if (column === "dataHealth") return (
     <td
       className={className}
       style={style}
     >
       <HoldingsDataHealthBadges dict={dict} locale={locale} row={row} showCurrentFreshness />
+    </td>
+  );
+  return (
+    <td className={cn(className, "text-right")} style={style}>
+      <div className="flex flex-wrap justify-end gap-2">
+        <Link
+          href={reportHoldingAnalysisHref(row)}
+          className="text-xs font-medium text-primary underline decoration-primary/30 underline-offset-4 hover:text-primary/80"
+          aria-label={dict.reports.openUnrealizedPnlAnalysis}
+          data-testid={`reports-holding-analysis-link-${row.ticker}-${row.marketCode}`}
+        >
+          {dict.navigation.analysisLabel}
+        </Link>
+        <Link
+          href={tickerHref(row.ticker, row.marketCode)}
+          className="text-xs font-medium text-primary underline decoration-primary/30 underline-offset-4 hover:text-primary/80"
+          aria-label={formatReportMessage(dict.reports.openTickerAria, { ticker: row.ticker })}
+        >
+          {dict.reports.openTicker}
+        </Link>
+      </div>
     </td>
   );
 }
@@ -3190,13 +3268,13 @@ function reportHoldingCellClassName(column: ReportHoldingsColumn, stickyFirstCol
     "whitespace-normal break-words align-top",
     column === "ticker" && "font-medium",
     holdingsStickyFirstColumnClassName(stickyFirstColumn && column === "ticker"),
-    ["avgCost", "price", "unitPnl", "marketValue", "costBasis", "unrealized", "daily", "weight"].includes(column) && "text-right",
+    ["accounts", "quantity", "averageCost", "price", "unitPnl", "marketValue", "costBasis", "dailyChange", "unrealizedPnl", "allocation", "actions"].includes(column) && "text-right",
   );
 }
 
 function applyReportHoldingPreset(
   rows: ReportHoldingRowDto[],
-  preset: ReportHoldingFocusPreset,
+  preset: ReportHoldingFocusPreset | null,
 ): ReportHoldingRowDto[] {
   if (preset === "stale-quotes") {
     return rows.filter((row) => isNonCurrentPrice(row));
@@ -3207,44 +3285,59 @@ function applyReportHoldingPreset(
   return rows;
 }
 
-function compareReportHoldingRows(
-  left: ReportHoldingRowDto,
-  right: ReportHoldingRowDto,
-  sortMode: ReportHoldingSort,
-  selectedPreset: ReportHoldingFocusPreset,
-): number {
-  if (selectedPreset === "stale-quotes") {
-    const freshnessRankDiff = priceStateSortRank(right) - priceStateSortRank(left);
-    if (freshnessRankDiff !== 0) return freshnessRankDiff;
+export function reportHoldingSortKey(row: ReportHoldingRowDto, field: HoldingsSortField): number | string | null {
+  switch (field) {
+    case "ticker":
+      return row.ticker;
+    case "accountCount":
+      return row.accountCount;
+    case "quantity":
+      return row.quantity;
+    case "averageCost":
+      return row.reportingAverageCostPerShare;
+    case "price":
+      return row.reportingCurrentUnitPrice;
+    case "unitPnl":
+      return getReportUnitPnl(row).amount;
+    case "marketValue":
+      return row.reportingMarketValueAmount;
+    case "costBasis":
+      return row.reportingCostBasisAmount;
+    case "dailyChangePercent":
+      return row.dailyChangePercent;
+    case "unrealizedPnl":
+      return row.reportingUnrealizedPnlAmount;
+    case "allocation":
+      return row.reportingAllocationPercent;
+    case "dataHealth":
+      return reportHoldingDataHealthRank(row);
+    case "nextDividendDate":
+    case "lastDividendDate":
+      return null;
   }
-  if (sortMode === "ticker") {
-    return `${left.marketCode}:${left.ticker}`.localeCompare(`${right.marketCode}:${right.ticker}`);
-  }
-  if (sortMode === "daily") {
-    return Math.abs(right.dailyChangePercent ?? 0) - Math.abs(left.dailyChangePercent ?? 0);
-  }
-  if (sortMode === "pnl") {
-    if (selectedPreset === "worst-pnl") {
-      return (left.reportingUnrealizedPnlAmount ?? Number.POSITIVE_INFINITY)
-        - (right.reportingUnrealizedPnlAmount ?? Number.POSITIVE_INFINITY);
-    }
-    return (right.reportingUnrealizedPnlAmount ?? Number.NEGATIVE_INFINITY)
-      - (left.reportingUnrealizedPnlAmount ?? Number.NEGATIVE_INFINITY);
-  }
-  if (sortMode === "unitPnl") {
-    return (getReportUnitPnl(right).amount ?? Number.NEGATIVE_INFINITY)
-      - (getReportUnitPnl(left).amount ?? Number.NEGATIVE_INFINITY);
-  }
-  if (selectedPreset === "highest-allocation") {
-    return (right.reportingAllocationPercent ?? Number.NEGATIVE_INFINITY)
-      - (left.reportingAllocationPercent ?? Number.NEGATIVE_INFINITY);
-  }
-  return (right.reportingMarketValueAmount ?? Number.NEGATIVE_INFINITY)
-    - (left.reportingMarketValueAmount ?? Number.NEGATIVE_INFINITY);
+}
+
+function reportHoldingDataHealthRank(row: ReportHoldingRowDto): number {
+  const quoteRank = row.quoteStatus === "missing" ? 2 : row.quoteStatus === "provisional" ? 1 : 0;
+  const fxRank = row.fxStatus === "missing" ? 50 : row.fxStatus === "partial" ? 25 : 0;
+  const allocationFallbackRank = inferReportHoldingAllocationFallback(row) ? 10 : 0;
+  return (quoteRank * 10_000) + (priceStateSortRank(row) * 100) + fxRank + allocationFallbackRank;
+}
+
+function inferReportHoldingAllocationFallback(row: ReportHoldingRowDto): boolean {
+  return !Number.isFinite(row.reportingMarketValueAmount)
+    && Number.isFinite(row.reportingCostBasisAmount);
 }
 
 function isReportHoldingFocusPreset(value: string): value is ReportHoldingFocusPreset {
   return REPORT_HOLDING_FOCUS_PRESETS.some((preset) => preset.id === value);
+}
+
+function isRankOnlyReportHoldingPreset(preset: ReportHoldingFocusPreset): boolean {
+  return preset === "largest"
+    || preset === "highest-allocation"
+    || preset === "worst-pnl"
+    || preset === "best-pnl";
 }
 
 function reportHoldingPresetLabel(dict: AppDictionary, preset: ReportHoldingFocusPreset): string {
@@ -3468,21 +3561,30 @@ function ReportMobileColumnMetric({
   showAdminActivityLinks: boolean;
 }) {
   switch (column) {
-    case "position":
+    case "accounts":
       return (
         <CompactFinanceStat
           currency={row.reportingCurrency}
-          label={dict.reports.position}
+          label={dict.reports.accounts}
           locale={locale}
           value={null}
-          valueOverride={formatReportMessage(dict.reports.unitsLabel, { count: formatNumber(row.quantity, locale, 2) })}
-          secondary={formatReportMessage(dict.reports.accountAbbrev, { count: formatNumber(row.accountCount, locale) })}
+          valueOverride={formatNumber(row.accountCount, locale)}
         />
       );
-    case "avgCost":
+    case "quantity":
       return (
         <CompactFinanceStat
-          label={dict.holdings.avgCostTerm}
+          currency={row.reportingCurrency}
+          label={dict.reports.quantity}
+          locale={locale}
+          value={null}
+          valueOverride={formatNumber(row.quantity, locale, 4)}
+        />
+      );
+    case "averageCost":
+      return (
+        <CompactFinanceStat
+          label={dict.reports.averageCost}
           locale={locale}
           secondary={row.nativeCurrency === row.reportingCurrency ? undefined : formatOptionalUnitPrice(row.nativeAverageCostPerShare, row.nativeCurrency, locale)}
           value={row.reportingAverageCostPerShare}
@@ -3516,22 +3618,22 @@ function ReportMobileColumnMetric({
     case "marketValue":
       return <CompactFinanceStat label={dict.reports.marketValue} locale={locale} value={row.reportingMarketValueAmount} currency={row.reportingCurrency} />;
     case "costBasis":
-      return <CompactFinanceStat label={dict.reports.bookCost} locale={locale} value={row.reportingCostBasisAmount} currency={row.reportingCurrency} />;
-    case "unrealized":
-      return <CompactFinanceStat label={dict.reports.pnl} locale={locale} value={row.reportingUnrealizedPnlAmount} currency={row.reportingCurrency} tone />;
-    case "daily":
+      return <CompactFinanceStat label={dict.reports.costBasis} locale={locale} value={row.reportingCostBasisAmount} currency={row.reportingCurrency} />;
+    case "unrealizedPnl":
+      return <CompactFinanceStat label={dict.reports.unrealizedPnl} locale={locale} value={row.reportingUnrealizedPnlAmount} currency={row.reportingCurrency} tone />;
+    case "dailyChange":
       return <CompactFinanceStat label={dict.reports.dailyChange} locale={locale} percent={row.dailyChangePercent} value={row.dailyChangeAmount} currency={row.reportingCurrency} tone />;
-    case "weight":
+    case "allocation":
       return (
         <CompactFinanceStat
-          label={dict.reports.weight}
+          label={dict.reports.allocation}
           locale={locale}
           value={null}
           currency={row.reportingCurrency}
           valueOverride={row.reportingAllocationPercent === null ? "-" : formatPercent(row.reportingAllocationPercent, locale)}
         />
       );
-    case "health":
+    case "dataHealth":
       return (
         <CompactFinanceStat
           label={dict.holdings.dataHealthTerm}
@@ -3542,6 +3644,7 @@ function ReportMobileColumnMetric({
         />
       );
     case "ticker":
+    case "actions":
       return null;
   }
 }
@@ -3591,7 +3694,10 @@ function HoldingsMobileList({
               </div>
             </div>
           </div>
-          <div className="mt-3 grid grid-cols-2 gap-2">
+          <div
+            className="mt-3 grid grid-cols-2 gap-2 pb-14 pr-12 sm:pb-0 sm:pr-0"
+            data-testid={`reports-mobile-metrics-${row.ticker}-${row.marketCode}`}
+          >
             {summaryColumns.map((column) => (
               <ReportMobileColumnMetric key={column} column={column} dict={dict} locale={locale} row={row} showAdminActivityLinks={showAdminActivityLinks} />
             ))}
@@ -3662,16 +3768,10 @@ function HoldingDetail({
       [dict.reports.nativeMarketValue, formatOptionalMoney(row.nativeMarketValueAmount, row.nativeCurrency, locale), null],
     ] as const : []),
     ...(row.nativeCurrency !== row.reportingCurrency && showSupplementalColumn("costBasis") ? [
-      [dict.reports.nativeBookCost, formatOptionalMoney(row.nativeCostBasisAmount, row.nativeCurrency, locale), null],
+      [dict.reports.nativeCostBasis, formatOptionalMoney(row.nativeCostBasisAmount, row.nativeCurrency, locale), null],
     ] as const : []),
-    ...(showSupplementalColumn("position") ? [
-      [dict.reports.accounts, formatNumber(row.accountCount, locale), null],
-    ] as const : []),
-    ...(showSupplementalColumn("daily") ? [
+    ...(showSupplementalColumn("dailyChange") ? [
       [dict.reports.dailyChangePercent, row.dailyChangePercent === null ? "-" : formatSignedPercent(row.dailyChangePercent, locale), row.dailyChangePercent],
-    ] as const : []),
-    ...(showSupplementalColumn("weight") ? [
-      [dict.reports.allocation, row.reportingAllocationPercent === null ? "-" : formatPercent(row.reportingAllocationPercent, locale), null],
     ] as const : []),
   ] as const;
   return (
@@ -3776,10 +3876,12 @@ function ReportHoldingDetailColumn({
   row: ReportHoldingRowDto;
 }) {
   switch (column) {
-    case "position":
-      return <DetailRow label={dict.reports.position} value={formatReportMessage(dict.reports.unitsLabel, { count: formatNumber(row.quantity, locale, 2) })} />;
-    case "avgCost":
-      return <DetailRow label={dict.holdings.avgCostTerm} value={formatDualReportUnitValue(formatOptionalUnitPrice(row.reportingAverageCostPerShare, row.reportingCurrency, locale), row.nativeCurrency === row.reportingCurrency ? null : formatOptionalUnitPrice(row.nativeAverageCostPerShare, row.nativeCurrency, locale))} />;
+    case "accounts":
+      return <DetailRow label={dict.reports.accounts} value={formatNumber(row.accountCount, locale)} />;
+    case "quantity":
+      return <DetailRow label={dict.reports.quantity} value={formatNumber(row.quantity, locale, 4)} />;
+    case "averageCost":
+      return <DetailRow label={dict.reports.averageCost} value={formatDualReportUnitValue(formatOptionalUnitPrice(row.reportingAverageCostPerShare, row.reportingCurrency, locale), row.nativeCurrency === row.reportingCurrency ? null : formatOptionalUnitPrice(row.nativeAverageCostPerShare, row.nativeCurrency, locale))} />;
     case "price":
       return <DetailRow label={dict.reports.reportingPrice} value={formatOptionalUnitPrice(row.reportingCurrentUnitPrice, row.reportingCurrency, locale)} />;
     case "unitPnl":
@@ -3787,16 +3889,17 @@ function ReportHoldingDetailColumn({
     case "marketValue":
       return <DetailRow label={dict.reports.marketValue} value={formatOptionalMoney(row.reportingMarketValueAmount, row.reportingCurrency, locale)} />;
     case "costBasis":
-      return <DetailRow label={dict.reports.bookCost} value={formatOptionalMoney(row.reportingCostBasisAmount, row.reportingCurrency, locale)} />;
-    case "unrealized":
+      return <DetailRow label={dict.reports.costBasis} value={formatOptionalMoney(row.reportingCostBasisAmount, row.reportingCurrency, locale)} />;
+    case "unrealizedPnl":
       return <DetailRow label={dict.reports.unrealizedPnl} value={formatOptionalFinanceMoney(row.reportingUnrealizedPnlAmount, row.reportingCurrency, locale)} />;
-    case "daily":
+    case "dailyChange":
       return <DetailRow label={dict.reports.dailyChange} value={formatOptionalFinanceMoney(row.dailyChangeAmount, row.reportingCurrency, locale)} />;
-    case "weight":
-      return <DetailRow label={dict.reports.weight} value={row.reportingAllocationPercent === null ? "-" : formatPercent(row.reportingAllocationPercent, locale)} />;
-    case "health":
+    case "allocation":
+      return <DetailRow label={dict.reports.allocation} value={row.reportingAllocationPercent === null ? "-" : formatPercent(row.reportingAllocationPercent, locale)} />;
+    case "dataHealth":
       return <DetailRow label={dict.holdings.dataHealthTerm} value={getQuoteStatusLabel(dict, row.quoteStatus)} />;
     case "ticker":
+    case "actions":
       return null;
   }
 }

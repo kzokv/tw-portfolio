@@ -17531,7 +17531,35 @@ export class PostgresPersistence implements Persistence {
                        '{contexts}',
                        jsonb_strip_nulls(
                          COALESCE(public.user_preferences.preferences#>'{holdingsTableSettings,contexts}', '{}'::jsonb)
-                         || COALESCE($5::jsonb->'contexts', '{}'::jsonb)
+                         || COALESCE(
+                           (
+                             SELECT jsonb_object_agg(
+                               patch_context.key,
+                               CASE
+                                 WHEN jsonb_typeof(patch_context.value) = 'object'
+                                   AND jsonb_typeof(
+                                     public.user_preferences.preferences
+                                       #> ARRAY['holdingsTableSettings', 'contexts', patch_context.key]
+                                   ) = 'object'
+                                 THEN (
+                                   (
+                                     public.user_preferences.preferences
+                                       #> ARRAY['holdingsTableSettings', 'contexts', patch_context.key]
+                                   ) || patch_context.value
+                                 ) - CASE
+                                   WHEN patch_context.value->>'sortMode' = 'custom'
+                                   THEN ARRAY['sortField', 'sortDirection']::text[]
+                                   ELSE ARRAY[]::text[]
+                                 END
+                                 ELSE patch_context.value
+                               END
+                             )
+                             FROM jsonb_each(
+                               COALESCE($5::jsonb->'contexts', '{}'::jsonb)
+                             ) AS patch_context
+                           ),
+                           '{}'::jsonb
+                         )
                        )
                     )
                    )
@@ -17584,7 +17612,35 @@ export class PostgresPersistence implements Persistence {
                  '{contexts}',
                  jsonb_strip_nulls(
                    COALESCE(public.user_preferences.preferences#>'{holdingsTableSettings,contexts}', '{}'::jsonb)
-                   || COALESCE($5::jsonb->'contexts', '{}'::jsonb)
+                   || COALESCE(
+                     (
+                       SELECT jsonb_object_agg(
+                         patch_context.key,
+                         CASE
+                           WHEN jsonb_typeof(patch_context.value) = 'object'
+                             AND jsonb_typeof(
+                               public.user_preferences.preferences
+                                 #> ARRAY['holdingsTableSettings', 'contexts', patch_context.key]
+                             ) = 'object'
+                           THEN (
+                             (
+                               public.user_preferences.preferences
+                                 #> ARRAY['holdingsTableSettings', 'contexts', patch_context.key]
+                             ) || patch_context.value
+                           ) - CASE
+                             WHEN patch_context.value->>'sortMode' = 'custom'
+                             THEN ARRAY['sortField', 'sortDirection']::text[]
+                             ELSE ARRAY[]::text[]
+                           END
+                           ELSE patch_context.value
+                         END
+                       )
+                       FROM jsonb_each(
+                         COALESCE($5::jsonb->'contexts', '{}'::jsonb)
+                       ) AS patch_context
+                     ),
+                     '{}'::jsonb
+                   )
                  )
                )
              )

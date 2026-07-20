@@ -40,6 +40,7 @@ describe("holdingsPreferenceHelpers", () => {
       topHoldingsLimit: 8,
       layoutStyle: "portfolio",
       mobileSummaryCount: 3,
+      sortMode: "custom",
       ...overrides,
     };
   }
@@ -148,7 +149,7 @@ describe("holdingsPreferenceHelpers", () => {
     expect(getJson).toHaveBeenCalledWith("/portfolio/primary");
   });
 
-  it("hydrates a migrated in-memory holdings table view and retries persistence on a later fetch", async () => {
+  it("hydrates a migrated in-memory holdings table view without PATCHing during normalization", async () => {
     const sharedContext = buildContext();
     vi.mocked(getJson).mockResolvedValue({
       preferences: {
@@ -160,9 +161,7 @@ describe("holdingsPreferenceHelpers", () => {
         },
       },
     });
-    vi.mocked(patchJson)
-      .mockRejectedValueOnce(new Error("temporary failure"))
-      .mockResolvedValueOnce({ preferences: {} });
+    vi.mocked(patchJson).mockResolvedValue({ preferences: {} });
 
     const first = await fetchHoldingsPreferences();
     const second = await fetchHoldingsPreferences();
@@ -178,18 +177,7 @@ describe("holdingsPreferenceHelpers", () => {
       [REPORTS_MARKET_DETAIL_CONTEXT_KEY]: sharedContext,
     }));
     expect(second.holdingsTableSettings.contexts).toEqual(first.holdingsTableSettings.contexts);
-    expect(patchJson).toHaveBeenNthCalledWith(
-      1,
-      "/user-preferences",
-      { holdingsTableSettings: first.holdingsTableSettings },
-      { contextScope: "session" },
-    );
-    expect(patchJson).toHaveBeenNthCalledWith(
-      2,
-      "/user-preferences",
-      { holdingsTableSettings: second.holdingsTableSettings },
-      { contextScope: "session" },
-    );
+    expect(patchJson).not.toHaveBeenCalled();
   });
 
   it("patches holdings selection and merges dirty contexts against the current saved preference", async () => {

@@ -10,6 +10,7 @@ import type {
   DashboardOverviewHoldingChildDto,
   DashboardOverviewHoldingGroupDto,
   FxConversionRateDto,
+  HoldingsSortField,
   LocaleCode,
 } from "@vakwen/shared-types";
 import {
@@ -69,14 +70,22 @@ import {
 import {
   HoldingsColumnHeaderContent,
   HoldingsColumnSettingsMenu,
+  HoldingsHiddenSortChip,
+  HoldingsMobileSortControls,
   HoldingsRowSettingsMenu,
   applyHoldingsRowOrder,
   filterAvailableHoldingsSelections,
   holdingsColumnCellStyle,
+  holdingsSortableHeaderCellProps,
   useHoldingsColumnSettings,
   type HoldingsGridColumnDefinition,
   type HoldingsColumnSettingsState,
 } from "../holdings/HoldingsColumnSettings";
+import {
+  resolveHoldingsTableContextPreference,
+  resolveHoldingsTableSettingsPreference,
+} from "../holdings/holdingsPreferenceHelpers";
+import { sortHoldingsRows, type HoldingsSortPrimitive } from "../holdings/holdingsSorting";
 import {
   HoldingsGridDesktopFrame,
   HoldingsGridEmptyState,
@@ -112,33 +121,35 @@ import {
 import { useHoldingsSelection } from "../holdings/useHoldingsSelection";
 import { buildMissingPriceState, buildPriceStateActivityPath, getPriceState, isNonCurrentPrice, priceStateSortRank, type PriceStateDtoLike } from "../../features/price-state/priceState";
 
-type HoldingsPreviewSort = "value" | "daily" | "pnl" | "unitPnl" | "ticker";
-type DashboardHoldingsColumn = "ticker" | "position" | "avgCost" | "price" | "unitPnl" | "marketValue" | "costBasis" | "daily" | "pnl" | "health" | "action";
+type DashboardHoldingsColumn = "ticker" | "quantity" | "accounts" | "allocation" | "averageCost" | "price" | "unitPnl" | "marketValue" | "costBasis" | "dailyChange" | "unrealizedPnl" | "dataHealth" | "actions";
 type DashboardHoldingDetailRow = DashboardOverviewHoldingGroupDto | DashboardOverviewHoldingChildDto;
 
 const DASHBOARD_HOLDINGS_COLUMNS: Array<HoldingsGridColumnDefinition<DashboardHoldingsColumn>> = [
-  { id: "ticker", label: "Ticker", defaultWidth: 176, canHide: false },
-  { id: "position", label: "Position", defaultWidth: 160 },
-  { id: "avgCost", label: "Average cost", defaultWidth: 156, align: "right" },
-  { id: "price", label: "Price", defaultWidth: 156, align: "right" },
-  { id: "unitPnl", label: "Unit P&L", defaultWidth: 156, align: "right" },
-  { id: "marketValue", label: "Market value", defaultWidth: 176, align: "right" },
-  { id: "costBasis", label: "Cost basis", defaultWidth: 168, align: "right" },
-  { id: "daily", label: "Daily", defaultWidth: 156, align: "right" },
-  { id: "pnl", label: "P&L", defaultWidth: 156, align: "right" },
-  { id: "health", label: "Data health", defaultWidth: 184 },
-  { id: "action", label: "Action", defaultWidth: 112, align: "right" },
+  { id: "ticker", label: "Ticker", defaultWidth: 176, canHide: false, sortField: "ticker" },
+  { id: "quantity", label: "Quantity", defaultWidth: 136, align: "right", sortField: "quantity" },
+  { id: "accounts", label: "Accounts", defaultWidth: 112, align: "right", sortField: "accountCount" },
+  { id: "allocation", label: "Allocation", defaultWidth: 140, align: "right", sortField: "allocation" },
+  { id: "averageCost", label: "Average cost", defaultWidth: 156, align: "right", sortField: "averageCost" },
+  { id: "price", label: "Price", defaultWidth: 156, align: "right", sortField: "price" },
+  { id: "unitPnl", label: "Unit P&L", defaultWidth: 156, align: "right", sortField: "unitPnl" },
+  { id: "marketValue", label: "Market value", defaultWidth: 176, align: "right", sortField: "marketValue" },
+  { id: "costBasis", label: "Cost basis", defaultWidth: 168, align: "right", sortField: "costBasis" },
+  { id: "dailyChange", label: "Daily change", defaultWidth: 156, align: "right", sortField: "dailyChangePercent" },
+  { id: "unrealizedPnl", label: "Unrealized P&L", defaultWidth: 156, align: "right", sortField: "unrealizedPnl" },
+  { id: "dataHealth", label: "Data health", defaultWidth: 184, sortField: "dataHealth" },
+  { id: "actions", label: "Actions", defaultWidth: 112, align: "right" },
 ];
-const DASHBOARD_MOBILE_FIELD_COLUMNS: DashboardHoldingsColumn[] = ["position", "avgCost", "price", "unitPnl", "marketValue", "costBasis", "daily", "pnl", "health"];
+const DASHBOARD_MOBILE_FIELD_COLUMNS: DashboardHoldingsColumn[] = ["quantity", "accounts", "allocation", "averageCost", "price", "unitPnl", "marketValue", "costBasis", "dailyChange", "unrealizedPnl", "dataHealth"];
+const DASHBOARD_SUPPORTED_SORT_FIELDS = DASHBOARD_HOLDINGS_COLUMNS.flatMap((column) => column.sortField ? [column.sortField] : []);
 const MAX_ANIMATED_DASHBOARD_HOLDING_ROWS = 6;
 
-const HOLDING_FOCUS_PRESETS: Array<{ id: DashboardHoldingFocusPreset; sortMode: HoldingsPreviewSort }> = [
-  { id: "largest", sortMode: "value" },
-  { id: "highest-allocation", sortMode: "value" },
-  { id: "worst-pnl", sortMode: "pnl" },
-  { id: "best-pnl", sortMode: "pnl" },
-  { id: "fx-exposure", sortMode: "value" },
-  { id: "stale-quotes", sortMode: "ticker" },
+const HOLDING_FOCUS_PRESETS: Array<{ id: DashboardHoldingFocusPreset; sortField: HoldingsSortField; sortDirection: "asc" | "desc" }> = [
+  { id: "largest", sortField: "marketValue", sortDirection: "desc" },
+  { id: "highest-allocation", sortField: "allocation", sortDirection: "desc" },
+  { id: "worst-pnl", sortField: "unrealizedPnl", sortDirection: "asc" },
+  { id: "best-pnl", sortField: "unrealizedPnl", sortDirection: "desc" },
+  { id: "fx-exposure", sortField: "marketValue", sortDirection: "desc" },
+  { id: "stale-quotes", sortField: "dataHealth", sortDirection: "desc" },
 ];
 
 const HOLDING_FOCUS_PRESET_BY_ID = new Map(HOLDING_FOCUS_PRESETS.map((preset) => [preset.id, preset]));
@@ -146,6 +157,7 @@ const HOLDING_FOCUS_PRESET_BY_ID = new Map(HOLDING_FOCUS_PRESETS.map((preset) =>
 interface UserPreferencesResponse {
   preferences?: {
     dashboardHoldingFocus?: unknown;
+    holdingsTableSettings?: unknown;
   };
 }
 
@@ -189,7 +201,15 @@ export function DashboardHoldingsPreview({
   const [selectedPreset, setSelectedPreset] = useState<DashboardHoldingFocusPreset>(
     DEFAULT_DASHBOARD_HOLDING_FOCUS_PREFERENCE.selectedPreset,
   );
-  const [sortMode, setSortMode] = useState<HoldingsPreviewSort>("value");
+  const [defaultSort, setDefaultSort] = useState<{
+    sortMode: "field";
+    sortField: HoldingsSortField;
+    sortDirection: "asc" | "desc";
+  }>(() => ({
+    sortMode: "field" as const,
+    sortField: "marketValue" as const,
+    sortDirection: "desc" as const,
+  }));
   const dashboardHoldingColumns = useMemo(
     () => {
       const localizedDict = getDictionary(locale);
@@ -204,8 +224,15 @@ export function DashboardHoldingsPreview({
     columns: dashboardHoldingColumns,
     contextKey: settingsContextKey,
     defaultLayoutStyle: "dashboard",
+    defaultSort,
     mobileSummaryColumnIds: DASHBOARD_MOBILE_FIELD_COLUMNS,
+    supportedSortFields: DASHBOARD_SUPPORTED_SORT_FIELDS,
   });
+  const visibleSortFields = useMemo(
+    () => columnSettings.orderedColumns.flatMap((column) =>
+      columnSettings.visibleColumns.includes(column.id) && column.sortField ? [column.sortField] : []),
+    [columnSettings.orderedColumns, columnSettings.visibleColumns],
+  );
   const marketOptions = useMemo(
     () => [...new Set(groups.map((group) => group.marketCode))],
     [groups],
@@ -219,7 +246,20 @@ export function DashboardHoldingsPreview({
         setPresetOrder([...preference.presetOrder]);
         setHiddenPresetIds(new Set(preference.hiddenPresets));
         setSelectedPreset(preference.selectedPreset);
-        setSortMode(HOLDING_FOCUS_PRESET_BY_ID.get(preference.selectedPreset)?.sortMode ?? "value");
+        const tableSettings = resolveHoldingsTableSettingsPreference(
+          response?.preferences?.holdingsTableSettings,
+        );
+        const persistedContext = resolveHoldingsTableContextPreference(tableSettings.contexts, settingsContextKey);
+        if (persistedContext?.sortMode === undefined) {
+          const preset = HOLDING_FOCUS_PRESET_BY_ID.get(preference.selectedPreset);
+          if (preset) {
+            setDefaultSort({
+              sortMode: "field",
+              sortField: preset.sortField,
+              sortDirection: preset.sortDirection,
+            });
+          }
+        }
       })
       .catch(() => {
         // Keep the built-in preset defaults when preferences cannot be loaded.
@@ -227,7 +267,7 @@ export function DashboardHoldingsPreview({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [settingsContextKey]);
   const accountOptions = useMemo(() => {
     const accounts = new Map<string, string>();
     for (const group of groups) {
@@ -299,24 +339,54 @@ export function DashboardHoldingsPreview({
     selectedMarketCodes,
     selectedPreset,
   ]);
-  const sortedFilteredGroups = useMemo(
-    () => filteredGroups
-      .slice()
-      .sort((left, right) => compareHoldingGroups(left, right, sortMode, selectedPreset, reportingCurrency)),
-    [filteredGroups, reportingCurrency, selectedPreset, sortMode],
-  );
+  const sortedFilteredGroups = useMemo(() => {
+    const orderedGroups = columnSettings.sortMode === "field" && columnSettings.sortField && columnSettings.sortDirection
+      ? sortHoldingsRows({
+          rows: filteredGroups,
+          field: columnSettings.sortField,
+          direction: columnSettings.sortDirection,
+          extractKey: (group, field) => dashboardHoldingSortKey(group, field, reportingCurrency),
+          getIdentity: (group) => ({ ticker: group.ticker, marketCode: group.marketCode }),
+        })
+      : applyHoldingsRowOrder(filteredGroups, holdingRowKey, columnSettings.rowOrder);
+
+    return orderedGroups.map((group) => ({
+      ...group,
+      children: columnSettings.sortMode === "field" && columnSettings.sortField && columnSettings.sortDirection
+        ? sortHoldingsRows({
+            rows: group.children,
+            field: columnSettings.sortField,
+            direction: columnSettings.sortDirection,
+            extractKey: (child, field) => dashboardHoldingSortKey(child, field, reportingCurrency),
+            getIdentity: (child) => ({ ticker: child.ticker, marketCode: child.marketCode, accountId: child.accountId }),
+          })
+        : sortAccountHoldingsForCustom(group.children),
+    }));
+  }, [
+    columnSettings.rowOrder,
+    columnSettings.sortDirection,
+    columnSettings.sortField,
+    columnSettings.sortMode,
+    filteredGroups,
+    reportingCurrency,
+  ]);
   const visibleGroups = useMemo(
-    () => applyHoldingsRowOrder(
-      sortedFilteredGroups,
-      holdingRowKey,
-      columnSettings.rowOrder,
-    ).slice(0, columnSettings.topHoldingsLimit),
-    [columnSettings.rowOrder, columnSettings.topHoldingsLimit, sortedFilteredGroups],
+    () => sortedFilteredGroups.slice(0, columnSettings.topHoldingsLimit),
+    [columnSettings.topHoldingsLimit, sortedFilteredGroups],
   );
   const visiblePresets = presetOrder
     .filter((presetId) => !hiddenPresetIds.has(presetId))
     .map((presetId) => HOLDING_FOCUS_PRESET_BY_ID.get(presetId))
     .filter((preset): preset is (typeof HOLDING_FOCUS_PRESETS)[number] => preset !== undefined);
+  const activePreset = isFilterHoldingFocusPreset(selectedPreset)
+    || holdingFocusPresetMatchesSort(
+      selectedPreset,
+      columnSettings.sortMode,
+      columnSettings.sortField,
+      columnSettings.sortDirection,
+    )
+    ? selectedPreset
+    : "";
   const reportScope = selectedMarketCodes.length === 1 ? selectedMarketCodes[0]! : "all";
   const mobileColumnSplit = splitMobileHoldingColumns(columnSettings, DASHBOARD_MOBILE_FIELD_COLUMNS);
   const selectionSummaryRows = useMemo<HoldingsSelectionSummaryRow[]>(
@@ -353,7 +423,8 @@ export function DashboardHoldingsPreview({
   const handlePresetChange = (value: string) => {
     if (!isHoldingFocusPreset(value)) return;
     setSelectedPreset(value);
-    setSortMode(HOLDING_FOCUS_PRESETS.find((preset) => preset.id === value)?.sortMode ?? "value");
+    const preset = HOLDING_FOCUS_PRESET_BY_ID.get(value);
+    if (preset) columnSettings.setSort?.(preset.sortField, preset.sortDirection);
     persistDashboardHoldingFocus(buildDashboardHoldingFocusPreference({
       hiddenPresets: [...hiddenPresetIds],
       presetOrder,
@@ -378,7 +449,8 @@ export function DashboardHoldingsPreview({
         if (presetId === selectedPreset) {
           const nextSelected = presetOrder.find((id) => !next.has(id)) ?? "largest";
           setSelectedPreset(nextSelected);
-          setSortMode(HOLDING_FOCUS_PRESETS.find((preset) => preset.id === nextSelected)?.sortMode ?? "value");
+          const preset = HOLDING_FOCUS_PRESET_BY_ID.get(nextSelected);
+          if (preset) columnSettings.setSort?.(preset.sortField, preset.sortDirection);
           persistDashboardHoldingFocus(buildDashboardHoldingFocusPreference({
             hiddenPresets: [...next],
             presetOrder,
@@ -417,7 +489,8 @@ export function DashboardHoldingsPreview({
     setPresetOrder([...preference.presetOrder]);
     setHiddenPresetIds(new Set(preference.hiddenPresets));
     setSelectedPreset(preference.selectedPreset);
-    setSortMode(HOLDING_FOCUS_PRESET_BY_ID.get(preference.selectedPreset)?.sortMode ?? "value");
+    const preset = HOLDING_FOCUS_PRESET_BY_ID.get(preference.selectedPreset);
+    if (preset) columnSettings.setSort?.(preset.sortField, preset.sortDirection);
     persistDashboardHoldingFocus(preference);
   };
 
@@ -458,7 +531,7 @@ export function DashboardHoldingsPreview({
                   </Alert>
                 ) : null}
               </div>
-              <div className="grid w-full gap-2 sm:grid-cols-2 xl:w-[44rem] xl:grid-cols-[minmax(12rem,1.4fr)_minmax(8.5rem,1fr)_minmax(9rem,1fr)_minmax(7.5rem,0.9fr)]">
+              <div className="grid w-full gap-2 sm:grid-cols-2 xl:w-[36rem] xl:grid-cols-[minmax(12rem,1.4fr)_minmax(8.5rem,1fr)_minmax(9rem,1fr)]">
                 <label className="flex min-w-0 flex-col gap-1.5">
                   <span className="text-xs font-medium text-muted-foreground">{dict.dashboardHome.topHoldingsSearchLabel}</span>
                   <div className="relative">
@@ -500,27 +573,6 @@ export function DashboardHoldingsPreview({
                     testId="dashboard-holdings-account-filter"
                   />
                 </div>
-                <div className="flex min-w-0 flex-col gap-1.5">
-                  <span className="text-xs font-medium text-muted-foreground">{dict.dashboardHome.topHoldingsSortLabel}</span>
-                  <Select value={sortMode} onValueChange={(value) => setSortMode(value as HoldingsPreviewSort)}>
-                    <SelectTrigger
-                      aria-label={dict.dashboardHome.topHoldingsSortLabel}
-                      className="w-full"
-                      data-testid="dashboard-holdings-sort"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        <SelectItem value="value">{dict.dashboardHome.topHoldingsSortValue}</SelectItem>
-                        <SelectItem value="daily">{dict.dashboardHome.topHoldingsSortDaily}</SelectItem>
-                        <SelectItem value="pnl">{dict.dashboardHome.topHoldingsSortPnl}</SelectItem>
-                        <SelectItem value="unitPnl">{dict.holdings.unitPnlTerm}</SelectItem>
-                        <SelectItem value="ticker">{dict.dashboardHome.topHoldingsSortTicker}</SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </div>
               </div>
             </div>
           </CardHeader>
@@ -528,7 +580,7 @@ export function DashboardHoldingsPreview({
             <div className="flex flex-col gap-3">
               <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
                 <div className="sm:hidden">
-                  <Select value={selectedPreset} onValueChange={handlePresetChange}>
+                  <Select value={activePreset} onValueChange={handlePresetChange}>
                     <SelectTrigger
                       aria-label={dict.dashboardHome.topHoldingsFocusPresetsAria}
                       className="w-full"
@@ -547,11 +599,11 @@ export function DashboardHoldingsPreview({
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="hidden min-w-0 overflow-x-auto pb-1 sm:block">
+                <div className="hidden min-w-0 flex-1 pb-1 sm:block">
                   <ToggleGroup
-                    className="w-max"
+                    className="w-full flex-wrap justify-start"
                     type="single"
-                    value={selectedPreset}
+                    value={activePreset}
                     onValueChange={handlePresetChange}
                     aria-label={dict.dashboardHome.topHoldingsFocusPresetsAria}
                     data-testid="dashboard-holdings-presets"
@@ -672,6 +724,28 @@ export function DashboardHoldingsPreview({
                   </Popover>
                 </div>
               </div>
+              <div className="sm:hidden">
+                <HoldingsMobileSortControls
+                  columns={dashboardHoldingColumns}
+                  dict={dict}
+                  settings={columnSettings}
+                  testIdPrefix="dashboard-holdings"
+                />
+              </div>
+              <div className="hidden sm:flex">
+                <HoldingsHiddenSortChip
+                  columns={dashboardHoldingColumns}
+                  dict={dict}
+                  settings={columnSettings}
+                  testIdPrefix="dashboard-holdings"
+                  visibleSortFields={visibleSortFields}
+                />
+              </div>
+              {columnSettings.settingsError ? (
+                <p className="text-sm text-destructive" data-testid="dashboard-holdings-settings-error">
+                  {columnSettings.settingsError}
+                </p>
+              ) : null}
               {holdingsSelection.selectionError ? (
                 <p className="text-sm text-destructive" data-testid="dashboard-holdings-selection-error">
                   {holdingsSelection.selectionError}
@@ -728,7 +802,6 @@ export function DashboardHoldingsPreview({
                   onOpen={(row) => setSelected(row)}
                   onOpenActivity={(row) => setSelectedActivity(row)}
                   expandedRows={expandedRows}
-                  selectedAccountIds={selectedAccountIds}
                   columnSettings={columnSettings}
                   onToggleExpanded={toggleExpandedRow}
                   onToggleSelection={(group) => holdingsSelection.toggleTicker(buildHoldingsTickerId(group.marketCode, group.ticker))}
@@ -748,7 +821,7 @@ export function DashboardHoldingsPreview({
           </CardContent>
           <CardFooter className="flex flex-col items-stretch gap-3 border-t border-border/70 pt-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-muted-foreground">
-              {formatTopHoldingsMessage(dict.dashboardHome.topHoldingsShowingSummary, {
+              {formatTopHoldingsMessage(dict.holdings.showingTickers, {
                 visible: formatNumber(visibleGroups.length, locale),
                 total: formatNumber(filteredGroups.length, locale),
               })}
@@ -994,7 +1067,6 @@ function DashboardHoldingRow({
 }
 
 function DashboardHoldingsTable({
-  selectedAccountIds,
   columnSettings,
   dict,
   expandedRows,
@@ -1010,7 +1082,6 @@ function DashboardHoldingsTable({
   selectionCheckedMap,
   showAdminActivityLinks,
 }: {
-  selectedAccountIds: string[];
   columnSettings: HoldingsColumnSettingsState<DashboardHoldingsColumn>;
   dict: ReturnType<typeof getDictionary>;
   expandedRows: Set<string>;
@@ -1042,7 +1113,8 @@ function DashboardHoldingsTable({
             {visibleColumns.map((column) => (
               <th
                 key={column.id}
-                data-testid={column.id === "daily" ? "dashboard-holdings-daily-change-label" : undefined}
+                {...holdingsSortableHeaderCellProps(columnSettings, column.id)}
+                data-testid={column.id === "dailyChange" ? "dashboard-holdings-daily-change-label" : undefined}
                 className={cn(
                   "sticky top-0 z-20 whitespace-normal break-words bg-card align-top font-medium",
                   holdingsStickyFirstColumnClassName(column.id === "ticker", "header"),
@@ -1056,6 +1128,7 @@ function DashboardHoldingsTable({
                   dict={dict}
                   label={dashboardColumnLabel(dict, column.id, reportingCurrency)}
                   settings={columnSettings}
+                  testIdPrefix="dashboard-holdings"
                 />
               </th>
             ))}
@@ -1067,7 +1140,7 @@ function DashboardHoldingsTable({
             const fxRate = findFxRate(fxRates, group.currency, reportingCurrency);
             const reportingPrice = getReportingUnitPrice(group, reportingCurrency);
             const reportingDailyMove = getReportingDailyMove(group);
-            const visibleChildren = getVisibleAccountRows(group, selectedAccountIds);
+            const visibleChildren = group.children;
             const isExpanded = expandedRows.has(rowKey);
             return (
               <Fragment key={rowKey}>
@@ -1123,25 +1196,29 @@ function dashboardColumnLabel(dict: ReturnType<typeof getDictionary>, column: Da
   switch (column) {
     case "ticker":
       return dict.reports.ticker;
-    case "position":
-      return dict.reports.position;
+    case "quantity":
+      return dict.holdings.quantityTerm;
+    case "accounts":
+      return dict.holdings.columnAccounts;
+    case "allocation":
+      return dict.holdings.allocationTerm;
     case "price":
       return formatTopHoldingsMessage(dict.dashboardHome.topHoldingsPriceWithCurrency, { currency: reportingCurrency });
-    case "avgCost":
-      return dict.holdings.avgCostTerm;
+    case "averageCost":
+      return dict.holdings.averageCostTerm;
     case "unitPnl":
       return dict.holdings.unitPnlTerm;
     case "marketValue":
       return formatTopHoldingsMessage(dict.dashboardHome.topHoldingsMarketValueWithCurrency, { currency: reportingCurrency });
     case "costBasis":
-      return dict.holdings.totalCostTerm;
-    case "daily":
+      return dict.holdings.costBasisTerm;
+    case "dailyChange":
       return `${dict.reports.dailyChange} (${reportingCurrency})`;
-    case "pnl":
-      return `${dict.reports.pnl} (${reportingCurrency})`;
-    case "health":
+    case "unrealizedPnl":
+      return `${dict.dashboardHome.unrealizedPnlLabel} (${reportingCurrency})`;
+    case "dataHealth":
       return dict.holdings.dataHealthTerm;
-    case "action":
+    case "actions":
       return dict.dashboardHome.actionTitle;
   }
 }
@@ -1150,7 +1227,7 @@ function dashboardCellClassName(column: DashboardHoldingsColumn, extra?: string)
   return cn(
     "whitespace-normal break-words align-top",
     holdingsStickyFirstColumnClassName(column === "ticker"),
-    ["avgCost", "price", "unitPnl", "marketValue", "costBasis", "daily", "pnl", "action"].includes(column) && "text-right",
+    ["quantity", "accounts", "allocation", "averageCost", "price", "unitPnl", "marketValue", "costBasis", "dailyChange", "unrealizedPnl", "actions"].includes(column) && "text-right",
     extra,
   );
 }
@@ -1244,18 +1321,18 @@ function renderDashboardGroupCell({
       </td>
     );
   }
-  if (column === "position") {
+  if (column === "quantity") {
     return (
-      <td key={column} className={dashboardCellClassName(column)} style={style}>
-        <div className="flex flex-col gap-1">
-          <span className="font-mono text-sm tabular-nums">{formatNumber(group.quantity, locale, 2)} units</span>
-          <span className="text-xs text-muted-foreground">
-            {formatNumber(visibleChildren.length, locale)} acct
-            {group.reportingAllocationPercent === null ? "" : ` · ${formatPercent(group.reportingAllocationPercent, locale)}`}
-          </span>
-        </div>
+      <td key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
+        {formatNumber(group.quantity, locale, 2)}
       </td>
     );
+  }
+  if (column === "accounts") {
+    return <td key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>{formatNumber(visibleChildren.length, locale)}</td>;
+  }
+  if (column === "allocation") {
+    return <td key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>{group.reportingAllocationPercent === null ? "-" : formatPercent(group.reportingAllocationPercent, locale)}</td>;
   }
   if (column === "price") {
     return (
@@ -1272,7 +1349,7 @@ function renderDashboardGroupCell({
       </td>
     );
   }
-  if (column === "avgCost") {
+  if (column === "averageCost") {
     const avgCost = getDashboardReportingAverageCost(group, reportingCurrency);
     return (
       <td key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
@@ -1314,11 +1391,6 @@ function renderDashboardGroupCell({
               />
             )}
           </span>
-          {group.reportingMarketValueAmount === null ? null : (
-            <span className="text-xs text-muted-foreground">
-              {formatCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale)}
-            </span>
-          )}
         </div>
       </td>
     );
@@ -1330,7 +1402,7 @@ function renderDashboardGroupCell({
       </td>
     );
   }
-  if (column === "daily") {
+  if (column === "dailyChange") {
     return (
       <td
         key={column}
@@ -1340,24 +1412,19 @@ function renderDashboardGroupCell({
       >
         <div className="flex flex-col items-end gap-1">
           <span>{reportingDailyMove === null ? "-" : formatFinanceCurrencyAmount(reportingDailyMove, reportingCurrency, locale, true)}</span>
-          {reportingDailyMove === null ? null : (
-            <span className="text-xs text-muted-foreground">
-              {formatFinanceCurrencyAmount(reportingDailyMove, reportingCurrency, locale)}
-            </span>
-          )}
           <span className="text-xs">{group.changePercent === null ? "-" : formatSignedPercent(group.changePercent, locale)}</span>
         </div>
       </td>
     );
   }
-  if (column === "pnl") {
+  if (column === "unrealizedPnl") {
     return (
       <td key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", holdingsFinanceToneClass(group.reportingUnrealizedPnlAmount)))} style={style}>
         {group.reportingUnrealizedPnlAmount === null ? "-" : formatFinanceCurrencyAmount(group.reportingUnrealizedPnlAmount, reportingCurrency, locale, true)}
       </td>
     );
   }
-  if (column === "health") {
+  if (column === "dataHealth") {
     return (
       <td key={column} className={dashboardCellClassName(column)} style={style}>
         <HoldingsDataHealthBadges dict={dict} locale={locale} row={group} showCurrentFreshness={false} />
@@ -1401,7 +1468,7 @@ function renderDashboardChildCell({
         <div className="flex items-start gap-2 pl-10">
           <div className="flex min-w-0 flex-col gap-1">
             <span className="font-medium text-foreground">{child.accountName ?? child.accountId}</span>
-            <span className="text-xs text-muted-foreground">{dict.dashboardHome.topHoldingsAccountPosition}</span>
+            <span className="text-xs text-muted-foreground">{dict.holdings.accountChildLabel}</span>
           </div>
           <DashboardHoldingActivityQuickLink
             label={`${dict.tickerHistory.actionTimelineTitle}: ${child.ticker} · ${child.accountName?.trim() || child.accountId}`}
@@ -1412,17 +1479,18 @@ function renderDashboardChildCell({
       </td>
     );
   }
-  if (column === "position") {
+  if (column === "quantity") {
     return (
-      <td key={column} className={dashboardCellClassName(column)} style={style}>
-        <div className="flex flex-col gap-1">
-          <span className="font-mono text-sm tabular-nums">{formatTopHoldingsMessage(dict.reports.unitsLabel, { count: formatNumber(child.quantity, locale, 2) })}</span>
-          <span className="text-xs text-muted-foreground">
-            {child.reportingAllocationPercent === null ? "-" : `${dict.dashboardHome.topHoldingsPortfolioAllocation}: ${formatPercent(child.reportingAllocationPercent, locale)}`}
-          </span>
-        </div>
+      <td key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
+        {formatNumber(child.quantity, locale, 2)}
       </td>
     );
+  }
+  if (column === "accounts") {
+    return <td key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>1</td>;
+  }
+  if (column === "allocation") {
+    return <td key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>{child.reportingAllocationPercent === null ? "-" : formatPercent(child.reportingAllocationPercent, locale)}</td>;
   }
   if (column === "price") {
     const price = getReportingChildUnitPrice(child, reportingCurrency);
@@ -1432,7 +1500,7 @@ function renderDashboardChildCell({
       </td>
     );
   }
-  if (column === "avgCost") {
+  if (column === "averageCost") {
     const avgCost = getDashboardReportingAverageCost(child, reportingCurrency);
     return (
       <td key={column} className={dashboardCellClassName(column, "font-mono tabular-nums")} style={style}>
@@ -1490,7 +1558,7 @@ function renderDashboardChildCell({
       </td>
     );
   }
-  if (column === "daily") {
+  if (column === "dailyChange") {
     const dailyMove = getReportingDailyMove(child);
     return (
       <td key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", holdingsFinanceToneClass(dailyMove)))} style={style}>
@@ -1506,14 +1574,14 @@ function renderDashboardChildCell({
       </td>
     );
   }
-  if (column === "pnl") {
+  if (column === "unrealizedPnl") {
     return (
       <td key={column} className={dashboardCellClassName(column, cn("font-mono tabular-nums", holdingsFinanceToneClass(child.reportingUnrealizedPnlAmount)))} style={style}>
         {child.reportingUnrealizedPnlAmount === null ? "-" : formatFinanceCurrencyAmount(child.reportingUnrealizedPnlAmount, reportingCurrency, locale, true)}
       </td>
     );
   }
-  if (column === "health") {
+  if (column === "dataHealth") {
     return (
       <td key={column} className={dashboardCellClassName(column)} style={style}>
         <HoldingsDataHealthBadges dict={dict} locale={locale} row={child} showCurrentFreshness={false} />
@@ -1859,7 +1927,7 @@ function DashboardHoldingDetail({
           {showLegacyColumn("marketValue") ? (
             <DetailMetric label={dict.reports.marketValue} value={group.reportingMarketValueAmount === null ? "-" : formatCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale)} />
           ) : null}
-          {showLegacyColumn("position") ? (
+          {showLegacyColumn("quantity") || showLegacyColumn("accounts") || showLegacyColumn("allocation") ? (
             <DetailMetric label={dict.reports.quantity} value={formatNumber(group.quantity, locale, 2)} />
           ) : null}
           <DetailMetric label={dict.dashboardHome.topHoldingsPortfolioAllocation} value={portfolioAllocation} />
@@ -1876,19 +1944,21 @@ function DashboardHoldingDetail({
                   <p className="truncate text-sm font-medium text-foreground">{child.accountName ?? child.accountId}</p>
                   <p className="mt-1 text-xs text-muted-foreground">
                     {[
-                      showLegacyColumn("position") ? formatTopHoldingsMessage(dict.reports.unitsLabel, { count: formatNumber(child.quantity, locale, 2) }) : null,
+                      showLegacyColumn("quantity") ? `${dict.holdings.quantityTerm}: ${formatNumber(child.quantity, locale, 2)}` : null,
+                      showLegacyColumn("accounts") ? `${dict.holdings.columnAccounts}: ${child.accountName ?? child.accountId}` : null,
+                      showLegacyColumn("allocation") && child.reportingAllocationPercent !== null ? `${dict.holdings.allocationTerm}: ${formatPercent(child.reportingAllocationPercent, locale)}` : null,
                       child.reportingAllocationPercent === null ? null : `${dict.dashboardHome.topHoldingsPortfolioAllocation}: ${formatPercent(child.reportingAllocationPercent, locale)}`,
                     ].filter(Boolean).join(" · ")}
                   </p>
                 </div>
-                {showLegacyColumn("marketValue") || showLegacyColumn("pnl") ? (
+                {showLegacyColumn("marketValue") || showLegacyColumn("unrealizedPnl") ? (
                   <div className="text-right">
                     {showLegacyColumn("marketValue") ? (
                       <p className="font-mono text-sm font-semibold tabular-nums">
                         {child.reportingMarketValueAmount === null ? "-" : formatCurrencyAmount(child.reportingMarketValueAmount, reportingCurrency, locale)}
                       </p>
                     ) : null}
-                    {showLegacyColumn("pnl") ? (
+                    {showLegacyColumn("unrealizedPnl") ? (
                       <p className={cn("mt-1 font-mono text-xs tabular-nums", holdingsFinanceToneClass(child.reportingUnrealizedPnlAmount))}>
                         {child.reportingUnrealizedPnlAmount === null ? "-" : formatFinanceCurrencyAmount(child.reportingUnrealizedPnlAmount, reportingCurrency, locale, true)}
                       </p>
@@ -1897,8 +1967,8 @@ function DashboardHoldingDetail({
                 ) : null}
               </div>
               <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                <DetailMetric label={dict.reports.bookCost} value={child.reportingCostBasisAmount === null ? "-" : formatCurrencyAmount(child.reportingCostBasisAmount, reportingCurrency, locale)} />
-                {showLegacyColumn("avgCost") ? (
+                <DetailMetric label={dict.reports.costBasis} value={child.reportingCostBasisAmount === null ? "-" : formatCurrencyAmount(child.reportingCostBasisAmount, reportingCurrency, locale)} />
+                {showLegacyColumn("averageCost") ? (
                   <DetailMetric label={dict.dashboardHome.topHoldingsAverageCost} value={formatUnitPrice(child.averageCostPerShare, child.currency, locale)} />
                 ) : null}
                 {showSupplementalColumn("price") ? (
@@ -1913,13 +1983,13 @@ function DashboardHoldingDetail({
         </div>
       </DetailSection>
 
-      <DetailSection title={dict.dashboardHome.topHoldingsCostPnlTitle}>
+      <DetailSection title={`${dict.holdings.costBasisTerm} / ${dict.holdings.pnlTerm}`}>
         <DetailGrid>
-          <DetailMetric label={dict.reports.bookCost} value={group.reportingCostBasisAmount === null ? "-" : formatCurrencyAmount(group.reportingCostBasisAmount, reportingCurrency, locale)} />
-          {showLegacyColumn("pnl") ? (
+          <DetailMetric label={dict.reports.costBasis} value={group.reportingCostBasisAmount === null ? "-" : formatCurrencyAmount(group.reportingCostBasisAmount, reportingCurrency, locale)} />
+          {showLegacyColumn("unrealizedPnl") ? (
             <DetailMetric label={dict.reports.unrealizedPnl} toneValue={group.reportingUnrealizedPnlAmount} value={group.reportingUnrealizedPnlAmount === null ? "-" : formatFinanceCurrencyAmount(group.reportingUnrealizedPnlAmount, reportingCurrency, locale)} />
           ) : null}
-          {showLegacyColumn("daily") ? (
+          {showLegacyColumn("dailyChange") ? (
             <DetailMetric label={dict.dashboardHome.topHoldingsDailyMove} toneValue={reportingDailyMove} value={reportingDailyMove === null ? "-" : formatFinanceCurrencyAmount(reportingDailyMove, reportingCurrency, locale)} />
           ) : null}
         </DetailGrid>
@@ -1940,13 +2010,13 @@ function DashboardHoldingDetail({
           {showSupplementalColumn("marketValue") ? (
             <DetailMetric label={dict.reports.nativeMarketValue} value={group.marketValueAmount === null ? "-" : formatCurrencyAmount(group.marketValueAmount, group.currency, locale)} />
           ) : null}
-          {showSupplementalColumn("avgCost") ? (
+          {showSupplementalColumn("averageCost") ? (
             <>
               <DetailMetric label={dict.dashboardHome.topHoldingsAverageCost} value={formatUnitPrice(group.averageCostPerShare, group.currency, locale)} />
               <DetailMetric label={dict.dashboardHome.topHoldingsReportingAverageCost} value={reportingAverageCost === null ? "-" : formatUnitPrice(reportingAverageCost, reportingCurrency, locale)} />
             </>
           ) : null}
-          {showSupplementalColumn("daily") ? (
+          {showSupplementalColumn("dailyChange") ? (
             <>
               <DetailMetric label={dict.dashboardHome.topHoldingsNativeDailyMove} toneValue={nativeDailyMove} value={nativeDailyMove === null ? "-" : formatCurrencyAmount(nativeDailyMove, group.currency, locale)} />
               <DetailMetric label={dict.reports.dailyChangePercent} toneValue={group.changePercent} value={group.changePercent === null ? "-" : formatSignedPercent(group.changePercent, locale)} />
@@ -2014,16 +2084,19 @@ function DashboardMobileColumnMetric({
   unitPnl: ReturnType<typeof getDashboardUnitPnl>;
 }) {
   switch (column) {
-    case "position":
+    case "quantity":
       return (
         <PreviewMetric
-          label={dict.reports.position}
-          value={formatTopHoldingsMessage(dict.reports.unitsLabel, { count: formatNumber(group.quantity, locale, 2) })}
-          subValue={formatTopHoldingsMessage(dict.reports.accountAbbrev, { count: formatNumber(group.accountCount, locale) })}
+          label={dict.holdings.quantityTerm}
+          value={formatNumber(group.quantity, locale, 2)}
         />
       );
-    case "avgCost":
-      return <PreviewMetric label={dict.holdings.avgCostTerm} value={reportingAvgCost == null ? "-" : formatCurrencyAmount(reportingAvgCost, reportingCurrency, locale)} />;
+    case "accounts":
+      return <PreviewMetric label={dict.holdings.columnAccounts} value={formatNumber(group.accountCount, locale)} />;
+    case "allocation":
+      return <PreviewMetric label={dict.holdings.allocationTerm} value={group.reportingAllocationPercent === null ? "-" : formatPercent(group.reportingAllocationPercent, locale)} />;
+    case "averageCost":
+      return <PreviewMetric label={dict.holdings.averageCostTerm} value={reportingAvgCost == null ? "-" : formatCurrencyAmount(reportingAvgCost, reportingCurrency, locale)} />;
     case "price":
       return (
         <PricePreviewMetric
@@ -2058,8 +2131,8 @@ function DashboardMobileColumnMetric({
         />
       );
     case "costBasis":
-      return <PreviewMetric label={dict.holdings.totalCostTerm} value={group.reportingCostBasisAmount === null ? "-" : formatCurrencyAmount(group.reportingCostBasisAmount, reportingCurrency, locale)} />;
-    case "daily":
+      return <PreviewMetric label={dict.holdings.costBasisTerm} value={group.reportingCostBasisAmount === null ? "-" : formatCurrencyAmount(group.reportingCostBasisAmount, reportingCurrency, locale)} />;
+    case "dailyChange":
       return (
         <PreviewMetric
           label={dict.reports.dailyChange}
@@ -2071,15 +2144,15 @@ function DashboardMobileColumnMetric({
           subValue={dailyMetric.exactValue}
         />
       );
-    case "pnl":
+    case "unrealizedPnl":
       return (
         <PreviewMetric
-          label={dict.reports.pnl}
+          label={dict.dashboardHome.unrealizedPnlLabel}
           toneValue={group.reportingUnrealizedPnlAmount}
           value={group.reportingUnrealizedPnlAmount === null ? "-" : formatFinanceCurrencyAmount(group.reportingUnrealizedPnlAmount, reportingCurrency, locale, true)}
         />
       );
-    case "health":
+    case "dataHealth":
       return (
         <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-left">
           <p className="text-xs text-muted-foreground">{dict.holdings.dataHealthTerm}</p>
@@ -2089,7 +2162,7 @@ function DashboardMobileColumnMetric({
         </div>
       );
     case "ticker":
-    case "action":
+    case "actions":
       return null;
   }
 }
@@ -2112,10 +2185,14 @@ function DashboardDetailColumnMetric({
   const unitPnl = getDashboardUnitPnl(group, reportingCurrency);
   const reportingAvgCost = getDashboardReportingAverageCost(group, reportingCurrency);
   switch (column) {
-    case "position":
-      return <DetailMetric label={dict.reports.position} value={formatTopHoldingsMessage(dict.reports.unitsLabel, { count: formatNumber(group.quantity, locale, 2) })} />;
-    case "avgCost":
-      return <DetailMetric label={dict.holdings.avgCostTerm} value={reportingAvgCost == null ? "-" : formatCurrencyAmount(reportingAvgCost, reportingCurrency, locale)} />;
+    case "quantity":
+      return <DetailMetric label={dict.holdings.quantityTerm} value={formatNumber(group.quantity, locale, 2)} />;
+    case "accounts":
+      return <DetailMetric label={dict.holdings.columnAccounts} value={formatNumber(group.accountCount, locale)} />;
+    case "allocation":
+      return <DetailMetric label={dict.holdings.allocationTerm} value={group.reportingAllocationPercent === null ? "-" : formatPercent(group.reportingAllocationPercent, locale)} />;
+    case "averageCost":
+      return <DetailMetric label={dict.holdings.averageCostTerm} value={reportingAvgCost == null ? "-" : formatCurrencyAmount(reportingAvgCost, reportingCurrency, locale)} />;
     case "price":
       return <DetailMetric label={dict.reports.reportingPrice} value={reportingPrice === null ? "-" : formatUnitPrice(reportingPrice, reportingCurrency, locale)} />;
     case "unitPnl":
@@ -2123,15 +2200,15 @@ function DashboardDetailColumnMetric({
     case "marketValue":
       return <DetailMetric label={dict.reports.marketValue} value={group.reportingMarketValueAmount === null ? "-" : formatCurrencyAmount(group.reportingMarketValueAmount, reportingCurrency, locale)} />;
     case "costBasis":
-      return <DetailMetric label={dict.holdings.totalCostTerm} value={group.reportingCostBasisAmount === null ? "-" : formatCurrencyAmount(group.reportingCostBasisAmount, reportingCurrency, locale)} />;
-    case "daily":
+      return <DetailMetric label={dict.holdings.costBasisTerm} value={group.reportingCostBasisAmount === null ? "-" : formatCurrencyAmount(group.reportingCostBasisAmount, reportingCurrency, locale)} />;
+    case "dailyChange":
       return <DetailMetric label={dict.reports.dailyChange} toneValue={reportingDailyMove} value={reportingDailyMove === null ? "-" : formatFinanceCurrencyAmount(reportingDailyMove, reportingCurrency, locale)} />;
-    case "pnl":
-      return <DetailMetric label={dict.reports.pnl} toneValue={group.reportingUnrealizedPnlAmount} value={group.reportingUnrealizedPnlAmount === null ? "-" : formatFinanceCurrencyAmount(group.reportingUnrealizedPnlAmount, reportingCurrency, locale)} />;
-    case "health":
+    case "unrealizedPnl":
+      return <DetailMetric label={dict.dashboardHome.unrealizedPnlLabel} toneValue={group.reportingUnrealizedPnlAmount} value={group.reportingUnrealizedPnlAmount === null ? "-" : formatFinanceCurrencyAmount(group.reportingUnrealizedPnlAmount, reportingCurrency, locale)} />;
+    case "dataHealth":
       return <DetailMetric label={dict.holdings.dataHealthTerm} value={getHoldingsQuoteStatusLabel(dict, group.quoteStatus)} />;
     case "ticker":
-    case "action":
+    case "actions":
       return null;
   }
 }
@@ -2150,45 +2227,78 @@ function splitMobileHoldingColumns<ColumnId extends string>(
   };
 }
 
-function compareHoldingGroups(
-  left: DashboardOverviewHoldingGroupDto,
-  right: DashboardOverviewHoldingGroupDto,
-  sortMode: HoldingsPreviewSort,
-  selectedPreset: DashboardHoldingFocusPreset,
+export function dashboardHoldingSortKey(
+  row: DashboardHoldingDetailRow,
+  field: HoldingsSortField,
   reportingCurrency: AccountDefaultCurrency,
-): number {
-  if (selectedPreset === "stale-quotes") {
-    const freshnessRankDiff = priceStateSortRank(right) - priceStateSortRank(left);
-    if (freshnessRankDiff !== 0) return freshnessRankDiff;
+): HoldingsSortPrimitive {
+  switch (field) {
+    case "ticker":
+      return row.ticker;
+    case "accountCount":
+      return "accountCount" in row ? row.accountCount : 1;
+    case "quantity":
+      return row.quantity;
+    case "averageCost":
+      return getDashboardReportingAverageCost(row, reportingCurrency);
+    case "price":
+      return "accountId" in row
+        ? getReportingChildUnitPrice(row, reportingCurrency)
+        : getReportingUnitPrice(row, reportingCurrency);
+    case "unitPnl":
+      return getDashboardUnitPnl(row, reportingCurrency).amount;
+    case "marketValue":
+      return row.reportingMarketValueAmount;
+    case "costBasis":
+      return row.reportingCostBasisAmount;
+    case "dailyChangePercent":
+      return row.changePercent;
+    case "unrealizedPnl":
+      return row.reportingUnrealizedPnlAmount;
+    case "allocation":
+      return row.reportingAllocationPercent;
+    case "dataHealth":
+      return dashboardDataHealthSortRank(row);
+    case "nextDividendDate":
+      return row.nextDividendDate;
+    case "lastDividendDate":
+      return row.lastDividendPostedDate;
   }
-  if (sortMode === "ticker") {
-    return `${left.marketCode}:${left.ticker}`.localeCompare(`${right.marketCode}:${right.ticker}`);
-  }
-  if (sortMode === "daily") {
-    return Math.abs(right.changePercent ?? 0) - Math.abs(left.changePercent ?? 0);
-  }
-  if (sortMode === "pnl") {
-    if (selectedPreset === "worst-pnl") {
-      return (left.reportingUnrealizedPnlAmount ?? Number.POSITIVE_INFINITY)
-        - (right.reportingUnrealizedPnlAmount ?? Number.POSITIVE_INFINITY);
-    }
-    return (right.reportingUnrealizedPnlAmount ?? Number.NEGATIVE_INFINITY)
-      - (left.reportingUnrealizedPnlAmount ?? Number.NEGATIVE_INFINITY);
-  }
-  if (sortMode === "unitPnl") {
-    return (getDashboardUnitPnl(right, reportingCurrency).amount ?? Number.NEGATIVE_INFINITY)
-      - (getDashboardUnitPnl(left, reportingCurrency).amount ?? Number.NEGATIVE_INFINITY);
-  }
-  if (selectedPreset === "highest-allocation") {
-    return (right.reportingAllocationPercent ?? Number.NEGATIVE_INFINITY)
-      - (left.reportingAllocationPercent ?? Number.NEGATIVE_INFINITY);
-  }
-  return (right.reportingMarketValueAmount ?? Number.NEGATIVE_INFINITY)
-    - (left.reportingMarketValueAmount ?? Number.NEGATIVE_INFINITY);
+}
+
+function dashboardDataHealthSortRank(row: DashboardHoldingDetailRow): number {
+  const fxRank = row.fxStatus === "missing" ? 50 : row.fxStatus === "partial" ? 25 : 0;
+  const allocationRank = row.allocationBasisFallbackReason ? 10 : 0;
+  return (priceStateSortRank(row) * 100) + fxRank + allocationRank;
+}
+
+function sortAccountHoldingsForCustom(
+  rows: DashboardOverviewHoldingChildDto[],
+): DashboardOverviewHoldingChildDto[] {
+  return rows.slice().sort((left, right) =>
+    (left.accountName?.trim() || left.accountId).localeCompare(right.accountName?.trim() || right.accountId)
+    || left.accountId.localeCompare(right.accountId));
 }
 
 function isHoldingFocusPreset(value: string): value is DashboardHoldingFocusPreset {
   return (DASHBOARD_HOLDING_FOCUS_PRESETS as readonly string[]).includes(value);
+}
+
+function isFilterHoldingFocusPreset(preset: DashboardHoldingFocusPreset): boolean {
+  return preset === "fx-exposure" || preset === "stale-quotes";
+}
+
+function holdingFocusPresetMatchesSort(
+  presetId: DashboardHoldingFocusPreset,
+  sortMode: "field" | "custom" | undefined,
+  sortField: HoldingsSortField | null | undefined,
+  sortDirection: "asc" | "desc" | null | undefined,
+): boolean {
+  const preset = HOLDING_FOCUS_PRESET_BY_ID.get(presetId);
+  return preset !== undefined
+    && sortMode === "field"
+    && preset.sortField === sortField
+    && preset.sortDirection === sortDirection;
 }
 
 function normalizeDashboardHoldingFocusPreference(value: unknown): DashboardHoldingFocusPreferenceDto {
