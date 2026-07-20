@@ -123,6 +123,23 @@ function click(element: Element) {
   act(() => element.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true })));
 }
 
+function pointerDown(element: Element) {
+  act(() => {
+    const event = new MouseEvent("pointerdown", { bubbles: true, button: 0, cancelable: true });
+    Object.defineProperty(event, "pointerId", { value: 1 });
+    Object.defineProperty(event, "pointerType", { value: "mouse" });
+    element.dispatchEvent(event);
+  });
+}
+
+function changeInput(element: HTMLInputElement, value: string) {
+  act(() => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    setter?.call(element, value);
+    element.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
 function required(container: ParentNode, selector: string): Element {
   const element = container.querySelector(selector);
   expect(element, selector).not.toBeNull();
@@ -207,6 +224,40 @@ describe("HoldingsTable sorting surface contract", () => {
     expect(groupOrder(container)).toEqual(["TOP-TW", "TIE-A-TW", "TIE-B-US", "MISS-JP"]);
     expect(container.querySelector("[data-testid='holdings-column-sort-marketValue']")?.closest("th")?.getAttribute("aria-sort")).toBe("descending");
     expect(vi.mocked(patchJson)).not.toHaveBeenCalled();
+  });
+
+  it("keeps all filtered children and aggregate values when search matches only the market code", async () => {
+    ({ root, container } = renderPortfolio());
+    await flush();
+
+    changeInput(required(container, "[data-testid='holdings-filter-input']") as HTMLInputElement, "US");
+    await flush();
+    await flush();
+
+    expect(groupOrder(container)).toEqual(["TIE-B-US"]);
+    const aggregate = required(container, "[data-testid='holding-group-row-TIE-B-US']");
+    expect(aggregate.querySelectorAll("td")[1]?.textContent).toBe("2");
+    await selectOption(required(container, "[data-testid='holdings-display-mode-select']"), dict.holdings.displayModeExpanded);
+    expect(childOrder(container)).toEqual(["TIE-B-US-acc-a", "TIE-B-US-acc-z"]);
+  });
+
+  it("feeds the visible field-sorted order into row settings", async () => {
+    vi.mocked(getJson).mockResolvedValue(
+      response("portfolio.row-settings-sorted", {
+        sortMode: "field",
+        sortField: "ticker",
+        sortDirection: "asc",
+      }),
+    );
+    ({ root, container } = renderPortfolio({ contextKey: "portfolio.row-settings-sorted" }));
+    await flush();
+
+    expect(groupOrder(container)).toEqual(["MISS-JP", "TIE-A-TW", "TIE-B-US", "TOP-TW"]);
+    pointerDown(required(container, "[data-testid='holdings-row-settings']"));
+    await flush();
+    const settingsOrder = Array.from(document.querySelectorAll<HTMLElement>("[data-testid^='holdings-row-drag-']"))
+      .map((row) => row.dataset.testid!.replace("holdings-row-drag-", ""));
+    expect(settingsOrder).toEqual(["JP:MISS", "TW:TIE-A", "US:TIE-B", "TW:TOP"]);
   });
 
   it("sorts aggregates, each expanded group's children, and Accounts mode with the documented hierarchy semantics", async () => {

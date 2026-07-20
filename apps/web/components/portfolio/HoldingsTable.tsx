@@ -339,10 +339,14 @@ export function HoldingsTable({
   const projectedGroups = useMemo(() => {
     const normalizedQuery = deferredQuery.trim().toUpperCase();
     return filteredGroups.map((group) => {
+      const groupIdentityMatchesQuery = normalizedQuery.length > 0
+        && (group.ticker.toUpperCase().includes(normalizedQuery)
+          || group.marketCode.toUpperCase().includes(normalizedQuery));
       const visibleChildren = group.children.filter((child) => {
         if (selectedAccountIds.length > 0 && !selectedAccountIds.includes(child.accountId)) return false;
         if (selectedStatuses.length > 0 && !selectedStatuses.includes(child.quoteStatus)) return false;
         return !normalizedQuery
+          || groupIdentityMatchesQuery
           || child.ticker.toUpperCase().includes(normalizedQuery)
           || (child.accountName ?? child.accountId).toUpperCase().includes(normalizedQuery)
           || child.accountId.toUpperCase().includes(normalizedQuery);
@@ -684,7 +688,7 @@ export function HoldingsTable({
               </div>
               <HoldingsRowSettingsMenu
                 dict={dict}
-                rows={filteredGroups.map((group) => ({
+                rows={orderedFilteredGroups.map((group) => ({
                   id: holdingGroupRowId(group),
                   label: group.ticker,
                   description: group.instrumentName ? `${group.marketCode} · ${group.instrumentName}` : group.marketCode,
