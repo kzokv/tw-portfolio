@@ -969,12 +969,11 @@ describe("ReportsClient", () => {
   it.each([
     { contextKey: "reports.dailyReview.topMovers", tab: "daily" as const },
     { contextKey: "reports.market.topHoldings", tab: "market" as const },
-  ])("[Reports $contextKey]: sort full detail source before local top-N when the winner is absent from the API shortcut", async ({ contextKey, tab }) => {
-    const shortcutRow = reportHoldingRow({ ticker: "SHORTCUT", quantity: 50, reportingMarketValueAmount: 500 });
-    const fullRows = [
-      shortcutRow,
-      reportHoldingRow({ ticker: "FULL_WINNER", quantity: 1, reportingMarketValueAmount: 100 }),
-      reportHoldingRow({ ticker: "FULL_THIRD", quantity: 20, reportingMarketValueAmount: 200 }),
+  ])("[Reports $contextKey]: use the server leader rows even when paginated detail contains a different local winner", async ({ contextKey, tab }) => {
+    const serverLeader = reportHoldingRow({ ticker: "SERVER_LEADER", quantity: 50, reportingMarketValueAmount: 500 });
+    const paginatedDetailRows = [
+      reportHoldingRow({ ticker: "DETAIL_WINNER", quantity: 1, reportingMarketValueAmount: 100 }),
+      reportHoldingRow({ ticker: "DETAIL_SECOND", quantity: 20, reportingMarketValueAmount: 200 }),
     ];
     userPreferencesMock.value = {
       holdingsTableSettings: {
@@ -988,21 +987,21 @@ describe("ReportsClient", () => {
       searchParamsMock.value = "tab=market&scope=AU&range=1Y";
       const data = {
         ...marketFixture,
-        topHoldings: [shortcutRow],
-        detail: { ...marketFixture.detail, rows: fullRows, total: fullRows.length },
+        topHoldings: [serverLeader],
+        detail: { ...marketFixture.detail, rows: paginatedDetailRows, total: 100 },
       } as MarketReportDto;
       act(() => root.render(<ReportsClient initialReport={data} initialState={parseReportRouteState({ tab: "market", scope: "AU", range: "1Y" })} />));
     } else {
       const data = {
         ...fixture,
-        topMovers: [shortcutRow],
-        holdings: { ...fixture.holdings, rows: fullRows, total: fullRows.length },
+        topMovers: [serverLeader],
+        holdings: { ...fixture.holdings, rows: paginatedDetailRows, total: 100 },
       } as DailyReviewReportDto;
       act(() => root.render(<ReportsClient initialReport={data} initialState={parseReportRouteState({})} />));
     }
     await act(async () => {});
 
-    expect(reportHoldingTickerOrder(contextKey)).toEqual(["FULL_WINNER"]);
+    expect(reportHoldingTickerOrder(contextKey)).toEqual(["SERVER_LEADER"]);
   });
 
   it("[Reports allocation]: filter rows → displayed allocation is recalculated from the filtered local universe before sorting", async () => {

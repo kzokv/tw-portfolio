@@ -1737,8 +1737,14 @@ function DailyReviewView({
           dict={dict}
           title={dict.reports.topMoversTitle}
           contextKey={REPORTS_DAILY_REVIEW_TOP_MOVERS_CONTEXT_KEY}
-          selectionUniverseRows={data.holdings.rows}
-          rows={data.holdings}
+          selectionUniverseRows={data.topMovers}
+          rows={{
+            ...data.holdings,
+            limit: data.topMovers.length,
+            offset: 0,
+            rows: data.topMovers,
+            total: data.topMovers.length,
+          }}
           isRefreshing={isRefreshing}
           locale={locale}
           onRefresh={onRefresh}
@@ -1873,8 +1879,14 @@ function MarketReportView({
           dict={dict}
           title={dict.reports.topHoldingsTitle}
           contextKey={REPORTS_MARKET_TOP_HOLDINGS_CONTEXT_KEY}
-          selectionUniverseRows={data.detail.rows}
-          rows={data.detail}
+          selectionUniverseRows={data.topHoldings}
+          rows={{
+            ...data.detail,
+            limit: data.topHoldings.length,
+            offset: 0,
+            rows: data.topHoldings,
+            total: data.topHoldings.length,
+          }}
           isRefreshing={isRefreshing}
           locale={locale}
           onRefresh={onRefresh}
