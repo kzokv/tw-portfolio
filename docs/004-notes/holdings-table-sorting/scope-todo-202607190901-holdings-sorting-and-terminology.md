@@ -200,11 +200,11 @@ Use one shared semantic union for persisted sorting:
 
 ## Performance Evidence
 
-The final captures bind to production-source content hash `0bd2649e3828d4085458a6dd12484c5e30531ecf07eeb572ecad197018e5b093`, including tracked and untracked production files.
+The final captures bind to production-source content hash `1f55111c7a5603738188bf9915d1252d3b5ecb211fafab6dd3ffd7c157e90b08`, with a clean production-source status at commit `b0e1cb7984d15fe526a4f186b7e8d38ebb76a90f`.
 
-- The 1,000-row production adapter benchmark invokes the exported Dashboard, Portfolio, and Reports sort-key adapters inside the timed loop. Its p95 results range from 0.59 ms to 1.48 ms, below the 10 ms budget.
-- The 1,000-row pure flat and grouped proxies range from 0.15 ms to 1.47 ms p95.
-- Dashboard React sort-to-commit p95 improved from 529.07 ms to 161.24 ms. Reports improved from 670.05 ms to 169.77 ms. These React captures are representative render-regression sentinels at the surfaces' normal visible limits; they are not presented as 1,000-row end-to-end render measurements.
+- The 1,000-row production adapter benchmark invokes the exported Dashboard, Portfolio, and Reports sort-key adapters inside the timed loop. Its p95 results range from 0.46 ms to 1.05 ms, below the 10 ms budget.
+- The 1,000-row pure flat and grouped proxies range from 0.10 ms to 0.78 ms p95.
+- Dashboard React sort-to-commit p95 improved from 529.07 ms to 163.33 ms. Reports improved from 670.05 ms to 147.66 ms. These React captures are representative render-regression sentinels at the surfaces' normal visible limits; they are not presented as 1,000-row end-to-end render measurements.
 - The implementation adds no production sorting dependency. Filtering, displayed-metric derivation, sort-key extraction, sorting, and top-N limiting remain separate stages; formatting and date parsing do not occur inside comparators.
 
 ## Open Items
