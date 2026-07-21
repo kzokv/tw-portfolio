@@ -33,6 +33,7 @@ const query: DividendReviewPrimaryQueryDto = {
   limit: 10,
 };
 const primary = (id: string): DividendReviewPrimaryDto => ({
+  eligibleTickers: [{ ticker: id, name: id }],
   reviewRows: [{
     rowKind: "expected", id, version: 0, accountId: "acc-1", dividendEventId: "event-1",
     ticker: id, tickerName: id, marketCode: "TW", instrumentType: "STOCK", eventType: "CASH",

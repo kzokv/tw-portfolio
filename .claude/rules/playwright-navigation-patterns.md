@@ -119,3 +119,35 @@ function onTabChange(slug: string) {
 - Does NOT apply to full-page navigations (`router.push("/some-other-page")`) — those go through Next.js's normal navigation pipeline and Playwright observes them correctly.
 
 **Why:** Discovered in KZO-199 iter 2. The locked tab restructure of `/admin/settings` introduced `?tab=<slug>` URL state. The `[tab-nav]` E2E spec in `apps/web/tests/e2e/specs-oauth/admin-settings-tier-b-aaa.spec.ts` clicked a tab trigger and asserted `expect(page.url()).toContain("tab=sharing")` immediately. The assertion raced `router.replace`'s async commit on fast runs. Adding the synchronous `replaceState` pair eliminated the flake without losing Next.js router-state correctness.
+
+---
+
+## Response Completion Is Not Client Commit Completion
+
+When one user action can start primary and enrichment requests, a broad `waitForResponse()` predicate may resolve for the wrong endpoint. Even the correct response being received or `response.finished()` does not prove React has parsed the payload, committed state, run reconciliation effects, and updated the URL or DOM.
+
+Use both layers:
+
+1. Match the exact authoritative endpoint and request identity, including relevant query parameters.
+2. Await the response finishing.
+3. Poll the user-visible committed outcome with a web-first assertion such as `expect.poll`, `toHaveURL`, `toBeChecked`, or a stable row assertion.
+
+```ts
+const responsePromise = page.waitForResponse((response) => {
+  const url = new URL(response.url());
+  return (
+    response.request().method() === "GET" &&
+    url.pathname.endsWith("/review/primary") &&
+    url.searchParams.get("fromPaymentDate") === "2025-01-01"
+  );
+});
+
+await selectYear(2025);
+const response = await responsePromise;
+await response.finished();
+await expect
+  .poll(() => new URL(page.url()).searchParams.getAll("ticker").sort())
+  .toEqual(["5880"]);
+```
+
+Do not use a pre-satisfied assertion as a synchronization point. For example, checking that a ticker already present before the action remains in the URL says nothing about whether the new response committed or invalid selections were pruned.

@@ -245,7 +245,7 @@ export async function buildTickerDetails(
   const upcomingDividendPage = buildTickerDividendUpcomingPage(input.store, normalizedTicker, resolvedMarketCode, scopedAccountIds, {
     page: 1,
     limit: 50,
-  });
+  }, input.now);
   const openReconciliationPage = buildTickerDividendOpenReconciliationPage(
     input.store,
     normalizedTicker,
@@ -260,7 +260,7 @@ export async function buildTickerDetails(
   const upcomingDividends = upcomingDividendPage.items.map(mapUpcomingDividendListItemToLegacyDto);
   const recentDividends = postedHistoryPage.items.map(mapDividendLedgerHistoryItemToLegacyRecentDto);
   const allUpcomingDividends = collectAllDividendPageItems(upcomingDividendPage, (page) =>
-    buildTickerDividendUpcomingPage(input.store, normalizedTicker, resolvedMarketCode, scopedAccountIds, { page, limit: 50 }))
+    buildTickerDividendUpcomingPage(input.store, normalizedTicker, resolvedMarketCode, scopedAccountIds, { page, limit: 50 }, input.now))
     .map(mapUpcomingDividendListItemToLegacyDto);
   const allRecentDividends = collectAllDividendPageItems(postedHistoryPage, (page) =>
     buildTickerDividendPostedHistoryPage(input.store, normalizedTicker, resolvedMarketCode, scopedAccountIds, { page, limit: 50 }))
@@ -1156,6 +1156,7 @@ export function buildTickerDividendUpcomingPage(
   marketCode: MarketCode,
   scopedAccountIds: ReadonlySet<string>,
   pageInput: { page: number; limit: 10 | 25 | 50 },
+  now = new Date(),
 ): DividendUpcomingPageDto {
   const activeLedgerByAccountAndEvent = new Map<string, Store["accounting"]["facts"]["dividendLedgerEntries"][number]>();
   const postedEventKeys = new Set<string>();
@@ -1174,8 +1175,8 @@ export function buildTickerDividendUpcomingPage(
     }
   }
 
-  const today = new Date().toISOString().slice(0, 10);
-  const horizon = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const horizon = new Date(now);
   horizon.setUTCDate(horizon.getUTCDate() + 365);
   const horizonDate = horizon.toISOString().slice(0, 10);
 

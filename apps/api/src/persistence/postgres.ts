@@ -130,6 +130,7 @@ import type {
   DividendLedgerListOptions,
   DividendLedgerListResult,
   DividendCalendarSnapshotOptions,
+  DividendDailyHighlightsSnapshotOptions,
   DividendReviewListOptions,
   DividendReviewListResult,
   DividendReviewMetadataResult,
@@ -11873,12 +11874,18 @@ export class PostgresPersistence implements Persistence {
               fiscal_year_period, announcement_date, total_distribution_shares
        FROM market_data.dividend_events AS event
        WHERE (
+           ($9::date[] IS NOT NULL AND (
+             event.payment_date = ANY($9::date[])
+             OR event.ex_dividend_date = ANY($9::date[])
+           ))
+           OR ($9::date[] IS NULL AND (
            ($8::boolean = TRUE AND event.payment_date IS NULL)
            OR (
              event.payment_date IS NOT NULL
              AND ($2::date IS NULL OR event.payment_date >= $2::date)
              AND ($3::date IS NULL OR event.payment_date <= $3::date)
            )
+           ))
          )
          AND ($5::text IS NULL OR event.market_code = $5::text)
          AND ($7::text IS NULL OR event.ticker = $7::text)
@@ -11945,6 +11952,7 @@ export class PostgresPersistence implements Persistence {
         opts.accountId ?? null,
         opts.ticker ?? null,
         opts.includeUndated ?? false,
+        opts.highlightLocalDates ?? null,
       ],
     );
 
@@ -12226,6 +12234,18 @@ export class PostgresPersistence implements Persistence {
     opts: DividendCalendarSnapshotOptions,
   ) {
     return this.loadDividendCalendarSnapshotInternal(userId, opts);
+  }
+
+  async listDividendDailyHighlightsSnapshot(
+    userId: string,
+    opts: DividendDailyHighlightsSnapshotOptions,
+  ) {
+    return this.loadDividendCalendarSnapshotInternal(userId, {
+      accountId: opts.accountId,
+      marketCode: opts.marketCode,
+      highlightLocalDates: opts.localDates,
+      limit: 500,
+    });
   }
 
   async listDividendLedgerEntries(
@@ -12543,7 +12563,7 @@ export class PostgresPersistence implements Persistence {
           AND ($5::text IS NULL OR ledger.reconciliation_status = $5)
           AND ($6::text IS NULL OR ledger.posting_status = $6)
           AND (NOT $7::boolean OR ledger.posting_status <> 'expected')
-          AND ($8::text IS NULL OR event.ticker = $8)
+          AND ($8::text[] IS NULL OR event.ticker = ANY($8::text[]))
           AND ($9::text IS NULL OR event.market_code = $9)
           AND (NOT $10::boolean OR (
             COALESCE(instrument.instrument_type, 'STOCK') IN ('ETF', 'BOND_ETF')
@@ -12604,6 +12624,9 @@ export class PostgresPersistence implements Persistence {
                ) AS expected_stock_quantity,
                ledger.received_stock_quantity,
                ledger.posting_status, ledger.reconciliation_status,
+               ledger.cash_reconciliation_status AS stored_cash_reconciliation_status,
+               ledger.stock_reconciliation_status AS stored_stock_reconciliation_status,
+               ledger.stock_reconciliation_note AS stored_stock_reconciliation_note,
                ledger.source_composition_status,
                ledger.expected_cash_amount AS expected_gross_amount,
                ledger.expected_cash_amount - COALESCE(deduction.deduction_total, 0) AS expected_net_amount,
@@ -12691,7 +12714,7 @@ export class PostgresPersistence implements Persistence {
               AND ($4::date IS NULL OR event.payment_date <= $4::date)
             ) END
           )
-          AND ($8::text IS NULL OR event.ticker = $8)
+          AND ($8::text[] IS NULL OR event.ticker = ANY($8::text[]))
           AND ($9::text IS NULL OR event.market_code = $9)
           AND (NOT $10::boolean OR COALESCE(instrument.instrument_type, 'STOCK') IN ('ETF', 'BOND_ETF'))
           AND (
@@ -12990,6 +13013,9 @@ export class PostgresPersistence implements Persistence {
                     ELSE 0 END AS expected_stock_quantity,
                0::numeric AS received_stock_quantity,
                'expected'::text AS posting_status, 'open'::text AS reconciliation_status,
+               NULL::text AS stored_cash_reconciliation_status,
+               NULL::text AS stored_stock_reconciliation_status,
+               NULL::text AS stored_stock_reconciliation_note,
                'unknown_pending_disclosure'::text AS source_composition_status,
                expected_gross_amount, expected_gross_amount AS expected_net_amount,
                0::numeric AS actual_net_amount, -expected_gross_amount AS variance_amount,
@@ -13019,10 +13045,34 @@ export class PostgresPersistence implements Persistence {
                provider_authoritative_ratio, active_calculation
         FROM expected_calculated
       ),
-      normalized AS (
+      unresolved_normalized AS (
         SELECT * FROM ledger_rows
         UNION ALL
         SELECT * FROM expected_rows
+      ),
+      status_resolved AS (
+        SELECT unresolved_normalized.*,
+               COALESCE(stored_cash_reconciliation_status, reconciliation_status)
+                 AS cash_reconciliation_status,
+               COALESCE(
+                 stored_stock_reconciliation_status,
+                 CASE
+                   WHEN event_type = 'CASH' THEN NULL
+                   WHEN expected_stock_calc_state = 'needs_action' THEN 'needs_calculation'
+                   WHEN posting_status = 'expected' THEN 'pending_receipt'
+                   WHEN reconciliation_status = 'explained' THEN 'explained'
+                   WHEN received_stock_quantity = expected_stock_quantity THEN 'matched'
+                   ELSE 'variance'
+                 END
+               ) AS stock_reconciliation_status
+        FROM unresolved_normalized
+      ),
+      normalized AS (
+        SELECT status_resolved.*,
+               CASE WHEN stock_reconciliation_status = 'explained'
+                    THEN stored_stock_reconciliation_note
+                    ELSE NULL END AS stock_reconciliation_note
+        FROM status_resolved
       )`;
   }
 
@@ -13030,6 +13080,7 @@ export class PostgresPersistence implements Persistence {
     userId: string,
     filters: DividendReviewFilterDto | DividendReviewListOptions,
   ): unknown[] {
+    const legacyTicker = "ticker" in filters && typeof filters.ticker === "string" ? filters.ticker : undefined;
     return [
       userId,
       filters.accountId ?? null,
@@ -13038,7 +13089,7 @@ export class PostgresPersistence implements Persistence {
       filters.reconciliationStatus ?? null,
       filters.postingStatus ?? null,
       filters.excludeExpected ?? false,
-      filters.ticker ?? null,
+      filters.tickers?.length ? filters.tickers : legacyTicker ? [legacyTicker] : null,
       filters.marketCode ?? null,
       filters.sourceComposition === "pending",
     ];
@@ -13064,18 +13115,15 @@ export class PostgresPersistence implements Persistence {
           : Number(row.expected_stock_quantity),
       receivedStockQuantity: Number(row.received_stock_quantity),
       postingStatus: String(row.posting_status) as DividendReviewRowSummaryDto["postingStatus"],
-      cashReconciliationStatus: String(row.reconciliation_status) as DividendReviewRowSummaryDto["cashReconciliationStatus"],
-      stockReconciliationStatus: deriveDividendReviewStockStatus({
-        eventType: String(row.event_type) as DividendReviewRowSummaryDto["eventType"],
-        postingStatus: String(row.posting_status) as DividendReviewRowSummaryDto["postingStatus"],
-        expectedStockCalcState: String(row.expected_stock_calc_state) as DividendReviewRowSummaryDto["expectedStockCalcState"],
-        expectedStockQuantity: Number(row.expected_stock_quantity),
-        receivedStockQuantity: Number(row.received_stock_quantity),
-        reconciliationStatus: String(row.reconciliation_status) as DividendReviewRowSummaryDto["reconciliationStatus"],
-      }),
+      cashReconciliationStatus:
+        String(row.cash_reconciliation_status) as DividendReviewRowSummaryDto["cashReconciliationStatus"],
+      stockReconciliationStatus:
+        row.stock_reconciliation_status == null
+          ? null
+          : String(row.stock_reconciliation_status) as DividendReviewRowSummaryDto["stockReconciliationStatus"],
       stockReconciliationNote:
-        String(row.reconciliation_status) === "explained"
-          ? (row.reconciliation_note == null ? null : String(row.reconciliation_note))
+        String(row.stock_reconciliation_status) === "explained"
+          ? (row.stock_reconciliation_note == null ? null : String(row.stock_reconciliation_note))
           : null,
       reconciliationStatus: String(row.reconciliation_status) as DividendReviewRowSummaryDto["reconciliationStatus"],
       sourceCompositionStatus: String(row.source_composition_status) as DividendReviewRowSummaryDto["sourceCompositionStatus"],
@@ -13132,19 +13180,26 @@ export class PostgresPersistence implements Persistence {
     const sortColumn = sortColumns[query.sortBy];
     const direction = query.sortOrder === "asc" ? "ASC" : "DESC";
     const result = await this.pool.query(
-      `WITH ${this.dividendReviewNormalizedSql()}
-       SELECT (SELECT COUNT(*)::int FROM normalized) AS total,
+      `WITH ${this.dividendReviewNormalizedSql()},
+       filtered AS (
+         SELECT * FROM normalized
+         WHERE ($11::text IS NULL OR cash_reconciliation_status = $11)
+           AND ($12::text IS NULL OR stock_reconciliation_status = $12)
+       )
+       SELECT (SELECT COUNT(*)::int FROM filtered) AS total,
               COALESCE((
                 SELECT jsonb_agg(to_jsonb(page_rows))
                 FROM (
-                  SELECT * FROM normalized
+                  SELECT * FROM filtered
                   ORDER BY ${sortColumn} ${direction} NULLS LAST,
                            payment_date ASC NULLS LAST, ticker ASC, account_name ASC, id ASC
-                  LIMIT $11 OFFSET $12
+                  LIMIT $13 OFFSET $14
                 ) AS page_rows
               ), '[]'::jsonb) AS rows`,
       [
         ...this.dividendReviewSqlParams(userId, query),
+        query.cashStatus ?? null,
+        query.stockStatus ?? null,
         query.limit,
         (query.page - 1) * query.limit,
       ],
@@ -13169,17 +13224,22 @@ export class PostgresPersistence implements Persistence {
     const dbStartedAt = performance.now();
     const result = await this.pool.query(
       `WITH ${this.dividendReviewNormalizedSql()},
+       filtered AS (
+         SELECT * FROM normalized
+         WHERE ($11::text IS NULL OR cash_reconciliation_status = $11)
+           AND ($12::text IS NULL OR stock_reconciliation_status = $12)
+       ),
        currency_totals AS (
          SELECT cash_currency,
                 SUM(expected_cash_amount) AS expected,
                 SUM(received_cash_amount) AS received
-         FROM normalized GROUP BY cash_currency
+         FROM filtered GROUP BY cash_currency
        ),
        month_currency_totals AS (
          SELECT TO_CHAR(payment_date, 'YYYY-MM') AS month_key, cash_currency,
                 SUM(expected_cash_amount) AS expected,
                 SUM(received_cash_amount) AS received
-         FROM normalized WHERE payment_date IS NOT NULL
+         FROM filtered WHERE payment_date IS NOT NULL
          GROUP BY TO_CHAR(payment_date, 'YYYY-MM'), cash_currency
        ),
        month_totals AS (
@@ -13193,7 +13253,7 @@ export class PostgresPersistence implements Persistence {
          SELECT ticker, cash_currency,
                 SUM(expected_cash_amount) AS expected,
                 SUM(received_cash_amount) AS received
-         FROM normalized GROUP BY ticker, cash_currency
+         FROM filtered GROUP BY ticker, cash_currency
        ),
        ticker_totals AS (
          SELECT ticker,
@@ -13203,14 +13263,14 @@ export class PostgresPersistence implements Persistence {
          FROM ticker_currency_totals GROUP BY ticker
        ),
        etf_source_lines AS (
-         SELECT normalized.id AS ledger_id, normalized.source_composition_status,
+         SELECT filtered.id AS ledger_id, filtered.source_composition_status,
                 source.source_bucket, SUM(source.amount) AS amount
-         FROM normalized
+         FROM filtered
          JOIN dividend_source_lines AS source
-           ON normalized.row_kind = 'ledger'
-          AND source.dividend_ledger_entry_id = normalized.id
-         WHERE normalized.instrument_type IN ('ETF', 'BOND_ETF')
-         GROUP BY normalized.id, normalized.source_composition_status, source.source_bucket
+           ON filtered.row_kind = 'ledger'
+          AND source.dividend_ledger_entry_id = filtered.id
+         WHERE filtered.instrument_type IN ('ETF', 'BOND_ETF')
+         GROUP BY filtered.id, filtered.source_composition_status, source.source_bucket
        ),
        source_totals AS (
          SELECT source_bucket, SUM(amount) AS amount
@@ -13222,13 +13282,30 @@ export class PostgresPersistence implements Persistence {
          WHERE source_composition_status = 'provided'
            AND source_bucket IN ('DIVIDEND_INCOME', 'INTEREST_INCOME')
          GROUP BY ledger_id
+       ),
+       stock_ticker_totals AS (
+         SELECT market_code, ticker,
+                CASE
+                  WHEN SUM(CASE WHEN expected_stock_calc_state <> 'needs_action'
+                                THEN expected_stock_quantity ELSE 0 END) = 0
+                   AND COUNT(*) FILTER (WHERE expected_stock_calc_state = 'needs_action') > 0
+                    THEN NULL
+                  ELSE SUM(CASE WHEN expected_stock_calc_state <> 'needs_action'
+                                THEN expected_stock_quantity ELSE 0 END)
+                END AS expected_whole_shares,
+                SUM(received_stock_quantity) AS received_shares,
+                COUNT(*) FILTER (WHERE expected_stock_calc_state = 'needs_action')::int
+                  AS unresolved_event_count
+         FROM filtered
+         WHERE event_type <> 'CASH'
+         GROUP BY market_code, ticker
        )
        SELECT
          COALESCE((SELECT jsonb_object_agg(cash_currency, expected ORDER BY cash_currency)
                    FROM currency_totals), '{}'::jsonb) AS total_expected,
          COALESCE((SELECT jsonb_object_agg(cash_currency, received ORDER BY cash_currency)
                    FROM currency_totals), '{}'::jsonb) AS total_received,
-         (SELECT COUNT(*)::int FROM normalized WHERE reconciliation_status = 'open') AS open_count,
+         (SELECT COUNT(*)::int FROM filtered WHERE reconciliation_status = 'open') AS open_count,
          COALESCE((SELECT jsonb_object_agg(month_key, currencies ORDER BY month_key)
                    FROM month_totals), '{}'::jsonb) AS by_month,
          COALESCE((SELECT jsonb_object_agg(ticker, currencies ORDER BY ticker)
@@ -13245,17 +13322,60 @@ export class PostgresPersistence implements Persistence {
          COALESCE((SELECT SUM(amount) FROM source_totals
                    WHERE source_bucket IN ('DIVIDEND_INCOME', 'INTEREST_INCOME')), 0) AS nhi_subject_total,
          COALESCE((SELECT SUM(ROUND(amount * 0.0211)) FROM entry_nhi_subject WHERE amount >= 20000), 0) AS projected_premium,
-         (SELECT COUNT(*)::int FROM normalized
+         (SELECT COUNT(*)::int FROM filtered
           WHERE instrument_type IN ('ETF', 'BOND_ETF')
             AND source_composition_status = 'unknown_pending_disclosure') AS etf_pending_count,
-         EXISTS(SELECT 1 FROM normalized WHERE instrument_type IN ('ETF', 'BOND_ETF')) AS has_etf_entries,
-         (SELECT COUNT(*)::int FROM normalized WHERE source_composition_status = 'provided') AS provided_count,
-         (SELECT COUNT(*)::int FROM normalized
-          WHERE source_composition_status = 'unknown_pending_disclosure') AS pending_count`,
-      this.dividendReviewSqlParams(userId, filters),
+         EXISTS(SELECT 1 FROM filtered WHERE instrument_type IN ('ETF', 'BOND_ETF')) AS has_etf_entries,
+         (SELECT COUNT(*)::int FROM filtered WHERE source_composition_status = 'provided') AS provided_count,
+         (SELECT COUNT(*)::int FROM filtered
+          WHERE source_composition_status = 'unknown_pending_disclosure') AS pending_count,
+         COALESCE((SELECT jsonb_agg(jsonb_build_object(
+                    'marketCode', market_code,
+                    'ticker', ticker,
+                    'expectedWholeShares', expected_whole_shares,
+                    'receivedShares', received_shares,
+                    'unresolvedEventCount', unresolved_event_count
+                  ) ORDER BY market_code, ticker)
+                   FROM stock_ticker_totals), '[]'::jsonb) AS stock_ticker_aggregates,
+         (SELECT COUNT(*)::int FROM filtered
+          WHERE stock_reconciliation_status = 'needs_calculation') AS needs_calculation_count,
+         (SELECT COUNT(*)::int FROM filtered
+          WHERE cash_reconciliation_status IN ('open', 'explained')) AS cash_attention_count,
+         (SELECT COUNT(*)::int FROM filtered
+          WHERE stock_reconciliation_status IS NOT NULL
+            AND stock_reconciliation_status <> 'matched') AS stock_attention_count,
+         (SELECT COUNT(*)::int FROM filtered
+          WHERE cash_reconciliation_status IN ('open', 'explained')
+             OR (stock_reconciliation_status IS NOT NULL
+                 AND stock_reconciliation_status <> 'matched')) AS needs_attention_count`,
+      [
+        ...this.dividendReviewSqlParams(userId, filters),
+        filters.cashStatus ?? null,
+        filters.stockStatus ?? null,
+      ],
     );
     const dbMs = performance.now() - dbStartedAt;
     const row = result.rows[0] ?? {};
+    const stockTickerAggregates: NonNullable<DividendReviewEnrichmentDto["hero"]>["expectedStockTickers"] =
+      (row.stock_ticker_aggregates ?? []).map(
+      (aggregate: Record<string, unknown>) => ({
+        marketCode: String(aggregate.marketCode) as SharedMarketCode,
+        ticker: String(aggregate.ticker),
+        expectedWholeShares:
+          aggregate.expectedWholeShares == null ? null : Number(aggregate.expectedWholeShares),
+        receivedShares: aggregate.receivedShares == null ? null : Number(aggregate.receivedShares),
+        unresolvedEventCount: Number(aggregate.unresolvedEventCount),
+      }));
+    const expectedStockTickers = stockTickerAggregates.map((aggregate) => ({
+      ...aggregate,
+      receivedShares: null,
+    }));
+    const receivedStockTickers = stockTickerAggregates.map((aggregate) => ({
+      ...aggregate,
+      expectedWholeShares: null,
+    }));
+    const expectedStockTopTickers = expectedStockTickers.slice(0, 3);
+    const receivedStockTopTickers = receivedStockTickers.slice(0, 3);
     const enrichment: DividendReviewEnrichmentResult = {
       aggregates: {
         totalExpectedCashAmount: row.total_expected ?? {},
@@ -13278,6 +13398,18 @@ export class PostgresPersistence implements Persistence {
       sourceComposition: {
         providedCount: Number(row.provided_count ?? 0),
         pendingCount: Number(row.pending_count ?? 0),
+      },
+      hero: {
+        expectedStockTickers,
+        expectedStockTopTickers,
+        expectedStockRemainingTickerCount: Math.max(expectedStockTickers.length - expectedStockTopTickers.length, 0),
+        receivedStockTickers,
+        receivedStockTopTickers,
+        receivedStockRemainingTickerCount: Math.max(receivedStockTickers.length - receivedStockTopTickers.length, 0),
+        needsCalculationCount: Number(row.needs_calculation_count ?? 0),
+        cashAttentionCount: Number(row.cash_attention_count ?? 0),
+        stockAttentionCount: Number(row.stock_attention_count ?? 0),
+        needsAttentionCount: Number(row.needs_attention_count ?? 0),
       },
     };
     enrichment.phaseTimings = {
@@ -13709,18 +13841,14 @@ export class PostgresPersistence implements Persistence {
     opts: DividendReviewListOptions,
   ): Promise<DividendReviewListResult> {
     await this.ensureDefaultPortfolioData(userId);
-    const baseRows = await this.overlayDividendReviewSummaries(
-      userId,
-      await this.loadDividendReviewSummariesSql(userId, opts),
-    );
-    const filteredRows = this.filterDividendReviewSummaries(baseRows, opts);
-    const sortedRows = this.sortDividendReviewSummaries(filteredRows, opts);
-    const startIndex = (opts.page - 1) * opts.limit;
-    const pageRows = sortedRows.slice(startIndex, startIndex + opts.limit);
+    const [primary, enrichment] = await Promise.all([
+      this.listDividendReviewPrimarySql(userId, opts),
+      this.getDividendReviewEnrichmentSql(userId, opts),
+    ]);
     return {
-      rows: await this.hydrateDividendReviewPage(userId, pageRows),
-      total: sortedRows.length,
-      aggregates: this.buildDividendReviewAggregates(filteredRows),
+      rows: await this.hydrateDividendReviewPage(userId, primary.rows),
+      total: primary.total,
+      aggregates: enrichment.aggregates,
     };
   }
 
@@ -13729,21 +13857,7 @@ export class PostgresPersistence implements Persistence {
     query: DividendReviewPrimaryQueryDto,
   ): Promise<DividendReviewPrimaryResult> {
     await this.ensureDefaultPortfolioData(userId);
-    const dbStartedAt = performance.now();
-    const baseRows = await this.overlayDividendReviewSummaries(
-      userId,
-      await this.loadDividendReviewSummariesSql(userId, query),
-    );
-    const filteredRows = this.filterDividendReviewSummaries(baseRows, query);
-    const dbMs = performance.now() - dbStartedAt;
-    const hydrationStartedAt = performance.now();
-    const sortedRows = this.sortDividendReviewSummaries(filteredRows, query);
-    const startIndex = (query.page - 1) * query.limit;
-    return {
-      total: sortedRows.length,
-      rows: sortedRows.slice(startIndex, startIndex + query.limit),
-      phaseTimings: { dbMs, hydrationMs: performance.now() - hydrationStartedAt },
-    };
+    return this.listDividendReviewPrimarySql(userId, query);
   }
 
   async getDividendReviewEnrichment(
@@ -13751,74 +13865,15 @@ export class PostgresPersistence implements Persistence {
     filters: DividendReviewFilterDto,
   ): Promise<DividendReviewEnrichmentResult> {
     await this.ensureDefaultPortfolioData(userId);
-    const dbStartedAt = performance.now();
-    const baseRows = await this.overlayDividendReviewSummaries(
-      userId,
-      await this.loadDividendReviewSummariesSql(userId, filters),
-    );
-    const filteredRows = this.filterDividendReviewSummaries(baseRows, filters);
-    const detailedRows = await this.hydrateDividendReviewPage(userId, filteredRows);
-    const dbMs = performance.now() - dbStartedAt;
-    const aggregateStartedAt = performance.now();
-    const etfRows = detailedRows.filter((row) => row.instrumentType === "ETF" || row.instrumentType === "BOND_ETF");
-    const pendingCount = etfRows.filter((row) => row.sourceCompositionStatus === "unknown_pending_disclosure").length;
-    const nhiSubjectBuckets = new Set(["DIVIDEND_INCOME", "INTEREST_INCOME"]);
-    const sourceBucketOrder = [
-      "DIVIDEND_INCOME",
-      "INTEREST_INCOME",
-      "SECURITIES_GAIN_INCOME",
-      "REVENUE_EQUALIZATION",
-      "CAPITAL_EQUALIZATION",
-      "CAPITAL_RETURN",
-      "OTHER",
-    ] as const;
-    const amountByBucket = new Map<string, number>();
-    let projectedPremium = 0;
-    for (const row of etfRows) {
-      for (const line of row.sourceLines) {
-        amountByBucket.set(line.sourceBucket, (amountByBucket.get(line.sourceBucket) ?? 0) + line.amount);
-      }
-      if (row.sourceCompositionStatus !== "provided") continue;
-      const perEntryNhiSubject = row.sourceLines
-        .filter((line) => nhiSubjectBuckets.has(line.sourceBucket))
-        .reduce((sum, line) => sum + line.amount, 0);
-      if (perEntryNhiSubject >= 20_000) {
-        projectedPremium += Math.round(perEntryNhiSubject * 0.0211 + Number.EPSILON);
-      }
-    }
-    const bucketAggregates = sourceBucketOrder
-      .filter((sourceBucket) => (amountByBucket.get(sourceBucket) ?? 0) > 0)
-      .map((sourceBucket) => ({
-        sourceBucket,
-        totalAmount: amountByBucket.get(sourceBucket) ?? 0,
-        isNhiSubject: nhiSubjectBuckets.has(sourceBucket),
-      }));
-    return {
-      aggregates: this.buildDividendReviewAggregates(filteredRows),
-      nhiRollup: {
-        bucketAggregates,
-        nhiSubjectTotal: bucketAggregates
-          .filter((bucket) => bucket.isNhiSubject)
-          .reduce((sum, bucket) => sum + bucket.totalAmount, 0),
-        projectedPremium,
-        pendingCount,
-        hasEtfEntries: etfRows.length > 0,
-      },
-      sourceComposition: {
-        providedCount: detailedRows.filter((row) => row.sourceCompositionStatus === "provided").length,
-        pendingCount: detailedRows.filter((row) => row.sourceCompositionStatus === "unknown_pending_disclosure").length,
-      },
-      hero: buildDividendReviewHeroAggregates(detailedRows),
-      phaseTimings: {
-        dbMs,
-        aggregateMs: performance.now() - aggregateStartedAt,
-      },
-    };
+    return this.getDividendReviewEnrichmentSql(userId, filters);
   }
 
-  async listDividendReviewMetadata(userId: string): Promise<DividendReviewMetadataResult> {
+  async listDividendReviewMetadata(
+    userId: string,
+    filters: Pick<DividendReviewFilterDto, "accountId" | "fromPaymentDate" | "toPaymentDate"> = {},
+  ): Promise<DividendReviewMetadataResult> {
     await this.ensureDefaultPortfolioData(userId);
-    const [{ years }, accountsResult] = await Promise.all([
+    const [{ years }, accountsResult, tickerResult] = await Promise.all([
       this.listDividendLedgerYears(userId),
       this.pool.query(
         `SELECT id, name
@@ -13828,10 +13883,96 @@ export class PostgresPersistence implements Persistence {
          ORDER BY name, id`,
         [userId],
       ),
+      this.pool.query(
+        `WITH scoped_accounts AS (
+           SELECT id, default_currency
+           FROM accounts
+           WHERE user_id = $1
+             AND deleted_at IS NULL
+             AND ($2::text IS NULL OR id = $2)
+         ),
+         eligible_tickers AS (
+           SELECT event.ticker, instrument.name
+           FROM scoped_accounts AS account
+           JOIN dividend_ledger_entries AS ledger ON ledger.account_id = account.id
+           JOIN market_data.dividend_events AS event ON event.id = ledger.dividend_event_id
+           LEFT JOIN market_data.instruments AS instrument
+             ON instrument.market_code = event.market_code AND instrument.ticker = event.ticker
+           WHERE (
+             CASE WHEN $3::date IS NULL AND $4::date IS NULL THEN event.payment_date IS NOT NULL
+             ELSE event.payment_date IS NULL OR (
+               ($3::date IS NULL OR event.payment_date >= $3::date)
+               AND ($4::date IS NULL OR event.payment_date <= $4::date)
+             ) END
+           )
+             AND ledger.superseded_at IS NULL
+             AND ledger.reversal_of_dividend_ledger_entry_id IS NULL
+             AND NOT EXISTS (
+               SELECT 1 FROM dividend_ledger_entries AS reversal
+               WHERE reversal.reversal_of_dividend_ledger_entry_id = ledger.id
+             )
+           UNION ALL
+           SELECT event.ticker, instrument.name
+           FROM scoped_accounts AS account
+           JOIN market_data.dividend_events AS event
+             ON event.cash_dividend_currency = account.default_currency
+           LEFT JOIN market_data.instruments AS instrument
+             ON instrument.market_code = event.market_code AND instrument.ticker = event.ticker
+           WHERE (
+             CASE WHEN $3::date IS NULL AND $4::date IS NULL THEN event.payment_date IS NOT NULL
+             ELSE event.payment_date IS NULL OR (
+               ($3::date IS NULL OR event.payment_date >= $3::date)
+               AND ($4::date IS NULL OR event.payment_date <= $4::date)
+             ) END
+           )
+             AND (
+               EXISTS (
+                 SELECT 1 FROM trade_events AS trade
+                 WHERE trade.user_id = $1
+                   AND trade.account_id = account.id
+                   AND trade.ticker = event.ticker
+                   AND trade.market_code = event.market_code
+                   AND trade.trade_date < event.ex_dividend_date
+                   AND trade.reversal_of_trade_event_id IS NULL
+                   AND NOT EXISTS (
+                     SELECT 1 FROM trade_events AS reversal
+                     WHERE reversal.reversal_of_trade_event_id = trade.id
+                   )
+               )
+               OR EXISTS (
+                 SELECT 1 FROM position_actions AS action
+                 WHERE action.account_id = account.id
+                   AND action.ticker = event.ticker
+                   AND action.market_code = event.market_code
+                   AND action.action_date < event.ex_dividend_date
+                   AND action.reversal_of_position_action_id IS NULL
+                   AND action.superseded_at IS NULL
+                   AND NOT EXISTS (
+                     SELECT 1 FROM position_actions AS reversal
+                     WHERE reversal.reversal_of_position_action_id = action.id
+                   )
+               )
+             )
+         )
+         SELECT ticker, MAX(name) AS name
+         FROM eligible_tickers
+         GROUP BY ticker
+         ORDER BY ticker`,
+        [
+          userId,
+          filters.accountId ?? null,
+          filters.fromPaymentDate ?? null,
+          filters.toPaymentDate ?? null,
+        ],
+      ),
     ]);
     return {
       years,
       accounts: accountsResult.rows.map((row) => ({ id: String(row.id), name: String(row.name) })),
+      eligibleTickers: tickerResult.rows.map((row) => ({
+        ticker: String(row.ticker),
+        name: row.name == null ? null : String(row.name),
+      })),
     };
   }
 
@@ -23296,104 +23437,6 @@ function compareNumberByOrder(left: number, right: number, sortOrder: "asc" | "d
 function compareStringByOrder(left: string, right: string, sortOrder: "asc" | "desc"): number {
   const cmp = left.localeCompare(right);
   return sortOrder === "asc" ? cmp : -cmp;
-}
-
-function buildDividendReviewHeroAggregates(
-  rows: readonly DividendReviewResponseRowWithDetails[],
-): DividendReviewEnrichmentDto["hero"] {
-  const expectedByTicker = new Map<string, {
-    marketCode: SharedMarketCode;
-    ticker: string;
-    expectedWholeShares: number | null;
-    receivedShares: number | null;
-    unresolvedEventCount: number;
-  }>();
-  const receivedByTicker = new Map<string, {
-    marketCode: SharedMarketCode;
-    ticker: string;
-    expectedWholeShares: number | null;
-    receivedShares: number | null;
-    unresolvedEventCount: number;
-  }>();
-  let needsCalculationCount = 0;
-  let cashAttentionCount = 0;
-  let stockAttentionCount = 0;
-  let needsAttentionCount = 0;
-
-  for (const row of rows) {
-    const cashNeedsAttention = row.cashReconciliationStatus === "open" || row.cashReconciliationStatus === "explained";
-    if (cashNeedsAttention) {
-      cashAttentionCount += 1;
-    }
-    const stockStatus = row.stockReconciliationStatus ?? deriveDividendReviewStockStatus({
-      eventType: row.eventType,
-      postingStatus: row.postingStatus,
-      expectedStockCalcState: row.expectedStockCalcState,
-      expectedStockQuantity: row.expectedStockQuantity ?? 0,
-      receivedStockQuantity: row.receivedStockQuantity,
-      reconciliationStatus: row.reconciliationStatus,
-    });
-    if (stockStatus === "needs_calculation") needsCalculationCount += 1;
-    const stockNeedsAttention = Boolean(stockStatus && stockStatus !== "matched");
-    if (stockNeedsAttention) stockAttentionCount += 1;
-    if (cashNeedsAttention || stockNeedsAttention) needsAttentionCount += 1;
-    if (row.eventType === "CASH") continue;
-    const key = `${row.marketCode}:${row.ticker}`;
-    const expectedBucket = expectedByTicker.get(key) ?? {
-      marketCode: row.marketCode as SharedMarketCode,
-      ticker: row.ticker,
-      expectedWholeShares: 0,
-      receivedShares: null,
-      unresolvedEventCount: 0,
-    };
-    if (row.expectedStockCalcState === "needs_action" || row.expectedStockQuantity == null) {
-      expectedBucket.expectedWholeShares = expectedBucket.expectedWholeShares === 0 ? null : expectedBucket.expectedWholeShares;
-      expectedBucket.unresolvedEventCount += 1;
-    } else {
-      expectedBucket.expectedWholeShares = (expectedBucket.expectedWholeShares ?? 0) + row.expectedStockQuantity;
-    }
-    expectedByTicker.set(key, expectedBucket);
-
-    const receivedBucket = receivedByTicker.get(key) ?? {
-      marketCode: row.marketCode as SharedMarketCode,
-      ticker: row.ticker,
-      expectedWholeShares: null,
-      receivedShares: 0,
-      unresolvedEventCount: 0,
-    };
-    receivedBucket.receivedShares = (receivedBucket.receivedShares ?? 0) + row.receivedStockQuantity;
-    if (row.expectedStockCalcState === "needs_action" || row.expectedStockQuantity == null) {
-      receivedBucket.unresolvedEventCount += 1;
-    }
-    receivedByTicker.set(key, receivedBucket);
-  }
-
-  const sortTickerAggregates = (
-    items: Iterable<{
-      marketCode: SharedMarketCode;
-      ticker: string;
-      expectedWholeShares: number | null;
-      receivedShares: number | null;
-      unresolvedEventCount: number;
-    }>,
-  ) => [...items].sort((left, right) =>
-    left.marketCode.localeCompare(right.marketCode) || left.ticker.localeCompare(right.ticker));
-  const expectedStockTickers = sortTickerAggregates(expectedByTicker.values());
-  const receivedStockTickers = sortTickerAggregates(receivedByTicker.values());
-  const expectedStockTopTickers = expectedStockTickers.slice(0, 3);
-  const receivedStockTopTickers = receivedStockTickers.slice(0, 3);
-  return {
-    expectedStockTickers,
-    expectedStockTopTickers,
-    expectedStockRemainingTickerCount: Math.max(expectedByTicker.size - expectedStockTopTickers.length, 0),
-    receivedStockTickers,
-    receivedStockTopTickers,
-    receivedStockRemainingTickerCount: Math.max(receivedByTicker.size - receivedStockTopTickers.length, 0),
-    needsCalculationCount,
-    cashAttentionCount,
-    stockAttentionCount,
-    needsAttentionCount,
-  };
 }
 
 function mapPositionActionRow(row: Record<string, unknown>): PositionAction {

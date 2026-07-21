@@ -183,6 +183,46 @@ describe("DividendPostingForm", () => {
     expect(document.querySelector("[data-testid='dividend-calculation-provider']")?.textContent).toContain("finmind");
   });
 
+  it("treats an expected ledger row as a new posting with expected prefills and no edit identifiers", async () => {
+    const row = buildRow({
+      event: { expectedCashAmount: 300 },
+      ledgerEntry: buildLedger({
+        id: "expected:acc-1:event-1",
+        postingStatus: "expected",
+        expectedCashAmount: 300,
+        receivedCashAmount: 0,
+        version: 9,
+      }),
+    });
+
+    await act(async () => {
+      root.render(
+        <DividendPostingForm
+          row={row}
+          dict={dict}
+          locale="en"
+          onCancel={() => undefined}
+          onSaved={() => undefined}
+        />,
+      );
+    });
+
+    expect((document.querySelector("[data-testid='dividend-received-cash']") as HTMLInputElement).value).toBe("300");
+
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>("[data-testid='dividend-save']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(submitMock).toHaveBeenCalledWith(expect.objectContaining({
+      dividendEventId: "event-1",
+      accountId: "acc-1",
+      receivedCashAmount: 300,
+    }));
+    const payload = submitMock.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty("dividendLedgerEntryId");
+    expect(payload).not.toHaveProperty("expectedVersion");
+  });
+
   it("keeps unresolved expected stock unavailable while preserving the received share input", async () => {
     const row = buildRow({
       event: {

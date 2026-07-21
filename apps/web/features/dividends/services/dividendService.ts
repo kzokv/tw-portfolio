@@ -34,6 +34,7 @@ export interface DividendReviewQuery {
   toPaymentDate?: string;
   accountId?: string;
   ticker?: string;
+  tickers?: string[];
   marketCode?: MarketCode;
   postingStatus?: string;
   reconciliationStatus?: string;
@@ -92,7 +93,11 @@ function buildReviewQuery(params: DividendReviewQuery | DividendReviewFilterDto 
   if (params.fromPaymentDate) query.set("fromPaymentDate", params.fromPaymentDate);
   if (params.toPaymentDate) query.set("toPaymentDate", params.toPaymentDate);
   if (params.accountId) query.set("accountId", params.accountId);
-  if (params.ticker) query.set("ticker", params.ticker);
+  if ("tickers" in params && params.tickers) {
+    for (const ticker of params.tickers) query.append("ticker", ticker);
+  } else if ("ticker" in params && params.ticker) {
+    query.set("ticker", params.ticker);
+  }
   if (params.marketCode) query.set("marketCode", params.marketCode);
   if (params.postingStatus) query.set("postingStatus", params.postingStatus);
   if (params.reconciliationStatus) query.set("reconciliationStatus", params.reconciliationStatus);
@@ -208,6 +213,7 @@ export async function fetchDividendReviewEnrichment(
     toPaymentDate: filters.toPaymentDate,
     accountId: filters.accountId,
     ticker: filters.ticker,
+    tickers: filters.tickers,
     marketCode: filters.marketCode,
     postingStatus: filters.postingStatus,
     reconciliationStatus: filters.reconciliationStatus,

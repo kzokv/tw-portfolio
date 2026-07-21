@@ -134,3 +134,7 @@
 ## Promoted to .claude/rules/ (Dividends Review performance, 2026-07-13)
 - `smooth-page-performance-boundaries.md` — Context-switch no-remount exceptions must be route-scoped to clients that consume the context refresh signal; unrelated server-seeded routes retain the global refresh fallback.
 - `playwright-web-bundle-rebuild.md` — Concurrent agents in one worktree must serialize `.next` writers and production-bundle consumers; separate ports do not isolate shared build artifacts.
+
+## Promoted to .claude/rules/ (Dividend page fixes, 2026-07-21)
+- `route-dto-cache-user-context.md` — Context-specific metadata must disappear immediately during owner transitions and only return from an exact-current committed response.
+- `playwright-navigation-patterns.md` — Exact response completion does not prove client commit; match the authoritative endpoint and request identity, then poll the committed URL/DOM outcome.

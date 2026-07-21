@@ -19,6 +19,7 @@ vi.mock("../../../features/dividends/services/dividendService", () => ({
   fetchDividendCalendarSnapshot: vi.fn(),
   fetchDividendDailyHighlights: vi.fn(),
   fetchDividendLedgerEntry: vi.fn(),
+  submitDividendPosting: vi.fn(),
   updateDividendReconciliation: vi.fn(),
 }));
 
@@ -36,6 +37,7 @@ import {
   fetchDividendCalendarSnapshot,
   fetchDividendDailyHighlights,
   fetchDividendLedgerEntry,
+  submitDividendPosting,
   updateDividendReconciliation,
 } from "../../../features/dividends/services/dividendService";
 
@@ -144,6 +146,16 @@ describe("DividendCalendarClient", () => {
     shellContext.value = null;
     vi.mocked(fetchDividendDailyHighlights).mockResolvedValue(emptyDailyHighlights);
     vi.mocked(fetchDividendLedgerEntry).mockImplementation(async (id) => buildLedger({ id }) as never);
+    vi.mocked(submitDividendPosting).mockResolvedValue({
+      dividendLedgerEntry: {
+        id: "ledger-posted",
+        accountId: "acc-1",
+        dividendEventId: "event-1",
+        version: 1,
+        reconciliationStatus: "open",
+        sourceCompositionStatus: "unknown_pending_disclosure",
+      },
+    });
   });
 
   afterEach(() => {
@@ -152,6 +164,7 @@ describe("DividendCalendarClient", () => {
     vi.mocked(fetchDividendCalendarSnapshot).mockReset();
     vi.mocked(fetchDividendDailyHighlights).mockReset();
     vi.mocked(fetchDividendLedgerEntry).mockReset();
+    vi.mocked(submitDividendPosting).mockReset();
     vi.mocked(updateDividendReconciliation).mockReset();
   });
 
@@ -168,6 +181,138 @@ describe("DividendCalendarClient", () => {
 
     expect(container.textContent).toContain(dict.dividends.emptyState);
     expect(window.location.search).toBe("?month=2026-04");
+  });
+
+  it("renders server-provided daily highlights on the first render without a false empty state", async () => {
+    const snapshot: DividendCalendarSnapshot = { events: [], ledgerEntries: [] };
+    const highlights: DividendDailyHighlightsDto = {
+      payingToday: [buildDailyHighlight({ ticker: "4952", tickerName: "Ling Yue" })],
+      exDividendToday: [buildDailyHighlight({ id: "daily-2", ticker: "0056", tickerName: "Yuanta High Dividend" })],
+    };
+
+    act(() => {
+      root.render(
+        <DividendCalendarClient
+          initialSnapshot={snapshot}
+          initialMonth="2026-04"
+          initialDailyHighlights={{
+            payingToday: { status: "success", data: highlights.payingToday, error: "" },
+            exDividendToday: { status: "success", data: highlights.exDividendToday, error: "" },
+          }}
+          initialContextOwnerId={null}
+          dict={dict}
+          locale="en"
+        />,
+      );
+    });
+
+    expect(document.querySelector("[data-testid='dividends-paying-today']")?.textContent).toContain("4952 Ling Yue");
+    expect(document.querySelector("[data-testid='dividends-paying-today']")?.textContent).not.toContain(dict.dividends.overview.noPayingToday);
+    expect(document.querySelector("[data-testid='dividends-ex-dividend-today']")?.textContent).toContain("0056 Yuanta High Dividend");
+    expect(fetchDividendDailyHighlights).not.toHaveBeenCalled();
+  });
+
+  it("discards a prior-owner highlight seed and refetches when the calendar remounts in another context", async () => {
+    const snapshot: DividendCalendarSnapshot = {
+      events: [buildEvent({ ticker: "2330", tickerName: "Prior Owner" })],
+      ledgerEntries: [],
+    };
+    const currentSnapshot: DividendCalendarSnapshot = {
+      events: [buildEvent({ id: "event-current", ticker: "2886", tickerName: "Current Owner" })],
+      ledgerEntries: [],
+    };
+    const priorOwnerHighlight = buildDailyHighlight({ ticker: "2330", tickerName: "Prior Owner" });
+    const currentOwnerHighlight = buildDailyHighlight({ ticker: "2886", tickerName: "Current Owner" });
+    shellContext.value = {
+      isSharedContext: true,
+      sharedContextPermissions: { canWriteDividends: false },
+      contextRefreshSignal: 1,
+      contextOwnerId: "owner-b",
+      sessionUserId: "viewer-1",
+    };
+    vi.mocked(fetchDividendDailyHighlights).mockResolvedValue({
+      payingToday: [currentOwnerHighlight],
+      exDividendToday: [],
+    });
+    vi.mocked(fetchDividendCalendarSnapshot).mockResolvedValue(currentSnapshot);
+
+    act(() => {
+      root.render(
+        <DividendCalendarClient
+          initialSnapshot={snapshot}
+          initialMonth="2026-04"
+          initialDailyHighlights={{
+            payingToday: { status: "success", data: [priorOwnerHighlight], error: "" },
+            exDividendToday: { status: "success", data: [], error: "" },
+          }}
+          initialContextOwnerId="owner-a"
+          dict={dict}
+          locale="en"
+        />,
+      );
+    });
+
+    expect(document.querySelector("[data-testid='dividends-paying-today']")?.textContent).not.toContain("Prior Owner");
+    expect(container.textContent).not.toContain("2330 Prior Owner");
+    await act(async () => {});
+    expect(fetchDividendDailyHighlights).toHaveBeenCalledTimes(1);
+    expect(fetchDividendCalendarSnapshot).toHaveBeenCalledTimes(1);
+    expect(document.querySelector("[data-testid='dividends-paying-today']")?.textContent).toContain("2886 Current Owner");
+    expect(container.textContent).toContain("2886 Current Owner");
+  });
+
+  it("isolates a Paying Today failure and retry without replacing or remounting the Ex-dividend Today card", async () => {
+    const snapshot: DividendCalendarSnapshot = { events: [], ledgerEntries: [] };
+    const payingToday = buildDailyHighlight({ ticker: "4952", tickerName: "Ling Yue" });
+    const exDividendToday = buildDailyHighlight({ id: "daily-2", ticker: "0056", tickerName: "Yuanta High Dividend" });
+    const retry = createDeferred<DividendDailyHighlightsDto>();
+    vi.mocked(fetchDividendDailyHighlights).mockImplementationOnce(() => retry.promise);
+
+    act(() => {
+      root.render(
+        <DividendCalendarClient
+          initialSnapshot={snapshot}
+          initialMonth="2026-04"
+          initialDailyHighlights={{
+            payingToday: { status: "error", data: [payingToday], error: "daily read failed" },
+            exDividendToday: { status: "success", data: [exDividendToday], error: "" },
+          }}
+          initialContextOwnerId={null}
+          dict={dict}
+          locale="en"
+        />,
+      );
+    });
+    await act(async () => {});
+
+    const calendarPage = document.querySelector("[data-testid='dividends-calendar-page']");
+    expect(document.querySelector("[data-testid='dividends-paying-today']")?.textContent).toContain("4952 Ling Yue");
+    expect(document.querySelector("[data-testid='paying-today-error']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='ex-dividend-today-error']")).toBeNull();
+    expect(document.querySelector("[data-testid='dividends-ex-dividend-today']")?.textContent).toContain("0056 Yuanta High Dividend");
+
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>("[data-testid='paying-today-retry']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(document.querySelector("[data-testid='dividends-paying-today']")?.textContent).toContain("4952 Ling Yue");
+    expect(document.querySelector("[data-testid='paying-today-refreshing']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='ex-dividend-today-refreshing']")).toBeNull();
+    expect(document.querySelector("[data-testid='dividends-ex-dividend-today']")?.textContent).toContain("0056 Yuanta High Dividend");
+
+    await act(async () => {
+      retry.resolve({
+        payingToday: [buildDailyHighlight({ ticker: "2886", tickerName: "Mega Financial" })],
+        exDividendToday: [buildDailyHighlight({ id: "daily-3", ticker: "3714", tickerName: "Must Not Replace Sibling" })],
+      });
+    });
+
+    expect(document.querySelector("[data-testid='dividends-paying-today']")?.textContent).toContain("2886 Mega Financial");
+    expect(document.querySelector("[data-testid='paying-today-error']")).toBeNull();
+    expect(document.querySelector("[data-testid='dividends-ex-dividend-today']")?.textContent).toContain("0056 Yuanta High Dividend");
+    expect(document.querySelector("[data-testid='dividends-ex-dividend-today']")?.textContent).not.toContain("3714");
+    expect(document.querySelector("[data-testid='dividends-calendar-page']")).toBe(calendarPage);
+    expect(fetchDividendCalendarSnapshot).not.toHaveBeenCalled();
   });
 
   it("renders unresolved expected stock as unavailable and keeps a received 150-share fact", async () => {
@@ -251,11 +396,13 @@ describe("DividendCalendarClient", () => {
     await act(async () => {});
 
     expect(container.textContent).toContain("NT$");
-    expect(container.textContent).toContain("2 open items.");
+    expect(container.textContent).toContain("3 open items.");
     expect(document.querySelector("[data-testid='dividends-action-queue']")?.textContent ?? "").toContain(dict.dividends.form.reconciliation.statusOpen);
     expect(document.querySelector("[data-testid='dividends-action-queue']")?.textContent ?? "").toContain(dict.dividends.badge.unposted);
     expect(document.querySelector("[data-testid='dividends-action-queue']")?.textContent ?? "").toContain(dict.dividends.action.postDividend);
     expect(document.querySelector("[data-testid='dividends-this-month']")?.textContent ?? "").toContain("2330");
+    expect(document.querySelector("[data-testid='dividend-post-event-expected']")?.textContent).toBe(dict.dividends.action.postDividend);
+    expect(document.querySelector("[data-testid='dividend-edit-event-expected']")).toBeNull();
     expect(document.querySelector("[data-testid='dividends-recent-receipts']")?.textContent ?? "").not.toContain("ledger-expected");
     expect(
       Array.from(container.querySelectorAll<HTMLAnchorElement>("a")).some((link) => (
@@ -277,6 +424,72 @@ describe("DividendCalendarClient", () => {
       }),
       { signal: expect.any(AbortSignal) },
     ]);
+  });
+
+  it("uses the same desktop five-column grid for the This Month header and rows", async () => {
+    const snapshot: DividendCalendarSnapshot = {
+      events: [buildEvent({ id: "aligned-event" })],
+      ledgerEntries: [],
+    };
+
+    act(() => {
+      root.render(<DividendCalendarClient initialSnapshot={snapshot} initialMonth="2026-04" dict={dict} locale="en" />);
+    });
+    await act(async () => {});
+
+    const header = document.querySelector("[data-testid='dividends-this-month-grid-header']");
+    const row = document.querySelector("[data-testid='dividend-row-aligned-event']");
+    const headerGrid = Array.from(header?.classList ?? []).find((name) => name.startsWith("xl:grid-cols-"));
+    const rowGrid = Array.from(row?.classList ?? []).find((name) => name.startsWith("xl:grid-cols-"));
+
+    expect(header).not.toBeNull();
+    expect(rowGrid).toBe(headerGrid);
+    expect(rowGrid).toContain("minmax(220px,1.5fr)");
+  });
+
+  it("refreshes Needs Action, This Month, totals, and receipts after posting an expected row", async () => {
+    const event = buildEvent({ id: "event-expected", ticker: "2886", expectedCashAmount: 300 });
+    const initialSnapshot: DividendCalendarSnapshot = {
+      events: [event],
+      ledgerEntries: [buildLedger({
+        id: "expected:acc-1:event-expected",
+        dividendEventId: event.id,
+        ticker: event.ticker,
+        postingStatus: "expected",
+        expectedCashAmount: 300,
+        receivedCashAmount: 0,
+      })],
+    };
+    const postedLedger = buildLedger({
+      id: "ledger-posted",
+      dividendEventId: event.id,
+      ticker: event.ticker,
+      postingStatus: "posted",
+      expectedCashAmount: 300,
+      receivedCashAmount: 290,
+      reconciliationStatus: "matched",
+    });
+    vi.mocked(fetchDividendCalendarSnapshot).mockResolvedValue({ events: [event], ledgerEntries: [postedLedger] });
+
+    act(() => {
+      root.render(<DividendCalendarClient initialSnapshot={initialSnapshot} initialMonth="2026-04" dict={dict} locale="en" />);
+    });
+    await act(async () => {});
+
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>("[data-testid='dividend-post-event-expected']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    await act(async () => {
+      document.querySelector<HTMLButtonElement>("[data-testid='dividend-save']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(submitDividendPosting).toHaveBeenCalledWith(
+      expect.objectContaining({ dividendEventId: "event-expected", accountId: "acc-1", receivedCashAmount: 300 }),
+    );
+    expect(document.querySelector("[data-testid='dividends-needs-action']")?.textContent).toContain(dict.dividends.overview.noActionItems);
+    expect(document.querySelector("[data-testid='dividend-edit-event-expected']")).not.toBeNull();
+    expect(document.querySelector("[data-testid='dividends-recent-receipts']")?.textContent).toContain("2886");
+    expect(document.querySelector("[data-testid='dividends-recent-receipts']")?.textContent).toContain("NT$290");
   });
 
   it("hides dividend write actions in a shared read-only context", async () => {

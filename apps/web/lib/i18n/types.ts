@@ -1429,6 +1429,10 @@ export interface AppDictionary {
       dateLabel: string;
       noPayingToday: string;
       noExDividendToday: string;
+      dailyHighlightsRefreshing: string;
+      dailyHighlightsUnavailable: string;
+      dailyHighlightsUnavailableDescription: string;
+      retryDailyHighlights: string;
       viewAllNeedsAction: string;
       eventTypeLabel: string;
       expectedCashLabel: string;
@@ -1673,6 +1677,11 @@ export interface AppDictionary {
       };
       filter: {
         ticker: string;
+        allTickers: string;
+        searchTickers: string;
+        tickersSelected: string;
+        clearTickers: string;
+        noTickerMatches: string;
         account: string;
         status: string;
         cashStatus: string;

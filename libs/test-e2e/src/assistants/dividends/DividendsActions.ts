@@ -75,6 +75,14 @@ export class DividendsActions extends AppBaseActions {
   }
 
   @Step()
+  async addDeduction(type: string, amount: number): Promise<void> {
+    await this.uiActions.click.perform(this.el.drawer.deductions.addButton);
+    const index = (await this.el.drawer.deductions.typeSelects.count()) - 1;
+    await this.uiActions.select.perform(this.el.drawer.deductions.typeSelect(index), type);
+    await this.uiActions.fill.perform(this.el.drawer.deductions.amountInput(index), String(amount));
+  }
+
+  @Step()
   async addSourceLine(amount: number, bucket = "DIVIDEND_INCOME"): Promise<void> {
     await this.uiActions.click.perform(this.el.drawer.sourceLines.addButton);
     await this.uiActions.select.perform(this.el.drawer.sourceLines.bucketSelect(0), bucket);
@@ -151,6 +159,16 @@ export class DividendsActions extends AppBaseActions {
   @Step()
   async clickSourceCompositionToggle(): Promise<void> {
     await this.uiActions.click.perform(this.el.drawer.sourceCompositionToggle);
+  }
+
+  @Step()
+  async retryPayingToday(): Promise<void> {
+    await this.uiActions.click.perform(this.el.payingTodayRetry);
+  }
+
+  @Step()
+  async retryExDividendToday(): Promise<void> {
+    await this.uiActions.click.perform(this.el.exDividendTodayRetry);
   }
 
   @Step()
