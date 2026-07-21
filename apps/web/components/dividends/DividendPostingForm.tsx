@@ -214,27 +214,28 @@ export function DividendPostingForm({
   onSaved,
   onCalculationChanged,
 }: DividendPostingFormProps) {
-  const expectedStockQuantity = row.ledgerEntry?.expectedStockQuantity ?? row.event.expectedStockQuantity;
+  const ledgerEntry = row.ledgerEntry?.postingStatus === "expected" ? null : row.ledgerEntry;
+  const expectedStockQuantity = ledgerEntry?.expectedStockQuantity ?? row.event.expectedStockQuantity;
   const shellData = useOptionalAppShellData();
-  const isEditMode = Boolean(row.ledgerEntry);
+  const isEditMode = Boolean(ledgerEntry);
   const defaultDeductions = useMemo(
     () => (!isEditMode ? buildDefaultDeductions(row) : []),
     [isEditMode, row],
   );
   const cashPerShare = useMemo(() => cashPerShareFromEvent(row), [row]);
   const initialFormState = useMemo<DividendPostingFormState>(() => ({
-    receivedCashAmount: row.ledgerEntry?.receivedCashAmount ?? row.event.expectedCashAmount,
-    receivedStockQuantity: row.ledgerEntry?.receivedStockQuantity ?? expectedStockQuantity ?? 0,
-    deductions: row.ledgerEntry?.deductions.map((entry) => ({ ...entry }))
+    receivedCashAmount: ledgerEntry?.receivedCashAmount ?? row.event.expectedCashAmount,
+    receivedStockQuantity: ledgerEntry?.receivedStockQuantity ?? expectedStockQuantity ?? 0,
+    deductions: ledgerEntry?.deductions.map((entry) => ({ ...entry }))
       ?? defaultDeductions.map((entry) => ({ ...entry })),
     // New postings always start in "unknown_pending_disclosure" mode — users
     // who want to break down the source composition opt in explicitly via the
     // toggle. This avoids the confusing "provided + empty" state that shows
     // a variance error before the user has done anything.
-    sourceCompositionStatus: row.ledgerEntry?.sourceCompositionStatus
+    sourceCompositionStatus: ledgerEntry?.sourceCompositionStatus
       ?? "unknown_pending_disclosure",
-    sourceLines: row.ledgerEntry?.sourceLines.map((entry) => ({ ...entry })) ?? [],
-  }), [defaultDeductions, expectedStockQuantity, row]);
+    sourceLines: ledgerEntry?.sourceLines.map((entry) => ({ ...entry })) ?? [],
+  }), [defaultDeductions, expectedStockQuantity, ledgerEntry, row.event.expectedCashAmount]);
 
   const [receivedCashAmount, setReceivedCashAmount] = useState(initialFormState.receivedCashAmount);
   const [receivedStockQuantity, setReceivedStockQuantity] = useState(initialFormState.receivedStockQuantity);
@@ -246,10 +247,10 @@ export function DividendPostingForm({
 
   const reconcileBaseline = useMemo(
     () => ({
-      status: row.ledgerEntry?.reconciliationStatus ?? "open",
-      note: row.ledgerEntry?.reconciliationNote ?? "",
+      status: ledgerEntry?.reconciliationStatus ?? "open",
+      note: ledgerEntry?.reconciliationNote ?? "",
     }),
-    [row.ledgerEntry?.reconciliationStatus, row.ledgerEntry?.reconciliationNote],
+    [ledgerEntry?.reconciliationStatus, ledgerEntry?.reconciliationNote],
   );
   const [reconcileStatus, setReconcileStatus] = useState<DividendReconciliationStatus>(
     reconcileBaseline.status,
@@ -258,7 +259,7 @@ export function DividendPostingForm({
   const [reconcileError, setReconcileError] = useState("");
   const [isReconcileSaving, setIsReconcileSaving] = useState(false);
 
-  const formIdentity = `${row.key}:${row.ledgerEntry?.id ?? "new"}`;
+  const formIdentity = `${row.key}:${ledgerEntry?.id ?? "new"}`;
   const currentFormDraftRef = useRef(initialFormState);
   currentFormDraftRef.current = {
     receivedCashAmount,
@@ -335,7 +336,7 @@ export function DividendPostingForm({
   const grossAmount = receivedCashAmount + deductions
     .filter((entry) => entry.withheldAtSource)
     .reduce((sum, entry) => sum + entry.amount, 0);
-  const expectedGrossAmount = row.ledgerEntry?.expectedGrossAmount ?? row.event.expectedCashAmount;
+  const expectedGrossAmount = ledgerEntry?.expectedGrossAmount ?? row.event.expectedCashAmount;
   const expectedNhiAmount = sumDeductions(deductions, (entry) => entry.deductionType === "NHI_SUPPLEMENTAL_PREMIUM");
   const expectedBankFeeAmount = sumDeductions(deductions, (entry) => entry.deductionType === "BANK_FEE");
   const expectedOtherDeductionAmount = sumDeductions(deductions, (entry) => (
@@ -345,11 +346,11 @@ export function DividendPostingForm({
   const expectedNetAmount = expectedGrossAmount - expectedNhiAmount - expectedBankFeeAmount - expectedOtherDeductionAmount;
   const actualNetAmount = receivedCashAmount;
   const varianceAmount = actualNetAmount - expectedNetAmount;
-  const stockRatioState = row.ledgerEntry?.stockDistributionRatioState
+  const stockRatioState = ledgerEntry?.stockDistributionRatioState
     ?? row.event.stockDistributionRatioState;
-  const expectedStockCalcState = row.ledgerEntry?.expectedStockCalcState
+  const expectedStockCalcState = ledgerEntry?.expectedStockCalcState
     ?? (stockRatioState === "unresolved" ? "needs_action" : "resolved");
-  const stockDistributionRatio = row.ledgerEntry?.stockDistributionRatio
+  const stockDistributionRatio = ledgerEntry?.stockDistributionRatio
     ?? row.event.stockDistributionRatio;
   const sourceLineTotal = sourceLines.reduce((sum, entry) => sum + entry.amount, 0);
   const sourceLineVariance = sourceLineTotal - grossAmount;
@@ -366,7 +367,7 @@ export function DividendPostingForm({
 
   const showCashField = row.event.eventType !== "STOCK";
   const showStockField = row.event.eventType !== "CASH";
-  const canEditStockField = showStockField && (!isEditMode || row.ledgerEntry?.correctionMode === "amend");
+  const canEditStockField = showStockField && (!isEditMode || ledgerEntry?.correctionMode === "amend");
   const hasAuthoritativeStockRatio = Boolean(
     showStockField
     && stockRatioState === "authoritative"
@@ -377,7 +378,7 @@ export function DividendPostingForm({
     showStockField
     && (expectedStockCalcState === "needs_action" || !hasAuthoritativeStockRatio || !hasExpectedStockQuantity),
   );
-  const postingStatus = row.ledgerEntry?.postingStatus;
+  const postingStatus = ledgerEntry?.postingStatus;
   const showReconcileSection =
     isEditMode && (postingStatus === "posted" || postingStatus === "adjusted");
   const canManageAccountDefaults = shellData === null
@@ -434,9 +435,11 @@ export function DividendPostingForm({
             source: entry.source || "dividend_posting",
           }))
         : [],
-      dividendLedgerEntryId: row.ledgerEntry?.id,
-      expectedVersion: row.ledgerEntry?.version,
-      calculation: row.ledgerEntry ? undefined : reviewedCalculation?.calculation,
+      ...(ledgerEntry ? {
+        dividendLedgerEntryId: ledgerEntry.id,
+        expectedVersion: ledgerEntry.version,
+      } : {}),
+      calculation: ledgerEntry ? undefined : reviewedCalculation?.calculation,
     };
 
     const result = await submit(payload);
@@ -449,7 +452,7 @@ export function DividendPostingForm({
 
   async function handleSaveReconciliation() {
     setReconcileError("");
-    if (!row.ledgerEntry) return;
+    if (!ledgerEntry) return;
     if (reconcileStatus === "explained" && reconcileNote.trim().length === 0) {
       setReconcileError(dict.dividends.form.error.noteRequiredForExplained);
       return;
@@ -461,7 +464,7 @@ export function DividendPostingForm({
     setIsReconcileSaving(true);
     try {
       await updateDividendReconciliation(
-        row.ledgerEntry.id,
+        ledgerEntry.id,
         reconcileStatus,
         reconcileNote.trim() ? reconcileNote.trim() : undefined,
       );
@@ -954,12 +957,12 @@ export function DividendPostingForm({
           initialMethod={initialCalculationMethod}
           canManageAccountDefaults={canManageAccountDefaults}
           canWriteCalculations={canWriteCalculations}
-          dividendLedgerEntryId={row.ledgerEntry?.id ?? null}
+          dividendLedgerEntryId={ledgerEntry?.id ?? null}
           onCalculationChanged={onCalculationChanged ?? onSaved}
           onReviewedCalculationChange={setReviewedCalculation}
-          initialProvider={row.ledgerEntry?.provider ?? row.event.provider}
-          activeCalculation={row.ledgerEntry?.activeCalculation ?? row.event.activeCalculation}
-          calculationHistory={row.ledgerEntry?.calculationHistory ?? row.event.calculationHistory}
+          initialProvider={ledgerEntry?.provider ?? row.event.provider}
+          activeCalculation={ledgerEntry?.activeCalculation ?? row.event.activeCalculation}
+          calculationHistory={ledgerEntry?.calculationHistory ?? row.event.calculationHistory}
           dict={dict}
           locale={locale}
         />

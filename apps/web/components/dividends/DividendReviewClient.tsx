@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -69,7 +69,7 @@ interface FilterState {
   preset: DatePreset;
   fromDate: string;
   toDate: string;
-  ticker: string;
+  tickers: string[];
   marketCode: MarketCode | "";
   accountId: string;
   cashStatus: CashStatusFilter;
@@ -166,14 +166,12 @@ function ReconciliationStatuses({ entry, dict }: { entry: DividendReviewRowSumma
     <div className="flex flex-col items-end gap-1" data-testid={`dividend-review-status-${entry.id}`}>
       {entry.eventType !== "STOCK" ? (
         <span className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-[10px] uppercase tracking-[0.12em]", statusBadgeClassName(cashStatus))}>
-          <span className="sr-only">{dict.dividends.review.filter.cashStatus}: </span>
-          {statusLabel(dict, cashStatus)}
+          {dict.dividends.eventType.cash} · {statusLabel(dict, cashStatus)}
         </span>
       ) : null}
       {entry.eventType !== "CASH" && entry.stockReconciliationStatus ? (
         <span className={cn("inline-flex rounded-full border px-2.5 py-0.5 text-[10px] uppercase tracking-[0.12em]", statusBadgeClassName(entry.stockReconciliationStatus))}>
-          <span className="sr-only">{dict.dividends.review.filter.stockStatus}: </span>
-          {stockStatusLabel(dict, entry.stockReconciliationStatus)}
+          {dict.dividends.eventType.stock} · {stockStatusLabel(dict, entry.stockReconciliationStatus)}
         </span>
       ) : null}
       {entry.stockReconciliationNote ? <span className="max-w-48 text-right text-[10px] normal-case leading-4 text-slate-500">{entry.stockReconciliationNote}</span> : null}
@@ -334,7 +332,7 @@ function parseInitialFilters(searchParams: URLSearchParams): FilterState {
     preset,
     fromDate: searchParams.get("fromPaymentDate") ?? (legacyYear === null ? resolved.from : `${legacyYear}-01-01`) ?? "",
     toDate: searchParams.get("toPaymentDate") ?? (legacyYear === null ? resolved.to : `${legacyYear}-12-31`) ?? "",
-    ticker: searchParams.get("ticker") ?? "",
+    tickers: Array.from(new Set(searchParams.getAll("ticker").map((ticker) => ticker.trim()).filter(Boolean))),
     marketCode: (searchParams.get("marketCode") as MarketCode | null) ?? "",
     accountId: searchParams.get("accountId") ?? "",
     cashStatus: normalizeCashStatusFilter(searchParams.get("cashStatus") ?? searchParams.get("status")),
@@ -345,6 +343,26 @@ function parseInitialFilters(searchParams: URLSearchParams): FilterState {
     page: Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1),
     limit: normalizeReviewLimit(searchParams.get("limit")),
   };
+}
+
+function primaryQueryIdentity(query: DividendReviewPrimaryQueryDto): string {
+  const tickers = query.tickers ?? (query.ticker ? [query.ticker] : []);
+  return JSON.stringify([
+    query.fromPaymentDate ?? "",
+    query.toPaymentDate ?? "",
+    query.accountId ?? "",
+    query.cashStatus ?? query.reconciliationStatus ?? "",
+    query.stockStatus ?? "",
+    query.postingStatus ?? "",
+    query.excludeExpected ?? false,
+    tickers,
+    query.marketCode ?? "",
+    query.sourceComposition ?? "",
+    query.sortBy,
+    query.sortOrder,
+    query.page,
+    query.limit,
+  ]);
 }
 
 // ── Sort Header ────────────────────────────────────────────────────────────
@@ -389,6 +407,127 @@ function SortHeader({
   );
 }
 
+const TickerFilter = memo(function TickerFilter({
+  tickers,
+  options,
+  dict,
+  locale,
+  onSelectionChange,
+  onInteractionStart,
+  onInteractionEnd,
+}: {
+  tickers: string[];
+  options: DividendReviewPrimaryDto["eligibleTickers"];
+  dict: AppDictionary;
+  locale: LocaleCode;
+  onSelectionChange: (tickers: string[]) => void;
+  onInteractionStart?: () => void;
+  onInteractionEnd?: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [selectedTickers, setSelectedTickers] = useState(tickers);
+  const selectedTickersRef = useRef(tickers);
+  useEffect(() => {
+    if (
+      tickers.length === selectedTickersRef.current.length
+      && tickers.every((ticker, index) => ticker === selectedTickersRef.current[index])
+    ) return;
+    selectedTickersRef.current = tickers;
+    setSelectedTickers(tickers);
+  }, [tickers]);
+  const toggleTicker = useCallback((ticker: string) => {
+    const current = selectedTickersRef.current;
+    const next = current.includes(ticker)
+      ? current.filter((candidate) => candidate !== ticker)
+      : [...current, ticker];
+    selectedTickersRef.current = next;
+    setSelectedTickers(next);
+    onSelectionChange(next);
+  }, [onSelectionChange]);
+  const clearTickers = useCallback(() => {
+    selectedTickersRef.current = [];
+    setSelectedTickers([]);
+    onSelectionChange([]);
+  }, [onSelectionChange]);
+  const filteredOptions = useMemo(() => {
+    const normalized = search.trim().toLocaleLowerCase(locale);
+    if (!normalized) return options;
+    return options.filter((option) => selectedTickers.includes(option.ticker)
+      || option.ticker.toLocaleLowerCase(locale).includes(normalized)
+      || option.name?.toLocaleLowerCase(locale).includes(normalized));
+  }, [locale, options, search, selectedTickers]);
+  const summary = selectedTickers.length === 0
+    ? dict.dividends.review.filter.allTickers
+    : selectedTickers.length === 1
+      ? (() => {
+        const ticker = selectedTickers[0]!;
+        const name = options.find((option) => option.ticker === ticker)?.name?.trim();
+        return name ? `${ticker} ${name}` : ticker;
+      })()
+      : dict.dividends.review.filter.tickersSelected.replace("{count}", String(selectedTickers.length));
+
+  return (
+    <div className="col-span-2 space-y-1 lg:col-span-1">
+      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{dict.dividends.review.filter.ticker}</span>
+      <details
+        className="group relative"
+        data-testid="filter-ticker-dropdown"
+        onPointerDownCapture={onInteractionStart}
+        onPointerUpCapture={onInteractionEnd}
+        onPointerCancelCapture={onInteractionEnd}
+        onKeyDownCapture={(event) => {
+          if (event.key === " " || event.key === "Enter") onInteractionStart?.();
+        }}
+        onKeyUpCapture={(event) => {
+          if (event.key === " " || event.key === "Enter") onInteractionEnd?.();
+        }}
+      >
+        <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 marker:hidden" data-testid="filter-ticker-summary">
+          <span className="truncate">{summary}</span>
+          <span aria-hidden="true" className="text-slate-500 group-open:rotate-180">⌄</span>
+        </summary>
+        <div className="absolute left-0 z-40 mt-2 w-[min(22rem,calc(100vw-2rem))] rounded-lg border border-slate-200 bg-white p-2 shadow-lg">
+          <input type="search" className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-900" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={dict.dividends.review.filter.searchTickers} aria-label={dict.dividends.review.filter.searchTickers} data-testid="filter-ticker-search" />
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <span className="text-xs text-slate-500">{dict.dividends.review.filter.tickersSelected.replace("{count}", String(selectedTickers.length))}</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={selectedTickers.length === 0}
+              onClick={clearTickers}
+              data-testid="filter-ticker-clear"
+            >
+              {dict.dividends.review.filter.clearTickers}
+            </Button>
+          </div>
+          <div className="mt-1 max-h-56 overflow-y-auto" role="group" aria-label={dict.dividends.review.filter.ticker}>
+            {filteredOptions.length === 0 ? (
+              <p className="px-2 py-3 text-sm text-slate-500">{dict.dividends.review.filter.noTickerMatches}</p>
+            ) : filteredOptions.map((option) => (
+              <div key={option.ticker} className="flex items-start gap-2 rounded-md px-2 py-2 text-sm text-slate-700 hover:bg-slate-50" data-testid={`filter-ticker-option-${option.ticker}`}>
+                <input
+                  type="checkbox"
+                  id={`filter-ticker-checkbox-${option.ticker}`}
+                  className="mt-0.5 size-4 shrink-0 cursor-pointer accent-emerald-600"
+                  checked={selectedTickers.includes(option.ticker)}
+                  onChange={() => toggleTicker(option.ticker)}
+                  aria-labelledby={`filter-ticker-label-${option.ticker}`}
+                  data-testid={`filter-ticker-checkbox-${option.ticker}`}
+                />
+                <label id={`filter-ticker-label-${option.ticker}`} htmlFor={`filter-ticker-checkbox-${option.ticker}`} className="cursor-pointer">
+                  <span className="font-medium text-slate-900">{option.ticker}</span>
+                  {option.name ? <span className="ml-2 text-slate-500">{option.name}</span> : null}
+                </label>
+              </div>
+            ))}
+          </div>
+        </div>
+      </details>
+    </div>
+  );
+});
+
 // ── Main Component ─────────────────────────────────────────────────────────
 
 export function DividendReviewClient({
@@ -411,6 +550,7 @@ export function DividendReviewClient({
   const [mutationError, setMutationError] = useState("");
   const [mutationRetryEntry, setMutationRetryEntry] = useState<DividendReviewRowSummaryDto | null>(null);
   const [dateError, setDateError] = useState("");
+  const [eligibleTickerOptions, setEligibleTickerOptions] = useState(initialData?.eligibleTickers ?? []);
 
   // Phase 4 — single-DOM responsive (card-stack at <sm).
   const isSmallScreen = useIsSmallScreen();
@@ -420,10 +560,15 @@ export function DividendReviewClient({
   const drawerOpenerRef = useRef<HTMLElement | null>(null);
   const focusRestoreTimeoutRef = useRef<number | null>(null);
   const focusRestoreGenerationRef = useRef(0);
-  const lastAppliedTicker = useRef(filters.ticker);
   const filtersRef = useRef(filters);
+  const tickerInteractionActiveRef = useRef(false);
+  const tickerInteractionReleaseRef = useRef<number | null>(null);
+  const pendingEligibilityRef = useRef<{
+    contextRefreshSignal: number;
+    queryIdentity: string;
+    options: DividendReviewPrimaryDto["eligibleTickers"];
+  } | null>(null);
   const didNormalizeInitialUrlRef = useRef(false);
-  filtersRef.current = filters;
 
   // ── Build query from filters ──────────────────────────────────────────
 
@@ -431,7 +576,7 @@ export function DividendReviewClient({
     return {
       fromPaymentDate: f.fromDate || undefined,
       toPaymentDate: f.toDate || undefined,
-      ticker: f.ticker || undefined,
+      tickers: f.tickers.length > 0 ? f.tickers : undefined,
       marketCode: f.marketCode || undefined,
       accountId: f.accountId || undefined,
       cashStatus: f.cashStatus === "all" ? undefined : f.cashStatus,
@@ -454,7 +599,7 @@ export function DividendReviewClient({
     if (f.preset !== "currentYear") params.set("preset", f.preset);
     if (f.fromDate) params.set("fromPaymentDate", f.fromDate);
     if (f.toDate) params.set("toPaymentDate", f.toDate);
-    if (f.ticker) params.set("ticker", f.ticker);
+    for (const ticker of f.tickers) params.append("ticker", ticker);
     if (f.accountId) params.set("accountId", f.accountId);
     if (f.cashStatus !== "all") params.set("cashStatus", f.cashStatus);
     if (f.stockStatus !== "all") params.set("stockStatus", f.stockStatus);
@@ -474,7 +619,7 @@ export function DividendReviewClient({
       fromDate: query.fromPaymentDate ?? "",
       toDate: query.toPaymentDate ?? "",
       accountId: query.accountId ?? "",
-      ticker: query.ticker ?? "",
+      tickers: query.tickers ?? [],
       marketCode: query.marketCode ?? "",
       cashStatus: query.cashStatus ?? query.reconciliationStatus ?? "all",
       stockStatus: query.stockStatus ?? "all",
@@ -514,17 +659,28 @@ export function DividendReviewClient({
       if (focusRestoreTimeoutRef.current !== null) {
         window.clearTimeout(focusRestoreTimeoutRef.current);
       }
+      if (tickerInteractionReleaseRef.current !== null) {
+        window.clearTimeout(tickerInteractionReleaseRef.current);
+      }
     };
   }, []);
 
   useEffect(() => {
     if (lastContextRefreshSignal.current === contextRefreshSignal) return;
     lastContextRefreshSignal.current = contextRefreshSignal;
+    tickerInteractionActiveRef.current = false;
+    pendingEligibilityRef.current = null;
+    if (tickerInteractionReleaseRef.current !== null) {
+      window.clearTimeout(tickerInteractionReleaseRef.current);
+      tickerInteractionReleaseRef.current = null;
+    }
+    setEligibleTickerOptions([]);
     drawerOpenerRef.current = null;
     focusRestoreGenerationRef.current += 1;
     setDrawerEntry(null);
     clearDividendReviewDrawerDetailCache();
     const next = { ...filtersRef.current, page: 1 };
+    filtersRef.current = next;
     setFilters(next);
     syncUrl(next);
     void review.invalidateAndRefresh({ resetPage: true, discardCommitted: true });
@@ -540,11 +696,46 @@ export function DividendReviewClient({
     void review.request(buildQueryFromFilters(next));
   }, [buildQueryFromFilters, review.request, syncUrl]);
 
+  const applyAuthoritativeEligibility = useCallback((options: DividendReviewPrimaryDto["eligibleTickers"]) => {
+    setEligibleTickerOptions(options);
+    const eligible = new Set(options.map((option) => option.ticker));
+    const retained = filtersRef.current.tickers.filter((ticker) => eligible.has(ticker));
+    if (retained.length === filtersRef.current.tickers.length) return;
+    applyFilters({ ...filtersRef.current, tickers: retained, marketCode: "", page: 1 });
+  }, [applyFilters]);
+
+  const handleTickerInteractionStart = useCallback(() => {
+    if (tickerInteractionReleaseRef.current !== null) {
+      window.clearTimeout(tickerInteractionReleaseRef.current);
+      tickerInteractionReleaseRef.current = null;
+    }
+    tickerInteractionActiveRef.current = true;
+  }, []);
+
+  const handleTickerInteractionEnd = useCallback(() => {
+    if (tickerInteractionReleaseRef.current !== null) {
+      window.clearTimeout(tickerInteractionReleaseRef.current);
+    }
+    tickerInteractionReleaseRef.current = window.setTimeout(() => {
+      tickerInteractionReleaseRef.current = null;
+      tickerInteractionActiveRef.current = false;
+      const pending = pendingEligibilityRef.current;
+      pendingEligibilityRef.current = null;
+      if (
+        pending === null
+        || pending.contextRefreshSignal !== contextRefreshSignal
+        || pending.queryIdentity !== primaryQueryIdentity(buildQueryFromFilters(filtersRef.current))
+      ) return;
+      applyAuthoritativeEligibility(pending.options);
+    }, 0);
+  }, [applyAuthoritativeEligibility, buildQueryFromFilters, contextRefreshSignal]);
+
   const handlePresetChange = useCallback((preset: DatePreset) => {
     const today = new Date();
     const resolved = resolvePresetDates(preset, today);
+    const current = filtersRef.current;
     const next: FilterState = {
-      ...filters,
+      ...current,
       preset,
       fromDate: resolved.from ?? "",
       toDate: resolved.to ?? "",
@@ -552,21 +743,23 @@ export function DividendReviewClient({
     };
     if (preset === "custom") {
       // Only update UI + URL; defer fetch until user enters a valid date range
+      filtersRef.current = next;
       setFilters(next);
       syncUrl(next);
     } else {
       applyFilters(next);
     }
-  }, [filters, applyFilters, syncUrl]);
+  }, [applyFilters, syncUrl]);
 
   const handleYearToggle = useCallback((year: number) => {
-    const current = new Set(selectedYearsFromFilters(filters));
-    if (current.has(year)) {
-      current.delete(year);
+    const active = filtersRef.current;
+    const selectedYears = new Set(selectedYearsFromFilters(active));
+    if (selectedYears.has(year)) {
+      selectedYears.delete(year);
     } else {
-      current.add(year);
+      selectedYears.add(year);
     }
-    const selected = Array.from(current).sort((a, b) => a - b);
+    const selected = Array.from(selectedYears).sort((a, b) => a - b);
     if (selected.length === 0) {
       handlePresetChange("currentYear");
       return;
@@ -574,13 +767,13 @@ export function DividendReviewClient({
     const fromYear = selected[0]!;
     const toYear = selected[selected.length - 1]!;
     applyFilters({
-      ...filters,
+      ...active,
       preset: "yearRange",
       fromDate: `${fromYear}-01-01`,
       toDate: `${toYear}-12-31`,
       page: 1,
     });
-  }, [filters, applyFilters, handlePresetChange]);
+  }, [applyFilters, handlePresetChange]);
 
   const handleDateBlur = useCallback(() => {
     const f = filtersRef.current;
@@ -593,34 +786,33 @@ export function DividendReviewClient({
     applyFilters({ ...f, page: 1 });
   }, [applyFilters, dict]);
 
-  const handleTickerApply = useCallback((ticker: string) => {
-    const nextTicker = ticker.trim();
-    const tickerChanged = nextTicker !== lastAppliedTicker.current;
-    lastAppliedTicker.current = nextTicker;
+  const handleTickerSelectionChange = useCallback((selected: string[]) => {
+    const current = filtersRef.current;
     applyFilters({
-      ...filters,
-      ticker: nextTicker,
-      marketCode: tickerChanged ? "" : filters.marketCode,
+      ...current,
+      tickers: selected,
+      marketCode: "",
       page: 1,
     });
-  }, [filters, applyFilters]);
+  }, [applyFilters]);
 
   const handleAccountChange = useCallback((accountId: string) => {
-    applyFilters({ ...filters, accountId, page: 1 });
-  }, [filters, applyFilters]);
+    applyFilters({ ...filtersRef.current, accountId, page: 1 });
+  }, [applyFilters]);
 
   const handleCashStatusChange = useCallback((cashStatus: CashStatusFilter) => {
-    applyFilters({ ...filters, cashStatus, page: 1 });
-  }, [filters, applyFilters]);
+    applyFilters({ ...filtersRef.current, cashStatus, page: 1 });
+  }, [applyFilters]);
 
   const handleStockStatusChange = useCallback((stockStatus: StockStatusFilter) => {
-    applyFilters({ ...filters, stockStatus, page: 1 });
-  }, [filters, applyFilters]);
+    applyFilters({ ...filtersRef.current, stockStatus, page: 1 });
+  }, [applyFilters]);
 
   const handleSort = useCallback((field: DividendReviewSortColumn) => {
-    const nextOrder = filters.sortBy === field && filters.sortOrder === "asc" ? "desc" : "asc";
-    applyFilters({ ...filters, sortBy: field, sortOrder: nextOrder, page: 1 });
-  }, [filters, applyFilters]);
+    const current = filtersRef.current;
+    const nextOrder = current.sortBy === field && current.sortOrder === "asc" ? "desc" : "asc";
+    applyFilters({ ...current, sortBy: field, sortOrder: nextOrder, page: 1 });
+  }, [applyFilters]);
 
   const openDrawer = useCallback((entry: DividendReviewRowSummaryDto, opener: HTMLElement) => {
     focusRestoreGenerationRef.current += 1;
@@ -652,17 +844,17 @@ export function DividendReviewClient({
     setDrawerEntry(null);
   }, []);
 
-  const handleRowClick = useCallback((event: MouseEvent<HTMLElement>, entry: DividendReviewRowSummaryDto) => {
+  const handleRowClick = useCallback((event: ReactMouseEvent<HTMLElement>, entry: DividendReviewRowSummaryDto) => {
     openDrawer(entry, event.currentTarget);
   }, [openDrawer]);
 
   const handlePageChange = useCallback((page: number) => {
-    applyFilters({ ...filters, page });
-  }, [filters, applyFilters]);
+    applyFilters({ ...filtersRef.current, page });
+  }, [applyFilters]);
 
   const handleLimitChange = useCallback((limit: 10 | 25 | 50) => {
-    applyFilters({ ...filters, limit, page: 1 });
-  }, [filters, applyFilters]);
+    applyFilters({ ...filtersRef.current, limit, page: 1 });
+  }, [applyFilters]);
 
   // ── NHI Rollup: filter pending disclosure ─────────────────────────────
 
@@ -711,6 +903,12 @@ export function DividendReviewClient({
   const committedYears = contextIsTransitioning
     ? []
     : review.committedPrimary?.years ?? (contextRefreshSignal === 0 ? years : []);
+  const committedEligibleTickers = useMemo(
+    () => contextIsTransitioning
+      ? []
+      : [...eligibleTickerOptions].sort((left, right) => left.ticker.localeCompare(right.ticker)),
+    [contextIsTransitioning, eligibleTickerOptions],
+  );
   const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / filters.limit));
   const aggregates: DividendLedgerAggregates = enrichment?.aggregates ?? {
     totalExpectedCashAmount: {}, totalReceivedCashAmount: {}, openCount: 0, byMonth: {}, byTicker: {},
@@ -724,6 +922,19 @@ export function DividendReviewClient({
     () => new Map(committedAccounts.map((a) => [a.id, a.name || a.id])),
     [committedAccounts],
   );
+
+  useEffect(() => {
+    const nextOptions = review.committedPrimary?.eligibleTickers;
+    if (contextIsTransitioning || nextOptions === undefined || review.isPrimaryPending) return;
+    const queryIdentity = primaryQueryIdentity(review.committedQuery);
+    if (queryIdentity !== primaryQueryIdentity(buildQueryFromFilters(filtersRef.current))) return;
+    if (tickerInteractionActiveRef.current) {
+      pendingEligibilityRef.current = { contextRefreshSignal, queryIdentity, options: nextOptions };
+      return;
+    }
+    pendingEligibilityRef.current = null;
+    applyAuthoritativeEligibility(nextOptions);
+  }, [applyAuthoritativeEligibility, buildQueryFromFilters, contextIsTransitioning, contextRefreshSignal, review.committedPrimary, review.committedQuery, review.isPrimaryPending]);
 
   const presets = useMemo((): { key: DatePreset; label: string }[] => [
       { key: "yesterday", label: dict.dividends.review.preset.yesterday },
@@ -761,48 +972,11 @@ export function DividendReviewClient({
         <p className="max-w-3xl text-sm leading-6 text-slate-600">{dict.dividends.review.pageDescription}</p>
       </div>
 
-      {enrichment && hasOpenItems ? (
-        <Card className="rounded-[20px] border-amber-200 bg-amber-50/70 px-4 py-3">
-          <p className="text-sm text-amber-900">
-            <span className="font-semibold">{hero ? hero.needsAttentionCount : aggregates.openCount} {dict.dividends.review.stat.needsAttention.toLowerCase()}.</span>{" "}
-            {dict.dividends.review.filter.needsReconciliation}
-          </p>
-        </Card>
-      ) : null}
-
-      {/* Stats tiles */}
-      {enrichment ? (
-        <StatTiles aggregates={aggregates} hero={hero} dict={dict} locale={locale} />
-      ) : review.isEnrichmentPending ? (
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-busy="true" data-testid="review-stats-loading">
-          {Array.from({ length: 4 }, (_, index) => <div key={index} className="h-28 animate-pulse rounded-[20px] bg-muted/50" />)}
-        </div>
-      ) : null}
-
-      {enrichment && review.isEnrichmentPending ? (
-        <p className="text-xs text-muted-foreground" role="status" data-testid="review-enrichment-refreshing">
-          {dict.dividends.review.loading.refreshing}
-        </p>
-      ) : null}
-
-      {review.enrichmentError ? (
-        <Card
-          className="flex flex-col items-start justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 sm:flex-row sm:items-center"
-          data-testid="review-enrichment-error"
-          role="alert"
-        >
-          <p className="text-sm text-amber-800">
-            {dict.dividends.review.loading.enrichmentError}: {review.enrichmentError}
-            {enrichment ? ` ${dict.dividends.review.loading.enrichmentStale}` : ""}
-          </p>
-          <Button size="sm" variant="secondary" onClick={() => void review.retryEnrichment()} data-testid="review-enrichment-retry">
-            {dict.dividends.review.loading.retry}
-          </Button>
-        </Card>
-      ) : null}
-
       {/* Filter bar */}
-      <Card className="space-y-4 rounded-[20px] border border-slate-200 bg-white/92 p-4 shadow-[0_12px_28px_rgba(148,163,184,0.1)]">
+      <Card
+        className="space-y-4 rounded-[20px] border border-slate-200 bg-white/92 p-4 shadow-[0_12px_28px_rgba(148,163,184,0.1)] hover:translate-y-0"
+        data-testid="review-filter-bar"
+      >
         {/* Preset strip */}
         <div
           className="flex flex-wrap items-center gap-2"
@@ -910,30 +1084,15 @@ export function DividendReviewClient({
             />
           </label>
           {/* Ticker — spans both columns on mobile so it's full-width */}
-          <label className="col-span-2 space-y-1 lg:col-span-1">
-            <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-              {dict.dividends.review.filter.ticker}
-            </span>
-            <input
-              type="text"
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
-              placeholder={dict.dividends.review.filter.ticker}
-              value={filters.ticker}
-              onChange={(e) => {
-                const ticker = e.target.value;
-                setFilters({
-                  ...filters,
-                  ticker,
-                  marketCode: ticker.trim() === lastAppliedTicker.current ? filters.marketCode : "",
-                });
-              }}
-              onBlur={(e) => handleTickerApply(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleTickerApply((e.target as HTMLInputElement).value);
-              }}
-              data-testid="filter-ticker"
-            />
-          </label>
+          <TickerFilter
+            tickers={filters.tickers}
+            options={committedEligibleTickers}
+            dict={dict}
+            locale={locale}
+            onSelectionChange={handleTickerSelectionChange}
+            onInteractionStart={handleTickerInteractionStart}
+            onInteractionEnd={handleTickerInteractionEnd}
+          />
           {/* Account */}
           <label className="space-y-1">
             <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
@@ -992,6 +1151,46 @@ export function DividendReviewClient({
           <p className="text-xs text-rose-600" data-testid="date-error">{dateError}</p>
         )}
       </Card>
+
+      {enrichment && hasOpenItems ? (
+        <Card className="rounded-[20px] border-amber-200 bg-amber-50/70 px-4 py-3">
+          <p className="text-sm text-amber-900">
+            <span className="font-semibold">{hero ? hero.needsAttentionCount : aggregates.openCount} {dict.dividends.review.stat.needsAttention.toLowerCase()}.</span>{" "}
+            {dict.dividends.review.filter.needsReconciliation}
+          </p>
+        </Card>
+      ) : null}
+
+      {/* Stats tiles */}
+      {enrichment ? (
+        <StatTiles aggregates={aggregates} hero={hero} dict={dict} locale={locale} />
+      ) : review.isEnrichmentPending ? (
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-busy="true" data-testid="review-stats-loading">
+          {Array.from({ length: 4 }, (_, index) => <div key={index} className="h-28 animate-pulse rounded-[20px] bg-muted/50" />)}
+        </div>
+      ) : null}
+
+      {enrichment && review.isEnrichmentPending ? (
+        <p className="text-xs text-muted-foreground" role="status" data-testid="review-enrichment-refreshing">
+          {dict.dividends.review.loading.refreshing}
+        </p>
+      ) : null}
+
+      {review.enrichmentError ? (
+        <Card
+          className="flex flex-col items-start justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 sm:flex-row sm:items-center"
+          data-testid="review-enrichment-error"
+          role="alert"
+        >
+          <p className="text-sm text-amber-800">
+            {dict.dividends.review.loading.enrichmentError}: {review.enrichmentError}
+            {enrichment ? ` ${dict.dividends.review.loading.enrichmentStale}` : ""}
+          </p>
+          <Button size="sm" variant="secondary" onClick={() => void review.retryEnrichment()} data-testid="review-enrichment-retry">
+            {dict.dividends.review.loading.retry}
+          </Button>
+        </Card>
+      ) : null}
 
       {/* Error */}
       {errorMessage && (

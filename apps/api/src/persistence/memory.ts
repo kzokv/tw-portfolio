@@ -103,6 +103,7 @@ import type {
   DividendLedgerListOptions,
   DividendLedgerListResult,
   DividendCalendarSnapshotOptions,
+  DividendDailyHighlightsSnapshotOptions,
   DividendReviewListOptions,
   DividendReviewListResult,
   DividendReviewMetadataResult,
@@ -3296,7 +3297,7 @@ export class MemoryPersistence implements Persistence {
     userId: string,
     opts: DividendCalendarSnapshotOptions,
   ) {
-    const store = await this.loadStore(userId);
+    const store = this.stores.get(userId) ?? await this.loadStore(userId);
     const reversedIds = new Set(
       store.accounting.facts.dividendLedgerEntries
         .map((entry) => entry.reversalOfDividendLedgerEntryId)
@@ -3341,9 +3342,12 @@ export class MemoryPersistence implements Persistence {
         );
       });
     };
+    const highlightDates = opts.highlightLocalDates == null ? null : new Set(opts.highlightLocalDates);
     const dividendEvents = store.marketData.dividendEvents
-      .filter((event) => event.paymentDate != null || opts.includeUndated)
-      .filter((event) => matchesNullableDateRange(event.paymentDate, opts.fromPaymentDate, opts.toPaymentDate))
+      .filter((event) => highlightDates
+        ? (event.paymentDate != null && highlightDates.has(event.paymentDate)) || highlightDates.has(event.exDividendDate)
+        : event.paymentDate != null || opts.includeUndated)
+      .filter((event) => highlightDates || matchesNullableDateRange(event.paymentDate, opts.fromPaymentDate, opts.toPaymentDate))
       .filter((event) => !opts.marketCode || dividendEventMarketCode(event) === opts.marketCode)
       .filter((event) => !opts.ticker || event.ticker === opts.ticker)
       .filter((event) => accountHasCalendarEvent(event))
@@ -3401,6 +3405,18 @@ export class MemoryPersistence implements Persistence {
         .filter((action) => accountIds.has(action.accountId))
         .filter((action) => eventPairs.has(`${action.marketCode}:${action.ticker}`)),
     };
+  }
+
+  async listDividendDailyHighlightsSnapshot(
+    userId: string,
+    opts: DividendDailyHighlightsSnapshotOptions,
+  ) {
+    return this.listDividendCalendarSnapshot(userId, {
+      accountId: opts.accountId,
+      marketCode: opts.marketCode,
+      highlightLocalDates: opts.localDates,
+      limit: 500,
+    });
   }
 
   async listDividendLedgerEntries(
@@ -3545,6 +3561,7 @@ export class MemoryPersistence implements Persistence {
     opts: Omit<DividendReviewListOptions, "page" | "limit" | "sortBy" | "sortOrder">,
   ) {
     const store = await this.loadStore(userId);
+    const selectedTickers = opts.tickers ?? ("ticker" in opts && typeof opts.ticker === "string" ? [opts.ticker] : undefined);
     const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
     const accountById = new Map(store.accounts.map((account) => [account.id, account]));
     const receivedByLedgerId = new Map<string, number>();
@@ -3613,7 +3630,7 @@ export class MemoryPersistence implements Persistence {
       )) return [];
       if (opts.marketCode && eventMarketCode !== opts.marketCode) return [];
       if (!matchesDateFilter(event.paymentDate)) return [];
-      if (opts.ticker && event.ticker !== opts.ticker) return [];
+      if (selectedTickers?.length && !selectedTickers.includes(event.ticker)) return [];
       const deductions = store.accounting.facts.dividendDeductionEntries.filter(
         (deduction) => deduction.dividendLedgerEntryId === entry.id,
       );
@@ -3700,7 +3717,7 @@ export class MemoryPersistence implements Persistence {
           if (account.defaultCurrency !== event.cashDividendCurrency) continue;
           if (opts.marketCode && eventMarketCode !== opts.marketCode) continue;
           if (!matchesDateFilter(event.paymentDate)) continue;
-          if (opts.ticker && event.ticker !== opts.ticker) continue;
+          if (selectedTickers?.length && !selectedTickers.includes(event.ticker)) continue;
           if (opts.reconciliationStatus && opts.reconciliationStatus !== "open") continue;
           if (opts.postingStatus && opts.postingStatus !== "expected") continue;
           if (activeLedgerKey.has(`${account.id}:${event.id}`)) continue;
@@ -4004,16 +4021,29 @@ export class MemoryPersistence implements Persistence {
     return enrichment;
   }
 
-  async listDividendReviewMetadata(userId: string): Promise<DividendReviewMetadataResult> {
+  async listDividendReviewMetadata(
+    userId: string,
+    filters: Pick<DividendReviewFilterDto, "accountId" | "fromPaymentDate" | "toPaymentDate"> = {},
+  ): Promise<DividendReviewMetadataResult> {
     const [store, { years }] = await Promise.all([
       this.loadStore(userId),
       this.listDividendLedgerYears(userId),
     ]);
+    const { rows } = await this.buildDividendReviewRows(userId, filters);
+    const eligibleTickers = [...new Set(rows.map((row) => row.ticker))]
+      .map((ticker) => ({
+        ticker,
+        name: store.instruments.find((instrument) => instrument.ticker === ticker && instrument.name)?.name
+          ?? rows.find((row) => row.ticker === ticker)?.tickerName
+          ?? null,
+      }))
+      .sort((left, right) => left.ticker.localeCompare(right.ticker));
     return {
       years,
       accounts: store.accounts
         .filter((account) => account.userId === userId)
         .map(({ id, name }) => ({ id, name })),
+      eligibleTickers,
     };
   }
 

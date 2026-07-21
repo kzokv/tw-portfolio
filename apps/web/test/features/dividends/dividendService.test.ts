@@ -91,6 +91,7 @@ describe("dividendService calendar snapshot", () => {
     const query = {
       fromPaymentDate: "2026-01-01",
       toPaymentDate: "2026-12-31",
+      tickers: ["2886", "3714"],
       sourceComposition: "pending" as const,
       cashStatus: "explained" as const,
       stockStatus: "variance" as const,
@@ -104,12 +105,12 @@ describe("dividendService calendar snapshot", () => {
 
     expect(getJson).toHaveBeenNthCalledWith(
       1,
-      "/portfolio/dividends/review/primary?fromPaymentDate=2026-01-01&toPaymentDate=2026-12-31&cashStatus=explained&stockStatus=variance&sourceComposition=pending&sortBy=varianceAmount&sortOrder=asc&page=2&limit=25",
+      "/portfolio/dividends/review/primary?fromPaymentDate=2026-01-01&toPaymentDate=2026-12-31&ticker=2886&ticker=3714&cashStatus=explained&stockStatus=variance&sourceComposition=pending&sortBy=varianceAmount&sortOrder=asc&page=2&limit=25",
       { signal },
     );
     expect(getJson).toHaveBeenNthCalledWith(
       2,
-      "/portfolio/dividends/review/enrichment?fromPaymentDate=2026-01-01&toPaymentDate=2026-12-31&cashStatus=explained&stockStatus=variance&sourceComposition=pending",
+      "/portfolio/dividends/review/enrichment?fromPaymentDate=2026-01-01&toPaymentDate=2026-12-31&ticker=2886&ticker=3714&cashStatus=explained&stockStatus=variance&sourceComposition=pending",
       { signal },
     );
   });

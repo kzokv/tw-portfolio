@@ -45,7 +45,7 @@ export class DividendReviewActions extends AppBaseActions {
     const responsePromise = this.mxWaitForResponse(
       (response) =>
         response.request().method() === "GET"
-        && response.url().includes("/portfolio/dividends/review")
+        && response.url().includes("/portfolio/dividends/review/primary")
         && response.url().includes(`fromPaymentDate=${fromYear}-01-01`)
         && response.url().includes(`toPaymentDate=${toYear}-12-31`),
     );
@@ -55,7 +55,9 @@ export class DividendReviewActions extends AppBaseActions {
     if (toYear !== fromYear) {
       await this.uiActions.click.perform(this.el.yearOption(toYear));
     }
-    return await responsePromise;
+    const response = await responsePromise;
+    await response.finished();
+    return response;
   }
 
   // ─── Filter bar — date inputs ────────────────────────────────────────────
@@ -85,18 +87,32 @@ export class DividendReviewActions extends AppBaseActions {
 
   @Step()
   async fillTicker(value: string): Promise<void> {
-    await this.uiActions.fill.perform(this.el.tickerInput, value);
+    if (!await this.el.tickerSearch.isVisible().catch(() => false)) {
+      await this.uiActions.click.perform(this.el.tickerSummary);
+    }
+    await this.uiActions.fill.perform(this.el.tickerSearch, value);
   }
 
   @Step()
   async submitTickerFilter(): Promise<void> {
-    // Filter submit triggers an async fetch against
-    // /portfolio/dividends/review — wait for the response before returning
-    // so downstream assertions race-free observe the filtered row set.
+    const ticker = (await this.el.tickerSearch.inputValue()).trim();
+    if (!ticker) return;
+    await this.toggleTickerOption(ticker);
+  }
+
+  @Step()
+  async toggleTickerOption(ticker: string): Promise<void> {
+    await this.uiActions.click.perform(this.el.tickerCheckbox(ticker));
+  }
+
+  @Step()
+  async clearTickerFilter(): Promise<void> {
     const responsePromise = this.mxWaitForResponse(
-      (r) => r.url().includes("/portfolio/dividends/review") && r.ok(),
+      (response) =>
+        response.request().method() === "GET"
+        && response.url().includes("/portfolio/dividends/review"),
     ).catch(() => undefined);
-    await this.mxPressKey("Enter");
+    await this.uiActions.click.perform(this.el.tickerClear);
     await responsePromise;
   }
 
@@ -105,6 +121,11 @@ export class DividendReviewActions extends AppBaseActions {
   @Step()
   async selectStatus(value: string): Promise<void> {
     await this.uiActions.select.perform(this.el.statusSelect, value);
+  }
+
+  @Step()
+  async selectStockStatus(value: string): Promise<void> {
+    await this.uiActions.select.perform(this.el.stockStatusSelect, value);
   }
 
   @Step()

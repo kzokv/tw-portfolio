@@ -130,6 +130,7 @@ import type {
   DividendLedgerListOptions,
   DividendLedgerListResult,
   DividendCalendarSnapshotOptions,
+  DividendDailyHighlightsSnapshotOptions,
   DividendReviewListOptions,
   DividendReviewListResult,
   DividendReviewMetadataResult,
@@ -11873,12 +11874,18 @@ export class PostgresPersistence implements Persistence {
               fiscal_year_period, announcement_date, total_distribution_shares
        FROM market_data.dividend_events AS event
        WHERE (
+           ($9::date[] IS NOT NULL AND (
+             event.payment_date = ANY($9::date[])
+             OR event.ex_dividend_date = ANY($9::date[])
+           ))
+           OR ($9::date[] IS NULL AND (
            ($8::boolean = TRUE AND event.payment_date IS NULL)
            OR (
              event.payment_date IS NOT NULL
              AND ($2::date IS NULL OR event.payment_date >= $2::date)
              AND ($3::date IS NULL OR event.payment_date <= $3::date)
            )
+           ))
          )
          AND ($5::text IS NULL OR event.market_code = $5::text)
          AND ($7::text IS NULL OR event.ticker = $7::text)
@@ -11945,6 +11952,7 @@ export class PostgresPersistence implements Persistence {
         opts.accountId ?? null,
         opts.ticker ?? null,
         opts.includeUndated ?? false,
+        opts.highlightLocalDates ?? null,
       ],
     );
 
@@ -12226,6 +12234,18 @@ export class PostgresPersistence implements Persistence {
     opts: DividendCalendarSnapshotOptions,
   ) {
     return this.loadDividendCalendarSnapshotInternal(userId, opts);
+  }
+
+  async listDividendDailyHighlightsSnapshot(
+    userId: string,
+    opts: DividendDailyHighlightsSnapshotOptions,
+  ) {
+    return this.loadDividendCalendarSnapshotInternal(userId, {
+      accountId: opts.accountId,
+      marketCode: opts.marketCode,
+      highlightLocalDates: opts.localDates,
+      limit: 500,
+    });
   }
 
   async listDividendLedgerEntries(
@@ -12543,7 +12563,7 @@ export class PostgresPersistence implements Persistence {
           AND ($5::text IS NULL OR ledger.reconciliation_status = $5)
           AND ($6::text IS NULL OR ledger.posting_status = $6)
           AND (NOT $7::boolean OR ledger.posting_status <> 'expected')
-          AND ($8::text IS NULL OR event.ticker = $8)
+          AND ($8::text[] IS NULL OR event.ticker = ANY($8::text[]))
           AND ($9::text IS NULL OR event.market_code = $9)
           AND (NOT $10::boolean OR (
             COALESCE(instrument.instrument_type, 'STOCK') IN ('ETF', 'BOND_ETF')
@@ -12691,7 +12711,7 @@ export class PostgresPersistence implements Persistence {
               AND ($4::date IS NULL OR event.payment_date <= $4::date)
             ) END
           )
-          AND ($8::text IS NULL OR event.ticker = $8)
+          AND ($8::text[] IS NULL OR event.ticker = ANY($8::text[]))
           AND ($9::text IS NULL OR event.market_code = $9)
           AND (NOT $10::boolean OR COALESCE(instrument.instrument_type, 'STOCK') IN ('ETF', 'BOND_ETF'))
           AND (
@@ -13030,6 +13050,7 @@ export class PostgresPersistence implements Persistence {
     userId: string,
     filters: DividendReviewFilterDto | DividendReviewListOptions,
   ): unknown[] {
+    const legacyTicker = "ticker" in filters && typeof filters.ticker === "string" ? filters.ticker : undefined;
     return [
       userId,
       filters.accountId ?? null,
@@ -13038,7 +13059,7 @@ export class PostgresPersistence implements Persistence {
       filters.reconciliationStatus ?? null,
       filters.postingStatus ?? null,
       filters.excludeExpected ?? false,
-      filters.ticker ?? null,
+      filters.tickers?.length ? filters.tickers : legacyTicker ? [legacyTicker] : null,
       filters.marketCode ?? null,
       filters.sourceComposition === "pending",
     ];
@@ -13816,9 +13837,12 @@ export class PostgresPersistence implements Persistence {
     };
   }
 
-  async listDividendReviewMetadata(userId: string): Promise<DividendReviewMetadataResult> {
+  async listDividendReviewMetadata(
+    userId: string,
+    filters: Pick<DividendReviewFilterDto, "accountId" | "fromPaymentDate" | "toPaymentDate"> = {},
+  ): Promise<DividendReviewMetadataResult> {
     await this.ensureDefaultPortfolioData(userId);
-    const [{ years }, accountsResult] = await Promise.all([
+    const [{ years }, accountsResult, tickerResult] = await Promise.all([
       this.listDividendLedgerYears(userId),
       this.pool.query(
         `SELECT id, name
@@ -13828,10 +13852,22 @@ export class PostgresPersistence implements Persistence {
          ORDER BY name, id`,
         [userId],
       ),
+      this.pool.query(
+        `WITH ${this.dividendReviewNormalizedSql()}
+         SELECT ticker, MAX(ticker_name) AS name
+         FROM normalized
+         GROUP BY ticker
+         ORDER BY ticker`,
+        this.dividendReviewSqlParams(userId, filters),
+      ),
     ]);
     return {
       years,
       accounts: accountsResult.rows.map((row) => ({ id: String(row.id), name: String(row.name) })),
+      eligibleTickers: tickerResult.rows.map((row) => ({
+        ticker: String(row.ticker),
+        name: row.name == null ? null : String(row.name),
+      })),
     };
   }
 

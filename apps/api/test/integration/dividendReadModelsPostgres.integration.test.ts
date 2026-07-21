@@ -112,6 +112,35 @@ describePostgres("dividend read model parity", () => {
     await persistence?.close();
   });
 
+  it("[postgres dividend targeted reads]: daily snapshot and review metadata → stay tenant-scoped and filter ticker arrays", async () => {
+    const fixturePool = new Pool({ connectionString: databaseUrl });
+    await fixturePool.query(
+      `UPDATE market_data.instruments SET name = 'TSMC' WHERE ticker = '2330' AND market_code = 'TW'`,
+    );
+    await fixturePool.end();
+    const fullStoreRead = vi.spyOn(persistence, "loadStore");
+    const daily = await persistence.listDividendDailyHighlightsSnapshot("user-1", {
+      localDates: ["2026-01-01", "2026-02-01"],
+    });
+    const primary = await persistence.listDividendReviewPrimary("user-1", {
+      tickers: ["2330", "NO_MATCH"],
+      page: 1,
+      limit: 10,
+      sortBy: "ticker",
+      sortOrder: "asc",
+    });
+    const metadata = await persistence.listDividendReviewMetadata("user-1", {
+      fromPaymentDate: "2026-02-01",
+      toPaymentDate: "2026-02-28",
+    });
+
+    expect(fullStoreRead).not.toHaveBeenCalled();
+    expect(daily.dividendEvents.map((event) => event.id)).toContain("event-01");
+    expect(daily.accounts.every((account) => account.userId === "user-1")).toBe(true);
+    expect(primary.rows.every((row) => row.ticker === "2330")).toBe(true);
+    expect(metadata.eligibleTickers).toEqual([{ ticker: "2330", name: "TSMC" }]);
+  });
+
   it("[postgres ticker read models]: posted/open builders → preserve pagination and open separation", async () => {
     const store = await persistence.loadStore("user-1");
 

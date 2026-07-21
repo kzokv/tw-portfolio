@@ -19,7 +19,7 @@ const FILTER_DIMENSIONS: Array<keyof DividendReviewFilterDto> = [
   "fromPaymentDate",
   "toPaymentDate",
   "accountId",
-  "ticker",
+  "tickers",
   "marketCode",
   "postingStatus",
   "cashStatus",

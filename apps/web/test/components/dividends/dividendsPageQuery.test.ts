@@ -48,7 +48,7 @@ describe("dividendsPageQuery", () => {
     ]));
 
     expect(query).toMatchObject({
-      ticker: "2330",
+      tickers: ["2330"],
       marketCode: "TW",
       accountId: "acc-1",
       reconciliationStatus: "open",
@@ -58,6 +58,18 @@ describe("dividendsPageQuery", () => {
       page: 2,
       limit: 50,
     });
+  });
+
+  it("preserves repeated ticker parameters while remaining compatible with one ticker", () => {
+    const repeated = searchParamsToReviewQuery(new URLSearchParams([
+      ["ticker", "3714"],
+      ["ticker", "2886"],
+      ["ticker", "3714"],
+    ]));
+    const single = searchParamsToReviewQuery(new URLSearchParams([["ticker", "2330"]]));
+
+    expect(repeated.tickers).toEqual(["3714", "2886"]);
+    expect(single.tickers).toEqual(["2330"]);
   });
 
   it("falls back to the default review page size when the limit is unsupported", () => {

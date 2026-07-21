@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import type { CurrencyCode, LocaleCode } from "@vakwen/shared-types";
+import type { CurrencyCode, DividendDailyHighlightsDto, LocaleCode } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../lib/utils";
 import { useEventStream } from "../../hooks/useEventStream";
@@ -42,14 +42,35 @@ import { clearDividendReviewCaches } from "../../features/dividends/dividendRevi
 interface DividendCalendarClientProps {
   initialSnapshot: DividendCalendarSnapshot;
   initialMonth: string;
+  initialDailyHighlights?: DividendDailyHighlightsState;
   dict: AppDictionary;
   locale: LocaleCode;
   onSnapshotChange?: (snapshot: DividendCalendarSnapshot, month: string) => void;
 }
 
+export interface DividendDailyHighlightCardState {
+  status: "success" | "error";
+  data: DividendDailyHighlightsDto["payingToday"];
+  error: string;
+}
+
+export interface DividendDailyHighlightsState {
+  payingToday: DividendDailyHighlightCardState;
+  exDividendToday: DividendDailyHighlightCardState;
+}
+
+type DailyHighlightCardKey = keyof DividendDailyHighlightsState;
+interface DailyHighlightCardViewState {
+  status: "success" | "refreshing" | "error";
+  data: DividendDailyHighlightRow[];
+  error: string;
+}
+
 type CalendarBadge = "unposted" | "pendingReview" | "posted" | "postedVariance" | "resolved" | "matched" | "explained";
 type CurrencyTotals = Partial<Record<CurrencyCode, number>>;
 type StockSummaryLike = Pick<DividendEventListItem, "marketCode" | "ticker" | "tickerName"> & { quantity: number };
+
+const THIS_MONTH_DESKTOP_GRID = "xl:grid-cols-[minmax(220px,1.5fr)_120px_120px_minmax(240px,1.4fr)_minmax(180px,1fr)]";
 
 function formatTemplate(template: string, values: Record<string, string | number>): string {
   return Object.entries(values).reduce((result, [key, value]) => result.replaceAll(`{${key}}`, String(value)), template);
@@ -112,6 +133,7 @@ function eventAccountLabel(event: Pick<DividendEventListItem, "accountId" | "acc
 function buildRows(snapshot: DividendCalendarSnapshot): DividendCalendarRow[] {
   const ledgerByKey = new Map<string, DividendLedgerEntryDetails>();
   for (const entry of snapshot.ledgerEntries) {
+    if (entry.postingStatus === "expected") continue;
     ledgerByKey.set(`${entry.accountId}:${entry.dividendEventId}`, entry);
   }
 
@@ -263,7 +285,7 @@ function stockIssueLabel(dict: AppDictionary, row: DividendCalendarRow): string 
   return null;
 }
 
-export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, locale, onSnapshotChange }: DividendCalendarClientProps) {
+export function DividendCalendarClient({ initialSnapshot, initialMonth, initialDailyHighlights, dict, locale, onSnapshotChange }: DividendCalendarClientProps) {
   const shellData = useOptionalAppShellData();
   const canWriteDividends = !shellData?.isSharedContext || shellData.sharedContextPermissions.canWriteDividends;
   const contextRefreshSignal = shellData?.contextRefreshSignal ?? 0;
@@ -275,8 +297,16 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
   const [drawerRow, setDrawerRow] = useState<DividendCalendarRow | null>(null);
   const [isDrawerDirty, setIsDrawerDirty] = useState(false);
   const [pendingRowKey, setPendingRowKey] = useState<string | null>(null);
-  const [payingTodayRows, setPayingTodayRows] = useState<DividendDailyHighlightRow[]>([]);
-  const [exDividendTodayRows, setExDividendTodayRows] = useState<DividendDailyHighlightRow[]>([]);
+  const [payingTodayState, setPayingTodayState] = useState<DailyHighlightCardViewState>(() => ({
+    status: initialDailyHighlights?.payingToday.status ?? "refreshing",
+    data: (initialDailyHighlights?.payingToday.data ?? []).map((item) => mapDividendDailyHighlightItem(item, locale)),
+    error: initialDailyHighlights?.payingToday.error ?? "",
+  }));
+  const [exDividendTodayState, setExDividendTodayState] = useState<DailyHighlightCardViewState>(() => ({
+    status: initialDailyHighlights?.exDividendToday.status ?? "refreshing",
+    data: (initialDailyHighlights?.exDividendToday.data ?? []).map((item) => mapDividendDailyHighlightItem(item, locale)),
+    error: initialDailyHighlights?.exDividendToday.error ?? "",
+  }));
   const activeMonthKey = monthKey(visibleMonth);
   const bounds = useMemo(() => monthBounds(visibleMonth), [visibleMonth]);
   const query = useMemo<DividendQuery>(() => ({ ...bounds, limit: 500 }), [bounds]);
@@ -284,8 +314,9 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
   const didSkipInitialQueryRef = useRef(false);
   const requestSequenceRef = useRef(0);
   const activeRequestRef = useRef<AbortController | null>(null);
-  const highlightsRequestSequenceRef = useRef(0);
-  const highlightsRequestRef = useRef<AbortController | null>(null);
+  const highlightsRequestSequenceRef = useRef<Record<DailyHighlightCardKey, number>>({ payingToday: 0, exDividendToday: 0 });
+  const highlightsRequestControllersRef = useRef(new Set<AbortController>());
+  const shouldFetchInitialHighlightsRef = useRef(initialDailyHighlights === undefined);
   const onSnapshotChangeRef = useRef(onSnapshotChange);
   const lastContextRefreshSignal = useRef(contextRefreshSignal);
   const lastContextOwnerId = useRef(contextOwnerId);
@@ -344,30 +375,58 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
     activeRequestRef.current = null;
   }, []);
 
-  const refreshDailyHighlights = useCallback(async () => {
-    highlightsRequestRef.current?.abort();
-    const requestId = ++highlightsRequestSequenceRef.current;
+  const refreshDailyHighlights = useCallback(async (
+    cards: readonly DailyHighlightCardKey[] = ["payingToday", "exDividendToday"],
+  ) => {
+    const requestIds = new Map(cards.map((card) => {
+      const requestId = highlightsRequestSequenceRef.current[card] + 1;
+      highlightsRequestSequenceRef.current[card] = requestId;
+      return [card, requestId] as const;
+    }));
     const controller = new AbortController();
-    highlightsRequestRef.current = controller;
+    highlightsRequestControllersRef.current.add(controller);
+    if (cards.includes("payingToday")) {
+      setPayingTodayState((current) => ({ ...current, status: "refreshing", error: "" }));
+    }
+    if (cards.includes("exDividendToday")) {
+      setExDividendTodayState((current) => ({ ...current, status: "refreshing", error: "" }));
+    }
 
     try {
       const nextHighlights = await fetchDividendDailyHighlights({ signal: controller.signal });
-      if (highlightsRequestSequenceRef.current !== requestId) return;
-
-      setPayingTodayRows(nextHighlights.payingToday.map((item) => mapDividendDailyHighlightItem(item, locale)));
-      setExDividendTodayRows(nextHighlights.exDividendToday.map((item) => mapDividendDailyHighlightItem(item, locale)));
+      if (requestIds.get("payingToday") === highlightsRequestSequenceRef.current.payingToday) {
+        setPayingTodayState({
+          status: "success",
+          data: nextHighlights.payingToday.map((item) => mapDividendDailyHighlightItem(item, locale)),
+          error: "",
+        });
+      }
+      if (requestIds.get("exDividendToday") === highlightsRequestSequenceRef.current.exDividendToday) {
+        setExDividendTodayState({
+          status: "success",
+          data: nextHighlights.exDividendToday.map((item) => mapDividendDailyHighlightItem(item, locale)),
+          error: "",
+        });
+      }
     } catch (error) {
       if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
         return;
       }
-    } finally {
-      if (highlightsRequestSequenceRef.current === requestId) {
-        highlightsRequestRef.current = null;
+      const message = error instanceof Error ? error.message : String(error);
+      if (requestIds.get("payingToday") === highlightsRequestSequenceRef.current.payingToday) {
+        setPayingTodayState((current) => ({ ...current, status: "error", error: message }));
       }
+      if (requestIds.get("exDividendToday") === highlightsRequestSequenceRef.current.exDividendToday) {
+        setExDividendTodayState((current) => ({ ...current, status: "error", error: message }));
+      }
+    } finally {
+      highlightsRequestControllersRef.current.delete(controller);
     }
   }, [locale]);
 
   useEffect(() => {
+    if (!shouldFetchInitialHighlightsRef.current) return;
+    shouldFetchInitialHighlightsRef.current = false;
     void refreshDailyHighlights();
   }, [refreshDailyHighlights]);
 
@@ -384,9 +443,10 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
   }, [activeMonthKey, contextOwnerId, contextRefreshSignal, query, refreshDailyHighlights, refreshSnapshot]);
 
   useEffect(() => () => {
-    highlightsRequestSequenceRef.current += 1;
-    highlightsRequestRef.current?.abort();
-    highlightsRequestRef.current = null;
+    highlightsRequestSequenceRef.current.payingToday += 1;
+    highlightsRequestSequenceRef.current.exDividendToday += 1;
+    for (const controller of highlightsRequestControllersRef.current) controller.abort();
+    highlightsRequestControllersRef.current.clear();
   }, []);
 
   useEffect(() => {
@@ -583,12 +643,20 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
 
       <section className="min-w-0 grid gap-4 xl:grid-cols-3">
         <Card className="overflow-hidden rounded-lg border-border bg-card p-0 shadow-sm" data-testid="dividends-paying-today">
-          <PanelHeading title={dict.dividends.overview.payingToday} description={dict.dividends.overview.payingTodayDescription} />
-          {payingTodayRows.length === 0 ? (
+          <PanelHeading
+            title={dict.dividends.overview.payingToday}
+            description={dict.dividends.overview.payingTodayDescription}
+            action={payingTodayState.status === "refreshing"
+              ? <DailyHighlightsRefreshing dict={dict} testId="paying-today-refreshing" />
+              : undefined}
+          />
+          {payingTodayState.status === "error" && payingTodayState.data.length === 0 ? (
+            <DailyHighlightsError dict={dict} testIdPrefix="paying-today" onRetry={() => void refreshDailyHighlights(["payingToday"])} />
+          ) : payingTodayState.data.length === 0 ? (
             <div className="border-t border-border px-4 py-8 text-sm text-muted-foreground">{dict.dividends.overview.noPayingToday}</div>
           ) : (
             <div className="divide-y divide-border border-t border-border">
-              {payingTodayRows.slice(0, 4).map((event) => (
+              {payingTodayState.data.slice(0, 4).map((event) => (
                 <TodayHighlightRow
                   key={`paying-${event.id}`}
                   event={event}
@@ -602,15 +670,26 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
               ))}
             </div>
           )}
+          {payingTodayState.status === "error" && payingTodayState.data.length > 0 ? (
+            <DailyHighlightsError dict={dict} testIdPrefix="paying-today" onRetry={() => void refreshDailyHighlights(["payingToday"])} />
+          ) : null}
         </Card>
 
         <Card className="overflow-hidden rounded-lg border-border bg-card p-0 shadow-sm" data-testid="dividends-ex-dividend-today">
-          <PanelHeading title={dict.dividends.overview.exDividendToday} description={dict.dividends.overview.exDividendTodayDescription} />
-          {exDividendTodayRows.length === 0 ? (
+          <PanelHeading
+            title={dict.dividends.overview.exDividendToday}
+            description={dict.dividends.overview.exDividendTodayDescription}
+            action={exDividendTodayState.status === "refreshing"
+              ? <DailyHighlightsRefreshing dict={dict} testId="ex-dividend-today-refreshing" />
+              : undefined}
+          />
+          {exDividendTodayState.status === "error" && exDividendTodayState.data.length === 0 ? (
+            <DailyHighlightsError dict={dict} testIdPrefix="ex-dividend-today" onRetry={() => void refreshDailyHighlights(["exDividendToday"])} />
+          ) : exDividendTodayState.data.length === 0 ? (
             <div className="border-t border-border px-4 py-8 text-sm text-muted-foreground">{dict.dividends.overview.noExDividendToday}</div>
           ) : (
             <div className="divide-y divide-border border-t border-border">
-              {exDividendTodayRows.slice(0, 4).map((event) => (
+              {exDividendTodayState.data.slice(0, 4).map((event) => (
                 <TodayHighlightRow
                   key={`ex-${event.id}`}
                   event={event}
@@ -624,6 +703,9 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
               ))}
             </div>
           )}
+          {exDividendTodayState.status === "error" && exDividendTodayState.data.length > 0 ? (
+            <DailyHighlightsError dict={dict} testIdPrefix="ex-dividend-today" onRetry={() => void refreshDailyHighlights(["exDividendToday"])} />
+          ) : null}
         </Card>
 
         <Card className="overflow-hidden rounded-lg border-border bg-card p-0 shadow-sm" data-testid="dividends-action-queue">
@@ -668,7 +750,10 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, dict, lo
       <section className="min-w-0">
         <Card className="overflow-hidden rounded-lg border-border bg-card p-0 shadow-sm" data-testid="dividends-this-month">
           <PanelHeading title={dict.dividends.overview.thisMonth} description={dict.dividends.overview.thisMonthDescription} action={<Link className="text-sm font-semibold text-primary hover:underline" href={reviewHref(bounds, activeMonthKey)}>{dict.dividends.overview.openReview}</Link>} />
-          <div className="hidden border-t border-border bg-muted/30 px-4 py-3 text-[11px] font-semibold uppercase text-muted-foreground xl:grid xl:grid-cols-[minmax(190px,1.4fr)_110px_110px_120px_110px] xl:gap-3">
+          <div
+            className={cn("hidden border-t border-border bg-muted/30 px-4 py-3 text-[11px] font-semibold uppercase text-muted-foreground xl:grid xl:gap-3", THIS_MONTH_DESKTOP_GRID)}
+            data-testid="dividends-this-month-grid-header"
+          >
             <div>{dict.dividends.review.table.ticker}</div>
             <div>{dict.dividends.overview.exDateLabel}</div>
             <div>{dict.dividends.overview.payDateLabel}</div>
@@ -842,6 +927,28 @@ function PanelHeading({ title, description, action, badge }: { title: string; de
   );
 }
 
+function DailyHighlightsRefreshing({ dict, testId }: { dict: AppDictionary; testId: string }) {
+  return (
+    <span className="text-xs font-medium text-muted-foreground" role="status" data-testid={testId}>
+      {dict.dividends.overview.dailyHighlightsRefreshing}
+    </span>
+  );
+}
+
+function DailyHighlightsError({ dict, testIdPrefix, onRetry }: { dict: AppDictionary; testIdPrefix: string; onRetry: () => void }) {
+  return (
+    <div className="flex items-center justify-between gap-3 border-t border-destructive/20 bg-destructive/5 px-4 py-3" role="alert" data-testid={`${testIdPrefix}-error`}>
+      <div>
+        <p className="text-sm font-semibold text-destructive">{dict.dividends.overview.dailyHighlightsUnavailable}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{dict.dividends.overview.dailyHighlightsUnavailableDescription}</p>
+      </div>
+      <Button size="sm" variant="secondary" onClick={onRetry} data-testid={`${testIdPrefix}-retry`}>
+        {dict.dividends.overview.retryDailyHighlights}
+      </Button>
+    </div>
+  );
+}
+
 function TodayHighlightRow({
   event,
   snapshotEvent,
@@ -912,7 +1019,7 @@ function EventRow({ row, dict, locale, pending, canWrite, onOpen, onMarkMatched 
     ?? (row.event.stockDistributionRatioState === "unresolved" ? "needs_action" : "resolved");
   const stockIssue = stockIssueLabel(dict, row);
   return (
-    <div className="grid min-w-0 gap-2 px-4 py-4 text-sm xl:grid-cols-[minmax(220px,1.5fr)_120px_120px_minmax(240px,1.4fr)_minmax(180px,1fr)] xl:items-center xl:gap-3" data-testid={`dividend-row-${row.event.id}`}>
+    <div className={cn("grid min-w-0 gap-2 px-4 py-4 text-sm xl:items-center xl:gap-3", THIS_MONTH_DESKTOP_GRID)} data-testid={`dividend-row-${row.event.id}`}>
       <div className="grid gap-2">
         <TickerCell event={row.event} />
         <div className="flex flex-wrap items-center gap-2">

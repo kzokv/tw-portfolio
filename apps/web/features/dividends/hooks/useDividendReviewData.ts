@@ -48,7 +48,7 @@ function filtersFromQuery(query: DividendReviewPrimaryQueryDto): DividendReviewF
     fromPaymentDate: query.fromPaymentDate,
     toPaymentDate: query.toPaymentDate,
     accountId: query.accountId,
-    ticker: query.ticker,
+    tickers: query.tickers,
     marketCode: query.marketCode,
     postingStatus: query.postingStatus,
     cashStatus: query.cashStatus,

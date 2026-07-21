@@ -52,6 +52,14 @@ function primaryQueryCalls(): unknown[][] {
   return vi.mocked(fetchDividendReviewPrimary).mock.calls.map(([query]) => [query]);
 }
 
+function createDeferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 beforeAll(() => {
   (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 });
@@ -63,6 +71,7 @@ const emptyReviewData: DividendReviewPrimaryDto = {
   total: 0,
   years: [2026],
   accounts: [],
+  eligibleTickers: [{ ticker: "2330", name: "Taiwan Semiconductor" }],
 };
 const emptyEnrichment = {
   aggregates: {
@@ -165,18 +174,16 @@ describe("DividendReviewClient", () => {
 
     await act(async () => {});
 
-    const tickerInput = container.querySelector<HTMLInputElement>("[data-testid='filter-ticker']");
-    expect(tickerInput).not.toBeNull();
+    const clearTickers = container.querySelector<HTMLButtonElement>("[data-testid='filter-ticker-clear']");
+    expect(clearTickers).not.toBeNull();
 
     await act(async () => {
-      tickerInput!.value = "";
-      tickerInput!.dispatchEvent(new Event("input", { bubbles: true }));
-      tickerInput!.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      clearTickers!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(primaryQueryCalls()).toContainEqual([
       expect.objectContaining({
-        ticker: undefined,
+        tickers: undefined,
         marketCode: undefined,
       }),
     ]);
@@ -207,6 +214,249 @@ describe("DividendReviewClient", () => {
     ]);
     expect(window.location.search).toContain("cashStatus=explained");
     expect(window.location.search).toContain("stockStatus=matched");
+  });
+
+  it("searches eligible tickers and synchronizes repeated selections immediately", async () => {
+    searchParamsState.value = "view=ledger&ticker=3714&ticker=2886";
+    window.history.replaceState(null, "", `/dividends?${searchParamsState.value}`);
+    const data: DividendReviewPrimaryDto = {
+      ...emptyReviewData,
+      eligibleTickers: [
+        { ticker: "0050", name: "Yuanta Taiwan 50" },
+        { ticker: "2886", name: "Mega Financial" },
+        { ticker: "3714", name: "Foxtron" },
+      ],
+    };
+    vi.mocked(fetchDividendReviewPrimary).mockResolvedValue(data);
+
+    act(() => {
+      root.render(<DividendReviewClient initialData={data} dict={dict} locale="en" accounts={[]} years={[2026]} />);
+    });
+    await act(async () => {});
+
+    expect(container.querySelector("[data-testid='filter-ticker-summary']")?.textContent).toContain("2 tickers");
+    expect(new URLSearchParams(window.location.search).getAll("ticker")).toEqual(["3714", "2886"]);
+
+    const search = container.querySelector<HTMLInputElement>("[data-testid='filter-ticker-search']")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(search, "Yuanta");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container.querySelector("[data-testid='filter-ticker-option-0050']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='filter-ticker-option-2886']")).not.toBeNull();
+
+    await act(async () => {
+      container.querySelector<HTMLInputElement>("[data-testid='filter-ticker-checkbox-0050']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(primaryQueryCalls()).toContainEqual([expect.objectContaining({ tickers: ["3714", "2886", "0050"] })]);
+    expect(new URLSearchParams(window.location.search).getAll("ticker")).toEqual(["3714", "2886", "0050"]);
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("[data-testid='filter-ticker-clear']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(primaryQueryCalls()).toContainEqual([expect.objectContaining({ tickers: undefined })]);
+    expect(new URLSearchParams(window.location.search).getAll("ticker")).toEqual([]);
+  });
+
+  it("accumulates a second ticker while the first request transitions without pruning from same-scope stale metadata", async () => {
+    searchParamsState.value = "view=ledger";
+    window.history.replaceState(null, "", `/dividends?${searchParamsState.value}`);
+    const data: DividendReviewPrimaryDto = {
+      ...emptyReviewData,
+      eligibleTickers: [
+        { ticker: "2886", name: "Mega Financial" },
+        { ticker: "5880", name: "Taiwan Cooperative" },
+      ],
+    };
+    const firstRequest = createDeferred<DividendReviewPrimaryDto>();
+    const secondRequest = createDeferred<DividendReviewPrimaryDto>();
+    vi.mocked(fetchDividendReviewPrimary)
+      .mockImplementationOnce(() => firstRequest.promise)
+      .mockImplementationOnce(() => secondRequest.promise);
+
+    act(() => {
+      root.render(<DividendReviewClient initialData={data} dict={dict} locale="en" accounts={[]} years={[2026]} />);
+    });
+    await act(async () => {});
+
+    await act(async () => {
+      container.querySelector<HTMLInputElement>("[data-testid='filter-ticker-checkbox-2886']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const search = container.querySelector<HTMLInputElement>("[data-testid='filter-ticker-search']")!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(search, "5880");
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const secondTicker = container.querySelector<HTMLInputElement>("[data-testid='filter-ticker-checkbox-5880']")!;
+    const pointerDown = new MouseEvent("pointerdown", { bubbles: true });
+    Object.defineProperty(pointerDown, "isPrimary", { value: true });
+    await act(async () => secondTicker.dispatchEvent(pointerDown));
+    await act(async () => {
+      firstRequest.resolve(data);
+    });
+    expect(container.querySelector("[data-testid='filter-ticker-checkbox-5880']")).toBe(secondTicker);
+    const filterBar = container.querySelector("[data-testid='review-filter-bar']")!;
+    const stats = container.querySelector("[data-testid='stat-tiles']");
+    if (stats) {
+      expect(filterBar.compareDocumentPosition(stats) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0);
+    }
+    await act(async () => {
+      secondTicker.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, detail: 1 }));
+      secondTicker.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    });
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 0)));
+
+    await act(async () => {
+      secondRequest.resolve(data);
+    });
+
+    expect(primaryQueryCalls()).toContainEqual([expect.objectContaining({ tickers: ["2886", "5880"] })]);
+    expect(new URLSearchParams(window.location.search).getAll("ticker")).toEqual(["2886", "5880"]);
+    expect(container.querySelector<HTMLInputElement>("[data-testid='filter-ticker-checkbox-5880']")?.checked).toBe(true);
+    expect(container.querySelector("[data-testid='filter-ticker-summary']")?.textContent).toContain("2 tickers");
+  });
+
+  it("replaces same-query eligibility and prunes selections missing from the authoritative response", async () => {
+    searchParamsState.value = "view=ledger&ticker=2886&ticker=5880";
+    window.history.replaceState(null, "", `/dividends?${searchParamsState.value}`);
+    const initialData: DividendReviewPrimaryDto = {
+      ...emptyReviewData,
+      eligibleTickers: [
+        { ticker: "2886", name: "Mega Financial" },
+        { ticker: "5880", name: "Taiwan Cooperative" },
+      ],
+    };
+    const shrunkData: DividendReviewPrimaryDto = {
+      ...initialData,
+      eligibleTickers: [{ ticker: "2886", name: "Mega Financial" }],
+    };
+    vi.mocked(fetchDividendReviewPrimary).mockResolvedValue(shrunkData);
+
+    act(() => {
+      root.render(<DividendReviewClient initialData={initialData} dict={dict} locale="en" accounts={[]} years={[2026]} />);
+    });
+    await act(async () => {});
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("[data-testid='review-sort-ticker']")?.click();
+    });
+    await act(async () => {});
+
+    expect(new URLSearchParams(window.location.search).getAll("ticker")).toEqual(["2886"]);
+    expect(container.querySelector("[data-testid='filter-ticker-checkbox-5880']")).toBeNull();
+    expect(container.querySelector<HTMLInputElement>("[data-testid='filter-ticker-checkbox-2886']")?.checked).toBe(true);
+  });
+
+  it("prunes an initial URL ticker that is absent from authoritative eligibility", async () => {
+    searchParamsState.value = "view=ledger&ticker=9999";
+    window.history.replaceState(null, "", `/dividends?${searchParamsState.value}`);
+    const data: DividendReviewPrimaryDto = {
+      ...emptyReviewData,
+      eligibleTickers: [{ ticker: "2330", name: "Taiwan Semiconductor" }],
+    };
+    vi.mocked(fetchDividendReviewPrimary).mockResolvedValue(data);
+
+    act(() => {
+      root.render(<DividendReviewClient initialData={data} dict={dict} locale="en" accounts={[]} years={[2026]} />);
+    });
+    await act(async () => {});
+
+    expect(new URLSearchParams(window.location.search).getAll("ticker")).toEqual([]);
+    expect(container.querySelector("[data-testid='filter-ticker-checkbox-9999']")).toBeNull();
+    expect(container.querySelector("[data-testid='filter-ticker-summary']")?.textContent).toContain("All tickers");
+  });
+
+  it("keeps ticker controls mounted across interleaved commits for clear, pointer, and keyboard selection", async () => {
+    searchParamsState.value = "view=ledger&ticker=2886&ticker=3714";
+    window.history.replaceState(null, "", `/dividends?${searchParamsState.value}`);
+    const data: DividendReviewPrimaryDto = {
+      ...emptyReviewData,
+      eligibleTickers: [
+        { ticker: "2886", name: "Mega Financial" },
+        { ticker: "3714", name: "Foxtron" },
+        { ticker: "5880", name: "Taiwan Cooperative" },
+      ],
+    };
+    vi.mocked(fetchDividendReviewPrimary).mockResolvedValue(data);
+    const renderReview = () => root.render(
+      <DividendReviewClient initialData={data} dict={dict} locale="en" accounts={[]} years={[2026]} />,
+    );
+    act(renderReview);
+    await act(async () => {});
+
+    const clear = container.querySelector<HTMLButtonElement>("[data-testid='filter-ticker-clear']")!;
+    const clearPointer = new MouseEvent("pointerdown", { bubbles: true });
+    Object.defineProperty(clearPointer, "isPrimary", { value: true });
+    await act(async () => clear.dispatchEvent(clearPointer));
+    act(renderReview);
+    expect(container.querySelector("[data-testid='filter-ticker-clear']")).toBe(clear);
+    await act(async () => clear.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 })));
+    expect(new URLSearchParams(window.location.search).getAll("ticker")).toEqual([]);
+
+    const first = container.querySelector<HTMLInputElement>("[data-testid='filter-ticker-checkbox-2886']")!;
+    await act(async () => first.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    const second = container.querySelector<HTMLInputElement>("[data-testid='filter-ticker-checkbox-5880']")!;
+    const secondPointer = new MouseEvent("pointerdown", { bubbles: true });
+    Object.defineProperty(secondPointer, "isPrimary", { value: true });
+    await act(async () => second.dispatchEvent(secondPointer));
+    act(renderReview);
+    expect(container.querySelector("[data-testid='filter-ticker-checkbox-5880']")).toBe(second);
+    await act(async () => {
+      second.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, detail: 1 }));
+      second.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    });
+    expect(new URLSearchParams(window.location.search).getAll("ticker")).toEqual(["2886", "5880"]);
+
+    const keyboard = container.querySelector<HTMLInputElement>("[data-testid='filter-ticker-checkbox-3714']")!;
+    keyboard.focus();
+    keyboard.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    await act(async () => keyboard.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 })));
+    expect(new URLSearchParams(window.location.search).getAll("ticker")).toEqual(["2886", "5880", "3714"]);
+    expect(document.activeElement).toBe(keyboard);
+  });
+
+  it("prunes only ticker selections that become ineligible after an account change", async () => {
+    searchParamsState.value = "view=ledger&ticker=2886&ticker=3714";
+    window.history.replaceState(null, "", `/dividends?${searchParamsState.value}`);
+    const initialData: DividendReviewPrimaryDto = {
+      ...emptyReviewData,
+      accounts: [{ id: "acc-1", name: "Main" }],
+      eligibleTickers: [
+        { ticker: "2886", name: "Mega Financial" },
+        { ticker: "3714", name: "Foxtron" },
+      ],
+    };
+    const accountData: DividendReviewPrimaryDto = {
+      ...initialData,
+      eligibleTickers: [
+        { ticker: "0050", name: "Yuanta Taiwan 50" },
+        { ticker: "2886", name: "Mega Financial" },
+      ],
+    };
+    vi.mocked(fetchDividendReviewPrimary).mockResolvedValue(accountData);
+
+    act(() => {
+      root.render(
+        <DividendReviewClient
+          initialData={initialData}
+          dict={dict}
+          locale="en"
+          accounts={initialData.accounts}
+          years={[2026]}
+        />,
+      );
+    });
+    await act(async () => {});
+
+    const account = container.querySelector<HTMLSelectElement>("[data-testid='filter-account']")!;
+    await act(async () => {
+      account.value = "acc-1";
+      account.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => {});
+
+    expect(primaryQueryCalls()).toContainEqual([expect.objectContaining({ accountId: "acc-1", tickers: ["2886", "3714"] })]);
+    expect(primaryQueryCalls()).toContainEqual([expect.objectContaining({ accountId: "acc-1", tickers: ["2886"] })]);
+    expect(new URLSearchParams(window.location.search).getAll("ticker")).toEqual(["2886"]);
   });
 
   it("renders filter-responsive stock hero totals with a keyboard-accessible overflow", async () => {
@@ -281,7 +531,7 @@ describe("DividendReviewClient", () => {
 
     expect(container.querySelector("[data-testid='review-table']")?.getAttribute("aria-busy")).toBe("true");
     expect(container.querySelectorAll("[data-testid='review-row-skeleton']").length).toBeGreaterThan(0);
-    expect(container.querySelector("[data-testid='filter-ticker']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='filter-ticker-dropdown']")).not.toBeNull();
     expect(container.querySelector("[data-testid='review-stats-loading']")).not.toBeNull();
     expect(container.querySelector("[data-testid='review-charts-loading']")).not.toBeNull();
   });
@@ -311,6 +561,7 @@ describe("DividendReviewClient", () => {
       ...emptyReviewData,
       years: [2026],
       accounts: [{ id: "self-acc", name: "Self account" }],
+      eligibleTickers: [{ ticker: "2886", name: "Self-only ticker" }],
     };
     act(() => {
       root.render(<DividendReviewClient initialData={selfPrimary} dict={dict} locale="en" accounts={selfPrimary.accounts} years={selfPrimary.years} />);
@@ -321,6 +572,7 @@ describe("DividendReviewClient", () => {
       ...emptyReviewData,
       years: [2023],
       accounts: [{ id: "owner-acc", name: "Owner account" }],
+      eligibleTickers: [{ ticker: "5880", name: "Owner-only ticker" }],
     };
     let resolveOwner!: (value: DividendReviewPrimaryDto) => void;
     vi.mocked(fetchDividendReviewPrimary).mockReturnValue(new Promise((resolve) => {
@@ -337,6 +589,8 @@ describe("DividendReviewClient", () => {
     expect(accountFilter?.textContent).not.toContain("Owner account");
     expect(container.querySelector("[data-testid='preset-year-2026']")).toBeNull();
     expect(container.querySelector("[data-testid='preset-year-2023']")).toBeNull();
+    expect(container.querySelector("[data-testid='filter-ticker-option-2886']")).toBeNull();
+    expect(container.querySelector("[data-testid='filter-ticker-option-5880']")).toBeNull();
 
     await act(async () => {
       resolveOwner(ownerPrimary);
@@ -346,6 +600,8 @@ describe("DividendReviewClient", () => {
     expect(accountFilter?.textContent).not.toContain("Self account");
     expect(container.querySelector("[data-testid='preset-year-2023']")).not.toBeNull();
     expect(container.querySelector("[data-testid='preset-year-2026']")).toBeNull();
+    expect(container.querySelector("[data-testid='filter-ticker-option-5880']")).not.toBeNull();
+    expect(container.querySelector("[data-testid='filter-ticker-option-2886']")).toBeNull();
 
     vi.mocked(fetchDividendReviewPrimary).mockReturnValue(new Promise(() => {}));
     await act(async () => {
@@ -463,10 +719,15 @@ describe("DividendReviewClient", () => {
   });
 
   it("clears the hidden market filter when the ticker changes", async () => {
+    const data = {
+      ...emptyReviewData,
+      eligibleTickers: [...emptyReviewData.eligibleTickers, { ticker: "0050", name: "Yuanta Taiwan 50" }],
+    };
+    vi.mocked(fetchDividendReviewPrimary).mockResolvedValue(data);
     act(() => {
       root.render(
         <DividendReviewClient
-          initialData={emptyReviewData}
+          initialData={data}
           dict={dict}
           locale="en"
           accounts={[]}
@@ -476,29 +737,28 @@ describe("DividendReviewClient", () => {
     });
     await act(async () => {});
 
-    const tickerInput = container.querySelector<HTMLInputElement>("[data-testid='filter-ticker']")!;
     await act(async () => {
-      tickerInput.value = "0050";
-      tickerInput.dispatchEvent(new Event("input", { bubbles: true }));
-      tickerInput.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+      container.querySelector<HTMLInputElement>("[data-testid='filter-ticker-checkbox-0050']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
     expect(primaryQueryCalls()).toContainEqual([
-      expect.objectContaining({ ticker: "0050", marketCode: undefined }),
+      expect.objectContaining({ tickers: ["2330", "0050"], marketCode: undefined }),
     ]);
     expect(window.location.search).toContain("ticker=0050");
     expect(window.location.search).not.toContain("marketCode=TW");
   });
 
   it("does not submit a stale market when another filter follows a ticker edit", async () => {
+    const eligibleTickers = [...emptyReviewData.eligibleTickers, { ticker: "0050", name: "Yuanta Taiwan 50" }];
     vi.mocked(fetchDividendReviewPrimary).mockResolvedValue({
       ...emptyReviewData,
       accounts: [{ id: "acc-1", name: "Main" }],
+      eligibleTickers,
     });
     act(() => {
       root.render(
         <DividendReviewClient
-          initialData={{ ...emptyReviewData, accounts: [{ id: "acc-1", name: "Main" }] }}
+          initialData={{ ...emptyReviewData, accounts: [{ id: "acc-1", name: "Main" }], eligibleTickers }}
           dict={dict}
           locale="en"
           accounts={[{ id: "acc-1", name: "Main" }]}
@@ -508,14 +768,8 @@ describe("DividendReviewClient", () => {
     });
     await act(async () => {});
 
-    const tickerInput = container.querySelector<HTMLInputElement>("[data-testid='filter-ticker']")!;
     await act(async () => {
-      tickerInput.focus();
-      tickerInput.value = "0050";
-      tickerInput.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    await act(async () => {
-      container.querySelector<HTMLSelectElement>("[data-testid='filter-account']")!.focus();
+      container.querySelector<HTMLInputElement>("[data-testid='filter-ticker-checkbox-0050']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await act(async () => {});
     const accountSelect = container.querySelector<HTMLSelectElement>("[data-testid='filter-account']")!;
@@ -525,7 +779,7 @@ describe("DividendReviewClient", () => {
     });
 
     expect(primaryQueryCalls()).toContainEqual([
-      expect.objectContaining({ ticker: "0050", marketCode: undefined, accountId: "acc-1" }),
+      expect.objectContaining({ tickers: ["2330", "0050"], marketCode: undefined, accountId: "acc-1" }),
     ]);
   });
 
@@ -549,6 +803,49 @@ describe("DividendReviewClient", () => {
 
     const row = container.querySelector<HTMLElement>("[data-testid='review-row-expected:acc-1:event-1']");
     expect(row).not.toBeNull();
+  });
+
+  it("renders visible component-qualified reconciliation badges in English and Traditional Chinese", async () => {
+    const mixedRow: DividendReviewRowSummaryDto = {
+      ...postedReviewRow,
+      eventType: "CASH_AND_STOCK",
+      cashReconciliationStatus: "matched",
+      stockReconciliationStatus: "matched",
+    };
+
+    act(() => {
+      root.render(
+        <DividendReviewClient
+          initialData={{ ...emptyReviewData, reviewRows: [mixedRow], total: 1 }}
+          dict={dict}
+          locale="en"
+          accounts={[]}
+          years={[2026]}
+        />,
+      );
+    });
+    await act(async () => {});
+
+    const english = container.querySelector("[data-testid='dividend-review-status-ledger-1']")?.textContent ?? "";
+    expect(english).toContain("Cash · Matched");
+    expect(english).toContain("Stock · Matched");
+
+    act(() => {
+      root.render(
+        <DividendReviewClient
+          initialData={{ ...emptyReviewData, reviewRows: [mixedRow], total: 1 }}
+          dict={zhDict}
+          locale="zh-TW"
+          accounts={[]}
+          years={[2026]}
+        />,
+      );
+    });
+    await act(async () => {});
+
+    const traditionalChinese = container.querySelector("[data-testid='dividend-review-status-ledger-1']")?.textContent ?? "";
+    expect(traditionalChinese).toContain("現金 · 相符");
+    expect(traditionalChinese).toContain("股票 · 相符");
   });
 
   it("uses URL-backed review page size options and refetches with the selected limit", async () => {
@@ -1082,7 +1379,7 @@ describe("DividendReviewClient", () => {
     });
 
     expect(vi.mocked(fetchDividendReviewPrimary)).toHaveBeenCalledTimes(2);
-    expect(container.textContent).not.toContain("Taiwan Semiconductor");
+    expect(container.querySelector("[data-testid='review-row-expected:acc-1:event-1']")).toBeNull();
     expect(window.location.search).toContain("toPaymentDate=2026-12-31");
   });
 

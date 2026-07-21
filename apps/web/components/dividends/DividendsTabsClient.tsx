@@ -29,7 +29,7 @@ import {
   monthQuery,
   searchParamsToReviewQuery,
 } from "./dividendsPageQuery";
-import { DividendCalendarClient } from "./DividendCalendarClient";
+import { DividendCalendarClient, type DividendDailyHighlightsState } from "./DividendCalendarClient";
 import { DividendReviewClient } from "./DividendReviewClient";
 import {
   DIVIDENDS_LEDGER_ONLY_PARAMS as LEDGER_ONLY_PARAMS,
@@ -49,6 +49,7 @@ interface DividendsTabsClientProps {
   accounts: DividendReviewAccountOptionDto[];
   initialCalendarMonth: string;
   initialCalendarSnapshot: DividendCalendarSnapshot | null;
+  initialDailyHighlights?: DividendDailyHighlightsState;
   initialReviewData: DividendReviewPrimaryDto | null;
   initialReviewQuery?: DividendReviewPrimaryQueryDto;
   initialYears: number[];
@@ -96,6 +97,7 @@ export function DividendsTabsClient({
   accounts,
   initialCalendarMonth,
   initialCalendarSnapshot,
+  initialDailyHighlights,
   initialReviewData,
   initialReviewQuery = searchParamsToReviewQuery(new URLSearchParams()),
   initialYears,
@@ -205,6 +207,7 @@ export function DividendsTabsClient({
           <DividendCalendarClient
             initialSnapshot={calendarSnapshot}
             initialMonth={calendarMonth}
+            initialDailyHighlights={initialDailyHighlights}
             dict={dict}
             locale={locale}
             onSnapshotChange={(nextSnapshot, nextMonth) => {

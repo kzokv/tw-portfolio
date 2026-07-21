@@ -394,7 +394,9 @@ export interface DividendReviewFilterDto {
   reconciliationStatus?: DividendReviewReconciliationStatus;
   postingStatus?: DividendReviewPostingStatus;
   excludeExpected?: boolean;
+  /** Legacy single-ticker programmatic input. Wire requests use repeated `ticker` keys. */
   ticker?: string;
+  tickers?: string[];
   marketCode?: MarketCode;
   sourceComposition?: DividendReviewSourceCompositionFilter;
 }
@@ -496,11 +498,17 @@ export interface DividendReviewAccountOptionDto {
   name: string;
 }
 
+export interface DividendReviewTickerOptionDto {
+  ticker: string;
+  name: string | null;
+}
+
 export interface DividendReviewPrimaryDto {
   reviewRows: DividendReviewRowSummaryDto[];
   total: number;
   years: number[];
   accounts: DividendReviewAccountOptionDto[];
+  eligibleTickers: DividendReviewTickerOptionDto[];
 }
 
 export interface DividendReviewNhiBucketAggregateDto {

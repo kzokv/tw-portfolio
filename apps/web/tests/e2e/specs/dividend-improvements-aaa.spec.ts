@@ -1,3 +1,4 @@
+import { expect } from "@playwright/test";
 import { test } from "@vakwen/test-e2e/fixtures/appPages";
 import { TestEnv } from "@vakwen/config/test";
 
@@ -20,6 +21,14 @@ function seededEventId(seedBody: Record<string, unknown>): string {
     throw new Error("seeded dividend event id was missing");
   }
   return dividendEvent.id;
+}
+
+async function reviewRowTexts(page: import("@playwright/test").Page): Promise<string[]> {
+  return await page.locator('[data-testid^="review-row-"]:not([data-testid="review-row-skeleton"]):not([data-testid$="-open"])').allTextContents();
+}
+
+function selectedTickersFromUrl(page: import("@playwright/test").Page): string[] {
+  return new URL(page.url()).searchParams.getAll("ticker");
 }
 
 test.describe("locked dividend browser coverage", () => {
@@ -489,9 +498,10 @@ test.describe("locked dividend browser coverage", () => {
 
     await dividendReview.actions.navigateToReviewWithParams("ticker=2886");
     await dividendReview.assert.pageLoaded();
+    await page.getByTestId("filter-ticker-summary").click();
     await dividendReview.assert.mxAssertMatches(
-      await page.getByTestId("filter-ticker").evaluate((element) => (element as HTMLInputElement).labels?.[0]?.textContent ?? ""),
-      /ticker/i,
+      await page.getByTestId("filter-ticker-search").getAttribute("aria-label"),
+      /search/i,
       "ticker filter accessible label",
     );
     await dividendReview.assert.mxAssertMatches(
@@ -530,5 +540,333 @@ test.describe("locked dividend browser coverage", () => {
       "150",
       "mobile review drawer received stock value",
     );
+  });
+
+  test("[dividend overview resilience]: retained daily data + card retry → stale content survives failed SSE refresh without remount", async ({
+    appShell,
+    dividends,
+    page,
+    ticker,
+  }) => {
+    const today = taipeiDateParts();
+    await ticker.arrange.seedInstruments([{
+      ticker: "7810",
+      name: "Daily Retry 7810",
+      instrumentType: "STOCK",
+      marketCode: "TW",
+      barsBackfillStatus: "ready",
+    }]);
+    const seeded = await dividends.arrange.seedPostedDividend({
+      ticker: "7810",
+      exDividendDate: today.date,
+      paymentDate: today.date,
+      cashDividendPerShare: 0.12,
+      receivedCashAmount: 108,
+      deductions: [],
+      sourceCompositionStatus: "unknown_pending_disclosure",
+      sourceLines: [],
+    });
+
+    await dividends.actions.navigateToCalendarMonth(today.month);
+    await dividends.assert.calendarLoaded();
+    await dividends.assert.payingTodayContains(/Daily Retry 7810/);
+    await dividends.assert.exDividendTodayContains(/Daily Retry 7810/);
+    await dividends.actions.openEditDrawerForEvent(seeded.dividendEventId);
+    await dividends.assert.drawerIsVisible();
+    const navigationCountBefore = await page.evaluate(() => performance.getEntriesByType("navigation").length);
+
+    await page.route("**/portfolio/dividends/daily-highlights", async (route) => {
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "qa_daily_highlights_refresh_failed" }),
+      });
+    });
+    const backgroundUpdate = await dividends.actions.updatePostedDividendViaApi({
+      accountId: "acc-1",
+      dividendEventId: seeded.dividendEventId,
+      dividendLedgerEntryId: seeded.dividendLedgerEntryId,
+      expectedVersion: seeded.version,
+      receivedCashAmount: 111,
+      deductions: [],
+      sourceCompositionStatus: "unknown_pending_disclosure",
+      sourceLines: [],
+    });
+    await appShell.assert.mxAssertEqual(backgroundUpdate.ok(), true, await backgroundUpdate.text());
+
+    await dividends.assert.payingTodayContains(/Daily Retry 7810/);
+    await dividends.assert.exDividendTodayContains(/Daily Retry 7810/);
+    await dividends.assert.payingTodayErrorIsVisible();
+    await dividends.assert.exDividendTodayErrorIsVisible();
+    await dividends.assert.drawerIsVisible();
+    await appShell.assert.mxAssertEqual(
+      await page.evaluate(() => performance.getEntriesByType("navigation").length),
+      navigationCountBefore,
+      "navigation count unchanged",
+    );
+
+    await page.unroute("**/portfolio/dividends/daily-highlights");
+    await page.getByTestId("ui-drawer-close").click();
+    await dividends.assert.drawerIsHidden();
+    await dividends.actions.retryPayingToday();
+    await dividends.assert.payingTodayErrorIsHidden();
+    await dividends.assert.exDividendTodayErrorIsVisible();
+    await dividends.assert.payingTodayContains(/Daily Retry 7810/);
+    await dividends.assert.exDividendTodayContains(/Daily Retry 7810/);
+  });
+
+  test("[dividend overview posting]: expected-row Post + bank fee → row projects into This Month and Recent Receipts once", async ({
+    appShell,
+    dividends,
+    page,
+    ticker,
+  }) => {
+    const today = taipeiDateParts();
+    await ticker.arrange.seedInstruments([{
+      ticker: "7820",
+      name: "Post Flow 7820",
+      instrumentType: "STOCK",
+      marketCode: "TW",
+      barsBackfillStatus: "ready",
+    }]);
+    const seedBody = await dividends.arrange.seedDividendEvent({
+      ticker: "7820",
+      eventType: "CASH",
+      exDividendDate: `${today.month}-05`,
+      paymentDate: `${today.month}-20`,
+      cashDividendPerShare: 0.12,
+      eligibleQuantity: 1_000,
+    });
+    const eventId = seededEventId(seedBody);
+
+    await dividends.actions.navigateToCalendarMonth(today.month);
+    await dividends.assert.calendarLoaded();
+    await dividends.actions.openPostingDrawerForEvent(eventId);
+    await dividends.assert.drawerIsVisible();
+
+    const deductionTypes = await page.locator('[data-testid^="dividend-deduction-type-"]').evaluateAll((elements) => (
+      elements.map((element) => (element as HTMLSelectElement).value)
+    ));
+    let bankFeeIndex = deductionTypes.findIndex((value) => value === "BANK_FEE");
+    if (bankFeeIndex === -1) {
+      await dividends.actions.addDeduction("BANK_FEE", 15);
+      bankFeeIndex = (await page.locator('[data-testid^="dividend-deduction-type-"]').count()) - 1;
+    }
+    await page.getByTestId(`dividend-deduction-amount-${bankFeeIndex}`).fill("15");
+    await dividends.actions.fillReceivedCash(105);
+    const postResponse = await dividends.actions.submitPostingForm();
+    await appShell.assert.mxAssertEqual(postResponse.status(), 200, "posting response status");
+    await dividends.assert.drawerIsHidden();
+
+    await dividends.assert.thisMonthContains(/Post Flow 7820/);
+    await dividends.assert.recentReceiptsContains(/Post Flow 7820/);
+    await dividends.assert.recentReceiptsContains(/105/);
+    await appShell.assert.mxAssertEqual(await page.getByTestId(`dividend-post-${eventId}`).count(), 0, "post button removed");
+    await appShell.assert.mxAssertEqual(await page.getByTestId(`dividend-edit-${eventId}`).count(), 1, "edit button visible once");
+    await appShell.assert.mxAssertEqual(
+      await page.locator('[data-testid^="dividend-receipt-"]').filter({ hasText: /Post Flow 7820/ }).count(),
+      1,
+      "recent receipt row count",
+    );
+  });
+
+  test("[dividend review filters]: repeated ticker URLs, searchable multiselect, clear-all, and year pruning → selections keep only eligible OR rows", async ({
+    dividendReview,
+    page,
+    settings,
+  }) => {
+    await settings.arrange.seedInstruments([
+      { ticker: "2886", name: "Mega Holdings", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "ready" },
+      { ticker: "3714", name: "Future Tech", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "ready" },
+      { ticker: "5880", name: "Legacy Bank", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "ready" },
+    ]);
+    await dividendReview.arrange.seedPostedDividend({
+      ticker: "2886",
+      exDividendDate: "2026-07-15",
+      paymentDate: "2026-08-20",
+      cashDividendPerShare: 0.12,
+      receivedCashAmount: 108,
+    });
+    await dividendReview.arrange.seedPostedDividend({
+      ticker: "3714",
+      exDividendDate: "2026-07-16",
+      paymentDate: "2026-08-21",
+      cashDividendPerShare: 0.12,
+      receivedCashAmount: 108,
+    });
+    await dividendReview.arrange.seedPostedDividend({
+      ticker: "5880",
+      exDividendDate: "2026-07-18",
+      paymentDate: "2026-08-22",
+      cashDividendPerShare: 0.12,
+      receivedCashAmount: 108,
+    });
+    await dividendReview.arrange.seedPostedDividend({
+      ticker: "5880",
+      exDividendDate: "2025-07-16",
+      paymentDate: "2025-08-21",
+      cashDividendPerShare: 0.12,
+      receivedCashAmount: 108,
+    });
+
+    await dividendReview.actions.navigateToReviewWithParams("ticker=2886&ticker=3714");
+    await dividendReview.assert.pageLoaded();
+    await dividendReview.assert.urlContains("ticker=2886");
+    await dividendReview.assert.urlContains("ticker=3714");
+    await dividendReview.assert.tickerSummaryContains(/2 tickers|已選 2 檔/);
+    const initialRows = await reviewRowTexts(page);
+    await dividendReview.assert.valueIsTrue(initialRows.some((text) => text.includes("2886")));
+    await dividendReview.assert.valueIsTrue(initialRows.some((text) => text.includes("3714")));
+    await dividendReview.assert.valueIsTrue(initialRows.every((text) => !text.includes("5880")));
+
+    await page.getByTestId("filter-ticker-summary").click();
+    await dividendReview.assert.tickerSearchIsVisible();
+    await dividendReview.assert.tickerOptionIsVisible("2886");
+    await dividendReview.assert.tickerCheckboxIsChecked("2886");
+    await dividendReview.assert.tickerCheckboxIsChecked("3714");
+
+    await dividendReview.actions.clearTickerFilter();
+    await dividendReview.assert.urlDoesNotContain("ticker=2886");
+    await dividendReview.assert.urlDoesNotContain("ticker=3714");
+    await dividendReview.assert.tickerSummaryContains(/All tickers|所有股票/);
+
+    await dividendReview.actions.fillTicker("2886");
+    await dividendReview.actions.submitTickerFilter();
+    await dividendReview.assert.tickerCheckboxIsChecked("2886");
+    await dividendReview.assert.valueEquals(selectedTickersFromUrl(page).sort(), ["2886"]);
+    await dividendReview.actions.fillTicker("5880");
+    await dividendReview.actions.submitTickerFilter();
+    await dividendReview.assert.tickerCheckboxIsChecked("5880");
+    await dividendReview.assert.valueEquals(selectedTickersFromUrl(page).sort(), ["2886", "5880"]);
+    await dividendReview.assert.tickerCheckboxIsChecked("2886");
+    await dividendReview.assert.tickerCheckboxIsChecked("5880");
+    await dividendReview.assert.valueIsTrue((await reviewRowTexts(page)).some((text) => text.includes("5880")));
+    await dividendReview.actions.selectYearRange(2025, 2025);
+    await expect.poll(() => selectedTickersFromUrl(page).sort()).toEqual(["5880"]);
+    await dividendReview.assert.tickerCheckboxIsChecked("5880");
+    await dividendReview.assert.locatorHasCount(page.getByTestId("filter-ticker-checkbox-2886"), 0);
+    const prunedRows = await reviewRowTexts(page);
+    await dividendReview.assert.valueIsTrue(prunedRows.some((text) => text.includes("5880")));
+    await dividendReview.assert.valueIsTrue(prunedRows.every((text) => !text.includes("2886")));
+  });
+
+  test("[dividend review statuses]: cash and stock matched labels stay visibly distinct with the same status value", async ({
+    dividendReview,
+    page,
+  }) => {
+    const seeded = await dividendReview.arrange.seedPostedDividend({
+      ticker: "7830",
+      eventType: "CASH_AND_STOCK",
+      exDividendDate: "2026-07-15",
+      paymentDate: "2026-08-20",
+      cashDividendPerShare: 0.12,
+      stockDividendPerShare: 0.1,
+      receivedCashAmount: 108,
+      receivedStockQuantity: 100,
+      deductions: [],
+      sourceCompositionStatus: "provided",
+      sourceLines: [{
+        sourceBucket: "DIVIDEND_INCOME",
+        amount: 108,
+        currencyCode: "TWD",
+        source: "issuer_statement",
+      }],
+    });
+
+    await dividendReview.actions.navigateToReviewWithParams("ticker=7830");
+    await dividendReview.assert.pageLoaded();
+    await dividendReview.assert.rowStatusContains(seeded.dividendLedgerEntryId, /Cash .* Matched|現金 .* 相符/i);
+    await dividendReview.assert.rowStatusContains(seeded.dividendLedgerEntryId, /Stock .* Matched|股票 .* 相符/i);
+    await page.getByTestId(`review-row-${seeded.dividendLedgerEntryId}-open`).click();
+    await dividendReview.assert.drawerContains(/Cash/i);
+    await dividendReview.assert.drawerContains(/Stock/i);
+  });
+
+  test("[dividend overview layout]: desktop header and row columns align within one pixel and mobile stays stacked", async ({
+    appShell,
+    dividends,
+    page,
+    ticker,
+  }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await ticker.arrange.seedInstruments([{
+      ticker: "7840",
+      name: "Grid Align 7840",
+      instrumentType: "STOCK",
+      marketCode: "TW",
+      barsBackfillStatus: "ready",
+    }]);
+    const seeded = await dividends.arrange.seedPostedDividend({
+      ticker: "7840",
+      exDividendDate: "2026-07-15",
+      paymentDate: "2026-07-20",
+      cashDividendPerShare: 0.12,
+      receivedCashAmount: 108,
+      deductions: [],
+      sourceCompositionStatus: "provided",
+      sourceLines: [{
+        sourceBucket: "DIVIDEND_INCOME",
+        amount: 108,
+        currencyCode: "TWD",
+        source: "issuer_statement",
+      }],
+    });
+
+    await dividends.actions.navigateToCalendarMonth("2026-07");
+    await dividends.assert.calendarLoaded();
+    const headerXs = await page.locator('[data-testid="dividends-this-month-grid-header"] > div').evaluateAll((elements) => (
+      elements.map((element) => Math.round((element as HTMLElement).getBoundingClientRect().x))
+    ));
+    const rowXs = await page.locator(`[data-testid="dividend-row-${seeded.dividendEventId}"] > div`).evaluateAll((elements) => (
+      elements.map((element) => Math.round((element as HTMLElement).getBoundingClientRect().x))
+    ));
+    await appShell.assert.mxAssertEqual(headerXs.length, 5, "desktop grid header column count");
+    await appShell.assert.mxAssertEqual(rowXs.length, 5, "desktop grid row column count");
+    for (let index = 0; index < headerXs.length; index += 1) {
+      await appShell.assert.mxAssertTruthy(
+        Math.abs(headerXs[index]! - rowXs[index]!) <= 1,
+        `desktop grid column ${index} aligned within 1px`,
+      );
+    }
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await dividends.assert.rowContains(seeded.dividendEventId, /Grid Align 7840/);
+    await appShell.assert.mxAssertEqual(
+      await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth),
+      true,
+      "mobile page has no horizontal overflow",
+    );
+  });
+
+  test("[deployed smoke opt-in]: hard refresh shows truthful Paying Today within two seconds without false-empty flash", async ({
+    page,
+  }) => {
+    test.skip(process.env.DIVIDEND_DEPLOYED_SMOKE !== "1", "Set DIVIDEND_DEPLOYED_SMOKE=1 for deployed validation.");
+    const expectedText = process.env.DIVIDEND_DEPLOYED_EXPECT_TEXT;
+    test.skip(!expectedText, "Set DIVIDEND_DEPLOYED_EXPECT_TEXT to the expected Paying Today row text.");
+
+    const month = process.env.DIVIDEND_DEPLOYED_MONTH ?? taipeiDateParts().month;
+    const falseEmptyText = process.env.DIVIDEND_DEPLOYED_EMPTY_TEXT;
+    const targetUrl = new URL(`/dividends?month=${encodeURIComponent(month)}`, TestEnv.appBaseUrl).href;
+    const startedAt = Date.now();
+    await page.goto(targetUrl, { waitUntil: "domcontentloaded" });
+
+    const seenTexts: string[] = [];
+    let matchedAtMs: number | null = null;
+    while (Date.now() - startedAt <= 2_000) {
+      const text = await page.getByTestId("dividends-paying-today").textContent().catch(() => "");
+      seenTexts.push(text ?? "");
+      if ((text ?? "").includes(expectedText!)) {
+        matchedAtMs = Date.now() - startedAt;
+        break;
+      }
+      await page.waitForTimeout(50);
+    }
+
+    test.expect(matchedAtMs).not.toBeNull();
+    test.expect(matchedAtMs ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(2_000);
+    if (falseEmptyText) {
+      test.expect(seenTexts.some((text) => text.includes(falseEmptyText))).toBe(false);
+    }
   });
 });

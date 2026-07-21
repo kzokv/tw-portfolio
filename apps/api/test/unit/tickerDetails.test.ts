@@ -485,6 +485,7 @@ describe("buildTickerDetails", () => {
       userId: "user-1",
       ticker: "BHP",
       marketCode: "AU",
+      now: new Date("2026-07-19T00:00:00.000Z"),
       fundamentalsRecord: {
         ticker: "BHP",
         marketCode: "AU",

@@ -83,6 +83,18 @@ function getValue(
   return typeof value === "string" ? value : Array.isArray(value) ? value[0] : undefined;
 }
 
+function getValues(
+  searchParams: DividendsSearchParamsRecord | URLSearchParams,
+  key: string,
+): string[] {
+  const values = searchParams instanceof URLSearchParams
+    ? searchParams.getAll(key)
+    : typeof searchParams[key] === "string"
+      ? [searchParams[key]]
+      : searchParams[key] ?? [];
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
 function normalizeStatusFilter(status: string): string {
   if (status === "needs-review" || status === "needsReview") {
     return "needsReconciliation";
@@ -111,7 +123,7 @@ export function searchParamsToReviewQuery(
   const sortOrder = (getValue(searchParams, "sortOrder") ?? "desc") as "asc" | "desc";
   const page = Math.max(1, parseInt(getValue(searchParams, "page") ?? "1", 10) || 1);
   const limit = normalizeReviewLimit(getValue(searchParams, "limit"));
-  const ticker = getValue(searchParams, "ticker");
+  const tickers = getValues(searchParams, "ticker");
   const marketCode = getValue(searchParams, "marketCode");
   const accountId = getValue(searchParams, "accountId");
   const sourceComposition = getValue(searchParams, "sourceComposition") === "pending" ? "pending" : undefined;
@@ -133,7 +145,7 @@ export function searchParamsToReviewQuery(
   return {
     fromPaymentDate: fromDate || undefined,
     toPaymentDate: toDate || undefined,
-    ticker: ticker || undefined,
+    tickers: tickers.length > 0 ? tickers : undefined,
     marketCode: marketCode as MarketCode | undefined,
     accountId: accountId || undefined,
     ...(cashStatus ? { cashStatus } : {}),

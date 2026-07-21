@@ -142,6 +142,31 @@ export class DividendReviewAssert extends BaseAssert {
   }
 
   @Step()
+  async tickerSummaryContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.tickerSummary).toContainText(text);
+  }
+
+  @Step()
+  async tickerSearchIsVisible(): Promise<void> {
+    await expect(this.el.tickerSearch).toBeVisible();
+  }
+
+  @Step()
+  async tickerOptionIsVisible(ticker: string): Promise<void> {
+    await expect(this.el.tickerOption(ticker)).toBeVisible();
+  }
+
+  @Step()
+  async tickerCheckboxIsChecked(ticker: string): Promise<void> {
+    await expect(this.el.tickerCheckbox(ticker)).toBeChecked();
+  }
+
+  @Step()
+  async tickerCheckboxIsUnchecked(ticker: string): Promise<void> {
+    await expect(this.el.tickerCheckbox(ticker)).not.toBeChecked();
+  }
+
+  @Step()
   async dateErrorIsVisible(): Promise<void> {
     await expect(this.el.dateError).toBeVisible();
   }
