@@ -126,6 +126,9 @@ async function installReviewHarness(page: Page, options: {
       total: filtered.length,
       years: [2020, 2021, 2022, 2023, 2024, 2025, 2026],
       accounts: [{ id: "account-00", name: "QA Account 00" }],
+      eligibleTickers: Array.from(
+        new Map(allRows.map((row) => [row.ticker, { ticker: row.ticker, name: row.tickerName ?? null }])).values(),
+      ),
     };
     if (options.primary) await options.primary(route, url, payload);
     else await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(payload) });

@@ -112,6 +112,44 @@ describePostgres("dividend read model parity", () => {
     await persistence?.close();
   });
 
+  it("[postgres dividend targeted reads]: daily snapshot and review metadata → stay tenant-scoped and filter ticker arrays", async () => {
+    const fixturePool = new Pool({ connectionString: databaseUrl });
+    await fixturePool.query(
+      `UPDATE market_data.instruments SET name = 'TSMC' WHERE ticker = '2330' AND market_code = 'TW'`,
+    );
+    await fixturePool.end();
+    const fullStoreRead = vi.spyOn(persistence, "loadStore");
+    const daily = await persistence.listDividendDailyHighlightsSnapshot("user-1", {
+      localDates: ["2026-01-01", "2026-02-01"],
+    });
+    const primary = await persistence.listDividendReviewPrimary("user-1", {
+      tickers: ["2330", "NO_MATCH"],
+      page: 1,
+      limit: 10,
+      sortBy: "ticker",
+      sortOrder: "asc",
+    });
+    type DividendReviewMetadataInternals = {
+      dividendReviewNormalizedSql: (...args: unknown[]) => string;
+    };
+    const normalizedReviewRead = vi.spyOn(
+      persistence as unknown as DividendReviewMetadataInternals,
+      "dividendReviewNormalizedSql",
+    );
+    const metadata = await persistence.listDividendReviewMetadata("user-1", {
+      fromPaymentDate: "2026-02-01",
+      toPaymentDate: "2026-02-28",
+    });
+
+    expect(fullStoreRead).not.toHaveBeenCalled();
+    expect(daily.dividendEvents.map((event) => event.id)).toContain("event-01");
+    expect(daily.accounts.every((account) => account.userId === "user-1")).toBe(true);
+    expect(primary.rows.every((row) => row.ticker === "2330")).toBe(true);
+    expect(metadata.eligibleTickers).toEqual([{ ticker: "2330", name: "TSMC" }]);
+    expect(normalizedReviewRead).not.toHaveBeenCalled();
+    normalizedReviewRead.mockRestore();
+  });
+
   it("[postgres ticker read models]: posted/open builders → preserve pagination and open separation", async () => {
     const store = await persistence.loadStore("user-1");
 
@@ -686,6 +724,13 @@ describePostgres("dividend read model parity", () => {
     const singleDetailRead = vi.spyOn(persistence, "getDividendLedgerEntryWithDetails").mockRejectedValue(
       new Error("compatibility review must bulk-hydrate only the selected page"),
     );
+    type DividendReviewPersistenceInternals = {
+      loadDividendReviewSummariesSql: (...args: unknown[]) => Promise<unknown>;
+    };
+    const fullReviewRead = vi.spyOn(
+      persistence as unknown as DividendReviewPersistenceInternals,
+      "loadDividendReviewSummariesSql",
+    );
     const review = await persistence.listDividendReviewRows("user-1", {
       page: 1,
       limit: 10,
@@ -702,12 +747,14 @@ describePostgres("dividend read model parity", () => {
     expect(fullStoreRead).not.toHaveBeenCalled();
     expect(calendarSnapshotRead).not.toHaveBeenCalled();
     expect(singleDetailRead).not.toHaveBeenCalled();
+    expect(fullReviewRead).not.toHaveBeenCalled();
     expect(primary.rows[0]).not.toHaveProperty("deductions");
     expect(primary.rows[0]).not.toHaveProperty("sourceLines");
     expect(enrichment.aggregates).toEqual(review.aggregates);
     fullStoreRead.mockRestore();
     calendarSnapshotRead.mockRestore();
     singleDetailRead.mockRestore();
+    fullReviewRead.mockRestore();
 
     const generatedRow = review.rows.find((row) => row.id === `expected:${accountId}:event-expected-generated`);
     expect(generatedRow).toMatchObject({

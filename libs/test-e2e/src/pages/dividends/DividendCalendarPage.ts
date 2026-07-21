@@ -11,6 +11,15 @@ export interface TDividendCalendarElements {
   thisMonth: Locator;
   recentReceipts: Locator;
   tbdSection: Locator;
+  payingToday: Locator;
+  exDividendToday: Locator;
+  payingTodayRefreshing: Locator;
+  exDividendTodayRefreshing: Locator;
+  payingTodayError: Locator;
+  exDividendTodayError: Locator;
+  payingTodayRetry: Locator;
+  exDividendTodayRetry: Locator;
+  thisMonthGridHeader: Locator;
   // Phase 5a — Tabs container (calendar | ledger).
   tabsContainer: Locator;
   tabCalendar: Locator;
@@ -36,6 +45,15 @@ export class DividendCalendarPage extends BasePage<TDividendCalendarElements> {
       thisMonth: this.locate("dividends-this-month", "Dividends This Month Section"),
       recentReceipts: this.locate("dividends-recent-receipts", "Dividends Recent Receipts Section"),
       tbdSection: this.locate("dividends-tbd-section", "Dividend Payment Date TBD Section"),
+      payingToday: this.locate("dividends-paying-today", "Dividends Paying Today"),
+      exDividendToday: this.locate("dividends-ex-dividend-today", "Dividends Ex-Dividend Today"),
+      payingTodayRefreshing: this.locate("paying-today-refreshing", "Paying Today Refreshing"),
+      exDividendTodayRefreshing: this.locate("ex-dividend-today-refreshing", "Ex-Dividend Today Refreshing"),
+      payingTodayError: this.locate("paying-today-error", "Paying Today Error"),
+      exDividendTodayError: this.locate("ex-dividend-today-error", "Ex-Dividend Today Error"),
+      payingTodayRetry: this.locate("paying-today-retry", "Paying Today Retry"),
+      exDividendTodayRetry: this.locate("ex-dividend-today-retry", "Ex-Dividend Today Retry"),
+      thisMonthGridHeader: this.locate("dividends-this-month-grid-header", "Dividends This Month Grid Header"),
       tabsContainer: this.locate("dividends-tabs", "Dividends Tabs Container"),
       tabCalendar: this.locate("dividends-tab-calendar", "Dividends Calendar Tab"),
       tabLedger: this.locate("dividends-tab-ledger", "Dividends Ledger Tab"),

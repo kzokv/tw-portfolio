@@ -38,6 +38,46 @@ export class DividendsAssert extends BaseAssert {
   }
 
   @Step()
+  async payingTodayContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.payingToday).toContainText(text);
+  }
+
+  @Step()
+  async exDividendTodayContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.exDividendToday).toContainText(text);
+  }
+
+  @Step()
+  async payingTodayErrorIsVisible(): Promise<void> {
+    await expect(this.el.payingTodayError).toBeVisible();
+  }
+
+  @Step()
+  async exDividendTodayErrorIsVisible(): Promise<void> {
+    await expect(this.el.exDividendTodayError).toBeVisible();
+  }
+
+  @Step()
+  async payingTodayErrorIsHidden(): Promise<void> {
+    await expect(this.el.payingTodayError).toHaveCount(0);
+  }
+
+  @Step()
+  async exDividendTodayErrorIsHidden(): Promise<void> {
+    await expect(this.el.exDividendTodayError).toHaveCount(0);
+  }
+
+  @Step()
+  async payingTodayRefreshingIsVisible(): Promise<void> {
+    await expect(this.el.payingTodayRefreshing).toBeVisible();
+  }
+
+  @Step()
+  async exDividendTodayRefreshingIsVisible(): Promise<void> {
+    await expect(this.el.exDividendTodayRefreshing).toBeVisible();
+  }
+
+  @Step()
   async recentReceiptsContains(text: string | RegExp): Promise<void> {
     await expect(this.el.recentReceipts).toContainText(text);
   }

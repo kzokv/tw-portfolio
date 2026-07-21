@@ -71,3 +71,9 @@ Chart-capable App Router pages must pass server-parsed query parameters into the
 When a route hook restores a fresh DTO cache entry, bump or cancel the hook's request generation before applying the cached data. A previous in-flight request from another context, range, currency, or route slot must not be able to resolve later and overwrite the restored cache payload.
 
 Fresh cache is only terminal for the route layer it proves complete. If a cached payload is a primary-only seed and the page depends on a secondary enrichment route for market values, valuation health, dividends, freshness, or quote details, render the cached primary data immediately but still start the enrichment refresh. Add hook coverage for both cases: fresh enriched cache skips automatic refetch, while fresh primary-only cache restores immediately and then refreshes enrichment.
+
+## 2026-07-21 Addendum: Hide Context-Specific Metadata During Owner Transitions
+
+Portfolio-specific metadata such as eligible tickers, account names, fee profiles, and filter options must be hidden or replaced immediately when the selected owner context changes. Do not keep rendering the prior context's metadata while the next primary request is pending, and do not leave it visible if that request fails.
+
+Only an exact-current committed response may repopulate that metadata. Match the full request identity, not just the route or a partial scope, so a late response from an earlier owner, date range, account, or filter cannot overwrite the active context. Add a regression test that switches context, verifies prior-owner metadata disappears before the new response, and verifies a stale or failed response cannot restore it.

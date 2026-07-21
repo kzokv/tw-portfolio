@@ -27,6 +27,7 @@ import type {
   DividendReviewPrimaryQueryDto,
   DividendReviewRowSummaryDto,
   DividendReviewSortColumn,
+  DividendReviewTickerOptionDto,
   DividendSourceLine,
   ShareCapability,
   InstrumentOptionDto,
@@ -1300,11 +1301,14 @@ export interface DividendLedgerListOptions {
   sortOrder: "asc" | "desc";
 }
 
-export interface DividendReviewListOptions extends Omit<DividendLedgerListOptions, "sortBy"> {
+export interface DividendReviewListOptions extends Omit<DividendLedgerListOptions, "sortBy" | "ticker"> {
   sortBy: DividendReviewSortColumn;
   sourceComposition?: DividendReviewPrimaryQueryDto["sourceComposition"];
   cashStatus?: DividendReviewPrimaryQueryDto["cashStatus"];
   stockStatus?: DividendReviewPrimaryQueryDto["stockStatus"];
+  /** @deprecated Prefer `tickers`; retained for programmatic caller compatibility. */
+  ticker?: string;
+  tickers?: string[];
 }
 
 export type DividendReviewPrimaryResult = {
@@ -1321,6 +1325,7 @@ export type DividendReviewEnrichmentResult = DividendReviewEnrichmentDto & {
 export type DividendReviewMetadataResult = {
   years: number[];
   accounts: DividendReviewAccountOptionDto[];
+  eligibleTickers: DividendReviewTickerOptionDto[];
 };
 
 export type DividendLedgerEntryWithDetails = DividendLedgerEntry & {
@@ -1341,7 +1346,15 @@ export interface DividendCalendarSnapshotOptions {
   marketCode?: MarketCode;
   ticker?: string;
   includeUndated?: boolean;
+  /** Internal targeted-read selector used by daily highlights. */
+  highlightLocalDates?: string[];
   limit: number;
+}
+
+export interface DividendDailyHighlightsSnapshotOptions {
+  accountId?: string;
+  marketCode?: MarketCode;
+  localDates: string[];
 }
 
 export interface DividendCalendarSnapshotResult {
@@ -3113,6 +3126,10 @@ export interface Persistence {
     userId: string,
     opts: DividendCalendarSnapshotOptions,
   ): Promise<DividendCalendarSnapshotResult>;
+  listDividendDailyHighlightsSnapshot(
+    userId: string,
+    opts: DividendDailyHighlightsSnapshotOptions,
+  ): Promise<DividendCalendarSnapshotResult>;
   listDividendLedgerEntries(
     userId: string,
     opts: DividendLedgerListOptions,
@@ -3129,7 +3146,10 @@ export interface Persistence {
     userId: string,
     filters: DividendReviewFilterDto,
   ): Promise<DividendReviewEnrichmentResult>;
-  listDividendReviewMetadata(userId: string): Promise<DividendReviewMetadataResult>;
+  listDividendReviewMetadata(
+    userId: string,
+    filters?: Pick<DividendReviewFilterDto, "accountId" | "fromPaymentDate" | "toPaymentDate">,
+  ): Promise<DividendReviewMetadataResult>;
   listDividendLedgerYears(userId: string): Promise<{ years: number[] }>;
   getTickerFundamentals(
     ticker: string,

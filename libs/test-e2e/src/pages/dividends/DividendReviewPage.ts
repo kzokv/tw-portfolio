@@ -18,8 +18,14 @@ export interface TDividendReviewElements extends TElementLocatorHelpers {
   dateError: Locator;
 
   // Filter bar — dropdowns and inputs
-  tickerInput: Locator;
+  tickerDropdown: Locator;
+  tickerSummary: Locator;
+  tickerSearch: Locator;
+  tickerClear: Locator;
+  tickerOption: (ticker: string) => Locator;
+  tickerCheckbox: (ticker: string) => Locator;
   statusSelect: Locator;
+  stockStatusSelect: Locator;
   accountSelect: Locator;
 
   // Stats tiles
@@ -98,8 +104,14 @@ export class DividendReviewPage extends BasePage<TDividendReviewElements> {
       dateError: this.locate("date-error", "Date Error"),
 
       // Filter bar — dropdowns and inputs
-      tickerInput: this.locate("filter-ticker", "Ticker Input"),
+      tickerDropdown: this.locate("filter-ticker-dropdown", "Ticker Dropdown"),
+      tickerSummary: this.locate("filter-ticker-summary", "Ticker Summary"),
+      tickerSearch: this.locate("filter-ticker-search", "Ticker Search"),
+      tickerClear: this.locate("filter-ticker-clear", "Ticker Clear"),
+      tickerOption: (ticker: string) => this.locate(`filter-ticker-option-${ticker}`, `Ticker Option ${ticker}`),
+      tickerCheckbox: (ticker: string) => this.locate(`filter-ticker-checkbox-${ticker}`, `Ticker Checkbox ${ticker}`),
       statusSelect: this.locate("filter-cash-status", "Cash Status Select"),
+      stockStatusSelect: this.locate("filter-stock-status", "Stock Status Select"),
       accountSelect: this.locate("filter-account", "Account Select"),
 
       // Stats tiles

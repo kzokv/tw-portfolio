@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../../src/app.js";
 import { createDividendEvent, type CreateDividendEventInput } from "../../src/services/dividends.js";
 import type { DividendLedgerEntry } from "../../src/types/store.js";
@@ -190,6 +190,38 @@ describe("dividends", () => {
     );
   });
 
+  it("[dividend posting]: duplicate active posting → remains blocked with a different idempotency key", async () => {
+    await seedBuy();
+    const dividendEvent = await seedDividendEvent({
+      ticker: "2330",
+      eventType: "CASH",
+      exDividendDate: "2026-02-01",
+      paymentDate: "2026-02-20",
+      cashDividendPerShare: 12,
+    });
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/postings",
+      headers: { "idempotency-key": "active-posting-first" },
+      payload: dividendPostingPayload({ dividendEventId: dividendEvent.id, receivedCashAmount: 108 }),
+    });
+    const duplicate = await app.inject({
+      method: "POST",
+      url: "/portfolio/dividends/postings",
+      headers: { "idempotency-key": "active-posting-second" },
+      payload: dividendPostingPayload({ dividendEventId: dividendEvent.id, receivedCashAmount: 108 }),
+    });
+
+    expect(first.statusCode).toBe(200);
+    expect(duplicate.statusCode).toBe(409);
+    expect(duplicate.json()).toMatchObject({ error: "dividend_conflict" });
+    const store = await app.persistence.loadStore("user-1");
+    expect(store.accounting.facts.dividendLedgerEntries.filter((entry) =>
+      entry.dividendEventId === dividendEvent.id && !entry.supersededAt && !entry.reversalOfDividendLedgerEntryId,
+    )).toHaveLength(1);
+  });
+
   it("returns account-scoped dividend rows and includes payment-date TBD events", async () => {
     await seedInstrument();
     await seedBuy();
@@ -238,6 +270,113 @@ describe("dividends", () => {
         }),
       ]),
     });
+  });
+
+  it("[daily highlights]: targeted read → does not load the full user store", async () => {
+    await seedInstrument();
+    await seedBuy();
+    await seedDividendEvent({
+      ticker: "2330",
+      eventType: "CASH",
+      exDividendDate: "2026-07-21",
+      paymentDate: "2026-07-21",
+      cashDividendPerShare: 12,
+    });
+    const loadStore = vi.spyOn(app.persistence, "loadStore");
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/daily-highlights?at=2026-07-21T04:00:00.000Z",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      payingToday: [expect.objectContaining({ ticker: "2330", applicableLocalDate: "2026-07-21" })],
+      exDividendToday: [expect.objectContaining({ ticker: "2330", applicableLocalDate: "2026-07-21" })],
+    });
+    expect(loadStore).not.toHaveBeenCalled();
+  });
+
+  it("[daily highlights]: targeted persistence failure → returns an isolated server error", async () => {
+    vi.spyOn(app.persistence, "listDividendDailyHighlightsSnapshot").mockRejectedValueOnce(new Error("daily read failed"));
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/daily-highlights?at=2026-07-21T04:00:00.000Z",
+    });
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toMatchObject({ error: "internal_error" });
+  });
+
+  it("[dividend review metadata]: scoped universe → returns complete sorted eligible ticker options", async () => {
+    const store = await app.persistence.loadStore("user-1");
+    store.instruments.push(
+      { ticker: "2886", name: "Mega Financial", type: "STOCK", marketCode: "TW", isProvisional: false },
+      { ticker: "3714", name: "Ennoconn", type: "STOCK", marketCode: "TW", isProvisional: false },
+    );
+    await app.persistence.saveStore(store);
+    await seedBuyForTicker("3714");
+    await seedBuyForTicker("2886");
+    const namedStore = await app.persistence.loadStore("user-1");
+    namedStore.instruments.find((instrument) => instrument.ticker === "2886")!.name = "Mega Financial";
+    namedStore.instruments.find((instrument) => instrument.ticker === "3714")!.name = "Ennoconn";
+    await app.persistence.saveStore(namedStore);
+    await seedDividendEvent({ ticker: "3714", exDividendDate: "2026-02-01", paymentDate: "2026-03-01" });
+    await seedDividendEvent({ ticker: "2886", exDividendDate: "2026-02-01", paymentDate: "2026-03-02" });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/review/primary?fromPaymentDate=2026-01-01&toPaymentDate=2026-12-31&reconciliationStatus=matched&limit=10",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      reviewRows: [],
+      eligibleTickers: [
+        { ticker: "2886", name: "Mega Financial" },
+        { ticker: "3714", name: "Ennoconn" },
+      ],
+    });
+  });
+
+  it("[dividend review filters]: repeated ticker query → applies OR semantics and preserves a single ticker", async () => {
+    const store = await app.persistence.loadStore("user-1");
+    store.instruments.push(
+      { ticker: "2886", name: "Mega Financial", type: "STOCK", marketCode: "TW", isProvisional: false },
+      { ticker: "3714", name: "Ennoconn", type: "STOCK", marketCode: "TW", isProvisional: false },
+    );
+    await app.persistence.saveStore(store);
+    await seedBuyForTicker("3714");
+    await seedBuyForTicker("2886");
+    await seedDividendEvent({ ticker: "3714", exDividendDate: "2026-02-01", paymentDate: "2026-03-01" });
+    await seedDividendEvent({ ticker: "2886", exDividendDate: "2026-02-01", paymentDate: "2026-03-02" });
+
+    const repeated = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/review/primary?ticker=3714&ticker=2886&limit=10&sortBy=ticker&sortOrder=asc",
+    });
+    const single = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/review/primary?ticker=2886&limit=10",
+    });
+    const compatibility = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/review?ticker=3714&ticker=2886&limit=10&sortBy=ticker&sortOrder=asc",
+    });
+    const enrichment = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/review/enrichment?ticker=3714&ticker=2886",
+    });
+
+    expect(repeated.statusCode).toBe(200);
+    expect(repeated.json().reviewRows.map((row: { ticker: string }) => row.ticker)).toEqual(["2886", "3714"]);
+    expect(single.statusCode).toBe(200);
+    expect(single.json().reviewRows.map((row: { ticker: string }) => row.ticker)).toEqual(["2886"]);
+    expect(compatibility.statusCode).toBe(200);
+    expect(compatibility.json().reviewRows.map((row: { ticker: string }) => row.ticker)).toEqual(["2886", "3714"]);
+    expect(enrichment.statusCode).toBe(200);
+    expect(enrichment.json().hero.needsAttentionCount).toBe(2);
   });
 
   it("returns the combined calendar snapshot with display-name enrichment", async () => {

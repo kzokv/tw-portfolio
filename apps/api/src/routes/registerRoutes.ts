@@ -327,31 +327,13 @@ function normalizeAccountIdsQueryValue(value: unknown): string[] | undefined {
   return accountIds.length > 0 ? accountIds : undefined;
 }
 
-function buildScopedDividendReadStore(
-  store: Store,
-  userId: string,
-  accountId?: string,
-): Store {
-  const scopedStore = createStore();
-  scopedStore.userId = userId;
-  scopedStore.settings.userId = userId;
-  scopedStore.accounts = store.accounts.filter((account) => !accountId || account.id === accountId);
-  const allowedAccountIds = new Set(scopedStore.accounts.map((account) => account.id));
-  scopedStore.marketData.dividendEvents = store.marketData.dividendEvents;
-  scopedStore.accounting.facts.tradeEvents = store.accounting.facts.tradeEvents.filter((trade) => allowedAccountIds.has(trade.accountId));
-  scopedStore.accounting.facts.cashLedgerEntries = store.accounting.facts.cashLedgerEntries.filter((entry) => allowedAccountIds.has(entry.accountId));
-  scopedStore.accounting.facts.dividendLedgerEntries = store.accounting.facts.dividendLedgerEntries.filter(
-    (entry) => allowedAccountIds.has(entry.accountId),
-  );
-  const allowedLedgerIds = new Set(scopedStore.accounting.facts.dividendLedgerEntries.map((entry) => entry.id));
-  scopedStore.accounting.facts.dividendDeductionEntries = store.accounting.facts.dividendDeductionEntries.filter(
-    (entry) => allowedLedgerIds.has(entry.dividendLedgerEntryId),
-  );
-  scopedStore.accounting.facts.dividendSourceLines = store.accounting.facts.dividendSourceLines.filter(
-    (entry) => allowedLedgerIds.has(entry.dividendLedgerEntryId),
-  );
-  setStoreInstruments(scopedStore, store.instruments);
-  return scopedStore;
+function normalizeTickerQueryValue(value: unknown): string[] | undefined {
+  const rawValues = Array.isArray(value) ? value : [value];
+  const tickers = rawValues
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return tickers.length > 0 ? [...new Set(tickers)] : undefined;
 }
 
 function sortDividendDailyHighlightItems<T extends {
@@ -615,7 +597,7 @@ const dividendReviewQuerySchema = z.object({
   reconciliationStatus: z.enum(["open", "matched", "explained", "resolved"]).optional(),
   postingStatus: z.enum(["expected", "posted", "adjusted"]).optional(),
   excludeExpected: z.enum(["true", "false"]).transform((value) => value === "true").optional(),
-  ticker: tickerSchema.optional(),
+  ticker: z.preprocess(normalizeTickerQueryValue, z.array(tickerSchema).max(50).optional()),
   marketCode: marketCodeSchema.optional(),
   sourceComposition: z.literal("pending").optional(),
   page: z.coerce.number().int().positive().default(1),
@@ -7281,9 +7263,26 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/portfolio/dividends/daily-highlights", async (req) => {
     const query = dividendDailyHighlightsQuerySchema.parse(req.query);
-    const { userId, store } = await loadUserStore(app, req);
+    const { contextUserId: userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
     const now = query.at ? new Date(query.at) : new Date();
-    const scopedStore = buildScopedDividendReadStore(store, userId, query.accountId);
+    const localDates = [...new Set((query.marketCode ? [query.marketCode] : MARKET_CODES)
+      .map((marketCode) => getMarketLocalDate(marketCode, now)))];
+    const snapshot = await app.persistence.listDividendDailyHighlightsSnapshot(userId, {
+      accountId: query.accountId,
+      marketCode: query.marketCode,
+      localDates,
+    });
+    const scopedStore = createStore();
+    scopedStore.userId = userId;
+    scopedStore.settings.userId = userId;
+    scopedStore.accounts = snapshot.accounts;
+    scopedStore.marketData.dividendEvents = snapshot.dividendEvents;
+    scopedStore.accounting.facts.tradeEvents = snapshot.tradeEvents;
+    scopedStore.accounting.facts.positionActions = snapshot.positionActions ?? [];
+    scopedStore.accounting.facts.dividendLedgerEntries = snapshot.ledgerEntries;
+    scopedStore.accounting.facts.dividendDeductionEntries = snapshot.ledgerEntries.flatMap((entry) => entry.deductions);
+    scopedStore.accounting.facts.dividendSourceLines = snapshot.ledgerEntries.flatMap((entry) => entry.sourceLines);
+    setStoreInstruments(scopedStore, snapshot.instruments);
     const localDateByEventId = new Map<string, string>();
 
     const matchesDailyHighlight = (
@@ -7322,12 +7321,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/portfolio/dividends/review/primary", async (req, reply) => {
     const query = dividendReviewQuerySchema.parse(req.query);
+    const { ticker, ...reviewQuery } = query;
     return withReadPathTiming(req, reply, "/portfolio/dividends/review/primary", async (timing) => {
       const { contextUserId: userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
       const [primary, metadata] = await Promise.all([
-        app.persistence.listDividendReviewPrimary(userId, query),
+        app.persistence.listDividendReviewPrimary(userId, { ...reviewQuery, tickers: ticker }),
         timing.measure("review_primary_metadata", "db", () =>
-          app.persistence.listDividendReviewMetadata(userId)),
+          app.persistence.listDividendReviewMetadata(userId, {
+            accountId: query.accountId,
+            fromPaymentDate: query.fromPaymentDate,
+            toPaymentDate: query.toPaymentDate,
+          })),
       ]);
       timing.record("review_primary_db", "db", primary.phaseTimings?.dbMs ?? 0);
       timing.record("review_primary_hydration", "app", primary.phaseTimings?.hydrationMs ?? 0);
@@ -7336,15 +7340,20 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
         total: primary.total,
         years: metadata.years,
         accounts: metadata.accounts,
+        eligibleTickers: metadata.eligibleTickers,
       };
     });
   });
 
   app.get("/portfolio/dividends/review/enrichment", async (req, reply) => {
     const filters = dividendReviewFilterQuerySchema.parse(req.query);
+    const { ticker, ...reviewFilters } = filters;
     return withReadPathTiming(req, reply, "/portfolio/dividends/review/enrichment", async (timing) => {
       const { contextUserId: userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
-      const enrichment = await app.persistence.getDividendReviewEnrichment(userId, filters);
+      const enrichment = await app.persistence.getDividendReviewEnrichment(userId, {
+        ...reviewFilters,
+        tickers: ticker,
+      });
       timing.record("review_enrichment_db", "db", enrichment.phaseTimings?.dbMs ?? 0);
       timing.record("review_enrichment_aggregate", "phase", enrichment.phaseTimings?.aggregateMs ?? 0);
       return {
@@ -7368,7 +7377,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       reconciliationStatus: query.reconciliationStatus,
       postingStatus: query.postingStatus,
       excludeExpected: query.excludeExpected,
-      ticker: query.ticker,
+      tickers: query.ticker,
       marketCode: query.marketCode,
       sourceComposition: query.sourceComposition,
       page: query.page,

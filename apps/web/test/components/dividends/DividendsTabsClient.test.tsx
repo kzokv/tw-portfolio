@@ -34,6 +34,7 @@ const fetchDividendLedgerReviewMock = vi.mocked(fetchDividendLedgerReview);
 const fetchDividendLedgerYearsMock = vi.mocked(fetchDividendLedgerYears);
 const emptyReviewData = {
   reviewRows: [],
+  eligibleTickers: [],
   years: [2026],
   accounts: [],
   ledgerEntries: [],
