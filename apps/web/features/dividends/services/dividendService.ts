@@ -212,6 +212,7 @@ export async function fetchDividendReviewEnrichment(
     fromPaymentDate: filters.fromPaymentDate,
     toPaymentDate: filters.toPaymentDate,
     accountId: filters.accountId,
+    ticker: filters.ticker,
     tickers: filters.tickers,
     marketCode: filters.marketCode,
     postingStatus: filters.postingStatus,

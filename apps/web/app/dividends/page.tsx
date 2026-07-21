@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { cookies } from "next/headers";
 import type { LocaleCode, UserSettings } from "@vakwen/shared-types";
 import { DividendsTabsClient } from "../../components/dividends/DividendsTabsClient";
 import {
@@ -23,6 +24,7 @@ import {
   fetchDividendReviewPrimary,
 } from "../../features/dividends/services/dividendService";
 import type { ProfileWithImpersonationDto } from "../../features/profile/hooks/useProfile";
+import { CONTEXT_USER_ID_COOKIE } from "../../lib/context";
 
 interface DividendsPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -46,12 +48,13 @@ function hasExplicitDividendsView(searchParams: Record<string, string | string[]
 }
 
 export default async function DividendsPage({ searchParams }: DividendsPageProps) {
-  const [sp, session, profile, sidebarOpen, settings] = await Promise.all([
+  const [sp, session, profile, sidebarOpen, settings, cookieStore] = await Promise.all([
     searchParams,
     requireSession(),
     getJson<ProfileWithImpersonationDto>("/profile", { contextScope: "session" }),
     readSidebarStateCookie(),
     getJson<UserSettings>("/settings", { contextScope: "session" }).catch(() => null),
+    cookies(),
   ]);
 
   const locale: LocaleCode = settings?.locale ?? "en";
@@ -61,6 +64,8 @@ export default async function DividendsPage({ searchParams }: DividendsPageProps
   const initialTab = hasExplicitDividendsView(sp) ? resolvedInitialTab : "calendar";
   const initialCalendarMonth = calendarMonthFromSearchParams(sp);
   const initialReviewQuery = searchParamsToReviewQuery(sp);
+  const rawContextOwnerId = cookieStore.get(CONTEXT_USER_ID_COOKIE)?.value?.trim();
+  const initialContextOwnerId = rawContextOwnerId ? decodeURIComponent(rawContextOwnerId) : session.userId;
   const [initialCalendarSnapshot, initialDailyHighlights, initialReviewData] = await Promise.all([
     initialTab === "calendar"
       ? fetchDividendCalendarSnapshot(calendarQueryFromSearchParams(sp)).catch(() => null)
@@ -104,6 +109,7 @@ export default async function DividendsPage({ searchParams }: DividendsPageProps
           initialCalendarMonth={initialCalendarMonth}
           initialCalendarSnapshot={initialCalendarSnapshot}
           initialDailyHighlights={initialDailyHighlights}
+          initialContextOwnerId={initialContextOwnerId}
           initialReviewData={initialReviewData}
           initialReviewQuery={initialReviewQuery}
           initialYears={initialReviewData?.years ?? []}

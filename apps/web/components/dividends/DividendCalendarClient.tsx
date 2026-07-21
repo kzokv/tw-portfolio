@@ -43,6 +43,7 @@ interface DividendCalendarClientProps {
   initialSnapshot: DividendCalendarSnapshot;
   initialMonth: string;
   initialDailyHighlights?: DividendDailyHighlightsState;
+  initialContextOwnerId?: string | null;
   dict: AppDictionary;
   locale: LocaleCode;
   onSnapshotChange?: (snapshot: DividendCalendarSnapshot, month: string) => void;
@@ -285,38 +286,42 @@ function stockIssueLabel(dict: AppDictionary, row: DividendCalendarRow): string 
   return null;
 }
 
-export function DividendCalendarClient({ initialSnapshot, initialMonth, initialDailyHighlights, dict, locale, onSnapshotChange }: DividendCalendarClientProps) {
+export function DividendCalendarClient({ initialSnapshot, initialMonth, initialDailyHighlights, initialContextOwnerId, dict, locale, onSnapshotChange }: DividendCalendarClientProps) {
   const shellData = useOptionalAppShellData();
   const canWriteDividends = !shellData?.isSharedContext || shellData.sharedContextPermissions.canWriteDividends;
   const contextRefreshSignal = shellData?.contextRefreshSignal ?? 0;
   const contextOwnerId = shellData?.contextOwnerId ?? shellData?.sessionUserId ?? null;
+  const initialDataMatchContext = initialContextOwnerId === undefined || initialContextOwnerId === contextOwnerId;
+  const initialHighlightsMatchContext = initialDataMatchContext && initialDailyHighlights !== undefined;
   const [visibleMonth, setVisibleMonth] = useState(() => parseMonthKey(initialMonth));
-  const [snapshot, setSnapshot] = useState<DividendCalendarSnapshot>(initialSnapshot);
+  const [snapshot, setSnapshot] = useState<DividendCalendarSnapshot>(() => initialDataMatchContext
+    ? initialSnapshot
+    : { events: [], ledgerEntries: [] });
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [drawerRow, setDrawerRow] = useState<DividendCalendarRow | null>(null);
   const [isDrawerDirty, setIsDrawerDirty] = useState(false);
   const [pendingRowKey, setPendingRowKey] = useState<string | null>(null);
   const [payingTodayState, setPayingTodayState] = useState<DailyHighlightCardViewState>(() => ({
-    status: initialDailyHighlights?.payingToday.status ?? "refreshing",
-    data: (initialDailyHighlights?.payingToday.data ?? []).map((item) => mapDividendDailyHighlightItem(item, locale)),
-    error: initialDailyHighlights?.payingToday.error ?? "",
+    status: initialHighlightsMatchContext ? initialDailyHighlights.payingToday.status : "refreshing",
+    data: initialHighlightsMatchContext ? initialDailyHighlights.payingToday.data.map((item) => mapDividendDailyHighlightItem(item, locale)) : [],
+    error: initialHighlightsMatchContext ? initialDailyHighlights.payingToday.error : "",
   }));
   const [exDividendTodayState, setExDividendTodayState] = useState<DailyHighlightCardViewState>(() => ({
-    status: initialDailyHighlights?.exDividendToday.status ?? "refreshing",
-    data: (initialDailyHighlights?.exDividendToday.data ?? []).map((item) => mapDividendDailyHighlightItem(item, locale)),
-    error: initialDailyHighlights?.exDividendToday.error ?? "",
+    status: initialHighlightsMatchContext ? initialDailyHighlights.exDividendToday.status : "refreshing",
+    data: initialHighlightsMatchContext ? initialDailyHighlights.exDividendToday.data.map((item) => mapDividendDailyHighlightItem(item, locale)) : [],
+    error: initialHighlightsMatchContext ? initialDailyHighlights.exDividendToday.error : "",
   }));
   const activeMonthKey = monthKey(visibleMonth);
   const bounds = useMemo(() => monthBounds(visibleMonth), [visibleMonth]);
   const query = useMemo<DividendQuery>(() => ({ ...bounds, limit: 500 }), [bounds]);
   const initialQueryKey = useRef(JSON.stringify(query));
-  const didSkipInitialQueryRef = useRef(false);
+  const didSkipInitialQueryRef = useRef(!initialDataMatchContext);
   const requestSequenceRef = useRef(0);
   const activeRequestRef = useRef<AbortController | null>(null);
   const highlightsRequestSequenceRef = useRef<Record<DailyHighlightCardKey, number>>({ payingToday: 0, exDividendToday: 0 });
   const highlightsRequestControllersRef = useRef(new Set<AbortController>());
-  const shouldFetchInitialHighlightsRef = useRef(initialDailyHighlights === undefined);
+  const shouldFetchInitialHighlightsRef = useRef(!initialHighlightsMatchContext);
   const onSnapshotChangeRef = useRef(onSnapshotChange);
   const lastContextRefreshSignal = useRef(contextRefreshSignal);
   const lastContextOwnerId = useRef(contextOwnerId);
@@ -352,8 +357,8 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, initialD
   }, []);
 
   useEffect(() => {
-    setSnapshot(initialSnapshot);
-  }, [initialSnapshot]);
+    if (initialDataMatchContext) setSnapshot(initialSnapshot);
+  }, [initialDataMatchContext, initialSnapshot]);
 
   useEffect(() => {
     const nextMonth = parseMonthKey(initialMonth);

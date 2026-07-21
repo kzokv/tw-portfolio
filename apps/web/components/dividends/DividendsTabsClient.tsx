@@ -50,6 +50,7 @@ interface DividendsTabsClientProps {
   initialCalendarMonth: string;
   initialCalendarSnapshot: DividendCalendarSnapshot | null;
   initialDailyHighlights?: DividendDailyHighlightsState;
+  initialContextOwnerId?: string | null;
   initialReviewData: DividendReviewPrimaryDto | null;
   initialReviewQuery?: DividendReviewPrimaryQueryDto;
   initialYears: number[];
@@ -98,6 +99,7 @@ export function DividendsTabsClient({
   initialCalendarMonth,
   initialCalendarSnapshot,
   initialDailyHighlights,
+  initialContextOwnerId,
   initialReviewData,
   initialReviewQuery = searchParamsToReviewQuery(new URLSearchParams()),
   initialYears,
@@ -208,6 +210,7 @@ export function DividendsTabsClient({
             initialSnapshot={calendarSnapshot}
             initialMonth={calendarMonth}
             initialDailyHighlights={initialDailyHighlights}
+            initialContextOwnerId={initialContextOwnerId}
             dict={dict}
             locale={locale}
             onSnapshotChange={(nextSnapshot, nextMonth) => {

@@ -199,6 +199,7 @@ describe("DividendCalendarClient", () => {
             payingToday: { status: "success", data: highlights.payingToday, error: "" },
             exDividendToday: { status: "success", data: highlights.exDividendToday, error: "" },
           }}
+          initialContextOwnerId={null}
           dict={dict}
           locale="en"
         />,
@@ -209,6 +210,55 @@ describe("DividendCalendarClient", () => {
     expect(document.querySelector("[data-testid='dividends-paying-today']")?.textContent).not.toContain(dict.dividends.overview.noPayingToday);
     expect(document.querySelector("[data-testid='dividends-ex-dividend-today']")?.textContent).toContain("0056 Yuanta High Dividend");
     expect(fetchDividendDailyHighlights).not.toHaveBeenCalled();
+  });
+
+  it("discards a prior-owner highlight seed and refetches when the calendar remounts in another context", async () => {
+    const snapshot: DividendCalendarSnapshot = {
+      events: [buildEvent({ ticker: "2330", tickerName: "Prior Owner" })],
+      ledgerEntries: [],
+    };
+    const currentSnapshot: DividendCalendarSnapshot = {
+      events: [buildEvent({ id: "event-current", ticker: "2886", tickerName: "Current Owner" })],
+      ledgerEntries: [],
+    };
+    const priorOwnerHighlight = buildDailyHighlight({ ticker: "2330", tickerName: "Prior Owner" });
+    const currentOwnerHighlight = buildDailyHighlight({ ticker: "2886", tickerName: "Current Owner" });
+    shellContext.value = {
+      isSharedContext: true,
+      sharedContextPermissions: { canWriteDividends: false },
+      contextRefreshSignal: 1,
+      contextOwnerId: "owner-b",
+      sessionUserId: "viewer-1",
+    };
+    vi.mocked(fetchDividendDailyHighlights).mockResolvedValue({
+      payingToday: [currentOwnerHighlight],
+      exDividendToday: [],
+    });
+    vi.mocked(fetchDividendCalendarSnapshot).mockResolvedValue(currentSnapshot);
+
+    act(() => {
+      root.render(
+        <DividendCalendarClient
+          initialSnapshot={snapshot}
+          initialMonth="2026-04"
+          initialDailyHighlights={{
+            payingToday: { status: "success", data: [priorOwnerHighlight], error: "" },
+            exDividendToday: { status: "success", data: [], error: "" },
+          }}
+          initialContextOwnerId="owner-a"
+          dict={dict}
+          locale="en"
+        />,
+      );
+    });
+
+    expect(document.querySelector("[data-testid='dividends-paying-today']")?.textContent).not.toContain("Prior Owner");
+    expect(container.textContent).not.toContain("2330 Prior Owner");
+    await act(async () => {});
+    expect(fetchDividendDailyHighlights).toHaveBeenCalledTimes(1);
+    expect(fetchDividendCalendarSnapshot).toHaveBeenCalledTimes(1);
+    expect(document.querySelector("[data-testid='dividends-paying-today']")?.textContent).toContain("2886 Current Owner");
+    expect(container.textContent).toContain("2886 Current Owner");
   });
 
   it("isolates a Paying Today failure and retry without replacing or remounting the Ex-dividend Today card", async () => {
@@ -227,6 +277,7 @@ describe("DividendCalendarClient", () => {
             payingToday: { status: "error", data: [payingToday], error: "daily read failed" },
             exDividendToday: { status: "success", data: [exDividendToday], error: "" },
           }}
+          initialContextOwnerId={null}
           dict={dict}
           locale="en"
         />,

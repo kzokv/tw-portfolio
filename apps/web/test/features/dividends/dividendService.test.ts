@@ -115,6 +115,17 @@ describe("dividendService calendar snapshot", () => {
     );
   });
 
+  it("preserves a legacy single ticker in enrichment queries", async () => {
+    vi.mocked(getJson).mockResolvedValue({});
+
+    await fetchDividendReviewEnrichment({ ticker: "2330" });
+
+    expect(getJson).toHaveBeenCalledWith(
+      "/portfolio/dividends/review/enrichment?ticker=2330",
+      { signal: undefined },
+    );
+  });
+
   it("forwards abort signals when lazily loading a ledger row detail", async () => {
     const signal = new AbortController().signal;
     vi.mocked(getJson).mockResolvedValue({ id: "ledger-1" });

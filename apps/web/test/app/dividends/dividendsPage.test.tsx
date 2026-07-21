@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 
+vi.mock("next/headers", () => ({
+  cookies: vi.fn(),
+}));
+
 vi.mock("../../../lib/auth", () => ({
   requireSession: vi.fn(),
 }));
@@ -34,6 +38,7 @@ vi.mock("../../../components/dividends/DividendsTabsClient", () => ({
     initialTab,
     initialCalendarSnapshot,
     initialDailyHighlights,
+    initialContextOwnerId,
     initialReviewData,
     initialReviewQuery,
     initialYears,
@@ -45,6 +50,7 @@ vi.mock("../../../components/dividends/DividendsTabsClient", () => ({
       payingToday: { status: string };
       exDividendToday: { status: string };
     } | undefined;
+    initialContextOwnerId: string;
     initialReviewData: unknown;
     initialReviewQuery: unknown;
     initialYears: unknown[];
@@ -56,6 +62,7 @@ vi.mock("../../../components/dividends/DividendsTabsClient", () => ({
       data-has-calendar-snapshot={String(initialCalendarSnapshot !== null)}
       data-paying-today-status={initialDailyHighlights?.payingToday.status ?? "missing"}
       data-ex-dividend-today-status={initialDailyHighlights?.exDividendToday.status ?? "missing"}
+      data-initial-context-owner={initialContextOwnerId}
       data-has-review-data={String(initialReviewData !== null)}
       data-years-count={String(initialYears.length)}
       data-accounts-count={String(accounts.length)}
@@ -73,6 +80,7 @@ vi.mock("../../../components/dividends/DividendReviewClient", () => ({
 }));
 
 import { requireSession } from "../../../lib/auth";
+import { cookies } from "next/headers";
 import { getJson } from "../../../lib/api";
 import { readSidebarStateCookie } from "../../../lib/sidebar-cookie";
 import {
@@ -85,6 +93,7 @@ import {
 import DividendsPage from "../../../app/dividends/page";
 
 const requireSessionMock = vi.mocked(requireSession);
+const cookiesMock = vi.mocked(cookies);
 const getJsonMock = vi.mocked(getJson);
 const readSidebarStateCookieMock = vi.mocked(readSidebarStateCookie);
 const fetchDividendCalendarSnapshotMock = vi.mocked(fetchDividendCalendarSnapshot);
@@ -96,7 +105,8 @@ const fetchDividendLedgerYearsMock = vi.mocked(fetchDividendLedgerYears);
 describe("DividendsPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    requireSessionMock.mockResolvedValue({ isDemo: false } as never);
+    requireSessionMock.mockResolvedValue({ userId: "user-1", isDemo: false } as never);
+    cookiesMock.mockResolvedValue({ get: () => undefined } as never);
     getJsonMock.mockImplementation((async (path: string) => {
       if (path === "/settings") return { locale: "en" };
       if (path === "/settings/fee-config") return { accounts: [{ id: "acc-1", name: "Main" }] };
@@ -156,6 +166,7 @@ describe("DividendsPage", () => {
     expect(html).toContain('data-has-calendar-snapshot="true"');
     expect(html).toContain('data-paying-today-status="success"');
     expect(html).toContain('data-ex-dividend-today-status="success"');
+    expect(html).toContain('data-initial-context-owner="user-1"');
   });
 
   it("passes an explicit daily-highlight error state without failing the calendar page", async () => {
