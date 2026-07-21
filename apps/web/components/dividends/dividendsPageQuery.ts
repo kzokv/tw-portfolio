@@ -95,6 +95,10 @@ function getValues(
   return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
 }
 
+export function normalizeTickerQueryValues(values: Iterable<string>): string[] {
+  return Array.from(new Set(Array.from(values, (value) => value.trim().toUpperCase()).filter(Boolean)));
+}
+
 function normalizeStatusFilter(status: string): string {
   if (status === "needs-review" || status === "needsReview") {
     return "needsReconciliation";
@@ -123,7 +127,7 @@ export function searchParamsToReviewQuery(
   const sortOrder = (getValue(searchParams, "sortOrder") ?? "desc") as "asc" | "desc";
   const page = Math.max(1, parseInt(getValue(searchParams, "page") ?? "1", 10) || 1);
   const limit = normalizeReviewLimit(getValue(searchParams, "limit"));
-  const tickers = getValues(searchParams, "ticker");
+  const tickers = normalizeTickerQueryValues(getValues(searchParams, "ticker"));
   const marketCode = getValue(searchParams, "marketCode");
   const accountId = getValue(searchParams, "accountId");
   const sourceComposition = getValue(searchParams, "sourceComposition") === "pending" ? "pending" : undefined;

@@ -258,6 +258,23 @@ describe("DividendReviewClient", () => {
     expect(new URLSearchParams(window.location.search).getAll("ticker")).toEqual([]);
   });
 
+  it("keeps a lowercase deep-link ticker selected after authoritative eligibility is applied", async () => {
+    searchParamsState.value = "view=ledger&ticker=tsmc";
+    window.history.replaceState(null, "", `/dividends?${searchParamsState.value}`);
+    const data: DividendReviewPrimaryDto = {
+      ...emptyReviewData,
+      eligibleTickers: [{ ticker: "TSMC", name: "Taiwan Semiconductor" }],
+    };
+
+    act(() => {
+      root.render(<DividendReviewClient initialData={data} dict={dict} locale="en" accounts={[]} years={[2026]} />);
+    });
+    await act(async () => {});
+
+    expect(new URLSearchParams(window.location.search).getAll("ticker")).toEqual(["TSMC"]);
+    expect(container.querySelector<HTMLInputElement>("[data-testid='filter-ticker-checkbox-TSMC']")?.checked).toBe(true);
+  });
+
   it("accumulates a second ticker while the first request transitions without pruning from same-scope stale metadata", async () => {
     searchParamsState.value = "view=ledger";
     window.history.replaceState(null, "", `/dividends?${searchParamsState.value}`);

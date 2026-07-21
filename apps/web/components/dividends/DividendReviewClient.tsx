@@ -41,6 +41,7 @@ import {
 } from "./dividendReviewUtils";
 import { NhiRollupSection } from "../../features/dividends/components/NhiRollupSection";
 import { useOptionalAppShellData } from "../layout/AppShellDataContext";
+import { normalizeTickerQueryValues } from "./dividendsPageQuery";
 
 const DividendReviewCharts = dynamic(() => import("./DividendReviewCharts"), {
   ssr: false,
@@ -332,7 +333,7 @@ function parseInitialFilters(searchParams: URLSearchParams): FilterState {
     preset,
     fromDate: searchParams.get("fromPaymentDate") ?? (legacyYear === null ? resolved.from : `${legacyYear}-01-01`) ?? "",
     toDate: searchParams.get("toPaymentDate") ?? (legacyYear === null ? resolved.to : `${legacyYear}-12-31`) ?? "",
-    tickers: Array.from(new Set(searchParams.getAll("ticker").map((ticker) => ticker.trim()).filter(Boolean))),
+    tickers: normalizeTickerQueryValues(searchParams.getAll("ticker")),
     marketCode: (searchParams.get("marketCode") as MarketCode | null) ?? "",
     accountId: searchParams.get("accountId") ?? "",
     cashStatus: normalizeCashStatusFilter(searchParams.get("cashStatus") ?? searchParams.get("status")),

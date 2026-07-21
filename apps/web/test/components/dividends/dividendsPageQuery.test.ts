@@ -72,6 +72,16 @@ describe("dividendsPageQuery", () => {
     expect(single.tickers).toEqual(["2330"]);
   });
 
+  it("normalizes ticker parameters before deduplication and eligibility checks", () => {
+    const query = searchParamsToReviewQuery(new URLSearchParams([
+      ["ticker", " tsmc "],
+      ["ticker", "TSMC"],
+      ["ticker", "2886"],
+    ]));
+
+    expect(query.tickers).toEqual(["TSMC", "2886"]);
+  });
+
   it("falls back to the default review page size when the limit is unsupported", () => {
     const query = searchParamsToReviewQuery(new URLSearchParams([
       ["limit", "13"],
