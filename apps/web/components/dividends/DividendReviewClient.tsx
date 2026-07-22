@@ -41,7 +41,7 @@ import {
 } from "./dividendReviewUtils";
 import { NhiRollupSection } from "../../features/dividends/components/NhiRollupSection";
 import { useOptionalAppShellData } from "../layout/AppShellDataContext";
-import { normalizeTickerQueryValues } from "./dividendsPageQuery";
+import { normalizeReviewSort, normalizeTickerQueryValues } from "./dividendsPageQuery";
 
 const DividendReviewCharts = dynamic(() => import("./DividendReviewCharts"), {
   ssr: false,
@@ -63,8 +63,8 @@ interface DividendReviewClientProps {
   years: number[];
 }
 
-type CashStatusFilter = "all" | DividendCashReconciliationStatus;
-type StockStatusFilter = "all" | DividendStockReconciliationStatus;
+type MultiValueCashStatusFilter = DividendCashReconciliationStatus[];
+type MultiValueStockStatusFilter = DividendStockReconciliationStatus[];
 
 interface FilterState {
   preset: DatePreset;
@@ -72,9 +72,9 @@ interface FilterState {
   toDate: string;
   tickers: string[];
   marketCode: MarketCode | "";
-  accountId: string;
-  cashStatus: CashStatusFilter;
-  stockStatus: StockStatusFilter;
+  accountIds: string[];
+  cashStatuses: MultiValueCashStatusFilter;
+  stockStatuses: MultiValueStockStatusFilter;
   sourceComposition?: "pending";
   sortBy: DividendReviewSortColumn;
   sortOrder: "asc" | "desc";
@@ -82,10 +82,17 @@ interface FilterState {
   limit: 10 | 25 | 50;
 }
 
+interface DateDraftState {
+  fromDate: string;
+  toDate: string;
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 const REVIEW_PAGE_SIZE_VALUES = [10, 25, 50] as const;
 const DEFAULT_REVIEW_PAGE_SIZE = 10;
+const CASH_STATUS_VALUES: DividendCashReconciliationStatus[] = ["open", "matched", "explained", "resolved"];
+const STOCK_STATUS_VALUES: DividendStockReconciliationStatus[] = ["needs_calculation", "pending_receipt", "matched", "variance", "explained"];
 
 function normalizeReviewLimit(value: string | null): 10 | 25 | 50 {
   const parsed = Number.parseInt(value ?? "", 10);
@@ -94,21 +101,49 @@ function normalizeReviewLimit(value: string | null): 10 | 25 | 50 {
     : DEFAULT_REVIEW_PAGE_SIZE;
 }
 
-function normalizeCashStatusFilter(value: string | null): CashStatusFilter {
+function normalizeCashStatusFilter(value: string | null): DividendCashReconciliationStatus | null {
   if (value === "needs-review" || value === "needsReview" || value === "needsReconciliation") {
     return "open";
   }
-  if (value === "open" || value === "matched" || value === "explained" || value === "resolved") {
-    return value;
-  }
-  return "all";
+  return CASH_STATUS_VALUES.includes(value as DividendCashReconciliationStatus)
+    ? value as DividendCashReconciliationStatus
+    : null;
 }
 
-function normalizeStockStatusFilter(value: string | null): StockStatusFilter {
-  if (value === "needs_calculation" || value === "pending_receipt" || value === "matched" || value === "variance" || value === "explained") {
-    return value;
+function normalizeStockStatusFilter(value: string | null): DividendStockReconciliationStatus | null {
+  return STOCK_STATUS_VALUES.includes(value as DividendStockReconciliationStatus)
+    ? value as DividendStockReconciliationStatus
+    : null;
+}
+
+function getNormalizedUniqueValues<T extends string>(
+  values: string[],
+  normalize: (value: string) => T | null,
+): T[] {
+  const deduped: T[] = [];
+  for (const value of values) {
+    const normalized = normalize(value);
+    if (!normalized || deduped.includes(normalized)) continue;
+    deduped.push(normalized);
   }
-  return "all";
+  return deduped.slice(0, 50);
+}
+
+function summaryLabel(
+  selected: string[],
+  allLabel: string,
+  countLabel: string,
+  options: Array<{ value: string; label: string }>,
+): string {
+  if (selected.length === 0) return allLabel;
+  if (selected.length === 1) {
+    return options.find((option) => option.value === selected[0])?.label ?? selected[0]!;
+  }
+  return countLabel.replace("{count}", String(selected.length));
+}
+
+function formatLabeledValue(label: string, value: string): string {
+  return `${label}: ${value}`;
 }
 
 function statusBadgeClassName(status: string): string {
@@ -285,6 +320,38 @@ function stockVarianceClassName(entry: DividendReviewRowSummaryDto): string {
   return "text-emerald-700";
 }
 
+function cashDividendApplies(entry: DividendReviewRowSummaryDto): boolean {
+  return entry.eventType !== "STOCK";
+}
+
+function cashDividendRateDisplay(entry: DividendReviewRowSummaryDto, locale: LocaleCode): string {
+  if (!cashDividendApplies(entry)) return "—";
+  return formatCurrencyAmount(entry.cashDividendPerShare, entry.cashCurrency, locale);
+}
+
+function cashDividendLines(entry: DividendReviewRowSummaryDto, dict: AppDictionary, locale: LocaleCode): string[] {
+  if (!cashDividendApplies(entry)) return [];
+  return [
+    formatLabeledValue(dict.dividends.review.table.perShare, cashDividendRateDisplay(entry, locale)),
+    formatLabeledValue(dict.dividends.review.table.expected, formatCurrencyAmount(expectedGrossAmount(entry), entry.cashCurrency, locale)),
+    formatLabeledValue(dict.dividends.review.table.received, formatCurrencyAmount(entry.receivedCashAmount, entry.cashCurrency, locale)),
+  ];
+}
+
+function stockDividendLines(entry: DividendReviewRowSummaryDto, dict: AppDictionary, locale: LocaleCode): string[] {
+  if (!isStockDividendEvent(entry.eventType)) return [];
+  return [
+    stockRatioDisplay(entry, dict, locale),
+    formatLabeledValue(dict.dividends.review.table.expected, stockExpectedDisplay(entry, dict, locale)),
+    formatLabeledValue(dict.dividends.review.table.received, stockReceivedDisplay(entry, dict, locale)),
+    formatLabeledValue(dict.dividends.review.table.variance, stockVarianceDisplay(entry, dict, locale)),
+    formatLabeledValue(
+      dict.dividends.review.table.cashInLieu,
+      cashInLieuAmount(entry) > 0 ? formatCurrencyAmount(cashInLieuAmount(entry), entry.cashCurrency, locale) : dict.dividends.unavailable,
+    ),
+  ];
+}
+
 function parseInitialPreset(searchParams: URLSearchParams): DatePreset {
   const preset = searchParams.get("preset");
   if (preset) return preset as DatePreset;
@@ -328,6 +395,17 @@ function parseInitialFilters(searchParams: URLSearchParams): FilterState {
   const preset = legacyYear === null ? parseInitialPreset(searchParams) : "yearRange";
   const today = new Date();
   const resolved = resolvePresetDates(preset, today);
+  const accountIds = Array.from(new Set(searchParams.getAll("accountId").filter(Boolean))).slice(0, 50);
+  const legacyCashStatus = searchParams.get("cashStatus") ?? searchParams.get("status");
+  const cashStatuses = getNormalizedUniqueValues(
+    searchParams.getAll("cashStatus").length > 0 ? searchParams.getAll("cashStatus") : (legacyCashStatus ? [legacyCashStatus] : []),
+    (value) => normalizeCashStatusFilter(value),
+  );
+  const stockStatuses = getNormalizedUniqueValues(
+    searchParams.getAll("stockStatus"),
+    (value) => normalizeStockStatusFilter(value),
+  );
+  const sortBy = normalizeReviewSort(searchParams.get("sortBy") ?? undefined).sortBy;
 
   return {
     preset,
@@ -335,11 +413,11 @@ function parseInitialFilters(searchParams: URLSearchParams): FilterState {
     toDate: searchParams.get("toPaymentDate") ?? (legacyYear === null ? resolved.to : `${legacyYear}-12-31`) ?? "",
     tickers: normalizeTickerQueryValues(searchParams.getAll("ticker")),
     marketCode: (searchParams.get("marketCode") as MarketCode | null) ?? "",
-    accountId: searchParams.get("accountId") ?? "",
-    cashStatus: normalizeCashStatusFilter(searchParams.get("cashStatus") ?? searchParams.get("status")),
-    stockStatus: normalizeStockStatusFilter(searchParams.get("stockStatus")),
+    accountIds,
+    cashStatuses,
+    stockStatuses,
     sourceComposition: searchParams.get("sourceComposition") === "pending" ? "pending" : undefined,
-    sortBy: (searchParams.get("sortBy") ?? "paymentDate") as DividendReviewSortColumn,
+    sortBy,
     sortOrder: (searchParams.get("sortOrder") as "asc" | "desc") ?? "desc",
     page: Math.max(1, parseInt(searchParams.get("page") ?? "1", 10) || 1),
     limit: normalizeReviewLimit(searchParams.get("limit")),
@@ -348,12 +426,15 @@ function parseInitialFilters(searchParams: URLSearchParams): FilterState {
 
 function primaryQueryIdentity(query: DividendReviewPrimaryQueryDto): string {
   const tickers = query.tickers ?? (query.ticker ? [query.ticker] : []);
+  const accountIds = query.accountIds ?? [];
+  const cashStatuses = query.cashStatuses ?? [];
+  const stockStatuses = query.stockStatuses ?? [];
   return JSON.stringify([
     query.fromPaymentDate ?? "",
     query.toPaymentDate ?? "",
-    query.accountId ?? "",
-    query.cashStatus ?? query.reconciliationStatus ?? "",
-    query.stockStatus ?? "",
+    accountIds,
+    cashStatuses.length > 0 ? cashStatuses : (query.reconciliationStatus ? [query.reconciliationStatus] : []),
+    stockStatuses,
     query.postingStatus ?? "",
     query.excludeExpected ?? false,
     tickers,
@@ -529,6 +610,101 @@ const TickerFilter = memo(function TickerFilter({
   );
 });
 
+const CheckboxMultiSelectFilter = memo(function CheckboxMultiSelectFilter({
+  label,
+  summary,
+  options,
+  selectedValues,
+  allLabel,
+  onSelectionChange,
+  testIdPrefix,
+}: {
+  label: string;
+  summary: string;
+  options: Array<{ value: string; label: string }>;
+  selectedValues: string[];
+  allLabel: string;
+  onSelectionChange: (values: string[]) => void;
+  testIdPrefix: string;
+}) {
+  const selectedSet = useMemo(() => new Set(selectedValues), [selectedValues]);
+  const [isOpen, setIsOpen] = useState(false);
+  const selectionAnnouncement = `${label}: ${summary}`;
+
+  function toggle(value: string): void {
+    const next = selectedSet.has(value)
+      ? selectedValues.filter((candidate) => candidate !== value)
+      : [...selectedValues, value];
+    onSelectionChange(next);
+  }
+
+  return (
+    <div className="space-y-1">
+      <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{label}</span>
+      <details
+        className="group relative"
+        data-testid={`${testIdPrefix}-dropdown`}
+        open={isOpen}
+      >
+        <summary
+          className="flex min-h-10 cursor-pointer list-none items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 marker:hidden"
+          aria-label={formatLabeledValue(label, summary)}
+          aria-controls={`${testIdPrefix}-options`}
+          aria-expanded={isOpen}
+          onClick={(event) => {
+            event.preventDefault();
+            setIsOpen((current) => !current);
+          }}
+          data-testid={`${testIdPrefix}-summary`}
+        >
+          <span className="truncate">{summary}</span>
+          <span aria-hidden="true" className="text-slate-500 group-open:rotate-180">⌄</span>
+        </summary>
+        <div
+          id={`${testIdPrefix}-options`}
+          className="absolute left-0 z-40 mt-2 w-[min(20rem,calc(100vw-2rem))] rounded-lg border border-slate-200 bg-white p-2 shadow-lg"
+        >
+          <div className="max-h-56 overflow-y-auto" role="group" aria-label={label}>
+            <div className="flex items-start gap-2 rounded-md px-2 py-2 text-sm text-slate-700 hover:bg-slate-50">
+              <input
+                type="checkbox"
+                id={`${testIdPrefix}-all`}
+                className="mt-0.5 size-4 shrink-0 cursor-pointer accent-emerald-600"
+                checked={selectedValues.length === 0}
+                onChange={() => onSelectionChange([])}
+                aria-labelledby={`${testIdPrefix}-all-label`}
+                data-testid={`${testIdPrefix}-all`}
+              />
+              <label id={`${testIdPrefix}-all-label`} htmlFor={`${testIdPrefix}-all`} className="cursor-pointer">
+                {allLabel}
+              </label>
+            </div>
+            {options.map((option) => (
+              <div key={option.value} className="flex items-start gap-2 rounded-md px-2 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                <input
+                  type="checkbox"
+                  id={`${testIdPrefix}-${option.value}`}
+                  className="mt-0.5 size-4 shrink-0 cursor-pointer accent-emerald-600"
+                  checked={selectedSet.has(option.value)}
+                  onChange={() => toggle(option.value)}
+                  aria-labelledby={`${testIdPrefix}-${option.value}-label`}
+                  data-testid={`${testIdPrefix}-${option.value}`}
+                />
+                <label id={`${testIdPrefix}-${option.value}-label`} htmlFor={`${testIdPrefix}-${option.value}`} className="cursor-pointer">
+                  {option.label}
+                </label>
+              </div>
+            ))}
+          </div>
+        </div>
+      </details>
+      <span className="sr-only" role="status" aria-live="polite" data-testid={`${testIdPrefix}-announcement`}>
+        {selectionAnnouncement}
+      </span>
+    </div>
+  );
+});
+
 // ── Main Component ─────────────────────────────────────────────────────────
 
 export function DividendReviewClient({
@@ -541,6 +717,7 @@ export function DividendReviewClient({
 }: DividendReviewClientProps) {
   const searchParams = useSearchParams();
   const shellData = useOptionalAppShellData();
+  const initialSortNormalization = normalizeReviewSort(searchParams.get("sortBy") ?? undefined);
   const canWriteDividends = !shellData?.isSharedContext || shellData.sharedContextPermissions.canWriteDividends;
   const contextRefreshSignal = shellData?.contextRefreshSignal ?? 0;
   const cacheScope = getRouteDtoContextScope(shellData?.sessionUserId);
@@ -552,6 +729,10 @@ export function DividendReviewClient({
   const [mutationRetryEntry, setMutationRetryEntry] = useState<DividendReviewRowSummaryDto | null>(null);
   const [dateError, setDateError] = useState("");
   const [eligibleTickerOptions, setEligibleTickerOptions] = useState(initialData?.eligibleTickers ?? []);
+  const [dateDraft, setDateDraft] = useState<DateDraftState>(() => ({
+    fromDate: filters.fromDate,
+    toDate: filters.toDate,
+  }));
 
   // Phase 4 — single-DOM responsive (card-stack at <sm).
   const isSmallScreen = useIsSmallScreen();
@@ -570,6 +751,7 @@ export function DividendReviewClient({
     options: DividendReviewPrimaryDto["eligibleTickers"];
   } | null>(null);
   const didNormalizeInitialUrlRef = useRef(false);
+  const shouldRefreshCanonicalPrimaryRef = useRef(initialSortNormalization.canonicalized);
 
   // ── Build query from filters ──────────────────────────────────────────
 
@@ -579,9 +761,9 @@ export function DividendReviewClient({
       toPaymentDate: f.toDate || undefined,
       tickers: f.tickers.length > 0 ? f.tickers : undefined,
       marketCode: f.marketCode || undefined,
-      accountId: f.accountId || undefined,
-      cashStatus: f.cashStatus === "all" ? undefined : f.cashStatus,
-      stockStatus: f.stockStatus === "all" ? undefined : f.stockStatus,
+      accountIds: f.accountIds.length > 0 ? f.accountIds : undefined,
+      cashStatuses: f.cashStatuses.length > 0 ? f.cashStatuses : undefined,
+      stockStatuses: f.stockStatuses.length > 0 ? f.stockStatuses : undefined,
       sourceComposition: f.sourceComposition,
       sortBy: f.sortBy,
       sortOrder: f.sortOrder,
@@ -601,9 +783,9 @@ export function DividendReviewClient({
     if (f.fromDate) params.set("fromPaymentDate", f.fromDate);
     if (f.toDate) params.set("toPaymentDate", f.toDate);
     for (const ticker of f.tickers) params.append("ticker", ticker);
-    if (f.accountId) params.set("accountId", f.accountId);
-    if (f.cashStatus !== "all") params.set("cashStatus", f.cashStatus);
-    if (f.stockStatus !== "all") params.set("stockStatus", f.stockStatus);
+    for (const accountId of f.accountIds) params.append("accountId", accountId);
+    for (const cashStatus of f.cashStatuses) params.append("cashStatus", cashStatus);
+    for (const stockStatus of f.stockStatuses) params.append("stockStatus", stockStatus);
     if (f.sourceComposition) params.set("sourceComposition", f.sourceComposition);
     if (f.sortBy !== "paymentDate") params.set("sortBy", f.sortBy);
     if (f.sortOrder !== "desc") params.set("sortOrder", f.sortOrder);
@@ -615,15 +797,18 @@ export function DividendReviewClient({
   }, []);
 
   const restoreQueryState = useCallback((query: DividendReviewPrimaryQueryDto) => {
+    const accountIds = query.accountIds ?? [];
+    const cashStatuses = query.cashStatuses ?? (query.reconciliationStatus ? [query.reconciliationStatus] : []);
+    const stockStatuses = query.stockStatuses ?? [];
     const restored: FilterState = {
       ...filtersRef.current,
       fromDate: query.fromPaymentDate ?? "",
       toDate: query.toPaymentDate ?? "",
-      accountId: query.accountId ?? "",
+      accountIds,
       tickers: query.tickers ?? [],
       marketCode: query.marketCode ?? "",
-      cashStatus: query.cashStatus ?? query.reconciliationStatus ?? "all",
-      stockStatus: query.stockStatus ?? "all",
+      cashStatuses,
+      stockStatuses,
       sourceComposition: query.sourceComposition,
       sortBy: query.sortBy,
       sortOrder: query.sortOrder,
@@ -653,7 +838,11 @@ export function DividendReviewClient({
     if (didNormalizeInitialUrlRef.current) return;
     didNormalizeInitialUrlRef.current = true;
     syncUrl(filtersRef.current);
-  }, [syncUrl]);
+    if (shouldRefreshCanonicalPrimaryRef.current) {
+      shouldRefreshCanonicalPrimaryRef.current = false;
+      void review.request(canonicalInitialQuery, { force: true, refreshEnrichment: true });
+    }
+  }, [canonicalInitialQuery, review.request, syncUrl]);
 
   useEffect(() => {
     return () => {
@@ -665,6 +854,13 @@ export function DividendReviewClient({
       }
     };
   }, []);
+
+  useEffect(() => {
+    setDateDraft({
+      fromDate: filters.fromDate,
+      toDate: filters.toDate,
+    });
+  }, [filters.fromDate, filters.toDate]);
 
   useEffect(() => {
     if (lastContextRefreshSignal.current === contextRefreshSignal) return;
@@ -743,10 +939,9 @@ export function DividendReviewClient({
       page: 1,
     };
     if (preset === "custom") {
-      // Only update UI + URL; defer fetch until user enters a valid date range
+      // Only update visible preset; defer URL/query until a valid blur commit.
       filtersRef.current = next;
       setFilters(next);
-      syncUrl(next);
     } else {
       applyFilters(next);
     }
@@ -777,15 +972,18 @@ export function DividendReviewClient({
   }, [applyFilters, handlePresetChange]);
 
   const handleDateBlur = useCallback(() => {
-    const f = filtersRef.current;
-    if (f.preset !== "custom") return;
-    if ((f.fromDate && !f.toDate) || (!f.fromDate && f.toDate)) {
+    const draft = dateDraft;
+    if ((draft.fromDate && !draft.toDate) || (!draft.fromDate && draft.toDate)) {
+      setDateError(dict.dividends.review.filter.partialDateError);
+      return;
+    }
+    if (draft.fromDate && draft.toDate && draft.fromDate > draft.toDate) {
       setDateError(dict.dividends.review.filter.partialDateError);
       return;
     }
     setDateError("");
-    applyFilters({ ...f, page: 1 });
-  }, [applyFilters, dict]);
+    applyFilters({ ...filtersRef.current, fromDate: draft.fromDate, toDate: draft.toDate, page: 1 });
+  }, [applyFilters, dateDraft, dict]);
 
   const handleTickerSelectionChange = useCallback((selected: string[]) => {
     const current = filtersRef.current;
@@ -797,16 +995,16 @@ export function DividendReviewClient({
     });
   }, [applyFilters]);
 
-  const handleAccountChange = useCallback((accountId: string) => {
-    applyFilters({ ...filtersRef.current, accountId, page: 1 });
+  const handleAccountChange = useCallback((accountIds: string[]) => {
+    applyFilters({ ...filtersRef.current, accountIds, page: 1 });
   }, [applyFilters]);
 
-  const handleCashStatusChange = useCallback((cashStatus: CashStatusFilter) => {
-    applyFilters({ ...filtersRef.current, cashStatus, page: 1 });
+  const handleCashStatusChange = useCallback((cashStatuses: MultiValueCashStatusFilter) => {
+    applyFilters({ ...filtersRef.current, cashStatuses, page: 1 });
   }, [applyFilters]);
 
-  const handleStockStatusChange = useCallback((stockStatus: StockStatusFilter) => {
-    applyFilters({ ...filtersRef.current, stockStatus, page: 1 });
+  const handleStockStatusChange = useCallback((stockStatuses: MultiValueStockStatusFilter) => {
+    applyFilters({ ...filtersRef.current, stockStatuses, page: 1 });
   }, [applyFilters]);
 
   const handleSort = useCallback((field: DividendReviewSortColumn) => {
@@ -959,6 +1157,23 @@ export function DividendReviewClient({
     : selectedYears.length === 1
       ? String(selectedYears[0])
       : `${selectedYears[0]}-${selectedYears[selectedYears.length - 1]}`;
+  const accountOptions = useMemo(
+    () => committedAccounts.map((account) => ({ value: account.id, label: account.name || account.id })),
+    [committedAccounts],
+  );
+  const cashStatusOptions = useMemo(() => [
+    { value: "open", label: dict.dividends.form.reconciliation.statusOpen },
+    { value: "matched", label: dict.dividends.form.reconciliation.statusMatched },
+    { value: "explained", label: dict.dividends.form.reconciliation.statusExplained },
+    { value: "resolved", label: dict.dividends.form.reconciliation.statusResolved },
+  ], [dict]);
+  const stockStatusOptions = useMemo(() => [
+    { value: "needs_calculation", label: dict.dividends.review.filter.stockNeedsCalculation },
+    { value: "pending_receipt", label: dict.dividends.review.filter.stockPendingReceipt },
+    { value: "matched", label: dict.dividends.form.reconciliation.statusMatched },
+    { value: "variance", label: dict.dividends.review.filter.stockVariance },
+    { value: "explained", label: dict.dividends.form.reconciliation.statusExplained },
+  ], [dict]);
 
   const defaultChartGranularity: Granularity | undefined =
     filters.preset === "unspecified" ? "year" : undefined;
@@ -1054,12 +1269,12 @@ export function DividendReviewClient({
             <input
               type="date"
               className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
-              value={filters.fromDate}
-              readOnly={filters.preset !== "custom"}
+              value={dateDraft.fromDate}
               onChange={(e) => {
-                const next = { ...filtersRef.current, fromDate: e.target.value, preset: "custom" as DatePreset };
+                const next = { ...filtersRef.current, preset: "custom" as DatePreset };
                 filtersRef.current = next;
                 setFilters(next);
+                setDateDraft((current) => ({ ...current, fromDate: e.target.value }));
               }}
               onBlur={handleDateBlur}
               data-testid="filter-from-date"
@@ -1073,12 +1288,12 @@ export function DividendReviewClient({
             <input
               type="date"
               className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
-              value={filters.toDate}
-              readOnly={filters.preset !== "custom"}
+              value={dateDraft.toDate}
               onChange={(e) => {
-                const next = { ...filtersRef.current, toDate: e.target.value, preset: "custom" as DatePreset };
+                const next = { ...filtersRef.current, preset: "custom" as DatePreset };
                 filtersRef.current = next;
                 setFilters(next);
+                setDateDraft((current) => ({ ...current, toDate: e.target.value }));
               }}
               onBlur={handleDateBlur}
               data-testid="filter-to-date"
@@ -1095,57 +1310,33 @@ export function DividendReviewClient({
             onInteractionEnd={handleTickerInteractionEnd}
           />
           {/* Account */}
-          <label className="space-y-1">
-            <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-              {dict.dividends.review.filter.account}
-            </span>
-            <select
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
-              value={filters.accountId}
-              onChange={(e) => handleAccountChange(e.target.value)}
-              data-testid="filter-account"
-            >
-              <option value="">{dict.dividends.review.filter.allAccounts}</option>
-              {committedAccounts.map((a) => (
-                <option key={a.id} value={a.id}>{a.name || a.id}</option>
-              ))}
-            </select>
-          </label>
-          <label className="space-y-1">
-            <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-              {dict.dividends.review.filter.cashStatus}
-            </span>
-            <select
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
-              value={filters.cashStatus}
-              onChange={(e) => handleCashStatusChange(e.target.value as CashStatusFilter)}
-              data-testid="filter-cash-status"
-            >
-              <option value="all">{dict.dividends.review.filter.allStatuses}</option>
-              <option value="open">{dict.dividends.form.reconciliation.statusOpen}</option>
-              <option value="matched">{dict.dividends.form.reconciliation.statusMatched}</option>
-              <option value="explained">{dict.dividends.form.reconciliation.statusExplained}</option>
-              <option value="resolved">{dict.dividends.form.reconciliation.statusResolved}</option>
-            </select>
-          </label>
-          <label className="space-y-1">
-            <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-              {dict.dividends.review.filter.stockStatus}
-            </span>
-            <select
-              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900"
-              value={filters.stockStatus}
-              onChange={(e) => handleStockStatusChange(e.target.value as StockStatusFilter)}
-              data-testid="filter-stock-status"
-            >
-              <option value="all">{dict.dividends.review.filter.allStatuses}</option>
-              <option value="needs_calculation">{dict.dividends.review.filter.stockNeedsCalculation}</option>
-              <option value="pending_receipt">{dict.dividends.review.filter.stockPendingReceipt}</option>
-              <option value="matched">{dict.dividends.form.reconciliation.statusMatched}</option>
-              <option value="variance">{dict.dividends.review.filter.stockVariance}</option>
-              <option value="explained">{dict.dividends.form.reconciliation.statusExplained}</option>
-            </select>
-          </label>
+          <CheckboxMultiSelectFilter
+            label={dict.dividends.review.filter.account}
+            summary={summaryLabel(filters.accountIds, dict.dividends.review.filter.allAccounts, dict.dividends.review.table.selectedCount, accountOptions)}
+            options={accountOptions}
+            selectedValues={filters.accountIds}
+            allLabel={dict.dividends.review.filter.allAccounts}
+            onSelectionChange={handleAccountChange}
+            testIdPrefix="filter-account"
+          />
+          <CheckboxMultiSelectFilter
+            label={dict.dividends.review.filter.cashStatus}
+            summary={summaryLabel(filters.cashStatuses, dict.dividends.review.filter.allStatuses, dict.dividends.review.table.selectedCount, cashStatusOptions)}
+            options={cashStatusOptions}
+            selectedValues={filters.cashStatuses}
+            allLabel={dict.dividends.review.filter.allStatuses}
+            onSelectionChange={(values) => handleCashStatusChange(values as MultiValueCashStatusFilter)}
+            testIdPrefix="filter-cash-status"
+          />
+          <CheckboxMultiSelectFilter
+            label={dict.dividends.review.filter.stockStatus}
+            summary={summaryLabel(filters.stockStatuses, dict.dividends.review.filter.allStatuses, dict.dividends.review.table.selectedCount, stockStatusOptions)}
+            options={stockStatusOptions}
+            selectedValues={filters.stockStatuses}
+            allLabel={dict.dividends.review.filter.allStatuses}
+            onSelectionChange={(values) => handleStockStatusChange(values as MultiValueStockStatusFilter)}
+            testIdPrefix="filter-stock-status"
+          />
         </div>
 
         {dateError && (
@@ -1246,8 +1437,6 @@ export function DividendReviewClient({
                 <option value="paymentDate">{dict.dividends.review.table.paymentDate}</option>
                 <option value="ticker">{dict.dividends.review.table.ticker}</option>
                 <option value="account">{dict.dividends.review.table.account}</option>
-                <option value="expectedGrossAmount">{dict.dividends.review.table.expected}</option>
-                <option value="receivedCashAmount">{dict.dividends.review.table.received}</option>
                 <option value="nhiAmount">{dict.dividends.review.table.nhi}</option>
                 <option value="bankFeeAmount">{dict.dividends.review.table.bankFee}</option>
                 <option value="otherDeductionAmount">{dict.dividends.review.table.otherDeduction}</option>
@@ -1325,20 +1514,28 @@ export function DividendReviewClient({
                         <dd className="font-medium text-foreground">{dividendEventTypeLabel(dict, entry.eventType)}</dd>
                       </div>
                       <div>
-                        <dt className="text-muted-foreground">{dict.dividends.review.table.expected}</dt>
-                        <dd className="font-medium text-foreground">{formatCurrencyAmount(expectedGrossAmount(entry), entry.cashCurrency, locale)}</dd>
+                        <dt className="text-muted-foreground">{dict.dividends.review.table.cashDividend}</dt>
+                        <dd className="font-medium text-foreground">
+                          {cashDividendApplies(entry) ? (
+                            <div className="grid gap-1">
+                              {cashDividendLines(entry, dict, locale).map((line) => (
+                                <span key={line}>{line}</span>
+                              ))}
+                            </div>
+                          ) : "—"}
+                        </dd>
                       </div>
                       <div>
-                        <dt className="text-muted-foreground">{dict.dividends.review.table.received}</dt>
-                        <dd className="font-medium text-foreground">{formatCurrencyAmount(entry.receivedCashAmount, entry.cashCurrency, locale)}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground">{dict.dividends.review.table.expectedNet}</dt>
-                        <dd className="font-medium text-foreground">{formatCurrencyAmount(expectedNetAmount(entry), entry.cashCurrency, locale)}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground">{dict.dividends.review.table.actualNet}</dt>
-                        <dd className="font-medium text-foreground">{formatCurrencyAmount(actualNetAmount(entry), entry.cashCurrency, locale)}</dd>
+                        <dt className="text-muted-foreground">{dict.dividends.review.table.stockDividend}</dt>
+                        <dd className="font-medium text-foreground">
+                          {isStockDividendEvent(entry.eventType) ? (
+                            <div className="grid gap-1">
+                              {stockDividendLines(entry, dict, locale).map((line) => (
+                                <span key={line}>{line}</span>
+                              ))}
+                            </div>
+                          ) : "—"}
+                        </dd>
                       </div>
                       <div>
                         <dt className="text-muted-foreground">{dict.dividends.review.table.nhi}</dt>
@@ -1357,24 +1554,12 @@ export function DividendReviewClient({
                         <dd className={cn("font-medium", variance !== 0 ? "text-amber-600" : "text-muted-foreground")}>{variance !== 0 ? formatCurrencyAmount(variance, entry.cashCurrency, locale) : "—"}</dd>
                       </div>
                       <div>
-                        <dt className="text-muted-foreground">{dict.dividends.review.table.expectedStock}</dt>
-                        <dd className="font-medium text-foreground">{stockExpectedDisplay(entry, dict, locale)}</dd>
+                        <dt className="text-muted-foreground">{dict.dividends.review.table.expectedNet}</dt>
+                        <dd className="font-medium text-foreground">{formatCurrencyAmount(expectedNetAmount(entry), entry.cashCurrency, locale)}</dd>
                       </div>
                       <div>
-                        <dt className="text-muted-foreground">{dict.dividends.review.table.ratioState}</dt>
-                        <dd className={cn("font-medium", ratioToneClassName(entry))}>{stockRatioDisplay(entry, dict, locale)}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground">{dict.dividends.review.table.stockReceived}</dt>
-                        <dd className={cn("font-medium", isPendingStockPosting(entry) ? "text-amber-700" : "text-foreground")}>{stockReceivedDisplay(entry, dict, locale)}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground">{dict.dividends.review.table.stockVariance}</dt>
-                        <dd className={cn("font-medium", stockVarianceClassName(entry))}>{stockVarianceDisplay(entry, dict, locale)}</dd>
-                      </div>
-                      <div>
-                        <dt className="text-muted-foreground">{dict.dividends.review.table.cashInLieu}</dt>
-                        <dd className="font-medium text-foreground">{cashInLieuAmount(entry) > 0 ? formatCurrencyAmount(cashInLieuAmount(entry), entry.cashCurrency, locale) : dict.dividends.unavailable}</dd>
+                        <dt className="text-muted-foreground">{dict.dividends.review.table.actualNet}</dt>
+                        <dd className="font-medium text-foreground">{formatCurrencyAmount(actualNetAmount(entry), entry.cashCurrency, locale)}</dd>
                       </div>
                     </dl>
                     <div className="mt-3 flex flex-wrap justify-end gap-2">
@@ -1462,18 +1647,13 @@ export function DividendReviewClient({
                   <SortHeader label={dict.dividends.review.table.ticker} field="ticker" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
                   <SortHeader label={dict.dividends.review.table.account} field="account" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
                   <th className="px-4 py-3 text-left text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.dividends.review.table.eventType}</th>
-                  <SortHeader label={dict.dividends.review.table.expected} field="expectedGrossAmount" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
-                  <SortHeader label={dict.dividends.review.table.received} field="receivedCashAmount" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
+                  <th className="px-4 py-3 text-left text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.dividends.review.table.cashDividend}</th>
+                  <th className="px-4 py-3 text-left text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.dividends.review.table.stockDividend}</th>
                   <SortHeader label={dict.dividends.review.table.nhi} field="nhiAmount" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
                   <SortHeader label={dict.dividends.review.table.bankFee} field="bankFeeAmount" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
                   <SortHeader label={dict.dividends.review.table.otherDeduction} field="otherDeductionAmount" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
                   <SortHeader label={dict.dividends.review.table.expectedNet} field="expectedNetAmount" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
                   <SortHeader label={dict.dividends.review.table.actualNet} field="actualNetAmount" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
-                  <th className="px-4 py-3 text-left text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.dividends.review.table.expectedStock}</th>
-                  <th className="px-4 py-3 text-left text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.dividends.review.table.ratioState}</th>
-                  <th className="px-4 py-3 text-left text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.dividends.review.table.stockReceived}</th>
-                  <th className="px-4 py-3 text-left text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.dividends.review.table.stockVariance}</th>
-                  <th className="px-4 py-3 text-left text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.dividends.review.table.cashInLieu}</th>
                   <SortHeader label={dict.dividends.review.table.variance} field="varianceAmount" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
                   <SortHeader label={dict.dividends.review.table.status} field="reconciliationStatus" sortBy={filters.sortBy} sortOrder={filters.sortOrder} onSort={handleSort} />
                   <th className="px-4 py-3 text-left text-[11px] uppercase tracking-[0.18em] text-muted-foreground">{dict.dividends.review.table.actions}</th>
@@ -1483,12 +1663,12 @@ export function DividendReviewClient({
                 {isLoading ? (
                   Array.from({ length: Math.min(filters.limit, 5) }, (_, index) => (
                     <tr key={`skeleton-${index}`} className="h-14 animate-pulse border-b border-border" data-testid="review-row-skeleton">
-                      <td colSpan={19} className="bg-muted/40" />
+                      <td colSpan={14} className="bg-muted/40" />
                     </tr>
                   ))
                 ) : displayEntries.length === 0 ? (
                   <tr>
-                    <td colSpan={19} className="px-4 py-10 text-center text-sm text-muted-foreground">
+                    <td colSpan={14} className="px-4 py-10 text-center text-sm text-muted-foreground">
                       {dict.dividends.review.chart.noData}
                     </td>
                   </tr>
@@ -1525,10 +1705,32 @@ export function DividendReviewClient({
                           </span>
                         </td>
                         <td className="px-4 py-3 text-sm text-foreground">
-                          {formatCurrencyAmount(expectedGrossAmount(entry), entry.cashCurrency, locale)}
+                          {cashDividendApplies(entry) ? (
+                            <div className="grid gap-1">
+                              {cashDividendLines(entry, dict, locale).map((line, index) => (
+                                <span key={line} className={index === 0 ? undefined : "text-xs text-muted-foreground"}>{line}</span>
+                              ))}
+                            </div>
+                          ) : "—"}
                         </td>
                         <td className="px-4 py-3 text-sm text-foreground">
-                          {formatCurrencyAmount(entry.receivedCashAmount, entry.cashCurrency, locale)}
+                          {isStockDividendEvent(entry.eventType) ? (
+                            <div className="grid gap-1">
+                              {stockDividendLines(entry, dict, locale).map((line, index) => (
+                                <span
+                                  key={line}
+                                  className={cn(
+                                    "text-xs",
+                                    index === 0 ? ratioToneClassName(entry) : "text-muted-foreground",
+                                    line.startsWith(`${dict.dividends.review.table.received}:`) && isPendingStockPosting(entry) ? "text-amber-700" : undefined,
+                                    line.startsWith(`${dict.dividends.review.table.variance}:`) ? stockVarianceClassName(entry) : undefined,
+                                  )}
+                                >
+                                  {line}
+                                </span>
+                              ))}
+                            </div>
+                          ) : "—"}
                         </td>
                         <td className="px-4 py-3 text-sm text-foreground">
                           {nhiAmount(entry) > 0 ? formatCurrencyAmount(nhiAmount(entry), entry.cashCurrency, locale) : "—"}
@@ -1544,23 +1746,6 @@ export function DividendReviewClient({
                         </td>
                         <td className="px-4 py-3 text-sm text-foreground">
                           {formatCurrencyAmount(actualNetAmount(entry), entry.cashCurrency, locale)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-foreground">
-                          {stockExpectedDisplay(entry, dict, locale)}
-                        </td>
-                        <td className={cn("px-4 py-3 text-sm", ratioToneClassName(entry))}>
-                          {stockRatioDisplay(entry, dict, locale)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-foreground">
-                          <span className={cn(isPendingStockPosting(entry) ? "text-amber-700" : "text-foreground")}>
-                            {stockReceivedDisplay(entry, dict, locale)}
-                          </span>
-                        </td>
-                        <td className={cn("px-4 py-3 text-sm font-medium", stockVarianceClassName(entry))}>
-                          {stockVarianceDisplay(entry, dict, locale)}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-foreground">
-                          {cashInLieuAmount(entry) > 0 ? formatCurrencyAmount(cashInLieuAmount(entry), entry.cashCurrency, locale) : dict.dividends.unavailable}
                         </td>
                         <td className={cn("px-4 py-3 text-sm", variance !== 0 ? "text-amber-600 font-medium" : "text-muted-foreground")}>
                           {variance !== 0 ? formatCurrencyAmount(variance, entry.cashCurrency, locale) : "—"}

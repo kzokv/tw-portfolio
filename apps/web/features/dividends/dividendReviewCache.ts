@@ -18,19 +18,23 @@ export const DIVIDEND_REVIEW_CACHE_TAGS = [
 const FILTER_DIMENSIONS: Array<keyof DividendReviewFilterDto> = [
   "fromPaymentDate",
   "toPaymentDate",
-  "accountId",
+  "accountIds",
   "tickers",
   "marketCode",
   "postingStatus",
-  "cashStatus",
-  "stockStatus",
+  "cashStatuses",
+  "stockStatuses",
   "reconciliationStatus",
   "excludeExpected",
   "sourceComposition",
 ];
 
 function filterIdentity(filters: DividendReviewFilterDto): string[] {
-  return FILTER_DIMENSIONS.flatMap((field) => [field, String(filters[field] ?? "*")]);
+  return FILTER_DIMENSIONS.flatMap((field) => {
+    const value = filters[field];
+    const serialized = Array.isArray(value) ? value.join(",") : String(value ?? "*");
+    return [field, serialized];
+  });
 }
 
 export function buildDividendReviewPrimaryCacheKey(

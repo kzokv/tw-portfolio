@@ -2691,7 +2691,7 @@ function HoldingsCard({
     const baseRows = rows.rows.filter((row) => {
       const tickerId = buildHoldingsTickerId(row.marketCode, row.ticker);
       if (
-        holdingsSelection.selectionMode === "custom"
+        holdingsSelection.selectionMode !== "all"
         && !holdingsSelection.selectedTickerIdSet.has(tickerId)
       ) {
         return false;
@@ -2817,6 +2817,8 @@ function HoldingsCard({
               availableSelectedTickerIds={holdingsSelection.availableSelectedTickerIds}
               unavailableTickerIds={holdingsSelection.unavailableTickerIds}
               onReset={holdingsSelection.setAll}
+              onSelectAll={holdingsSelection.setAll}
+              onDeselectAll={holdingsSelection.setNone}
               onToggleTicker={holdingsSelection.toggleTicker}
               onRemoveTicker={holdingsSelection.removeTicker}
             />
@@ -2928,6 +2930,11 @@ function HoldingsCard({
           showAdminActivityLinks={showAdminActivityLinks}
           summaryColumns={mobileColumnSplit.summaryColumns}
         />
+        {filteredRowsPage.rows.length === 0 ? (
+          <HoldingsGridEmptyState className="p-6">
+            {holdingsSelection.selectionMode === "none" ? dict.holdings.noneResults : dict.holdings.noResults}
+          </HoldingsGridEmptyState>
+        ) : null}
         <HoldingsGridDesktopFrame className="max-h-[32rem]">
           <HoldingsGridNativeTable testId={`reports-holdings-table-${contextKey}`}>
             <thead>

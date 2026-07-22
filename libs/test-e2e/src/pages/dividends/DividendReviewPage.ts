@@ -24,9 +24,19 @@ export interface TDividendReviewElements extends TElementLocatorHelpers {
   tickerClear: Locator;
   tickerOption: (ticker: string) => Locator;
   tickerCheckbox: (ticker: string) => Locator;
-  statusSelect: Locator;
-  stockStatusSelect: Locator;
-  accountSelect: Locator;
+  accountDropdown: Locator;
+  accountSummary: Locator;
+  accountAnnouncement: Locator;
+  accountAll: Locator;
+  accountOption: (value: string) => Locator;
+  cashStatusDropdown: Locator;
+  cashStatusSummary: Locator;
+  cashStatusAll: Locator;
+  cashStatusOption: (value: string) => Locator;
+  stockStatusDropdown: Locator;
+  stockStatusSummary: Locator;
+  stockStatusAll: Locator;
+  stockStatusOption: (value: string) => Locator;
 
   // Stats tiles
   statTiles: Locator;
@@ -46,6 +56,7 @@ export interface TDividendReviewElements extends TElementLocatorHelpers {
   tableHeaderCell: (field: string) => Locator;
   mobileSortControls: Locator;
   mobileSortField: Locator;
+  mobileSortOptions: Locator;
   mobileSortDirection: Locator;
   chartGranularityButton: (level: string) => Locator;
   chartsAreaPaths: Locator;
@@ -110,9 +121,19 @@ export class DividendReviewPage extends BasePage<TDividendReviewElements> {
       tickerClear: this.locate("filter-ticker-clear", "Ticker Clear"),
       tickerOption: (ticker: string) => this.locate(`filter-ticker-option-${ticker}`, `Ticker Option ${ticker}`),
       tickerCheckbox: (ticker: string) => this.locate(`filter-ticker-checkbox-${ticker}`, `Ticker Checkbox ${ticker}`),
-      statusSelect: this.locate("filter-cash-status", "Cash Status Select"),
-      stockStatusSelect: this.locate("filter-stock-status", "Stock Status Select"),
-      accountSelect: this.locate("filter-account", "Account Select"),
+      accountDropdown: this.locate("filter-account-dropdown", "Account Multi-select"),
+      accountSummary: this.locate("filter-account-summary", "Account Multi-select Summary"),
+      accountAnnouncement: this.locate("filter-account-announcement", "Account Selection Announcement"),
+      accountAll: this.locate("filter-account-all", "All Accounts Checkbox"),
+      accountOption: (value: string) => this.locate(`filter-account-${value}`, `Account ${value} Checkbox`),
+      cashStatusDropdown: this.locate("filter-cash-status-dropdown", "Cash Status Multi-select"),
+      cashStatusSummary: this.locate("filter-cash-status-summary", "Cash Status Multi-select Summary"),
+      cashStatusAll: this.locate("filter-cash-status-all", "All Cash Statuses Checkbox"),
+      cashStatusOption: (value: string) => this.locate(`filter-cash-status-${value}`, `Cash Status ${value} Checkbox`),
+      stockStatusDropdown: this.locate("filter-stock-status-dropdown", "Stock Status Multi-select"),
+      stockStatusSummary: this.locate("filter-stock-status-summary", "Stock Status Multi-select Summary"),
+      stockStatusAll: this.locate("filter-stock-status-all", "All Stock Statuses Checkbox"),
+      stockStatusOption: (value: string) => this.locate(`filter-stock-status-${value}`, `Stock Status ${value} Checkbox`),
 
       // Stats tiles
       statTiles: this.locate("stat-tiles", "Stats Tiles"),
@@ -150,6 +171,10 @@ export class DividendReviewPage extends BasePage<TDividendReviewElements> {
         ),
       mobileSortControls: this.locate("review-mobile-sort-controls", "Mobile Sort Controls"),
       mobileSortField: this.locate("review-mobile-sort-field", "Mobile Sort Field"),
+      mobileSortOptions: this.withDescription(
+        this.locate("review-mobile-sort-field").locator("option"),
+        "Mobile Sort Options",
+      ),
       mobileSortDirection: this.locate("review-mobile-sort-direction", "Mobile Sort Direction"),
       chartGranularityButton: (level: string) =>
         this.withDescription(

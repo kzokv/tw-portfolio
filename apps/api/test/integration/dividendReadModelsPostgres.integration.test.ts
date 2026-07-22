@@ -5,15 +5,16 @@ import {
   buildTickerDividendOpenReconciliationPage,
   buildTickerDividendPostedHistoryPage,
 } from "../../src/services/tickerDetails.js";
+import { dividendReviewFilterParity } from "../helpers/dividendReviewFilterParity.js";
 
 const databaseUrl = process.env.POSTGRES_TEST_DB_URL ?? process.env.DB_URL;
 const redisUrl = process.env.POSTGRES_TEST_REDIS_URL ?? process.env.REDIS_URL;
 const runPostgresIntegration = process.env.RUN_POSTGRES_INTEGRATION === "1";
 const managedCiStack = process.env.VAKWEN_MANAGED_CI_STACK === "1";
 const REVIEW_SORT_COLUMNS = [
-  "paymentDate", "ticker", "account", "expectedCashAmount", "expectedGrossAmount",
-  "expectedNetAmount", "nhiAmount", "bankFeeAmount", "otherDeductionAmount",
-  "receivedCashAmount", "actualNetAmount", "varianceAmount", "reconciliationStatus",
+  "paymentDate", "ticker", "account", "expectedNetAmount", "nhiAmount",
+  "bankFeeAmount", "otherDeductionAmount", "actualNetAmount", "varianceAmount",
+  "reconciliationStatus",
 ] as const;
 
 if (runPostgresIntegration && !managedCiStack) {
@@ -150,6 +151,152 @@ describePostgres("dividend read model parity", () => {
     normalizedReviewRead.mockRestore();
   });
 
+  it("[postgres review filters]: applies OR within account and status groups, AND across groups", async () => {
+    const store = await persistence.loadStore("user-1");
+    const templateAccount = store.accounts[0]!;
+    const templateFeeProfile = store.feeProfiles.find((profile) => profile.id === templateAccount.feeProfileId)!;
+    const secondAccountId = "postgres-review-parity-account-2";
+    const secondFeeProfileId = "postgres-review-parity-fee-2";
+    store.feeProfiles.push({
+      ...templateFeeProfile,
+      id: secondFeeProfileId,
+      accountId: secondAccountId,
+      name: "Postgres Review Parity Fee 2",
+      taxRules: undefined,
+    });
+    store.accounts.push({
+      ...templateAccount,
+      id: secondAccountId,
+      name: "Postgres Review Parity 2",
+      feeProfileId: secondFeeProfileId,
+    });
+    store.instruments.push(
+      { ticker: "PGA", name: "Postgres Parity A", type: "STOCK", marketCode: "TW", isProvisional: false },
+      { ticker: "PGB", name: "Postgres Parity B", type: "STOCK", marketCode: "TW", isProvisional: false },
+      { ticker: "PGC", name: "Postgres Parity C", type: "STOCK", marketCode: "TW", isProvisional: false },
+    );
+    store.marketData.dividendEvents.push(
+      {
+        id: "postgres-parity-event-a",
+        ticker: "PGA",
+        marketCode: "TW",
+        eventType: "CASH_AND_STOCK",
+        exDividendDate: "2026-04-01",
+        paymentDate: "2026-04-20",
+        cashDividendPerShare: 2,
+        cashDividendCurrency: "TWD",
+        stockDividendPerShare: 0.1,
+        stockDistributionRatio: 0.1,
+        stockDistributionRatioState: "authoritative",
+        source: "test",
+      },
+      {
+        id: "postgres-parity-event-b",
+        ticker: "PGB",
+        marketCode: "TW",
+        eventType: "CASH_AND_STOCK",
+        exDividendDate: "2026-04-02",
+        paymentDate: "2026-04-21",
+        cashDividendPerShare: 2,
+        cashDividendCurrency: "TWD",
+        stockDividendPerShare: 0.1,
+        stockDistributionRatio: 0.1,
+        stockDistributionRatioState: "authoritative",
+        source: "test",
+      },
+      {
+        id: "postgres-parity-event-c",
+        ticker: "PGC",
+        marketCode: "TW",
+        eventType: "CASH_AND_STOCK",
+        exDividendDate: "2026-04-03",
+        paymentDate: "2026-04-22",
+        cashDividendPerShare: 2,
+        cashDividendCurrency: "TWD",
+        stockDividendPerShare: 0.1,
+        stockDistributionRatio: 0.1,
+        stockDistributionRatioState: "authoritative",
+        source: "test",
+      },
+    );
+    store.accounting.facts.dividendLedgerEntries.push(
+      {
+        id: "postgres-parity-ledger-a",
+        accountId,
+        dividendEventId: "postgres-parity-event-a",
+        eligibleQuantity: 100,
+        expectedCashAmount: 200,
+        expectedStockQuantity: 10,
+        receivedCashAmount: 0,
+        receivedStockQuantity: 10,
+        postingStatus: "posted",
+        reconciliationStatus: "open",
+        version: 1,
+        sourceCompositionStatus: "provided",
+        bookedAt: "2026-04-20T09:00:00.000Z",
+      },
+      {
+        id: "postgres-parity-ledger-b",
+        accountId: secondAccountId,
+        dividendEventId: "postgres-parity-event-b",
+        eligibleQuantity: 100,
+        expectedCashAmount: 200,
+        expectedStockQuantity: 10,
+        receivedCashAmount: 200,
+        receivedStockQuantity: 7,
+        postingStatus: "posted",
+        reconciliationStatus: "matched",
+        version: 1,
+        sourceCompositionStatus: "provided",
+        bookedAt: "2026-04-21T09:00:00.000Z",
+      },
+      {
+        id: "postgres-parity-ledger-c",
+        accountId: secondAccountId,
+        dividendEventId: "postgres-parity-event-c",
+        eligibleQuantity: 100,
+        expectedCashAmount: 200,
+        expectedStockQuantity: 10,
+        receivedCashAmount: 0,
+        receivedStockQuantity: 7,
+        postingStatus: "posted",
+        reconciliationStatus: "open",
+        version: 1,
+        sourceCompositionStatus: "provided",
+        bookedAt: "2026-04-22T09:00:00.000Z",
+      },
+    );
+    store.accounting.facts.cashLedgerEntries.push(
+      {
+        id: "postgres-parity-cash-b",
+        userId: "user-1",
+        accountId: secondAccountId,
+        entryDate: "2026-04-21",
+        entryType: "DIVIDEND_RECEIPT",
+        amount: 200,
+        currency: "TWD",
+        relatedDividendLedgerEntryId: "postgres-parity-ledger-b",
+        source: "test",
+        bookedAt: "2026-04-21T09:00:01.000Z",
+      },
+    );
+    await persistence.saveStore(store);
+
+    const filtered = await persistence.listDividendReviewPrimary("user-1", {
+      accountIds: [accountId, secondAccountId],
+      cashStatuses: [...dividendReviewFilterParity.cashStatuses],
+      stockStatuses: [...dividendReviewFilterParity.stockStatuses],
+      page: 1,
+      limit: 10,
+      sortBy: "paymentDate",
+      sortOrder: "asc",
+    });
+
+    expect(filtered.rows.map((row) => row.id)).toEqual(
+      dividendReviewFilterParity.expectedRowSuffixes.map((suffix) => `postgres-parity-ledger-${suffix}`),
+    );
+  });
+
   it("[postgres ticker read models]: posted/open builders → preserve pagination and open separation", async () => {
     const store = await persistence.loadStore("user-1");
 
@@ -267,13 +414,10 @@ describePostgres("dividend read model parity", () => {
             case "paymentDate": return row.paymentDate ?? "~";
             case "ticker": return row.ticker;
             case "account": return row.accountName ?? "";
-            case "expectedCashAmount":
-            case "expectedGrossAmount": return row.expectedCashAmount;
             case "expectedNetAmount": return row.expectedNetAmount ?? 0;
             case "nhiAmount": return row.nhiAmount ?? 0;
             case "bankFeeAmount": return row.bankFeeAmount ?? 0;
             case "otherDeductionAmount": return row.otherDeductionAmount ?? 0;
-            case "receivedCashAmount": return row.receivedCashAmount;
             case "actualNetAmount": return row.actualNetAmount ?? 0;
             case "varianceAmount": return row.varianceAmount ?? 0;
             case "reconciliationStatus": return row.reconciliationStatus;

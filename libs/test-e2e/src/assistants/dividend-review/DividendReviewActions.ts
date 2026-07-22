@@ -119,18 +119,51 @@ export class DividendReviewActions extends AppBaseActions {
   // ─── Filter bar — dropdowns ──────────────────────────────────────────────
 
   @Step()
-  async selectStatus(value: string): Promise<void> {
-    await this.uiActions.select.perform(this.el.statusSelect, value);
+  async openAccountFilter(): Promise<void> {
+    await this.uiActions.click.perform(this.el.accountSummary);
   }
 
   @Step()
-  async selectStockStatus(value: string): Promise<void> {
-    await this.uiActions.select.perform(this.el.stockStatusSelect, value);
+  async openAccountFilterWithKeyboard(): Promise<void> {
+    await this.mxFocus(this.el.accountSummary);
+    await this.mxPressKey("Enter");
   }
 
   @Step()
-  async selectAccount(value: string): Promise<void> {
-    await this.uiActions.select.perform(this.el.accountSelect, value);
+  async toggleAccount(value: string): Promise<void> {
+    await this.uiActions.click.perform(this.el.accountOption(value));
+  }
+
+  @Step()
+  async toggleAccountWithKeyboard(value: string): Promise<void> {
+    await this.mxFocus(this.el.accountOption(value));
+    await this.mxPressKey("Space");
+  }
+
+  @Step()
+  async selectAllAccountsWithKeyboard(): Promise<void> {
+    await this.mxFocus(this.el.accountAll);
+    await this.mxPressKey("Space");
+  }
+
+  @Step()
+  async openCashStatusFilter(): Promise<void> {
+    await this.uiActions.click.perform(this.el.cashStatusSummary);
+  }
+
+  @Step()
+  async toggleCashStatus(value: string): Promise<void> {
+    await this.uiActions.click.perform(this.el.cashStatusOption(value));
+  }
+
+  @Step()
+  async openStockStatusFilter(): Promise<void> {
+    await this.uiActions.click.perform(this.el.stockStatusSummary);
+  }
+
+  @Step()
+  async toggleStockStatus(value: string): Promise<void> {
+    await this.uiActions.click.perform(this.el.stockStatusOption(value));
   }
 
   // ─── Chart interactions ���─────────────────────────────────────────────────

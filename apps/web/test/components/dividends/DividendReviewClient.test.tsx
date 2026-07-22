@@ -60,6 +60,13 @@ function createDeferred<T>() {
   return { promise, resolve };
 }
 
+function setInputValue(input: HTMLInputElement, value: string) {
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+  descriptor?.set?.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+  input.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
 beforeAll(() => {
   (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
 });
@@ -104,6 +111,7 @@ const reviewRow: DividendReviewRowSummaryDto = {
   exDividendDate: "2026-06-01",
   paymentDate: "2026-07-01",
   cashCurrency: "TWD",
+  cashDividendPerShare: 3,
   eligibleQuantity: 100,
   expectedCashAmount: 300,
   expectedStockQuantity: 0,
@@ -202,18 +210,72 @@ describe("DividendReviewClient", () => {
     });
     await act(async () => {});
 
-    expect(container.querySelector<HTMLSelectElement>("[data-testid='filter-cash-status']")?.value).toBe("explained");
-    const stockStatus = container.querySelector<HTMLSelectElement>("[data-testid='filter-stock-status']");
-    expect(stockStatus?.value).toBe("variance");
+    expect(container.querySelector<HTMLInputElement>("[data-testid='filter-cash-status-explained']")?.checked).toBe(true);
+    const stockStatus = container.querySelector<HTMLInputElement>("[data-testid='filter-stock-status-matched']");
+    expect(container.querySelector<HTMLInputElement>("[data-testid='filter-stock-status-variance']")?.checked).toBe(true);
     await act(async () => {
-      stockStatus!.value = "matched";
-      stockStatus!.dispatchEvent(new Event("change", { bubbles: true }));
+      stockStatus?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(primaryQueryCalls()).toContainEqual([
-      expect.objectContaining({ cashStatus: "explained", stockStatus: "matched" }),
+      expect.objectContaining({ cashStatuses: ["explained"], stockStatuses: ["variance", "matched"] }),
     ]);
     expect(window.location.search).toContain("cashStatus=explained");
+    expect(window.location.search).toContain("stockStatus=variance");
     expect(window.location.search).toContain("stockStatus=matched");
+  });
+
+  it("keeps the checkbox multi-select open and announced across keyboard toggles and All", async () => {
+    const data = {
+      ...emptyReviewData,
+      accounts: [{ id: "acc-1", name: "Main" }, { id: "acc-2", name: "Brokerage" }],
+    };
+    vi.mocked(fetchDividendReviewPrimary).mockResolvedValue(data);
+    act(() => {
+      root.render(
+        <DividendReviewClient
+          initialData={data}
+          dict={dict}
+          locale="en"
+          accounts={data.accounts}
+          years={[2026]}
+        />,
+      );
+    });
+    await act(async () => {});
+
+    const dropdown = container.querySelector<HTMLDetailsElement>("[data-testid='filter-account-dropdown']")!;
+    const summary = container.querySelector<HTMLElement>("[data-testid='filter-account-summary']")!;
+    summary.focus();
+    summary.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    await act(async () => summary.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 })));
+    expect(dropdown.open).toBe(true);
+    expect(summary.getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement).toBe(summary);
+
+    const first = container.querySelector<HTMLInputElement>("[data-testid='filter-account-acc-1']")!;
+    first.focus();
+    first.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    await act(async () => first.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 })));
+    expect(dropdown.open).toBe(true);
+    expect(document.activeElement).toBe(first);
+    expect(container.querySelector("[data-testid='filter-account-announcement']")?.textContent).toContain("Main");
+
+    const second = container.querySelector<HTMLInputElement>("[data-testid='filter-account-acc-2']")!;
+    second.focus();
+    second.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    await act(async () => second.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 })));
+    expect(dropdown.open).toBe(true);
+    expect(document.activeElement).toBe(second);
+    expect(container.querySelector("[data-testid='filter-account-announcement']")?.textContent).toContain("2 selected");
+
+    const all = container.querySelector<HTMLInputElement>("[data-testid='filter-account-all']")!;
+    all.focus();
+    all.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    await act(async () => all.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 })));
+    expect(dropdown.open).toBe(true);
+    expect(document.activeElement).toBe(all);
+    expect(all.checked).toBe(true);
+    expect(container.querySelector("[data-testid='filter-account-announcement']")?.textContent).toContain("All accounts");
   });
 
   it("searches eligible tickers and synchronizes repeated selections immediately", async () => {
@@ -464,15 +526,14 @@ describe("DividendReviewClient", () => {
     });
     await act(async () => {});
 
-    const account = container.querySelector<HTMLSelectElement>("[data-testid='filter-account']")!;
+    const account = container.querySelector<HTMLInputElement>("[data-testid='filter-account-acc-1']")!;
     await act(async () => {
-      account.value = "acc-1";
-      account.dispatchEvent(new Event("change", { bubbles: true }));
+      account.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await act(async () => {});
 
-    expect(primaryQueryCalls()).toContainEqual([expect.objectContaining({ accountId: "acc-1", tickers: ["2886", "3714"] })]);
-    expect(primaryQueryCalls()).toContainEqual([expect.objectContaining({ accountId: "acc-1", tickers: ["2886"] })]);
+    expect(primaryQueryCalls()).toContainEqual([expect.objectContaining({ accountIds: ["acc-1"], tickers: ["2886", "3714"] })]);
+    expect(primaryQueryCalls()).toContainEqual([expect.objectContaining({ accountIds: ["acc-1"], tickers: ["2886"] })]);
     expect(new URLSearchParams(window.location.search).getAll("ticker")).toEqual(["2886"]);
   });
 
@@ -564,7 +625,7 @@ describe("DividendReviewClient", () => {
     });
     await act(async () => {});
 
-    expect(container.querySelector<HTMLSelectElement>("[data-testid='filter-account']")?.textContent).toContain("Client account");
+    expect(container.querySelector("[data-testid='filter-account-dropdown']")?.textContent).toContain("Client account");
     expect(container.querySelector("[data-testid='preset-year-2024']")).not.toBeNull();
   });
 
@@ -601,7 +662,7 @@ describe("DividendReviewClient", () => {
     });
     await act(async () => {});
 
-    const accountFilter = container.querySelector<HTMLSelectElement>("[data-testid='filter-account']");
+    const accountFilter = container.querySelector<HTMLElement>("[data-testid='filter-account-dropdown']");
     expect(accountFilter?.textContent).not.toContain("Self account");
     expect(accountFilter?.textContent).not.toContain("Owner account");
     expect(container.querySelector("[data-testid='preset-year-2026']")).toBeNull();
@@ -789,15 +850,14 @@ describe("DividendReviewClient", () => {
       container.querySelector<HTMLInputElement>("[data-testid='filter-ticker-checkbox-0050']")?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     await act(async () => {});
-    const accountSelect = container.querySelector<HTMLSelectElement>("[data-testid='filter-account']")!;
+    const accountSelect = container.querySelector<HTMLInputElement>("[data-testid='filter-account-acc-1']")!;
     await act(async () => {
-      accountSelect.value = "acc-1";
-      accountSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      accountSelect.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
 
-    expect(primaryQueryCalls()).toContainEqual([
-      expect.objectContaining({ tickers: ["2330", "0050"], marketCode: undefined, accountId: "acc-1" }),
-    ]);
+    expect(primaryQueryCalls().at(-1)?.[0]).toEqual(
+      expect.objectContaining({ tickers: ["2330", "0050"], marketCode: undefined, accountIds: ["acc-1"] }),
+    );
   });
 
   it("renders ticker and instrument display name in review rows", async () => {
@@ -1091,6 +1151,22 @@ describe("DividendReviewClient", () => {
     expect(container.querySelector<HTMLSelectElement>("[data-testid='review-mobile-sort-direction']")?.value).toBe("asc");
   });
 
+  it("rewrites unsupported legacy review sorts out of the canonical URL on load", async () => {
+    searchParamsState.value = "view=ledger&sortBy=exDate&sortOrder=asc";
+    window.history.replaceState(null, "", `/dividends?${searchParamsState.value}`);
+
+    act(() => {
+      root.render(<DividendReviewClient initialData={emptyReviewData} dict={dict} locale="en" accounts={[]} years={[2026]} />);
+    });
+    await act(async () => {});
+
+    expect(window.location.search).not.toContain("sortBy=exDate");
+    expect(window.location.search).toContain("sortOrder=asc");
+    expect(primaryQueryCalls()).toContainEqual([
+      expect.objectContaining({ sortBy: "paymentDate", sortOrder: "asc", page: 1 }),
+    ]);
+  });
+
   it("resets the page to 1 when sorting changes", async () => {
     searchParamsState.value = "view=ledger&page=3";
     window.history.replaceState(null, "", "/dividends?view=ledger&page=3");
@@ -1141,12 +1217,12 @@ describe("DividendReviewClient", () => {
     await act(async () => {});
 
     const fields = [
-      "payment-date", "ticker", "account", "expected-gross-amount", "received-cash-amount", "nhi-amount",
+      "payment-date", "ticker", "account", "nhi-amount",
       "bank-fee-amount", "other-deduction-amount", "expected-net-amount", "actual-net-amount", "variance",
       "reconciliation-status",
     ];
     expect(fields.map((field) => container.querySelector(`[data-testid='review-sort-${field}']`) !== null)).toEqual(
-      Array.from({ length: 12 }, () => true),
+      Array.from({ length: 10 }, () => true),
     );
 
     const ticker = container.querySelector<HTMLButtonElement>("[data-testid='review-sort-ticker']")!;
@@ -1477,6 +1553,72 @@ describe("DividendReviewClient", () => {
     await act(async () => {});
 
     expect(container.querySelector<HTMLElement>("[data-testid='preset-year-range']")?.textContent).toContain("年份");
+  });
+
+  it("keeps invalid custom date edits out of the URL and query until blur validates", async () => {
+    searchParamsState.value = "view=ledger&fromPaymentDate=2026-01-01&toPaymentDate=2026-12-31";
+    window.history.replaceState(null, "", `/dividends?${searchParamsState.value}`);
+
+    act(() => {
+      root.render(
+        <DividendReviewClient initialData={emptyReviewData} dict={dict} locale="en" accounts={[]} years={[2026]} />,
+      );
+    });
+    await act(async () => {});
+
+    const fromDate = container.querySelector<HTMLInputElement>("[data-testid='filter-from-date']")!;
+    const toDate = container.querySelector<HTMLInputElement>("[data-testid='filter-to-date']")!;
+
+    await act(async () => {
+      setInputValue(fromDate, "2026-12-31");
+      setInputValue(toDate, "");
+    });
+
+    expect(window.location.search).toContain("fromPaymentDate=2026-01-01");
+    expect(window.location.search).toContain("toPaymentDate=2026-12-31");
+
+    await act(async () => {
+      toDate.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain(dict.dividends.review.filter.partialDateError);
+    expect(window.location.search).toContain("fromPaymentDate=2026-01-01");
+    expect(window.location.search).toContain("toPaymentDate=2026-12-31");
+  });
+
+  it("commits valid custom date edits only on blur", async () => {
+    searchParamsState.value = "view=ledger&fromPaymentDate=2026-01-01&toPaymentDate=2026-12-31";
+    window.history.replaceState(null, "", `/dividends?${searchParamsState.value}`);
+
+    act(() => {
+      root.render(
+        <DividendReviewClient initialData={emptyReviewData} dict={dict} locale="en" accounts={[]} years={[2026]} />,
+      );
+    });
+    await act(async () => {});
+    vi.clearAllMocks();
+
+    const fromDate = container.querySelector<HTMLInputElement>("[data-testid='filter-from-date']")!;
+    const toDate = container.querySelector<HTMLInputElement>("[data-testid='filter-to-date']")!;
+
+    await act(async () => {
+      setInputValue(fromDate, "2026-02-01");
+      setInputValue(toDate, "2026-11-30");
+    });
+
+    expect(window.location.search).toContain("fromPaymentDate=2026-01-01");
+    expect(window.location.search).toContain("toPaymentDate=2026-12-31");
+    expect(vi.mocked(fetchDividendReviewPrimary)).not.toHaveBeenCalled();
+
+    await act(async () => {
+      toDate.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+
+    expect(window.location.search).toContain("fromPaymentDate=2026-02-01");
+    expect(window.location.search).toContain("toPaymentDate=2026-11-30");
+    expect(primaryQueryCalls()).toContainEqual([
+      expect.objectContaining({ fromPaymentDate: "2026-02-01", toPaymentDate: "2026-11-30" }),
+    ]);
   });
 
   it("moves pending source composition into URL and server query while resetting page 1", async () => {

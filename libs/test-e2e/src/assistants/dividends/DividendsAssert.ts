@@ -83,6 +83,24 @@ export class DividendsAssert extends BaseAssert {
   }
 
   @Step()
+  async recentReceiptDesktopTracksAlign(): Promise<void> {
+    await expect(this.el.recentReceiptsHeader).toBeVisible();
+    await expect(this.el.recentReceiptRows.first()).toBeVisible();
+    const [headerTracks, rowTracks] = await Promise.all([
+      this.el.recentReceiptsHeader.evaluate((element) => getComputedStyle(element).gridTemplateColumns),
+      this.el.recentReceiptRows.first().evaluate((element) => getComputedStyle(element).gridTemplateColumns),
+    ]);
+    expect(rowTracks).toBe(headerTracks);
+  }
+
+  @Step()
+  async recentReceiptsUseMobileCards(): Promise<void> {
+    await expect(this.el.recentReceiptsHeader).toBeHidden();
+    await expect(this.el.recentReceiptRows.first()).toBeVisible();
+    await expect(this.el.recentReceiptRows.first()).toHaveCSS("display", "grid");
+  }
+
+  @Step()
   async actionQueueAppearsBeforeThisMonth(): Promise<void> {
     await expect.poll(async () => {
       const actionBox = await this.el.actionQueue.boundingBox();

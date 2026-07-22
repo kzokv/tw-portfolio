@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { SellAvailabilityDto } from "@vakwen/shared-types";
 import { resolveErrorMessage } from "../../../lib/utils";
 import type { TransactionInput } from "../../../components/portfolio/types";
 import {
   estimateTransaction,
+  fetchSellAvailability,
   fetchMarketDataPrice,
   submitTransaction,
   type MarketDataPriceResponse,
@@ -30,6 +32,13 @@ interface CachedPriceLookup {
   response: MarketDataPriceResponse;
 }
 
+interface TransactionSellAvailabilityState {
+  requestKey: string | null;
+  response: SellAvailabilityDto | null;
+  isLoading: boolean;
+  transportError: string;
+}
+
 const PRICE_CACHE_TTL_MS = 60_000;
 const LOOKUP_DEBOUNCE_MS = 400;
 
@@ -47,6 +56,12 @@ export function useTransactionSubmission({
   const [priceHint, setPriceHint] = useState<TransactionPriceHint | null>(null);
   const [showPriceUnavailableHint, setShowPriceUnavailableHint] = useState(false);
   const [feeEstimate, setFeeEstimate] = useState<TransactionEstimateResponse | null>(null);
+  const [sellAvailability, setSellAvailability] = useState<TransactionSellAvailabilityState>({
+    requestKey: null,
+    response: null,
+    isLoading: false,
+    transportError: "",
+  });
 
   const blockedEstimateKeyRef = useRef<string | null>(null);
   const hasUserEditedUnitPriceRef = useRef(false);
@@ -208,6 +223,69 @@ export function useTransactionSubmission({
     draftTransaction.unitPrice,
   ]);
 
+  useEffect(() => {
+    const normalizedTicker = draftTransaction.ticker.trim().toUpperCase();
+    const lookupMarketCode = draftTransaction.marketCode;
+    const lookupKey = (
+      draftTransaction.type === "SELL"
+      && draftTransaction.accountId.length > 0
+      && normalizedTicker.length > 0
+      && draftTransaction.tradeDate.length > 0
+      && lookupMarketCode !== null
+    )
+      ? `${draftTransaction.accountId}|${normalizedTicker}|${lookupMarketCode}|${draftTransaction.tradeDate}`
+      : null;
+    const controller = new AbortController();
+    setSellAvailability({
+      requestKey: lookupKey,
+      response: null,
+      isLoading: lookupKey !== null,
+      transportError: "",
+    });
+    const timeoutId = window.setTimeout(async () => {
+      if (!lookupKey || !lookupMarketCode) {
+        return;
+      }
+
+      try {
+        const response = await fetchSellAvailability({
+          accountId: draftTransaction.accountId,
+          ticker: normalizedTicker,
+          marketCode: lookupMarketCode,
+          tradeDate: draftTransaction.tradeDate,
+        }, controller.signal);
+        if (controller.signal.aborted) return;
+        setSellAvailability({
+          requestKey: lookupKey,
+          response,
+          isLoading: false,
+          transportError: "",
+        });
+      } catch (error) {
+        if (controller.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
+          return;
+        }
+        setSellAvailability({
+          requestKey: lookupKey,
+          response: null,
+          isLoading: false,
+          transportError: resolveErrorMessage(error),
+        });
+      }
+    }, LOOKUP_DEBOUNCE_MS);
+
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    draftTransaction.accountId,
+    draftTransaction.marketCode,
+    draftTransaction.ticker,
+    draftTransaction.tradeDate,
+    draftTransaction.type,
+  ]);
+
   const submit = useCallback(async (): Promise<boolean> => {
     if (!draftTransaction.accountId) {
       setMessage("");
@@ -256,5 +334,9 @@ export function useTransactionSubmission({
     priceHint,
     showPriceUnavailableHint,
     feeEstimate,
+    sellAvailability: sellAvailability.response,
+    sellAvailabilityRequestKey: sellAvailability.requestKey,
+    isSellAvailabilityLoading: sellAvailability.isLoading,
+    sellAvailabilityTransportError: sellAvailability.transportError,
   };
 }

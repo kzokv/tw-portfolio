@@ -479,6 +479,7 @@ describe("posted transaction mutation service", () => {
         confirmationDigest: preview.confirmationDigest,
       },
     });
+    const replayLock = vi.spyOn(persistence, "withTransactionWriteLock");
 
     await dispatchPostedTransactionMutationRebuild(persistence, {
       ownerUserId: "user-1",
@@ -502,6 +503,7 @@ describe("posted transaction mutation service", () => {
       status: "completed",
     }));
     expect(deleteWalletSnapshots).toHaveBeenCalledWith("user-1");
+    expect(replayLock).toHaveBeenCalledWith("user-1", expect.any(Function));
   });
 
   it("returns the original run for identical confirmation retries and rejects conflicting reuse", async () => {

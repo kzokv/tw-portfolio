@@ -1,4 +1,5 @@
 import { TestEnv } from "@vakwen/config/test";
+import type { Response } from "@playwright/test";
 import type { MarketCode } from "@vakwen/shared-types";
 import { Step } from "@vakwen/test-framework/decorators";
 import { AppBaseActions } from "../../bases/index.js";
@@ -52,6 +53,19 @@ export class TransactionsActions extends AppBaseActions {
     await this.uiActions.fill.perform(this.el.transactionForm.tradeDateInput, date);
   }
 
+  @Step()
+  async useMaximumSellQuantity(): Promise<void> {
+    await this.uiActions.click.perform(this.el.transactionForm.sellAvailabilityUseMax);
+  }
+
+  @Step()
+  async waitForSellAvailability(): Promise<import("@playwright/test").Response> {
+    return await this.mxWaitForResponse(
+      (response) => response.request().method() === "GET"
+        && response.url().includes("/portfolio/transactions/sell-availability"),
+    );
+  }
+
   // ── ui-enhancement — override inputs ────────────────────────────────────
   @Step()
   async fillCommissionOverride(value: string): Promise<void> {
@@ -92,6 +106,18 @@ export class TransactionsActions extends AppBaseActions {
   @Step()
   async submitTransaction(): Promise<void> {
     await this.uiActions.click.perform(this.el.transactionForm.submitButton);
+  }
+
+  @Step()
+  async submitTransactionAndWaitForResponse(): Promise<Response> {
+    const responsePromise = this.mxWaitForResponse((response) => {
+      const url = new URL(response.url());
+      return response.request().method() === "POST" && url.pathname.endsWith("/portfolio/transactions");
+    });
+    await this.uiActions.click.perform(this.el.transactionForm.submitButton);
+    const response = await responsePromise;
+    await response.finished();
+    return response;
   }
 
   @Step()

@@ -55,6 +55,10 @@ export function defaultHoldingsSelectionPreference(): HoldingsSelectionPreferenc
   return { version: 1, mode: "all" };
 }
 
+export function noneHoldingsSelectionPreference(): HoldingsSelectionPreferenceDto {
+  return { version: 1, mode: "none" };
+}
+
 export function normalizeHoldingsSelectionPreference(value: unknown): HoldingsSelectionPreferenceDto {
   const parsed = holdingsSelectionPreferenceSchema.safeParse(value);
   return parsed.success ? parsed.data : defaultHoldingsSelectionPreference();

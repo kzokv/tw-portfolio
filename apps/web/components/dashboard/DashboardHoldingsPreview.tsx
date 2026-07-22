@@ -311,7 +311,7 @@ export function DashboardHoldingsPreview({
     const baseGroups = groups.flatMap((group) => {
       const groupTickerId = buildHoldingsTickerId(group.marketCode, group.ticker);
       if (
-        holdingsSelection.selectionMode === "custom"
+        holdingsSelection.selectionMode !== "all"
         && !holdingsSelection.selectedTickerIdSet.has(groupTickerId)
       ) {
         return [];
@@ -624,6 +624,8 @@ export function DashboardHoldingsPreview({
                     availableSelectedTickerIds={holdingsSelection.availableSelectedTickerIds}
                     unavailableTickerIds={holdingsSelection.unavailableTickerIds}
                     onReset={holdingsSelection.setAll}
+                    onSelectAll={holdingsSelection.setAll}
+                    onDeselectAll={holdingsSelection.setNone}
                     onToggleTicker={holdingsSelection.toggleTicker}
                     onRemoveTicker={holdingsSelection.removeTicker}
                   />
@@ -761,7 +763,7 @@ export function DashboardHoldingsPreview({
               />
               {visibleGroups.length === 0 ? (
                 <HoldingsGridEmptyState>
-                  {dict.dashboardHome.topHoldingsNoMatches}
+                  {holdingsSelection.selectionMode === "none" ? dict.holdings.noneResults : dict.dashboardHome.topHoldingsNoMatches}
                 </HoldingsGridEmptyState>
               ) : (
                 <>

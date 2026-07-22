@@ -15,6 +15,30 @@ const REVIEW_PAGE_SIZE_VALUES = [10, 25, 50] as const;
 const DEFAULT_REVIEW_PAGE_SIZE = 10;
 const CASH_STATUSES: DividendCashReconciliationStatus[] = ["open", "matched", "explained", "resolved"];
 const STOCK_STATUSES: DividendStockReconciliationStatus[] = ["needs_calculation", "pending_receipt", "matched", "variance", "explained"];
+const SUPPORTED_REVIEW_SORTS = new Set<DividendReviewSortColumn>([
+  "paymentDate",
+  "ticker",
+  "account",
+  "expectedNetAmount",
+  "nhiAmount",
+  "bankFeeAmount",
+  "otherDeductionAmount",
+  "actualNetAmount",
+  "varianceAmount",
+  "reconciliationStatus",
+]);
+const RETIRED_REVIEW_SORTS = new Set<
+  DividendReviewSortColumn
+  | "exDate"
+  | "expectedCashAmount"
+  | "expectedGrossAmount"
+  | "receivedCashAmount"
+>([
+  "exDate",
+  "expectedCashAmount",
+  "expectedGrossAmount",
+  "receivedCashAmount",
+]);
 
 export type DividendsSearchParamsRecord = Record<string, string | string[] | undefined>;
 
@@ -106,6 +130,21 @@ function normalizeStatusFilter(status: string): string {
   return status;
 }
 
+export function normalizeReviewSort(
+  value: string | undefined,
+): { sortBy: DividendReviewSortColumn; canonicalized: boolean } {
+  if (!value || value === "paymentDate") {
+    return { sortBy: "paymentDate", canonicalized: false };
+  }
+  if (RETIRED_REVIEW_SORTS.has(value as DividendReviewSortColumn) || !SUPPORTED_REVIEW_SORTS.has(value as DividendReviewSortColumn)) {
+    return { sortBy: "paymentDate", canonicalized: true };
+  }
+  return {
+    sortBy: value as DividendReviewSortColumn,
+    canonicalized: false,
+  };
+}
+
 function normalizeReviewLimit(value: string | undefined): DividendReviewPageLimit {
   const parsed = Number.parseInt(value ?? "", 10);
   return REVIEW_PAGE_SIZE_VALUES.includes(parsed as (typeof REVIEW_PAGE_SIZE_VALUES)[number])
@@ -123,18 +162,20 @@ export function searchParamsToReviewQuery(
   const fromDate = getValue(searchParams, "fromPaymentDate") ?? resolved.from ?? "";
   const toDate = getValue(searchParams, "toPaymentDate") ?? resolved.to ?? "";
   const status = normalizeStatusFilter(getValue(searchParams, "status") ?? "all");
-  const sortBy = (getValue(searchParams, "sortBy") ?? "paymentDate") as DividendReviewSortColumn;
+  const sortBy = normalizeReviewSort(getValue(searchParams, "sortBy")).sortBy;
   const sortOrder = (getValue(searchParams, "sortOrder") ?? "desc") as "asc" | "desc";
   const page = Math.max(1, parseInt(getValue(searchParams, "page") ?? "1", 10) || 1);
   const limit = normalizeReviewLimit(getValue(searchParams, "limit"));
   const tickers = normalizeTickerQueryValues(getValues(searchParams, "ticker"));
   const marketCode = getValue(searchParams, "marketCode");
-  const accountId = getValue(searchParams, "accountId");
+  const accountIds = getValues(searchParams, "accountId").slice(0, 50);
   const sourceComposition = getValue(searchParams, "sourceComposition") === "pending" ? "pending" : undefined;
-  const requestedCashStatus = getValue(searchParams, "cashStatus");
-  const cashStatus = CASH_STATUSES.find((candidate) => candidate === requestedCashStatus);
-  const requestedStockStatus = getValue(searchParams, "stockStatus");
-  const stockStatus = STOCK_STATUSES.find((candidate) => candidate === requestedStockStatus);
+  const cashStatuses = getValues(searchParams, "cashStatus")
+    .filter((value): value is DividendCashReconciliationStatus => CASH_STATUSES.includes(value as DividendCashReconciliationStatus))
+    .slice(0, 50);
+  const stockStatuses = getValues(searchParams, "stockStatus")
+    .filter((value): value is DividendStockReconciliationStatus => STOCK_STATUSES.includes(value as DividendStockReconciliationStatus))
+    .slice(0, 50);
 
   let postingStatus: DividendReviewPostingStatus | undefined;
   let reconciliationStatus: DividendReviewReconciliationStatus | undefined;
@@ -151,9 +192,9 @@ export function searchParamsToReviewQuery(
     toPaymentDate: toDate || undefined,
     tickers: tickers.length > 0 ? tickers : undefined,
     marketCode: marketCode as MarketCode | undefined,
-    accountId: accountId || undefined,
-    ...(cashStatus ? { cashStatus } : {}),
-    ...(stockStatus ? { stockStatus } : {}),
+    ...(accountIds.length > 0 ? { accountIds } : {}),
+    ...(cashStatuses.length > 0 ? { cashStatuses } : {}),
+    ...(stockStatuses.length > 0 ? { stockStatuses } : {}),
     ...(postingStatus ? { postingStatus } : {}),
     ...(reconciliationStatus ? { reconciliationStatus } : {}),
     ...(excludeExpected ? { excludeExpected } : {}),

@@ -521,6 +521,373 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     });
   });
 
+  it("returns authoritative sell availability including same-day sells, stock dividends, and splits before the proposed booking", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-sell-availability-buy" },
+      payload: transactionPayload({
+        quantity: 10,
+        unitPrice: 100,
+        tradeDate: "2026-01-02",
+      }),
+    });
+
+    const store = await app.persistence.loadStore("user-1");
+    store.accounting.facts.tradeEvents.push({
+      id: "same-day-earlier-sell",
+      userId: "user-1",
+      accountId: "acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      instrumentType: "STOCK",
+      type: "SELL",
+      quantity: 4,
+      unitPrice: 120,
+      priceCurrency: "TWD",
+      tradeDate: "2026-01-05",
+      tradeTimestamp: "2026-01-05T09:00:00.000Z",
+      bookingSequence: 1,
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: store.feeProfiles[0]!,
+    });
+    store.accounting.facts.positionActions.push(
+      {
+        id: "same-day-split",
+        accountId: "acc-1",
+        ticker: "2330",
+        marketCode: "TW",
+        actionType: "SPLIT",
+        actionDate: "2026-01-05",
+        actionTimestamp: "2026-01-05T08:00:00.000Z",
+        quantity: 0,
+        ratioNumerator: 2,
+        ratioDenominator: 1,
+        source: "test",
+      },
+      {
+        id: "same-day-stock-dividend",
+        accountId: "acc-1",
+        ticker: "2330",
+        marketCode: "TW",
+        actionType: "STOCK_DIVIDEND",
+        actionDate: "2026-01-05",
+        actionTimestamp: "2026-01-05T09:30:00.000Z",
+        quantity: 3,
+        source: "test",
+      },
+    );
+    await app.persistence.saveStore(store);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/portfolio/transactions/sell-availability?accountId=acc-1&ticker=2330&marketCode=TW&tradeDate=2026-01-05&tradeTimestamp=2026-01-05T10:00:00.000Z",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      status: "ready",
+      accountId: "acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      tradeDate: "2026-01-05",
+      availableQuantity: 19,
+    });
+  });
+
+  it("returns account_not_found when sell availability targets an unknown account", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/portfolio/transactions/sell-availability?accountId=missing-account&ticker=2330&marketCode=TW&tradeDate=2026-01-05",
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({
+      error: "account_not_found",
+      message: "Account not found",
+    });
+  });
+
+  it("rejects stale oversells with stable requested and available quantities", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-stale-oversell-buy" },
+      payload: transactionPayload({
+        quantity: 10,
+        unitPrice: 100,
+        tradeDate: "2026-01-01",
+      }),
+    });
+
+    const preview = await app.inject({
+      method: "GET",
+      url: "/portfolio/transactions/sell-availability?accountId=acc-1&ticker=2330&marketCode=TW&tradeDate=2026-01-02",
+    });
+    expect(preview.statusCode).toBe(200);
+    expect(preview.json()).toMatchObject({ status: "ready", availableQuantity: 10 });
+
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-stale-oversell-existing-sell" },
+      payload: transactionPayload({
+        quantity: 7,
+        unitPrice: 110,
+        tradeDate: "2026-01-02",
+        type: "SELL" as TransactionType,
+      }),
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-stale-oversell-submit" },
+      payload: transactionPayload({
+        quantity: 8,
+        unitPrice: 111,
+        tradeDate: "2026-01-02",
+        type: "SELL" as TransactionType,
+      }),
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({
+      error: "insufficient_quantity",
+      metadata: {
+        requestedQuantity: 8,
+        availableQuantity: 3,
+      },
+    });
+  });
+
+  it("serializes concurrent same-position sells at the persistence boundary", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-concurrent-sell-buy" },
+      payload: transactionPayload({
+        quantity: 10,
+        unitPrice: 100,
+        tradeDate: "2026-01-01",
+      }),
+    });
+
+    const [first, second] = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: "/portfolio/transactions",
+        headers: { "idempotency-key": "k-concurrent-sell-a" },
+        payload: transactionPayload({
+          quantity: 6,
+          unitPrice: 110,
+          tradeDate: "2026-01-02",
+          type: "SELL" as TransactionType,
+        }),
+      }),
+      app.inject({
+        method: "POST",
+        url: "/portfolio/transactions",
+        headers: { "idempotency-key": "k-concurrent-sell-b" },
+        payload: transactionPayload({
+          quantity: 6,
+          unitPrice: 111,
+          tradeDate: "2026-01-02",
+          type: "SELL" as TransactionType,
+        }),
+      }),
+    ]);
+
+    expect([first.statusCode, second.statusCode].sort((left, right) => left - right)).toEqual([200, 409]);
+    const rejected = [first, second].find((response) => response.statusCode === 409);
+    expect(rejected?.json()).toMatchObject({
+      error: "insufficient_quantity",
+      metadata: {
+        requestedQuantity: 6,
+        availableQuantity: 4,
+      },
+    });
+
+    const store = await app.persistence.loadStore("user-1");
+    expect(store.accounting.facts.tradeEvents.filter((trade) => trade.type === "SELL")).toHaveLength(1);
+  });
+
+  it("preserves concurrent transaction writes for different position tuples", async () => {
+    const [first, second] = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: "/portfolio/transactions",
+        headers: { "idempotency-key": "k-concurrent-different-tuple-2330" },
+        payload: transactionPayload({ ticker: "2330", quantity: 2 }),
+      }),
+      app.inject({
+        method: "POST",
+        url: "/portfolio/transactions",
+        headers: { "idempotency-key": "k-concurrent-different-tuple-0050" },
+        payload: transactionPayload({ ticker: "0050", quantity: 3 }),
+      }),
+    ]);
+
+    expect([first.statusCode, second.statusCode]).toEqual([200, 200]);
+    const transactionIds = [first.json().id as string, second.json().id as string];
+    const store = await app.persistence.loadStore("user-1");
+    expect(store.accounting.facts.tradeEvents.filter((trade) => transactionIds.includes(trade.id))).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: transactionIds[0], ticker: "2330", quantity: 2 }),
+        expect.objectContaining({ id: transactionIds[1], ticker: "0050", quantity: 3 }),
+      ]),
+    );
+  });
+
+  it("preserves concurrent transaction writes for different accounts", async () => {
+    const accountResponse = await app.inject({
+      method: "POST",
+      url: "/accounts",
+      payload: {
+        name: "Second Brokerage",
+        defaultCurrency: "TWD",
+        accountType: "broker",
+      },
+    });
+    expect(accountResponse.statusCode).toBe(200);
+    const secondAccountId = accountResponse.json().id as string;
+
+    const [first, second] = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: "/portfolio/transactions",
+        headers: { "idempotency-key": "k-concurrent-different-account-primary" },
+        payload: transactionPayload({ accountId: "acc-1", quantity: 2 }),
+      }),
+      app.inject({
+        method: "POST",
+        url: "/portfolio/transactions",
+        headers: { "idempotency-key": "k-concurrent-different-account-secondary" },
+        payload: transactionPayload({ accountId: secondAccountId, quantity: 3 }),
+      }),
+    ]);
+
+    expect([first.statusCode, second.statusCode]).toEqual([200, 200]);
+    const transactionIds = [first.json().id as string, second.json().id as string];
+    const store = await app.persistence.loadStore("user-1");
+    expect(store.accounting.facts.tradeEvents.filter((trade) => transactionIds.includes(trade.id))).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: transactionIds[0], accountId: "acc-1", quantity: 2 }),
+        expect.objectContaining({ id: transactionIds[1], accountId: secondAccountId, quantity: 3 }),
+      ]),
+    );
+  });
+
+  it("fails closed when a backdated sell would invalidate a later booked sell", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-backdated-invalidates-buy" },
+      payload: transactionPayload({
+        quantity: 10,
+        unitPrice: 100,
+        tradeDate: "2026-01-01",
+      }),
+    });
+
+    const existingSell = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-backdated-invalidates-existing-sell" },
+      payload: transactionPayload({
+        quantity: 8,
+        unitPrice: 120,
+        tradeDate: "2026-01-05",
+        type: "SELL" as TransactionType,
+      }),
+    });
+    expect(existingSell.statusCode).toBe(200);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-backdated-invalidates-submit" },
+      payload: transactionPayload({
+        quantity: 3,
+        unitPrice: 115,
+        tradeDate: "2026-01-02",
+        type: "SELL" as TransactionType,
+      }),
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({
+      error: "sell_availability_unavailable",
+      metadata: {
+        reason: "unreplayable_history",
+      },
+    });
+
+    const store = await app.persistence.loadStore("user-1");
+    expect(store.accounting.facts.tradeEvents.filter((trade) => trade.type === "SELL")).toHaveLength(1);
+  });
+
+  it("fails closed when sell availability cannot replay the authoritative history", async () => {
+    await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-unreplayable-history-buy" },
+      payload: transactionPayload({
+        quantity: 5,
+        unitPrice: 100,
+        tradeDate: "2026-01-01",
+      }),
+    });
+
+    const store = await app.persistence.loadStore("user-1");
+    store.accounting.facts.positionActions.push({
+      id: "invalid-fractional-split",
+      accountId: "acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      actionType: "SPLIT",
+      actionDate: "2026-01-02",
+      quantity: 0,
+      ratioNumerator: 3,
+      ratioDenominator: 2,
+      cashInLieuAmount: 0,
+      source: "test",
+    });
+    await app.persistence.saveStore(store);
+
+    const availability = await app.inject({
+      method: "GET",
+      url: "/portfolio/transactions/sell-availability?accountId=acc-1&ticker=2330&marketCode=TW&tradeDate=2026-01-03",
+    });
+    expect(availability.statusCode).toBe(200);
+    expect(availability.json()).toMatchObject({
+      status: "unavailable",
+      reason: "unreplayable_history",
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-unreplayable-history-sell" },
+      payload: transactionPayload({
+        quantity: 1,
+        unitPrice: 120,
+        tradeDate: "2026-01-03",
+        type: "SELL" as TransactionType,
+      }),
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({
+      error: "sell_availability_unavailable",
+      metadata: {
+        reason: "unreplayable_history",
+      },
+    });
+  });
+
 
   it("accepts booked commission and tax overrides and uses them in accounting outputs", async () => {
     const createBuyResponse = await app.inject({
@@ -1025,31 +1392,41 @@ describe("portfolio (transactions, holdings, recompute)", () => {
   });
 
   it("releases idempotency key when persistence fails", async () => {
-    const originalSavePostedTrade = app.persistence.savePostedTrade.bind(app.persistence);
+    const originalWriteLock = app.persistence.withTransactionWriteLock.bind(app.persistence);
     let failOnce = true;
-    app.persistence.savePostedTrade = async (...args) => {
-      if (failOnce) {
-        failOnce = false;
-        throw new Error("forced save failure");
-      }
-      return originalSavePostedTrade(...args);
-    };
+    app.persistence.withTransactionWriteLock = (async (ownerUserId, execute) => originalWriteLock(
+      ownerUserId,
+      async (writer) => execute({
+        ...writer,
+        saveReplayedPositionScope: async (...args) => {
+          if (failOnce) {
+            failOnce = false;
+            throw new Error("forced save failure");
+          }
+          return writer.saveReplayedPositionScope(...args);
+        },
+      }),
+    )) as typeof app.persistence.withTransactionWriteLock;
 
-    const first = await app.inject({
-      method: "POST",
-      url: "/portfolio/transactions",
-      headers: { "idempotency-key": "k-save-fail" },
-      payload: transactionPayload({ quantity: 1 }),
-    });
-    expect(first.statusCode).toBe(500);
+    try {
+      const first = await app.inject({
+        method: "POST",
+        url: "/portfolio/transactions",
+        headers: { "idempotency-key": "k-save-fail" },
+        payload: transactionPayload({ quantity: 1 }),
+      });
+      expect(first.statusCode).toBe(500);
 
-    const second = await app.inject({
-      method: "POST",
-      url: "/portfolio/transactions",
-      headers: { "idempotency-key": "k-save-fail" },
-      payload: transactionPayload({ quantity: 1 }),
-    });
-    expect(second.statusCode).toBe(200);
+      const second = await app.inject({
+        method: "POST",
+        url: "/portfolio/transactions",
+        headers: { "idempotency-key": "k-save-fail" },
+        payload: transactionPayload({ quantity: 1 }),
+      });
+      expect(second.statusCode).toBe(200);
+    } finally {
+      app.persistence.withTransactionWriteLock = originalWriteLock;
+    }
   });
 
   it("recompute updates realized pnl on sell transactions", async () => {

@@ -1,4 +1,4 @@
-import { expect } from "@playwright/test";
+import { expect, type APIResponse, type Response } from "@playwright/test";
 import type { MarketCode } from "@vakwen/shared-types";
 import { Step } from "@vakwen/test-framework/decorators";
 import { BaseAssert } from "@vakwen/test-framework/mixins";
@@ -97,6 +97,67 @@ export class TransactionsAssert extends BaseAssert {
   @Step()
   async submitButtonIsDisabled(): Promise<void> {
     await expect(this.el.transactionForm.submitButton).toBeDisabled();
+  }
+
+  @Step()
+  async submitButtonIsEnabled(): Promise<void> {
+    await expect(this.el.transactionForm.submitButton).toBeEnabled();
+  }
+
+  @Step()
+  async sellAvailabilityIsLoading(): Promise<void> {
+    await expect(this.el.transactionForm.sellAvailabilityLoading).toBeVisible();
+    await expect(this.el.transactionForm.submitButton).toBeDisabled();
+  }
+
+  @Step()
+  async sellAvailabilityReadyContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.transactionForm.sellAvailabilityReady).toContainText(text);
+  }
+
+  @Step()
+  async sellAvailabilityTransportWarningIsVisible(): Promise<void> {
+    await expect(this.el.transactionForm.sellAvailabilityTransportWarning).toBeVisible();
+  }
+
+  @Step()
+  async sellAvailabilityUnavailableIsVisible(): Promise<void> {
+    await expect(this.el.transactionForm.sellAvailabilityUnavailable).toBeVisible();
+    await expect(this.el.transactionForm.submitButton).toBeDisabled();
+  }
+
+  @Step()
+  async sellAvailabilityOversellIsVisible(): Promise<void> {
+    await expect(this.el.transactionForm.sellAvailabilityOversell).toBeVisible();
+    await expect(this.el.transactionForm.submitButton).toBeDisabled();
+  }
+
+  @Step()
+  async sellQuantityIs(value: string): Promise<void> {
+    await expect(this.el.transactionForm.quantityInput).toHaveValue(value);
+  }
+
+  @Step()
+  async transactionResponseIsOversell(response: Response, requestedQuantity: number, availableQuantity: number): Promise<void> {
+    expect(response.status()).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: "insufficient_quantity",
+      metadata: { requestedQuantity, availableQuantity },
+    });
+  }
+
+  @Step()
+  async apiResponseIsOk(response: APIResponse): Promise<void> {
+    expect(response.ok(), await response.text()).toBe(true);
+  }
+
+  @Step()
+  async apiSellAvailabilityIs(response: APIResponse, availableQuantity: number): Promise<void> {
+    expect(response.ok(), await response.text()).toBe(true);
+    expect(await response.json()).toMatchObject({
+      status: "ready",
+      availableQuantity,
+    });
   }
 
   @Step()

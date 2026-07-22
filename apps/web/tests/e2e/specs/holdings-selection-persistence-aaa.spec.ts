@@ -126,5 +126,45 @@ test.describe("holdings selection persistence", () => {
       "1 visible of 1 selected",
       "dashboard selection summary mirrors portfolio selection",
     );
+
+    await appShell.actions.navigateToRoute("/portfolio");
+    await appShell.assert.appIsReady();
+    await portfolioSection.waitFor({ state: "visible" });
+    await portfolioSection.getByTestId("holdings-selection-picker-trigger").click();
+    const noneSavePromise = page.waitForResponse((response) =>
+      response.request().method() === "PATCH" && response.url().endsWith("/user-preferences"),
+    );
+    await page.getByTestId("holdings-selection-deselect-all").click();
+    const noneSaveResponse = await noneSavePromise;
+    if (!noneSaveResponse.ok()) {
+      throw new Error(`holdings none-mode save failed: ${noneSaveResponse.status()} ${await noneSaveResponse.text()}`);
+    }
+    await portfolioSection.getByTestId("holdings-selection-picker-trigger").filter({ hasText: "0 selected" }).waitFor({ state: "visible" });
+    await appShell.assert.mxAssertIncludes(await portfolioSection.textContent(), "No tickers are selected.", "portfolio intentional none state");
+
+    await appShell.actions.navigateToRoute("/dashboard");
+    await appShell.assert.appIsReady();
+    await dashboardPreview.waitFor({ state: "visible" });
+    await appShell.assert.mxAssertIncludes(await dashboardPreview.textContent(), "No tickers are selected.", "dashboard intentional none state");
+
+    await appShell.actions.navigateToRoute("/reports");
+    await appShell.assert.appIsReady();
+    await page.getByText("No tickers are selected.", { exact: true }).first().waitFor({ state: "visible" });
+    await appShell.assert.mxAssertIncludes(await page.locator("body").textContent(), "No tickers are selected.", "reports intentional none state");
+
+    await appShell.actions.navigateToRoute("/portfolio");
+    await appShell.assert.appIsReady();
+    await portfolioSection.getByTestId("holdings-selection-picker-trigger").click();
+    const allSavePromise = page.waitForResponse((response) =>
+      response.request().method() === "PATCH" && response.url().endsWith("/user-preferences"),
+    );
+    await page.getByTestId("holdings-selection-select-all").click();
+    const allSaveResponse = await allSavePromise;
+    if (!allSaveResponse.ok()) {
+      throw new Error(`holdings select-all save failed: ${allSaveResponse.status()} ${await allSaveResponse.text()}`);
+    }
+    await portfolioSection.getByTestId("holdings-selection-picker-trigger").filter({ hasText: /All|全部/ }).waitFor({ state: "visible" });
+    await appShell.assert.mxAssertEqual(await portfolioSection.getByTestId("holding-group-row-8811-TW").isVisible(), true, "first holding restored");
+    await appShell.assert.mxAssertEqual(await portfolioSection.getByTestId("holding-group-row-8812-TW").isVisible(), true, "second holding restored");
   });
 });

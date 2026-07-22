@@ -7,10 +7,11 @@ import type {
   CurrencyCode,
   LocaleCode,
   MarketCode,
+  SellAvailabilityDto,
 } from "@vakwen/shared-types";
 import { MARKET_CODES, currencyFor, marketCodeFor } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
-import { cn, formatCurrencyAmount, formatDateLabel } from "../../lib/utils";
+import { cn, formatCurrencyAmount, formatDateLabel, formatNumber } from "../../lib/utils";
 import { TooltipInfo } from "../ui/TooltipInfo";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
@@ -60,6 +61,10 @@ interface AddTransactionCardProps {
   priceHint: TransactionPriceHint | null;
   showPriceUnavailableHint: boolean;
   feeEstimate: TransactionEstimateResponse | null;
+  sellAvailability?: SellAvailabilityDto | null;
+  sellAvailabilityRequestKey?: string | null;
+  isSellAvailabilityLoading?: boolean;
+  sellAvailabilityTransportError?: string;
 }
 
 function formatAccountOptionLabel(account: TransactionAccountOption): string {
@@ -173,6 +178,10 @@ export function AddTransactionCard({
   priceHint,
   showPriceUnavailableHint,
   feeEstimate,
+  sellAvailability = null,
+  sellAvailabilityRequestKey = null,
+  isSellAvailabilityLoading = false,
+  sellAvailabilityTransportError = "",
 }: AddTransactionCardProps) {
   const accountSelectId = useId();
 
@@ -271,6 +280,26 @@ export function AddTransactionCard({
 
   const selectedAccount = dropdownAccounts.find((account) => account.id === value.accountId);
   const accountSelectTitle = selectedAccount ? formatAccountOptionLabel(selectedAccount) : "";
+  const hasCompleteSellAvailabilityLookup = (
+    value.type === "SELL"
+    && value.accountId.length > 0
+    && value.ticker.trim().length > 0
+    && value.marketCode !== null
+    && value.tradeDate.length > 0
+  );
+  const currentSellAvailabilityKey = hasCompleteSellAvailabilityLookup
+    ? `${value.accountId}|${value.ticker.trim().toUpperCase()}|${value.marketCode}|${value.tradeDate}`
+    : null;
+  const sellAvailabilityMatchesCurrentTuple = currentSellAvailabilityKey !== null && sellAvailabilityRequestKey === currentSellAvailabilityKey;
+  const readySellAvailability = sellAvailabilityMatchesCurrentTuple && sellAvailability?.status === "ready" ? sellAvailability : null;
+  const unavailableSellAvailability = sellAvailabilityMatchesCurrentTuple && sellAvailability?.status === "unavailable" ? sellAvailability : null;
+  const knownAvailableQuantity = readySellAvailability?.availableQuantity ?? null;
+  const hasKnownOversell = knownAvailableQuantity !== null && value.quantity > knownAvailableQuantity;
+  const sellAvailabilityBlocksSubmit = (
+    value.type === "SELL"
+    && hasCompleteSellAvailabilityLookup
+    && (isSellAvailabilityLoading || unavailableSellAvailability !== null || hasKnownOversell)
+  );
 
   const submitDisabled =
     pending ||
@@ -278,7 +307,8 @@ export function AddTransactionCard({
     !selectedAccount ||
     !value.ticker.trim() ||
     !value.marketCode ||
-    noCompatibleAccount;
+    noCompatibleAccount ||
+    sellAvailabilityBlocksSubmit;
 
   function handleChipChange(nextChip: MarketCode) {
     if (instrumentReadOnly) return;
@@ -501,7 +531,53 @@ export function AddTransactionCard({
             onChange={(event) => setField("quantity", Number(event.target.value))}
             className={fieldClassName}
             data-testid="tx-quantity-input"
+            max={knownAvailableQuantity ?? undefined}
+            aria-invalid={hasKnownOversell || unavailableSellAvailability !== null ? "true" : undefined}
           />
+          {value.type === "SELL" && hasCompleteSellAvailabilityLookup ? (
+            <div className="space-y-1" data-testid="sell-availability-panel">
+              {isSellAvailabilityLoading ? (
+                <p className="text-[11px] text-slate-500" data-testid="sell-availability-loading">
+                  {dict.transactions.sellAvailabilityLoading}
+                </p>
+              ) : null}
+              {readySellAvailability ? (
+                <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-600" data-testid="sell-availability-ready">
+                  <span>
+                    {dict.transactions.sellAvailabilityReady.replace(
+                      "{quantity}",
+                      formatNumber(readySellAvailability.availableQuantity, locale, 6),
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    className="font-medium text-indigo-700 underline underline-offset-2 hover:text-indigo-900"
+                    onClick={() => setField("quantity", readySellAvailability.availableQuantity)}
+                    data-testid="sell-availability-use-max"
+                  >
+                    {dict.transactions.sellAvailabilityUseMax}
+                  </button>
+                </div>
+              ) : null}
+              {sellAvailabilityTransportError ? (
+                <p className="text-[11px] text-amber-700" data-testid="sell-availability-transport-warning">
+                  {dict.transactions.sellAvailabilityTransportWarning}
+                </p>
+              ) : null}
+              {unavailableSellAvailability ? (
+                <p className="text-[11px] text-rose-700" data-testid="sell-availability-unavailable">
+                  {dict.transactions.sellAvailabilityUnavailable}
+                </p>
+              ) : null}
+              {hasKnownOversell ? (
+                <p className="text-[11px] text-rose-700" data-testid="sell-availability-oversell">
+                  {dict.transactions.sellAvailabilityOversell
+                    .replace("{requested}", formatNumber(value.quantity, locale, 6))
+                    .replace("{available}", formatNumber(knownAvailableQuantity ?? 0, locale, 6))}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </label>
 
         <label className="min-w-0 space-y-2 text-sm">

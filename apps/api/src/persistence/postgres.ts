@@ -152,6 +152,8 @@ import type {
   RecordTickerFundamentalsRefreshFailureInput,
   ResolveOrCreateUserOptions,
   ResolveOrCreateUserResult,
+  ReplayedPositionScopeInput,
+  TransactionWriteContext,
   RevokeAnonymousShareTokenInput,
   RevokeAnonymousShareTokenResult,
   SaveDividendDestructivePreviewInput,
@@ -429,6 +431,7 @@ types.setTypeParser(types.builtins.DATE, (value: string) => value);
 export interface PostgresPersistenceOptions {
   databaseUrl: string;
   redisUrl: string;
+  poolMax?: number;
 }
 
 function computeChecksum(content: string): string {
@@ -1210,7 +1213,7 @@ export class PostgresPersistence implements Persistence {
     this.pool = new Pool({
       connectionString: options.databaseUrl,
       // KZO-199 — env-tunable (restart-required); default 20.
-      max: Env.POSTGRES_POOL_MAX,
+      max: options.poolMax ?? Env.POSTGRES_POOL_MAX,
       connectionTimeoutMillis: Env.POSTGRES_CONNECTION_TIMEOUT_MS,
       idleTimeoutMillis: 30_000,
     });
@@ -1840,6 +1843,67 @@ export class PostgresPersistence implements Persistence {
       } finally {
         client.release();
       }
+    }
+  }
+
+  async withTransactionWriteLock<T>(
+    ownerUserId: string,
+    execute: (writer: TransactionWriteContext) => Promise<T>,
+  ): Promise<T> {
+    await this.ensureDefaultPortfolioData(ownerUserId);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(
+        `SELECT pg_advisory_xact_lock(hashtext('transaction_write:' || $1::text))`,
+        [ownerUserId],
+      );
+      const result = await execute({
+        loadStore: async (userId) => {
+          if (userId !== ownerUserId) throw new Error("transaction writer owner mismatch");
+          return this.loadStoreWithClient(userId, client);
+        },
+        getInstrument: (ticker, marketCode) => this.getInstrumentWithClient(client, ticker, marketCode),
+        upsertInstruments: async (userId, instruments) => {
+          if (userId !== ownerUserId) throw new Error("transaction writer owner mismatch");
+          await this.upsertInstrumentDefinitions(instruments, client);
+        },
+        savePostedTrade: async (userId, accounting, tradeEventId) => {
+          if (userId !== ownerUserId) {
+            throw new Error("transaction writer owner mismatch");
+          }
+          validateAccountingStoreInvariants(accounting);
+          await this.savePostedTradeTx(client, userId, accounting, tradeEventId);
+        },
+        savePostedDividend: async (userId, accounting, marketData, dividendLedgerEntryId) => {
+          if (userId !== ownerUserId) throw new Error("transaction writer owner mismatch");
+          await this.savePostedDividendInternal(
+            userId,
+            accounting,
+            marketData,
+            dividendLedgerEntryId,
+            client,
+          );
+        },
+        updatePostedCashDividend: async (userId, input) => {
+          if (userId !== ownerUserId) throw new Error("transaction writer owner mismatch");
+          return this.updatePostedCashDividendInternal(userId, input, client);
+        },
+        saveReplayedPositionScope: async (userId, accounting, input) => {
+          if (userId !== ownerUserId) {
+            throw new Error("transaction writer owner mismatch");
+          }
+          validateAccountingStoreInvariants(accounting);
+          return this.saveReplayedPositionScopeTx(client, userId, accounting, input);
+        },
+      });
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
     }
   }
 
@@ -6712,6 +6776,13 @@ export class PostgresPersistence implements Persistence {
 
   async loadStore(userId: string): Promise<Store> {
     await this.ensureDefaultPortfolioData(userId);
+    return this.loadStoreWithClient(userId, this.pool);
+  }
+
+  private async loadStoreWithClient(
+    userId: string,
+    client: Pick<PoolClient, "query">,
+  ): Promise<Store> {
     // Batch 1: all queries with no inter-query dependencies
     const [
       userResult,
@@ -6724,13 +6795,13 @@ export class PostgresPersistence implements Persistence {
       cashLedgerResult,
       symbolsResult,
     ] = await Promise.all([
-      this.pool.query(
+      client.query(
         `SELECT id, display_name, locale, cost_basis_method, quote_poll_interval_seconds
          FROM users
          WHERE id = $1`,
         [userId],
       ),
-      this.pool.query(
+      client.query(
         // ui-enhancement: soft-deleted accounts (deleted_at IS NOT NULL) are
         // excluded from the active store. They are surfaced separately via
         // `listSoftDeletedAccounts` for the "Recently deleted" UI section and
@@ -6745,7 +6816,7 @@ export class PostgresPersistence implements Persistence {
       // KZO-183: fee_profiles is account-scoped. user_id was dropped in
       // migration 042; ownership flows fee_profiles.account_id → accounts →
       // users. Filter via JOIN through accounts.
-      this.pool.query(
+      client.query(
         // ui-enhancement: when an account is soft-deleted, loadStore excludes
         // it from `store.accounts` (active-only filter); the JOIN here MUST
         // also exclude its fee profiles, otherwise `validateStoreInvariants`
@@ -6763,7 +6834,7 @@ export class PostgresPersistence implements Persistence {
          ORDER BY fp.id`,
         [userId],
       ),
-      this.pool.query(
+      client.query(
         `SELECT trade_event.id, trade_event.user_id, trade_event.account_id, trade_event.ticker,
                 trade_event.market_code, trade_event.instrument_type, trade_event.trade_type, trade_event.quantity,
                 trade_event.unit_price, trade_event.price_currency, trade_event.trade_date,
@@ -6785,7 +6856,7 @@ export class PostgresPersistence implements Persistence {
          ORDER BY trade_event.trade_date, trade_event.booking_sequence, trade_event.trade_timestamp, trade_event.booked_at, trade_event.id`,
         [userId],
       ),
-      this.pool.query(
+      client.query(
         `SELECT id, user_id, account_id, trade_event_id, ticker, lot_id, lot_opened_at,
                 lot_opened_sequence, allocated_quantity, allocated_cost_amount, cost_currency, created_at
          FROM lot_allocations
@@ -6794,7 +6865,7 @@ export class PostgresPersistence implements Persistence {
          ORDER BY trade_event_id, lot_opened_at, lot_opened_sequence, lot_id`,
         [userId],
       ),
-      this.pool.query(
+      client.query(
         `SELECT id, ticker, market_code, event_type, ex_dividend_date, payment_date,
                 cash_dividend_per_share, cash_dividend_currency, stock_dividend_per_share,
                 stock_distribution_amount_raw,
@@ -6808,7 +6879,7 @@ export class PostgresPersistence implements Persistence {
          FROM market_data.dividend_events
          ORDER BY ex_dividend_date, id`,
       ),
-      this.pool.query(
+      client.query(
         `SELECT id, user_id, account_id, profile_id, status, fee_mode, use_fallback_bindings,
                 account_revisions, fee_config_fingerprint, preview_fingerprint, expires_at, started_at, completed_at,
                 error_code, error_message, created_at
@@ -6821,7 +6892,7 @@ export class PostgresPersistence implements Persistence {
          ORDER BY created_at, id`,
         [userId],
       ),
-      this.pool.query(
+      client.query(
         `SELECT id, user_id, account_id, entry_date, entry_type, amount, currency,
                 related_trade_event_id, related_dividend_ledger_entry_id, source,
                 source_reference, note, booked_at, reversal_of_cash_ledger_entry_id,
@@ -6832,7 +6903,7 @@ export class PostgresPersistence implements Persistence {
          ORDER BY entry_date, booked_at, id`,
         [userId],
       ),
-      this.pool.query(
+      client.query(
         `SELECT ticker, name, instrument_type, market_code, is_provisional, last_synced_at
          FROM market_data.instruments
          ORDER BY market_code, ticker`,
@@ -6857,7 +6928,7 @@ export class PostgresPersistence implements Persistence {
       jobItemsResult,
     ] = await Promise.all([
       feeProfileIds.length
-        ? this.pool.query(
+        ? client.query(
             `SELECT id, fee_profile_id, market_code, trade_side, instrument_type, day_trade_scope,
                     tax_component_code, calculation_method, rate_bps, effective_from, effective_to, sort_order
              FROM fee_profile_tax_rules
@@ -6867,7 +6938,7 @@ export class PostgresPersistence implements Persistence {
           )
         : Promise.resolve({ rows: [] }),
       feePolicySnapshotIds.length
-        ? this.pool.query(
+        ? client.query(
             `SELECT id, snapshot_id, market_code, trade_side, instrument_type, day_trade_scope,
                     tax_component_code, calculation_method, rate_bps, booked_tax_amount, sort_order
              FROM trade_fee_policy_snapshot_tax_components
@@ -6879,7 +6950,7 @@ export class PostgresPersistence implements Persistence {
       // KZO-183: market_code column dropped from account_fee_profile_overrides
       // in migration 042. PK is now (account_id, ticker).
       accountIds.length
-        ? this.pool.query(
+        ? client.query(
             `SELECT account_id, ticker, fee_profile_id
              FROM account_fee_profile_overrides
              WHERE account_id = ANY($1)
@@ -6888,7 +6959,7 @@ export class PostgresPersistence implements Persistence {
           )
         : Promise.resolve({ rows: [] }),
       accountIds.length
-        ? this.pool.query(
+        ? client.query(
             `SELECT id, account_id, ticker, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence
              FROM lots
              WHERE account_id = ANY($1)
@@ -6897,7 +6968,7 @@ export class PostgresPersistence implements Persistence {
           )
         : Promise.resolve({ rows: [] }),
       accountIds.length
-        ? this.pool.query(
+        ? client.query(
             `SELECT id, account_id, ticker, market_code, action_type, action_date, action_timestamp,
                     booked_at, quantity, ratio_numerator, ratio_denominator, cash_in_lieu_quantity,
                     cash_in_lieu_amount, cash_in_lieu_currency, par_value_per_share,
@@ -6910,7 +6981,7 @@ export class PostgresPersistence implements Persistence {
           )
         : Promise.resolve({ rows: [] }),
       accountIds.length
-        ? this.pool.query(
+        ? client.query(
             `SELECT id, account_id, dividend_event_id, eligible_quantity,
                     expected_cash_amount, expected_stock_quantity,
                     expected_stock_calc_state, expected_stock_distribution_ratio, expected_stock_par_value_amount,
@@ -6927,7 +6998,7 @@ export class PostgresPersistence implements Persistence {
           )
         : Promise.resolve({ rows: [] }),
       accountIds.length
-        ? this.pool.query(
+        ? client.query(
             `SELECT id, user_id, account_id, dividend_event_id, prior_calculation_id,
                     dividend_ledger_entry_id, calculation_version, calculation_status, method,
                     provider_value, provider_unit, provider_source, provider_dataset,
@@ -6943,7 +7014,7 @@ export class PostgresPersistence implements Persistence {
           )
         : Promise.resolve({ rows: [] }),
       jobIds.length
-        ? this.pool.query(
+        ? client.query(
             `SELECT id, job_id, trade_event_id, currency, fees_source,
                     previous_commission_amount, previous_tax_amount,
                     next_commission_amount, next_tax_amount, applied_profile_id, applied_fee_profile_json
@@ -6959,7 +7030,7 @@ export class PostgresPersistence implements Persistence {
     const dividendLedgerEntryIds = dividendLedgerEntriesResult.rows.map((row) => row.id);
     const [dividendDeductionsResult, dividendSourceLinesResult] = dividendLedgerEntryIds.length
       ? await Promise.all([
-          this.pool.query(
+          client.query(
             `SELECT id, dividend_ledger_entry_id, deduction_type, amount, currency_code,
                     withheld_at_source, source, source_reference, note, booked_at
              FROM dividend_deduction_entries
@@ -6967,7 +7038,7 @@ export class PostgresPersistence implements Persistence {
              ORDER BY dividend_ledger_entry_id, booked_at, id`,
             [dividendLedgerEntryIds],
           ),
-          this.pool.query(
+          client.query(
             `SELECT id, dividend_ledger_entry_id, source_bucket, amount, currency_code,
                     source, source_reference, note, booked_at
              FROM dividend_source_lines
@@ -10645,16 +10716,191 @@ export class PostgresPersistence implements Persistence {
     }
   }
 
+  private async saveReplayedPositionScopeTx(
+    client: PoolClient,
+    userId: string,
+    accounting: AccountingStore,
+    input: ReplayedPositionScopeInput,
+  ): Promise<DividendLedgerRecomputeChange[]> {
+    if (input.newTradeEventId) {
+      await this.savePostedTradeTx(client, userId, accounting, input.newTradeEventId);
+    }
+    if (input.newPositionActionId) {
+      const action = accounting.facts.positionActions.find((item) => item.id === input.newPositionActionId);
+      if (!action) throw new Error(`position action ${input.newPositionActionId} not found in replayed scope`);
+      if (
+        action.accountId !== input.accountId
+        || action.ticker !== input.ticker
+        || action.marketCode !== input.marketCode
+      ) {
+        throw new Error("position action does not match replayed scope");
+      }
+      await this.insertPositionActionTx(client, action);
+    }
+
+    const scopeTrades = accounting.facts.tradeEvents.filter(
+      (trade) => trade.userId === userId
+        && trade.accountId === input.accountId
+        && trade.ticker === input.ticker
+        && trade.marketCode === input.marketCode,
+    );
+    const scopeTradeIds = scopeTrades.map((trade) => trade.id);
+    const replacedTradeIds = [...new Set([...scopeTradeIds, ...(input.deletedTradeEventIds ?? [])])];
+    await client.query(
+      `DELETE FROM cash_ledger_entries
+        WHERE user_id = $1
+          AND related_trade_event_id = ANY($2::text[])`,
+      [userId, replacedTradeIds],
+    );
+    for (const cashEntry of accounting.facts.cashLedgerEntries) {
+      if (!cashEntry.relatedTradeEventId || !scopeTradeIds.includes(cashEntry.relatedTradeEventId)) continue;
+      await client.query(
+        `INSERT INTO cash_ledger_entries (
+           id, user_id, account_id, entry_date, entry_type, amount, currency,
+           related_trade_event_id, related_dividend_ledger_entry_id, source,
+           source_reference, note, booked_at, reversal_of_cash_ledger_entry_id,
+           fx_rate_to_usd, fx_transfer_id
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7,
+           $8, $9, $10, $11, $12, $13, $14, $15, $16
+         )`,
+        [
+          cashEntry.id,
+          cashEntry.userId,
+          cashEntry.accountId,
+          cashEntry.entryDate,
+          cashEntry.entryType,
+          cashEntry.amount,
+          cashEntry.currency,
+          cashEntry.relatedTradeEventId,
+          cashEntry.relatedDividendLedgerEntryId ?? null,
+          cashEntry.source,
+          cashEntry.sourceReference ?? null,
+          cashEntry.note ?? null,
+          cashEntry.bookedAt ?? new Date(`${cashEntry.entryDate}T00:00:00.000Z`).toISOString(),
+          cashEntry.reversalOfCashLedgerEntryId ?? null,
+          cashEntry.fxRateToUsd ?? null,
+          cashEntry.fxTransferId ?? null,
+        ],
+      );
+    }
+    await client.query(
+      `DELETE FROM lot_allocations
+        WHERE user_id = $1
+          AND account_id = $2
+          AND ticker = $3`,
+      [userId, input.accountId, input.ticker],
+    );
+    await client.query(
+      `DELETE FROM lots
+        WHERE account_id = $1
+          AND ticker = $2`,
+      [input.accountId, input.ticker],
+    );
+
+    for (const lot of accounting.projections.lots) {
+      if (lot.accountId !== input.accountId || lot.ticker !== input.ticker) continue;
+      await client.query(
+        `INSERT INTO lots (id, account_id, ticker, open_quantity, total_cost_amount, cost_currency, opened_at, opened_sequence)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [lot.id, lot.accountId, lot.ticker, lot.openQuantity, lot.totalCostAmount, lot.costCurrency, lot.openedAt, lot.openedSequence ?? 1],
+      );
+    }
+    for (const allocation of accounting.projections.lotAllocations) {
+      if (!scopeTradeIds.includes(allocation.tradeEventId)) continue;
+      await client.query(
+        `INSERT INTO lot_allocations (
+           id, user_id, account_id, trade_event_id, ticker, lot_id, lot_opened_at,
+           lot_opened_sequence, allocated_quantity, allocated_cost_amount, cost_currency, created_at
+         ) VALUES (
+           $1, $2, $3, $4, $5, $6, $7,
+           $8, $9, $10, $11, $12
+         )`,
+        [
+          allocation.id,
+          allocation.userId,
+          allocation.accountId,
+          allocation.tradeEventId,
+          allocation.ticker,
+          allocation.lotId,
+          allocation.lotOpenedAt,
+          allocation.lotOpenedSequence,
+          allocation.allocatedQuantity,
+          allocation.allocatedCostAmount,
+          allocation.costCurrency,
+          allocation.createdAt ?? new Date().toISOString(),
+        ],
+      );
+    }
+    return this.applyDividendLedgerRecomputeInternal(
+      userId,
+      input.dividendLedgerChanges ?? [],
+      client,
+    );
+  }
+
+  private async insertPositionActionTx(client: PoolClient, action: PositionAction): Promise<void> {
+    await client.query(
+      `INSERT INTO position_actions (
+         id, account_id, ticker, market_code, action_type, action_date, action_timestamp,
+         booked_at, quantity, ratio_numerator, ratio_denominator, cash_in_lieu_quantity,
+         cash_in_lieu_amount, cash_in_lieu_currency, par_value_per_share,
+         premium_base_amount, nhi_premium_base_amount, related_dividend_ledger_entry_id,
+         source, source_reference, reversal_of_position_action_id, superseded_at
+       ) VALUES (
+         $1, $2, $3, $4, $5, $6, $7,
+         $8, $9, $10, $11, $12,
+         $13, $14, $15,
+         $16, $17, $18,
+         $19, $20, $21, $22
+       )`,
+      [
+        action.id,
+        action.accountId,
+        action.ticker,
+        action.marketCode,
+        action.actionType,
+        action.actionDate,
+        action.actionTimestamp ?? null,
+        action.bookedAt ?? null,
+        action.quantity,
+        action.ratioNumerator ?? null,
+        action.ratioDenominator ?? null,
+        action.cashInLieuQuantity ?? null,
+        action.cashInLieuAmount ?? null,
+        action.cashInLieuCurrency ?? null,
+        action.parValuePerShare ?? null,
+        action.premiumBaseAmount ?? null,
+        action.nhiPremiumBaseAmount ?? null,
+        action.relatedDividendLedgerEntryId ?? null,
+        action.source,
+        action.sourceReference ?? null,
+        action.reversalOfPositionActionId ?? null,
+        action.supersededAt ?? null,
+      ],
+    );
+  }
+
   async savePostedDividend(
     userId: string,
     accounting: AccountingStore,
     marketData: MarketDataFacts,
     dividendLedgerEntryId: string,
   ): Promise<void> {
+    await this.savePostedDividendInternal(userId, accounting, marketData, dividendLedgerEntryId);
+  }
+
+  private async savePostedDividendInternal(
+    userId: string,
+    accounting: AccountingStore,
+    marketData: MarketDataFacts,
+    dividendLedgerEntryId: string,
+    transactionClient?: PoolClient,
+  ): Promise<void> {
     validateAccountingStoreInvariants(accounting);
     validateMarketDataInvariants(marketData);
     validateAccountingMarketDataCrossReferences(accounting, marketData);
-    await this.ensureDefaultPortfolioData(userId);
+    if (!transactionClient) await this.ensureDefaultPortfolioData(userId);
 
     const dividendLedgerEntry = accounting.facts.dividendLedgerEntries.find((entry) => entry.id === dividendLedgerEntryId);
     if (!dividendLedgerEntry) {
@@ -10688,9 +10934,10 @@ export class PostgresPersistence implements Persistence {
         && entry.dividendEventId === dividendLedgerEntry.dividendEventId,
     );
 
-    const client = await this.pool.connect();
+    const client = transactionClient ?? await this.pool.connect();
+    const ownsTransaction = transactionClient === undefined;
     try {
-      await client.query("BEGIN");
+      if (ownsTransaction) await client.query("BEGIN");
 
       const existingDividendLedgerEntry = await client.query<{ posting_status: string }>(
         `SELECT posting_status
@@ -11018,12 +11265,12 @@ export class PostgresPersistence implements Persistence {
         );
       }
 
-      await client.query("COMMIT");
+      if (ownsTransaction) await client.query("COMMIT");
     } catch (error) {
-      await client.query("ROLLBACK");
+      if (ownsTransaction) await client.query("ROLLBACK");
       throw error;
     } finally {
-      client.release();
+      if (ownsTransaction) client.release();
     }
   }
 
@@ -11361,9 +11608,18 @@ export class PostgresPersistence implements Persistence {
   }
 
   async updatePostedCashDividend(userId: string, input: UpdatePostedCashDividendInput): Promise<DividendLedgerEntry> {
-    const client = await this.pool.connect();
+    return this.updatePostedCashDividendInternal(userId, input);
+  }
+
+  private async updatePostedCashDividendInternal(
+    userId: string,
+    input: UpdatePostedCashDividendInput,
+    transactionClient?: PoolClient,
+  ): Promise<DividendLedgerEntry> {
+    const client = transactionClient ?? await this.pool.connect();
+    const ownsTransaction = transactionClient === undefined;
     try {
-      await client.query("BEGIN");
+      if (ownsTransaction) await client.query("BEGIN");
       const originalDividendLedgerEntryId = input.originalDividendLedgerEntryId ?? input.dividendLedgerEntry.id;
       const currentResult = await client.query(
         `SELECT dle.id, dle.account_id, dle.dividend_event_id, dle.eligible_quantity,
@@ -11640,14 +11896,14 @@ export class PostgresPersistence implements Persistence {
         );
       }
 
-      await client.query("COMMIT");
+      if (ownsTransaction) await client.query("COMMIT");
       const returnedEntry = dividendLedgerEntries.find((entry) => entry.id === input.dividendLedgerEntry.id) ?? input.dividendLedgerEntry;
       return returnedEntry;
     } catch (error) {
-      await client.query("ROLLBACK");
+      if (ownsTransaction) await client.query("ROLLBACK");
       throw error;
     } finally {
-      client.release();
+      if (ownsTransaction) client.release();
     }
   }
 
@@ -11677,11 +11933,20 @@ export class PostgresPersistence implements Persistence {
     userId: string,
     changes: DividendLedgerRecomputeChange[],
   ): Promise<DividendLedgerRecomputeChange[]> {
+    return this.applyDividendLedgerRecomputeInternal(userId, changes);
+  }
+
+  private async applyDividendLedgerRecomputeInternal(
+    userId: string,
+    changes: DividendLedgerRecomputeChange[],
+    transactionClient?: PoolClient,
+  ): Promise<DividendLedgerRecomputeChange[]> {
     if (changes.length === 0) return [];
 
-    const client = await this.pool.connect();
+    const client = transactionClient ?? await this.pool.connect();
+    const ownsTransaction = transactionClient === undefined;
     try {
-      await client.query("BEGIN");
+      if (ownsTransaction) await client.query("BEGIN");
       const applied: DividendLedgerRecomputeChange[] = [];
 
       for (const change of changes) {
@@ -11728,7 +11993,11 @@ export class PostgresPersistence implements Persistence {
               userId,
             ],
           );
-          if (inserted.rowCount) applied.push(change);
+          if (inserted.rowCount) {
+            applied.push(change);
+          } else if (!ownsTransaction) {
+            throw new Error(`dividend ledger entry ${change.ledgerEntryId} could not be created during replay commit`);
+          }
           continue;
         }
         // SELECT FOR UPDATE verifies ownership (via account join) and locks
@@ -11750,8 +12019,18 @@ export class PostgresPersistence implements Persistence {
             FOR UPDATE OF dle`,
           [change.ledgerEntryId, userId, change.accountId],
         );
-        if (!currentResult.rowCount) continue;
-        if (Number(currentResult.rows[0]!.version) !== change.previousVersion) continue;
+        if (!currentResult.rowCount) {
+          if (!ownsTransaction) {
+            throw new Error(`dividend ledger entry ${change.ledgerEntryId} not found during replay commit`);
+          }
+          continue;
+        }
+        if (Number(currentResult.rows[0]!.version) !== change.previousVersion) {
+          if (!ownsTransaction) {
+            throw new Error(`dividend ledger entry ${change.ledgerEntryId} version changed before replay commit`);
+          }
+          continue;
+        }
 
         await client.query(
           `UPDATE dividend_ledger_entries
@@ -11785,13 +12064,13 @@ export class PostgresPersistence implements Persistence {
         applied.push(change);
       }
 
-      await client.query("COMMIT");
+      if (ownsTransaction) await client.query("COMMIT");
       return applied;
     } catch (error) {
-      await client.query("ROLLBACK");
+      if (ownsTransaction) await client.query("ROLLBACK");
       throw error;
     } finally {
-      client.release();
+      if (ownsTransaction) client.release();
     }
   }
 
@@ -12520,6 +12799,7 @@ export class PostgresPersistence implements Persistence {
                event.ticker, event.market_code, event.event_type,
                event.ex_dividend_date, event.payment_date,
                event.cash_dividend_currency AS cash_currency,
+               event.cash_dividend_per_share,
                event.stock_distribution_ratio, event.stock_distribution_ratio_state,
                COALESCE(event.stock_provider_value::text, event.stock_distribution_amount_raw::text) AS provider_value,
                event.stock_provider_value_unit AS provider_unit,
@@ -12552,7 +12832,7 @@ export class PostgresPersistence implements Persistence {
         WHERE account.user_id = $1
           AND account.deleted_at IS NULL
           AND (${detailLedgerIdPlaceholder}::text IS NULL OR ledger.id = ${detailLedgerIdPlaceholder})
-          AND ($2::text IS NULL OR account.id = $2)
+          AND ($2::text[] IS NULL OR account.id = ANY($2::text[]))
           AND (
             CASE WHEN $3::date IS NULL AND $4::date IS NULL THEN event.payment_date IS NOT NULL
             ELSE event.payment_date IS NULL OR (
@@ -12615,7 +12895,7 @@ export class PostgresPersistence implements Persistence {
                ledger.dividend_event_id, ledger.ticker,
                ledger.ticker_name, ledger.market_code, ledger.instrument_type,
                ledger.event_type, ledger.ex_dividend_date, ledger.payment_date,
-               ledger.cash_currency,
+               ledger.cash_currency, ledger.cash_dividend_per_share,
                ledger.eligible_quantity, ledger.expected_cash_amount,
                COALESCE(receipt.received_cash_amount, 0) AS received_cash_amount,
                COALESCE(
@@ -12706,7 +12986,7 @@ export class PostgresPersistence implements Persistence {
           AND NOT $7::boolean
           AND ($5::text IS NULL OR $5 = 'open')
           AND ($6::text IS NULL OR $6 = 'expected')
-          AND ($2::text IS NULL OR account.id = $2)
+          AND ($2::text[] IS NULL OR account.id = ANY($2::text[]))
           AND (
             CASE WHEN $3::date IS NULL AND $4::date IS NULL THEN event.payment_date IS NOT NULL
             ELSE event.payment_date IS NULL OR (
@@ -13002,7 +13282,7 @@ export class PostgresPersistence implements Persistence {
                'expected'::text AS row_kind, 0::int AS version,
                account_id, account_name, dividend_event_id, ticker, ticker_name,
                market_code, instrument_type, event_type, ex_dividend_date, payment_date,
-               cash_currency, eligible_quantity,
+               cash_currency, cash_dividend_per_share, eligible_quantity,
                expected_gross_amount AS expected_cash_amount, 0::numeric AS received_cash_amount,
                CASE WHEN active_calculation IS NOT NULL
                     THEN (active_calculation->>'expected_whole_shares')::numeric
@@ -13083,7 +13363,7 @@ export class PostgresPersistence implements Persistence {
     const legacyTicker = "ticker" in filters && typeof filters.ticker === "string" ? filters.ticker : undefined;
     return [
       userId,
-      filters.accountId ?? null,
+      filters.accountIds?.length ? filters.accountIds : null,
       filters.fromPaymentDate ?? null,
       filters.toPaymentDate ?? null,
       filters.reconciliationStatus ?? null,
@@ -13108,6 +13388,7 @@ export class PostgresPersistence implements Persistence {
       exDividendDate: normalizeDate(String(row.ex_dividend_date)),
       paymentDate: row.payment_date == null ? null : normalizeDate(String(row.payment_date)),
       cashCurrency: String(row.cash_currency), eligibleQuantity: Number(row.eligible_quantity),
+      cashDividendPerShare: Number(row.cash_dividend_per_share),
       expectedCashAmount: Number(row.expected_cash_amount), receivedCashAmount: Number(row.received_cash_amount),
       expectedStockQuantity:
         String(row.event_type) !== "CASH" && String(row.expected_stock_calc_state) === "needs_action"
@@ -13166,13 +13447,10 @@ export class PostgresPersistence implements Persistence {
       paymentDate: "payment_date",
       ticker: "ticker",
       account: "account_name",
-      expectedCashAmount: "expected_cash_amount",
-      expectedGrossAmount: "expected_gross_amount",
       expectedNetAmount: "expected_net_amount",
       nhiAmount: "nhi_amount",
       bankFeeAmount: "bank_fee_amount",
       otherDeductionAmount: "other_deduction_amount",
-      receivedCashAmount: "received_cash_amount",
       actualNetAmount: "actual_net_amount",
       varianceAmount: "variance_amount",
       reconciliationStatus: "reconciliation_status",
@@ -13183,8 +13461,8 @@ export class PostgresPersistence implements Persistence {
       `WITH ${this.dividendReviewNormalizedSql()},
        filtered AS (
          SELECT * FROM normalized
-         WHERE ($11::text IS NULL OR cash_reconciliation_status = $11)
-           AND ($12::text IS NULL OR stock_reconciliation_status = $12)
+         WHERE ($11::text[] IS NULL OR cash_reconciliation_status = ANY($11::text[]))
+           AND ($12::text[] IS NULL OR stock_reconciliation_status = ANY($12::text[]))
        )
        SELECT (SELECT COUNT(*)::int FROM filtered) AS total,
               COALESCE((
@@ -13198,8 +13476,8 @@ export class PostgresPersistence implements Persistence {
               ), '[]'::jsonb) AS rows`,
       [
         ...this.dividendReviewSqlParams(userId, query),
-        query.cashStatus ?? null,
-        query.stockStatus ?? null,
+        query.cashStatuses?.length ? query.cashStatuses : null,
+        query.stockStatuses?.length ? query.stockStatuses : null,
         query.limit,
         (query.page - 1) * query.limit,
       ],
@@ -13226,8 +13504,8 @@ export class PostgresPersistence implements Persistence {
       `WITH ${this.dividendReviewNormalizedSql()},
        filtered AS (
          SELECT * FROM normalized
-         WHERE ($11::text IS NULL OR cash_reconciliation_status = $11)
-           AND ($12::text IS NULL OR stock_reconciliation_status = $12)
+         WHERE ($11::text[] IS NULL OR cash_reconciliation_status = ANY($11::text[]))
+           AND ($12::text[] IS NULL OR stock_reconciliation_status = ANY($12::text[]))
        ),
        currency_totals AS (
          SELECT cash_currency,
@@ -13350,8 +13628,8 @@ export class PostgresPersistence implements Persistence {
                  AND stock_reconciliation_status <> 'matched')) AS needs_attention_count`,
       [
         ...this.dividendReviewSqlParams(userId, filters),
-        filters.cashStatus ?? null,
-        filters.stockStatus ?? null,
+        filters.cashStatuses?.length ? filters.cashStatuses : null,
+        filters.stockStatuses?.length ? filters.stockStatuses : null,
       ],
     );
     const dbMs = performance.now() - dbStartedAt;
@@ -13568,9 +13846,15 @@ export class PostgresPersistence implements Persistence {
     summaries: DividendReviewRowSummaryDto[],
     filters: DividendReviewFilterDto | DividendReviewListOptions,
   ): DividendReviewRowSummaryDto[] {
+    const cashStatuses = filters.cashStatuses?.length
+      ? new Set(filters.cashStatuses)
+      : null;
+    const stockStatuses = filters.stockStatuses?.length
+      ? new Set(filters.stockStatuses)
+      : null;
     return summaries.filter((row) => {
-      if (filters.cashStatus && row.cashReconciliationStatus !== filters.cashStatus) return false;
-      if (filters.stockStatus && row.stockReconciliationStatus !== filters.stockStatus) return false;
+      if (cashStatuses && !cashStatuses.has(row.cashReconciliationStatus)) return false;
+      if (stockStatuses && (!row.stockReconciliationStatus || !stockStatuses.has(row.stockReconciliationStatus))) return false;
       return true;
     });
   }
@@ -13625,10 +13909,6 @@ export class PostgresPersistence implements Persistence {
         case "account":
           cmp = compareStringByOrder(leftAccountName, rightAccountName, query.sortOrder);
           break;
-        case "expectedCashAmount":
-        case "expectedGrossAmount":
-          cmp = compareNumberByOrder(left.expectedCashAmount, right.expectedCashAmount, query.sortOrder);
-          break;
         case "expectedNetAmount":
           cmp = compareNumberByOrder(left.expectedNetAmount ?? 0, right.expectedNetAmount ?? 0, query.sortOrder);
           break;
@@ -13640,9 +13920,6 @@ export class PostgresPersistence implements Persistence {
           break;
         case "otherDeductionAmount":
           cmp = compareNumberByOrder(left.otherDeductionAmount ?? 0, right.otherDeductionAmount ?? 0, query.sortOrder);
-          break;
-        case "receivedCashAmount":
-          cmp = compareNumberByOrder(left.receivedCashAmount, right.receivedCashAmount, query.sortOrder);
           break;
         case "actualNetAmount":
           cmp = compareNumberByOrder(left.actualNetAmount ?? 0, right.actualNetAmount ?? 0, query.sortOrder);
@@ -13870,9 +14147,10 @@ export class PostgresPersistence implements Persistence {
 
   async listDividendReviewMetadata(
     userId: string,
-    filters: Pick<DividendReviewFilterDto, "accountId" | "fromPaymentDate" | "toPaymentDate"> = {},
+    filters: Partial<Pick<DividendReviewFilterDto, "accountIds" | "fromPaymentDate" | "toPaymentDate">> = {},
   ): Promise<DividendReviewMetadataResult> {
     await this.ensureDefaultPortfolioData(userId);
+    const accountIds = filters.accountIds?.length ? filters.accountIds : null;
     const [{ years }, accountsResult, tickerResult] = await Promise.all([
       this.listDividendLedgerYears(userId),
       this.pool.query(
@@ -13886,10 +14164,10 @@ export class PostgresPersistence implements Persistence {
       this.pool.query(
         `WITH scoped_accounts AS (
            SELECT id, default_currency
-           FROM accounts
-           WHERE user_id = $1
-             AND deleted_at IS NULL
-             AND ($2::text IS NULL OR id = $2)
+             FROM accounts
+             WHERE user_id = $1
+               AND deleted_at IS NULL
+             AND ($2::text[] IS NULL OR id = ANY($2::text[]))
          ),
          eligible_tickers AS (
            SELECT event.ticker, instrument.name
@@ -13960,7 +14238,7 @@ export class PostgresPersistence implements Persistence {
          ORDER BY ticker`,
         [
           userId,
-          filters.accountId ?? null,
+          accountIds,
           filters.fromPaymentDate ?? null,
           filters.toPaymentDate ?? null,
         ],
@@ -15456,11 +15734,14 @@ export class PostgresPersistence implements Persistence {
     await this.upsertInstrumentDefinitions(createDefaultInstruments());
   }
 
-  private async upsertInstrumentDefinitions(defs: InstrumentDef[]): Promise<void> {
+  private async upsertInstrumentDefinitions(
+    defs: InstrumentDef[],
+    client: Pick<PoolClient, "query"> = this.pool,
+  ): Promise<void> {
     const merged = upsertInstrumentDefinitions([], defs);
 
     for (const instrument of merged) {
-      await this.pool.query(
+      await client.query(
         `INSERT INTO market_data.instruments (ticker, instrument_type, market_code, is_provisional, last_synced_at, type_raw, industry_category_raw, finmind_date, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
          -- KZO-169: composite PK after migration 044.
@@ -16579,6 +16860,14 @@ export class PostgresPersistence implements Persistence {
   // --- Instruments ---
 
   async getInstrument(ticker: string, marketCode?: string): Promise<InstrumentRow | null> {
+    return this.getInstrumentWithClient(this.pool, ticker, marketCode);
+  }
+
+  private async getInstrumentWithClient(
+    client: Pick<PoolClient, "query">,
+    ticker: string,
+    marketCode?: string,
+  ): Promise<InstrumentRow | null> {
     // KZO-169: when `marketCode` is supplied, the lookup uses the composite
     // (ticker, market_code) PK established by migration 044. When omitted,
     // the legacy ticker-only lookup is preserved for callers that haven't yet
@@ -16586,7 +16875,7 @@ export class PostgresPersistence implements Persistence {
     // priority is enforced by the `ORDER BY` in catalog code paths upstream).
     const conditions = marketCode ? "ticker = $1 AND market_code = $2" : "ticker = $1";
     const params: unknown[] = marketCode ? [ticker, marketCode] : [ticker];
-    const result = await this.pool.query<{
+    const result = await client.query<{
       ticker: string;
       instrument_type: string | null;
       market_code: string;

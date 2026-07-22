@@ -505,17 +505,17 @@ test.describe("locked dividend browser coverage", () => {
       "ticker filter accessible label",
     );
     await dividendReview.assert.mxAssertMatches(
-      await page.getByTestId("filter-account").evaluate((element) => (element as HTMLSelectElement).labels?.[0]?.textContent ?? ""),
+      await page.getByTestId("filter-account-summary").getAttribute("aria-label"),
       /account/i,
       "account filter accessible label",
     );
     await dividendReview.assert.mxAssertMatches(
-      await page.getByTestId("filter-cash-status").evaluate((element) => (element as HTMLSelectElement).labels?.[0]?.textContent ?? ""),
+      await page.getByTestId("filter-cash-status-summary").getAttribute("aria-label"),
       /cash status/i,
       "cash status filter accessible label",
     );
     await dividendReview.assert.mxAssertMatches(
-      await page.getByTestId("filter-stock-status").evaluate((element) => (element as HTMLSelectElement).labels?.[0]?.textContent ?? ""),
+      await page.getByTestId("filter-stock-status-summary").getAttribute("aria-label"),
       /stock status/i,
       "stock status filter accessible label",
     );

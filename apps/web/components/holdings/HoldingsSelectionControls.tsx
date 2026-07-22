@@ -14,8 +14,11 @@ import type { HoldingsSelectionUniverseItem } from "./useHoldingsSelection";
 interface HoldingsSelectionCopy {
   selectionLabel: string;
   selectionAll: string;
-  selectionSelectedCount: string;
+  selectionCount: string;
+  selectionNone: string;
   selectionReset: string;
+  selectionSelectAll: string;
+  selectionDeselectAll: string;
   selectionSearchPlaceholder: string;
   selectionNoMatches: string;
   selectionUnavailable: string;
@@ -33,8 +36,11 @@ interface HoldingsSelectionCopy {
 const FALLBACK_COPY: HoldingsSelectionCopy = {
   selectionLabel: "Selection",
   selectionAll: "All tickers",
-  selectionSelectedCount: "{count} selected",
+  selectionCount: "{count} selected",
+  selectionNone: "0 selected",
   selectionReset: "Reset to all",
+  selectionSelectAll: "Select all",
+  selectionDeselectAll: "Deselect all",
   selectionSearchPlaceholder: "Search tickers",
   selectionNoMatches: "No tickers match the current search.",
   selectionUnavailable: "Unavailable",
@@ -57,6 +63,8 @@ interface HoldingsSelectionToolbarProps {
   availableSelectedTickerIds: string[];
   unavailableTickerIds: string[];
   onReset: () => void;
+  onSelectAll?: () => void;
+  onDeselectAll?: () => void;
   onToggleTicker: (tickerId: string) => void;
   onRemoveTicker: (tickerId: string) => void;
 }
@@ -85,6 +93,8 @@ export function HoldingsSelectionToolbar({
   availableSelectedTickerIds,
   unavailableTickerIds,
   onReset,
+  onSelectAll,
+  onDeselectAll,
   onToggleTicker,
   onRemoveTicker,
 }: HoldingsSelectionToolbarProps) {
@@ -125,7 +135,9 @@ export function HoldingsSelectionToolbar({
 
   const triggerLabel = mode === "all"
     ? copy.selectionAll
-    : formatTemplate(copy.selectionSelectedCount, { count: String(selectedTickerIds.length) });
+    : selectedTickerIds.length === 0
+      ? copy.selectionNone
+      : formatTemplate(copy.selectionCount, { count: String(selectedTickerIds.length) });
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -215,22 +227,33 @@ export function HoldingsSelectionToolbar({
             )}
           </div>
           <div className="space-y-2 border-t border-border px-3 py-3">
-            {mode === "custom" ? (
+            <div className="flex gap-2">
               <Button
                 type="button"
                 variant="ghost"
-                className="h-auto justify-start px-0 text-sm font-medium text-primary"
-                onClick={onReset}
-                data-testid="holdings-selection-reset"
+                className="h-auto justify-start px-0 text-sm font-medium text-primary disabled:text-muted-foreground"
+                onClick={onSelectAll ?? onReset}
+                disabled={mode === "all"}
+                data-testid="holdings-selection-select-all"
               >
-                {copy.selectionReset}
+                {copy.selectionSelectAll}
               </Button>
-            ) : null}
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-auto justify-start px-0 text-sm font-medium text-primary disabled:text-muted-foreground"
+                onClick={onDeselectAll}
+                disabled={mode === "none"}
+                data-testid="holdings-selection-deselect-all"
+              >
+                {copy.selectionDeselectAll}
+              </Button>
+            </div>
             <p className="text-xs text-muted-foreground">{copy.selectionUnavailableHint}</p>
           </div>
         </PopoverContent>
       </Popover>
-      {mode === "custom" ? (
+      {mode !== "all" ? (
         <Button
           type="button"
           variant="outline"

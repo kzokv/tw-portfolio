@@ -47,16 +47,16 @@ function filtersFromQuery(query: DividendReviewPrimaryQueryDto): DividendReviewF
   return {
     fromPaymentDate: query.fromPaymentDate,
     toPaymentDate: query.toPaymentDate,
-    accountId: query.accountId,
+    accountIds: query.accountIds,
     tickers: query.tickers,
     marketCode: query.marketCode,
     postingStatus: query.postingStatus,
-    cashStatus: query.cashStatus,
-    stockStatus: query.stockStatus,
+    cashStatuses: query.cashStatuses,
+    stockStatuses: query.stockStatuses,
     reconciliationStatus: query.reconciliationStatus,
     excludeExpected: query.excludeExpected,
     sourceComposition: query.sourceComposition,
-  };
+  } as DividendReviewFilterDto;
 }
 
 function errorMessage(error: unknown): string {
