@@ -532,6 +532,46 @@ describe("AddTransactionCard — chip + account-filter render contract", () => {
     expect(html).toContain("disabled");
   });
 
+  it("disables Use max and submit when sell availability is zero", () => {
+    container = document.createElement("div");
+    container.innerHTML = renderToStaticMarkup(
+      <AddTransactionCard
+        value={valueWith({
+          accountId: "acc-tw",
+          ticker: "2330",
+          marketCode: "TW",
+          quantity: 1,
+          unitPrice: 50,
+          tradeDate: "2026-04-30",
+          type: "SELL",
+        })}
+        accountOptions={[TWD_ACCOUNT]}
+        pending={false}
+        onChange={() => undefined}
+        onSubmit={async () => undefined}
+        dict={dict}
+        locale="en"
+        framed={false}
+        priceHint={null}
+        showPriceUnavailableHint={false}
+        feeEstimate={null}
+        sellAvailability={{
+          status: "ready",
+          accountId: "acc-tw",
+          ticker: "2330",
+          marketCode: "TW",
+          tradeDate: "2026-04-30",
+          availableQuantity: 0,
+        }}
+        sellAvailabilityRequestKey="acc-tw|2330|TW|2026-04-30"
+      />,
+    );
+
+    expect(container.querySelector<HTMLButtonElement>('[data-testid="sell-availability-use-max"]')?.disabled).toBe(true);
+    expect(container.querySelector<HTMLButtonElement>('[data-testid="tx-submit-button"]')?.disabled).toBe(true);
+    expect(container.querySelector<HTMLInputElement>('[data-testid="tx-quantity-input"]')?.value).toBe("1");
+  });
+
   it("shows an inline oversell error and blocks submit when quantity exceeds known availability", () => {
     const html = renderToStaticMarkup(
       <AddTransactionCard

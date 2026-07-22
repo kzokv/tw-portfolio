@@ -294,6 +294,7 @@ export function AddTransactionCard({
   const readySellAvailability = sellAvailabilityMatchesCurrentTuple && sellAvailability?.status === "ready" ? sellAvailability : null;
   const unavailableSellAvailability = sellAvailabilityMatchesCurrentTuple && sellAvailability?.status === "unavailable" ? sellAvailability : null;
   const knownAvailableQuantity = readySellAvailability?.availableQuantity ?? null;
+  const hasInvalidQuantity = !Number.isFinite(value.quantity) || value.quantity <= 0;
   const hasKnownOversell = knownAvailableQuantity !== null && value.quantity > knownAvailableQuantity;
   const sellAvailabilityBlocksSubmit = (
     value.type === "SELL"
@@ -307,6 +308,7 @@ export function AddTransactionCard({
     !selectedAccount ||
     !value.ticker.trim() ||
     !value.marketCode ||
+    hasInvalidQuantity ||
     noCompatibleAccount ||
     sellAvailabilityBlocksSubmit;
 
@@ -551,8 +553,9 @@ export function AddTransactionCard({
                   </span>
                   <button
                     type="button"
-                    className="font-medium text-indigo-700 underline underline-offset-2 hover:text-indigo-900"
+                    className="font-medium text-indigo-700 underline underline-offset-2 hover:text-indigo-900 disabled:cursor-not-allowed disabled:text-slate-400"
                     onClick={() => setField("quantity", readySellAvailability.availableQuantity)}
+                    disabled={readySellAvailability.availableQuantity <= 0}
                     data-testid="sell-availability-use-max"
                   >
                     {dict.transactions.sellAvailabilityUseMax}

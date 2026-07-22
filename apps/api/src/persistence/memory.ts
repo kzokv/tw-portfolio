@@ -3852,7 +3852,9 @@ export class MemoryPersistence implements Persistence {
     const selectedAccountIds = new Set(
       opts.accountIds?.length
         ? opts.accountIds
-        : [],
+        : opts.accountId
+          ? [opts.accountId]
+          : [],
     );
     const selectedCashStatuses = new Set(
       opts.cashStatuses?.length

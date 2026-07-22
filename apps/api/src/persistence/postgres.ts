@@ -13361,9 +13361,12 @@ export class PostgresPersistence implements Persistence {
     filters: DividendReviewFilterDto | DividendReviewListOptions,
   ): unknown[] {
     const legacyTicker = "ticker" in filters && typeof filters.ticker === "string" ? filters.ticker : undefined;
+    const legacyAccountId = "accountId" in filters && typeof filters.accountId === "string"
+      ? filters.accountId
+      : undefined;
     return [
       userId,
-      filters.accountIds?.length ? filters.accountIds : null,
+      filters.accountIds?.length ? filters.accountIds : legacyAccountId ? [legacyAccountId] : null,
       filters.fromPaymentDate ?? null,
       filters.toPaymentDate ?? null,
       filters.reconciliationStatus ?? null,

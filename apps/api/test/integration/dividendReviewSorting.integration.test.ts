@@ -238,5 +238,15 @@ describePostgres("PostgresPersistence.listDividendReviewRows", () => {
         expectedNetAmount: 200,
       },
     ]);
+
+    const legacyAccountReview = await persistence.listDividendReviewRows(store.userId, {
+      accountId: accountB.id,
+      page: 1,
+      limit: 10,
+      sortBy: "paymentDate",
+      sortOrder: "desc",
+    });
+    expect(legacyAccountReview.rows).not.toHaveLength(0);
+    expect(legacyAccountReview.rows.every((row) => row.accountId === accountB.id)).toBe(true);
   });
 });
