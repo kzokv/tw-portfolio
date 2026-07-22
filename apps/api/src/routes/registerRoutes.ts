@@ -5627,29 +5627,41 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
             }
           }
 
-          const candidateTx = createTransaction(draftStore, userId, transactionInput);
-          const simulation = new MemoryPersistence({ seedCatalog: false, seedDevBypassUser: false });
-          await simulation.saveStore(structuredClone(draftStore));
-          const replaySummary = await replayPositionHistory(
-            simulation,
-            userId,
-            candidateTx.accountId,
-            candidateTx.ticker,
-            { marketCode: candidateTx.marketCode },
-          );
-          const replayedStore = await simulation.loadStore(userId);
-          assertStoreIntegrity(replayedStore);
-          const appliedDividendChanges = await writer.saveReplayedPositionScope(userId, replayedStore.accounting, {
-            accountId: candidateTx.accountId,
-            ticker: candidateTx.ticker,
-            marketCode: candidateTx.marketCode,
-            newTradeEventId: candidateTx.id,
-            dividendLedgerChanges: replaySummary.dividendLedgerChanges,
-          });
-          return {
-            tx: candidateTx,
-            replaySummary: { ...replaySummary, dividendLedgerChanges: appliedDividendChanges },
-          };
+          try {
+            const candidateTx = createTransaction(draftStore, userId, transactionInput);
+            const simulation = new MemoryPersistence({ seedCatalog: false, seedDevBypassUser: false });
+            await simulation.saveStore(structuredClone(draftStore));
+            const replaySummary = await replayPositionHistory(
+              simulation,
+              userId,
+              candidateTx.accountId,
+              candidateTx.ticker,
+              { marketCode: candidateTx.marketCode },
+            );
+            const replayedStore = await simulation.loadStore(userId);
+            assertStoreIntegrity(replayedStore);
+            const appliedDividendChanges = await writer.saveReplayedPositionScope(userId, replayedStore.accounting, {
+              accountId: candidateTx.accountId,
+              ticker: candidateTx.ticker,
+              marketCode: candidateTx.marketCode,
+              newTradeEventId: candidateTx.id,
+              dividendLedgerChanges: replaySummary.dividendLedgerChanges,
+            });
+            return {
+              tx: candidateTx,
+              replaySummary: { ...replaySummary, dividendLedgerChanges: appliedDividendChanges },
+            };
+          } catch (error) {
+            if (error instanceof ReplayError) {
+              throw routeError(
+                409,
+                "position_history_unreplayable",
+                "Position history is unavailable for replay",
+                { reason: "unreplayable_history" },
+              );
+            }
+            throw error;
+          }
         },
       );
       tx = committed.tx;

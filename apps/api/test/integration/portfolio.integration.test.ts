@@ -936,6 +936,51 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     });
   });
 
+  it("returns a stable conflict when a BUY cannot replay existing position history", async () => {
+    const store = await app.persistence.loadStore("user-1");
+    store.accounting.facts.tradeEvents.push({
+      id: "existing-oversell-before-buy",
+      userId: "user-1",
+      accountId: "acc-1",
+      ticker: "2330",
+      marketCode: "TW",
+      instrumentType: "STOCK",
+      type: "SELL",
+      quantity: 1,
+      unitPrice: 100,
+      priceCurrency: "TWD",
+      tradeDate: "2026-01-01",
+      tradeTimestamp: "2026-01-01T00:00:00.000Z",
+      bookingSequence: 1,
+      commissionAmount: 0,
+      taxAmount: 0,
+      isDayTrade: false,
+      feeSnapshot: store.feeProfiles[0]!,
+    });
+    await app.persistence.saveStore(store);
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-unreplayable-buy-submit" },
+      payload: transactionPayload({
+        quantity: 1,
+        unitPrice: 110,
+        tradeDate: "2026-01-03",
+      }),
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({
+      error: "position_history_unreplayable",
+      metadata: {
+        reason: "unreplayable_history",
+      },
+    });
+    const persisted = await app.persistence.loadStore("user-1");
+    expect(persisted.accounting.facts.tradeEvents).toHaveLength(1);
+  });
+
 
   it("accepts booked commission and tax overrides and uses them in accounting outputs", async () => {
     const createBuyResponse = await app.inject({
