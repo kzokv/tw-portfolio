@@ -5572,7 +5572,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
               ticker: body.ticker,
               marketCode: body.marketCode,
               tradeDate: body.tradeDate,
-              tradeTimestamp: body.tradeTimestamp,
+              tradeTimestamp: candidateTx.tradeTimestamp,
               bookingSequence: candidateTx.bookingSequence,
             });
             if (availability.status === "unavailable") {

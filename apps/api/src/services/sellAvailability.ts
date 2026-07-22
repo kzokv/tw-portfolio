@@ -16,6 +16,8 @@ export function resolveSellAvailability(
     throw routeError(404, "account_not_found", "Account not found");
   }
   assertTradeMarketMatchesAccount(account, input.marketCode);
+  const tradeTimestamp = input.tradeTimestamp
+    ?? new Date(`${input.tradeDate}T00:00:00.000Z`).toISOString();
 
   try {
     const lots = buildReplayLotsBeforeBoundary(
@@ -30,7 +32,7 @@ export function resolveSellAvailability(
         && action.marketCode === input.marketCode),
       {
         tradeDate: input.tradeDate,
-        tradeTimestamp: input.tradeTimestamp,
+        tradeTimestamp,
         bookingSequence: input.bookingSequence,
       },
     );
@@ -41,7 +43,7 @@ export function resolveSellAvailability(
       ticker: input.ticker,
       marketCode: input.marketCode,
       tradeDate: input.tradeDate,
-      tradeTimestamp: input.tradeTimestamp,
+      tradeTimestamp,
       bookingSequence: input.bookingSequence,
       availableQuantity: roundToDecimal(
         lots.filter((lot) => lot.openQuantity > 0).reduce((sum, lot) => sum + lot.openQuantity, 0),
@@ -55,7 +57,7 @@ export function resolveSellAvailability(
       ticker: input.ticker,
       marketCode: input.marketCode,
       tradeDate: input.tradeDate,
-      tradeTimestamp: input.tradeTimestamp,
+      tradeTimestamp,
       bookingSequence: input.bookingSequence,
       reason: "unreplayable_history",
     };

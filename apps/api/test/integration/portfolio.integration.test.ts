@@ -597,6 +597,54 @@ describe("portfolio (transactions, holdings, recompute)", () => {
     });
   });
 
+  it("uses the committed midnight timestamp when sell availability omits a timestamp", async () => {
+    const buy = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-sell-availability-midnight-buy" },
+      payload: transactionPayload({
+        ticker: "MIDNIGHT",
+        quantity: 10,
+        unitPrice: 100,
+        tradeDate: "2026-01-05",
+        tradeTimestamp: "2026-01-05T10:00:00.000Z",
+      }),
+    });
+    expect(buy.statusCode).toBe(200);
+
+    const availability = await app.inject({
+      method: "GET",
+      url: "/portfolio/transactions/sell-availability?accountId=acc-1&ticker=MIDNIGHT&marketCode=TW&tradeDate=2026-01-05",
+    });
+    expect(availability.statusCode).toBe(200);
+    expect(availability.json()).toMatchObject({
+      status: "ready",
+      tradeTimestamp: "2026-01-05T00:00:00.000Z",
+      availableQuantity: 0,
+    });
+
+    const sell = await app.inject({
+      method: "POST",
+      url: "/portfolio/transactions",
+      headers: { "idempotency-key": "k-sell-availability-midnight-sell" },
+      payload: transactionPayload({
+        ticker: "MIDNIGHT",
+        quantity: 1,
+        unitPrice: 110,
+        tradeDate: "2026-01-05",
+        type: "SELL" as TransactionType,
+      }),
+    });
+    expect(sell.statusCode).toBe(409);
+    expect(sell.json()).toMatchObject({
+      error: "insufficient_quantity",
+      metadata: {
+        requestedQuantity: 1,
+        availableQuantity: 0,
+      },
+    });
+  });
+
   it("returns account_not_found when sell availability targets an unknown account", async () => {
     const response = await app.inject({
       method: "GET",
