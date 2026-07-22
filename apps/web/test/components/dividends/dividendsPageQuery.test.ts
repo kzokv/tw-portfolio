@@ -112,6 +112,16 @@ describe("dividendsPageQuery", () => {
     expect(query.stockStatuses).toEqual(["needs_calculation"]);
   });
 
+  it("preserves a canonical expected-row exclusion", () => {
+    const query = searchParamsToReviewQuery(new URLSearchParams([
+      ["cashStatus", "open"],
+      ["excludeExpected", "true"],
+    ]));
+
+    expect(query.cashStatuses).toEqual(["open"]);
+    expect(query.excludeExpected).toBe(true);
+  });
+
   it("returns a plural-only internal review query without scalar wire aliases", () => {
     const query = searchParamsToReviewQuery(new URLSearchParams([
       ["accountId", "acc-1"],

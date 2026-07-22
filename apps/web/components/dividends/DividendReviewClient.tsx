@@ -75,6 +75,7 @@ interface FilterState {
   accountIds: string[];
   cashStatuses: MultiValueCashStatusFilter;
   stockStatuses: MultiValueStockStatusFilter;
+  excludeExpected: boolean;
   sourceComposition?: "pending";
   sortBy: DividendReviewSortColumn;
   sortOrder: "asc" | "desc";
@@ -416,6 +417,8 @@ function parseInitialFilters(searchParams: URLSearchParams): FilterState {
     accountIds,
     cashStatuses,
     stockStatuses,
+    excludeExpected: searchParams.get("status") === "needsReconciliation"
+      || searchParams.get("excludeExpected") === "true",
     sourceComposition: searchParams.get("sourceComposition") === "pending" ? "pending" : undefined,
     sortBy,
     sortOrder: (searchParams.get("sortOrder") as "asc" | "desc") ?? "desc",
@@ -764,6 +767,7 @@ export function DividendReviewClient({
       accountIds: f.accountIds.length > 0 ? f.accountIds : undefined,
       cashStatuses: f.cashStatuses.length > 0 ? f.cashStatuses : undefined,
       stockStatuses: f.stockStatuses.length > 0 ? f.stockStatuses : undefined,
+      excludeExpected: f.excludeExpected || undefined,
       sourceComposition: f.sourceComposition,
       sortBy: f.sortBy,
       sortOrder: f.sortOrder,
@@ -786,6 +790,7 @@ export function DividendReviewClient({
     for (const accountId of f.accountIds) params.append("accountId", accountId);
     for (const cashStatus of f.cashStatuses) params.append("cashStatus", cashStatus);
     for (const stockStatus of f.stockStatuses) params.append("stockStatus", stockStatus);
+    if (f.excludeExpected) params.set("excludeExpected", "true");
     if (f.sourceComposition) params.set("sourceComposition", f.sourceComposition);
     if (f.sortBy !== "paymentDate") params.set("sortBy", f.sortBy);
     if (f.sortOrder !== "desc") params.set("sortOrder", f.sortOrder);
@@ -809,6 +814,7 @@ export function DividendReviewClient({
       marketCode: query.marketCode ?? "",
       cashStatuses,
       stockStatuses,
+      excludeExpected: query.excludeExpected ?? false,
       sourceComposition: query.sourceComposition,
       sortBy: query.sortBy,
       sortOrder: query.sortOrder,

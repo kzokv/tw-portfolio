@@ -179,7 +179,7 @@ export function searchParamsToReviewQuery(
 
   let postingStatus: DividendReviewPostingStatus | undefined;
   let reconciliationStatus: DividendReviewReconciliationStatus | undefined;
-  let excludeExpected = false;
+  let excludeExpected = getValue(searchParams, "excludeExpected") === "true";
   if (status === "needsReconciliation") {
     reconciliationStatus = "open";
     excludeExpected = true;

@@ -224,6 +224,40 @@ describe("DividendReviewClient", () => {
     expect(window.location.search).toContain("stockStatus=matched");
   });
 
+  it("preserves the needs-reconciliation expected-row exclusion across client requests", async () => {
+    searchParamsState.value = "view=ledger&status=needsReconciliation";
+    window.history.replaceState(null, "", `/dividends?${searchParamsState.value}`);
+
+    act(() => {
+      root.render(
+        <DividendReviewClient
+          initialData={{ ...emptyReviewData, total: 20 }}
+          dict={dict}
+          locale="en"
+          accounts={[]}
+          years={[2026]}
+        />,
+      );
+    });
+    await act(async () => {});
+
+    expect(window.location.search).toContain("cashStatus=open");
+    expect(window.location.search).toContain("excludeExpected=true");
+
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>("[data-testid='pagination-next']")?.click();
+    });
+
+    expect(primaryQueryCalls()).toContainEqual([
+      expect.objectContaining({
+        cashStatuses: ["open"],
+        excludeExpected: true,
+        page: 2,
+      }),
+    ]);
+    expect(window.location.search).toContain("excludeExpected=true");
+  });
+
   it("keeps the checkbox multi-select open and announced across keyboard toggles and All", async () => {
     const data = {
       ...emptyReviewData,
