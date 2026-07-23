@@ -10,6 +10,8 @@ export interface TDividendCalendarElements {
   actionQueue: Locator;
   thisMonth: Locator;
   recentReceipts: Locator;
+  recentReceiptsHeader: Locator;
+  recentReceiptRows: Locator;
   tbdSection: Locator;
   payingToday: Locator;
   exDividendToday: Locator;
@@ -44,6 +46,14 @@ export class DividendCalendarPage extends BasePage<TDividendCalendarElements> {
       actionQueue: this.locate("dividends-action-queue", "Dividends Action Queue"),
       thisMonth: this.locate("dividends-this-month", "Dividends This Month Section"),
       recentReceipts: this.locate("dividends-recent-receipts", "Dividends Recent Receipts Section"),
+      recentReceiptsHeader: this.withDescription(
+        this.locate("dividends-recent-receipts").locator(":scope > div").nth(1),
+        "Recent Receipts Desktop Header",
+      ),
+      recentReceiptRows: this.withDescription(
+        this.locate("dividends-recent-receipts").locator('[data-testid^="dividend-receipt-"]'),
+        "Recent Receipt Rows",
+      ),
       tbdSection: this.locate("dividends-tbd-section", "Dividend Payment Date TBD Section"),
       payingToday: this.locate("dividends-paying-today", "Dividends Paying Today"),
       exDividendToday: this.locate("dividends-ex-dividend-today", "Dividends Ex-Dividend Today"),

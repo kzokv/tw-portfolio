@@ -237,6 +237,65 @@ describe("shared-context delegated capabilities", () => {
     });
   });
 
+  it("[shared sell availability]: viewer with transaction:write can read owner sell availability", async () => {
+    const { viewerUserId } = await createViewerShare(["portfolio:mcp_read", "transaction:write"]);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/portfolio/transactions/sell-availability?accountId=acc-1&ticker=2330&marketCode=TW&tradeDate=2026-01-02",
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+  });
+
+  it("[shared sell availability]: unknown owner account returns the stable not-found contract", async () => {
+    const { viewerUserId } = await createViewerShare(["portfolio:mcp_read", "transaction:write"]);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/portfolio/transactions/sell-availability?accountId=missing-account&ticker=2330&marketCode=TW&tradeDate=2026-01-02",
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+      },
+    });
+
+    expect(response.statusCode).toBe(404);
+    expect(response.json()).toMatchObject({
+      error: "account_not_found",
+      message: "Account not found",
+    });
+  });
+
+  it("[shared sell availability]: viewer without transaction:write gets shared_capability_required", async () => {
+    const { viewerUserId } = await createViewerShare(["portfolio:mcp_read"]);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/portfolio/transactions/sell-availability?accountId=acc-1&ticker=2330&marketCode=TW&tradeDate=2026-01-02",
+      headers: {
+        "x-user-id": viewerUserId,
+        "x-user-role": "viewer",
+        "x-context-user-id": "user-1",
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({
+      error: "shared_capability_required",
+      metadata: {
+        requiredCapability: "transaction:write",
+        routeKey: "GET /portfolio/transactions/sell-availability",
+      },
+    });
+  });
+
   it("[shared transaction mutation]: delegated actor can open its preview and run deep links", async () => {
     const { viewerUserId } = await createViewerShare(["portfolio:mcp_read", "transaction:write"]);
     const headers = {

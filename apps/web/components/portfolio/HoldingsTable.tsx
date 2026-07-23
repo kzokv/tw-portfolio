@@ -321,7 +321,7 @@ export function HoldingsTable({
       const groupTickerId = buildHoldingsTickerId(group.marketCode, group.ticker);
       if (
         enableSelectionWorkflow
-        && holdingsSelection.selectionMode === "custom"
+        && holdingsSelection.selectionMode !== "all"
         && !holdingsSelection.selectedTickerIdSet.has(groupTickerId)
       ) {
         return false;
@@ -687,6 +687,8 @@ export function HoldingsTable({
                   availableSelectedTickerIds={holdingsSelection.availableSelectedTickerIds}
                   unavailableTickerIds={holdingsSelection.unavailableTickerIds}
                   onReset={holdingsSelection.setAll}
+                  onSelectAll={holdingsSelection.setAll}
+                  onDeselectAll={holdingsSelection.setNone}
                   onToggleTicker={holdingsSelection.toggleTicker}
                   onRemoveTicker={holdingsSelection.removeTicker}
                 />
@@ -769,7 +771,7 @@ export function HoldingsTable({
 
         {orderedFilteredGroups.length === 0 ? (
           <HoldingsGridEmptyState className="mt-6 rounded-xl bg-muted/30 px-5">
-            {dict.holdings.noResults}
+            {holdingsSelection.selectionMode === "none" ? dict.holdings.noneResults : dict.holdings.noResults}
           </HoldingsGridEmptyState>
         ) : (
           <>

@@ -10,12 +10,12 @@ import {
 const baseQuery: DividendReviewPrimaryQueryDto = {
   fromPaymentDate: "2026-01-01",
   toPaymentDate: "2026-12-31",
-  accountId: "acc-1",
+  accountIds: ["acc-1"],
   tickers: ["2330"],
   marketCode: "TW",
   reconciliationStatus: "open",
-  cashStatus: "open",
-  stockStatus: "needs_calculation",
+  cashStatuses: ["open"],
+  stockStatuses: ["needs_calculation"],
   excludeExpected: true,
   sourceComposition: "pending",
   sortBy: "paymentDate",
@@ -30,13 +30,13 @@ describe("dividend review cache identity", () => {
     const dimensions: Array<DividendReviewPrimaryQueryDto> = [
       { ...baseQuery, fromPaymentDate: "2025-01-01" },
       { ...baseQuery, toPaymentDate: "2026-11-30" },
-      { ...baseQuery, accountId: "acc-2" },
+      { ...baseQuery, accountIds: ["acc-2"] },
       { ...baseQuery, tickers: ["0050", "2886"] },
       { ...baseQuery, marketCode: "US" },
       { ...baseQuery, postingStatus: "posted" },
       { ...baseQuery, reconciliationStatus: "matched" },
-      { ...baseQuery, cashStatus: "matched" },
-      { ...baseQuery, stockStatus: "variance" },
+      { ...baseQuery, cashStatuses: ["matched"] },
+      { ...baseQuery, stockStatuses: ["variance"] },
       { ...baseQuery, excludeExpected: false },
       { ...baseQuery, sourceComposition: undefined },
       { ...baseQuery, sortBy: "ticker" },
@@ -66,7 +66,7 @@ describe("dividend review cache identity", () => {
     })).not.toBe(original);
     expect(buildDividendReviewEnrichmentCacheKey("session:a:context:self", {
       ...baseQuery,
-      stockStatus: "variance",
+      stockStatuses: ["variance"],
     })).not.toBe(original);
     expect(DIVIDEND_REVIEW_PRIMARY_CACHE_TAG).not.toBe(DIVIDEND_REVIEW_ENRICHMENT_CACHE_TAG);
   });

@@ -367,13 +367,10 @@ export type DividendReviewSortColumn =
   | "paymentDate"
   | "ticker"
   | "account"
-  | "expectedCashAmount"
-  | "expectedGrossAmount"
   | "expectedNetAmount"
   | "nhiAmount"
   | "bankFeeAmount"
   | "otherDeductionAmount"
-  | "receivedCashAmount"
   | "actualNetAmount"
   | "varianceAmount"
   | "reconciliationStatus";
@@ -388,9 +385,9 @@ export type DividendReviewReconciliationStatus = DividendCashReconciliationStatu
 export interface DividendReviewFilterDto {
   fromPaymentDate?: string;
   toPaymentDate?: string;
-  accountId?: string;
-  cashStatus?: DividendCashReconciliationStatus;
-  stockStatus?: DividendStockReconciliationStatus;
+  accountIds?: string[];
+  cashStatuses?: DividendCashReconciliationStatus[];
+  stockStatuses?: DividendStockReconciliationStatus[];
   reconciliationStatus?: DividendReviewReconciliationStatus;
   postingStatus?: DividendReviewPostingStatus;
   excludeExpected?: boolean;
@@ -423,6 +420,7 @@ export interface DividendReviewRowSummaryDto {
   exDividendDate: string;
   paymentDate: string | null;
   cashCurrency: CurrencyCode;
+  cashDividendPerShare: number;
   eligibleQuantity: number;
   expectedCashAmount: number;
   receivedCashAmount: number;
@@ -1383,7 +1381,7 @@ export interface UnrealizedPnlAnalysisSettingsPreferenceDto {
 }
 
 export type HoldingsTableLayoutStyle = "dashboard" | "portfolio";
-export type HoldingsSelectionMode = "all" | "custom";
+export type HoldingsSelectionMode = "all" | "custom" | "none";
 export const HOLDINGS_SORT_FIELDS = [
   "ticker",
   "accountCount",
@@ -1576,7 +1574,7 @@ const holdingsSortFieldSchema = z.enum(HOLDINGS_SORT_FIELDS);
 export const holdingsSelectionPreferenceSchema: z.ZodType<HoldingsSelectionPreferenceDto> = z
   .object({
     version: z.literal(1),
-    mode: z.enum(["all", "custom"]),
+    mode: z.enum(["all", "custom", "none"]),
     tickerIds: holdingsSelectionTickerIdListSchema.optional(),
   })
   .strict()
@@ -1588,10 +1586,12 @@ export const holdingsSelectionPreferenceSchema: z.ZodType<HoldingsSelectionPrefe
         path: ["tickerIds"],
       });
     }
-    if (value.mode === "all" && value.tickerIds && value.tickerIds.length > 0) {
+    if ((value.mode === "all" || value.mode === "none") && value.tickerIds && value.tickerIds.length > 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "holdings_selection_all_forbids_tickers",
+        message: value.mode === "all"
+          ? "holdings_selection_all_forbids_tickers"
+          : "holdings_selection_none_forbids_tickers",
         path: ["tickerIds"],
       });
     }
@@ -2413,6 +2413,31 @@ export interface RealizedPnlBreakdownUnavailableDto {
 export type RealizedPnlBreakdownDto =
   | RealizedPnlBreakdownAvailableDto
   | RealizedPnlBreakdownUnavailableDto;
+
+export interface SellAvailabilityQueryDto {
+  accountId: string;
+  ticker: string;
+  marketCode: MarketCode;
+  tradeDate: string;
+  tradeTimestamp?: string;
+  bookingSequence?: number;
+}
+
+export type SellAvailabilityUnavailableReason = "unreplayable_history";
+
+export interface SellAvailabilityReadyDto extends SellAvailabilityQueryDto {
+  status: "ready";
+  availableQuantity: number;
+}
+
+export interface SellAvailabilityUnavailableDto extends SellAvailabilityQueryDto {
+  status: "unavailable";
+  reason: SellAvailabilityUnavailableReason;
+}
+
+export type SellAvailabilityDto =
+  | SellAvailabilityReadyDto
+  | SellAvailabilityUnavailableDto;
 
 export interface TransactionAccountOptionDto {
   id: string;

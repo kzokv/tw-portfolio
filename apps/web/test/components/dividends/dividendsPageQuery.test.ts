@@ -3,6 +3,7 @@ import {
   calendarMonthFromSearchParams,
   calendarQueryFromSearchParams,
   monthQuery,
+  normalizeReviewSort,
   searchParamsToReviewQuery,
 } from "../../../components/dividends/dividendsPageQuery";
 
@@ -50,7 +51,7 @@ describe("dividendsPageQuery", () => {
     expect(query).toMatchObject({
       tickers: ["2330"],
       marketCode: "TW",
-      accountId: "acc-1",
+      accountIds: ["acc-1"],
       reconciliationStatus: "open",
       excludeExpected: true,
       sortBy: "ticker",
@@ -107,8 +108,45 @@ describe("dividendsPageQuery", () => {
       ["stockStatus", "needs_calculation"],
     ]));
 
-    expect(query.cashStatus).toBe("explained");
-    expect(query.stockStatus).toBe("needs_calculation");
+    expect(query.cashStatuses).toEqual(["explained"]);
+    expect(query.stockStatuses).toEqual(["needs_calculation"]);
+  });
+
+  it("preserves a canonical expected-row exclusion", () => {
+    const query = searchParamsToReviewQuery(new URLSearchParams([
+      ["cashStatus", "open"],
+      ["excludeExpected", "true"],
+    ]));
+
+    expect(query.cashStatuses).toEqual(["open"]);
+    expect(query.excludeExpected).toBe(true);
+  });
+
+  it("returns a plural-only internal review query without scalar wire aliases", () => {
+    const query = searchParamsToReviewQuery(new URLSearchParams([
+      ["accountId", "acc-1"],
+      ["accountId", "acc-2"],
+      ["cashStatus", "open"],
+      ["cashStatus", "matched"],
+      ["stockStatus", "variance"],
+      ["stockStatus", "explained"],
+    ]));
+
+    expect(query).toMatchObject({
+      accountIds: ["acc-1", "acc-2"],
+      cashStatuses: ["open", "matched"],
+      stockStatuses: ["variance", "explained"],
+    });
+    expect(Object.hasOwn(query, "accountId")).toBe(false);
+    expect(Object.hasOwn(query, "cashStatus")).toBe(false);
+    expect(Object.hasOwn(query, "stockStatus")).toBe(false);
+  });
+
+  it("canonicalizes unsupported legacy review sorts to paymentDate", () => {
+    expect(normalizeReviewSort("exDate")).toEqual({ sortBy: "paymentDate", canonicalized: true });
+    expect(normalizeReviewSort("expectedGrossAmount")).toEqual({ sortBy: "paymentDate", canonicalized: true });
+    expect(normalizeReviewSort("receivedCashAmount")).toEqual({ sortBy: "paymentDate", canonicalized: true });
+    expect(normalizeReviewSort("unknown-sort")).toEqual({ sortBy: "paymentDate", canonicalized: true });
   });
 
   it("omits empty date filters when the selected preset resolves to no range", () => {

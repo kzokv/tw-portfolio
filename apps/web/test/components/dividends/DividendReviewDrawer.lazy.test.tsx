@@ -25,6 +25,7 @@ const row: DividendReviewRowSummaryDto = {
   rowKind: "ledger", id: "ledger-1", version: 3, accountId: "acc-1", dividendEventId: "event-1",
   ticker: "2330", tickerName: "TSMC", marketCode: "TW", instrumentType: "STOCK", eventType: "CASH",
   exDividendDate: "2026-06-01", paymentDate: "2026-07-01", cashCurrency: "TWD", eligibleQuantity: 10,
+  cashDividendPerShare: 10,
   expectedCashAmount: 100, receivedCashAmount: 90, expectedStockQuantity: 0, receivedStockQuantity: 0,
   postingStatus: "posted", cashReconciliationStatus: "open", stockReconciliationStatus: null,
   reconciliationStatus: "open", sourceCompositionStatus: "provided",

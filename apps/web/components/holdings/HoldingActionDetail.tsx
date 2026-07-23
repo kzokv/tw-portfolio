@@ -38,7 +38,7 @@ const DIVIDEND_FETCH_LIMIT = 50;
 async function fetchAllDividendEntries(ticker: string, marketCode: MarketCode): Promise<DividendLedgerEntryDetails[]> {
   const entries: DividendLedgerEntryDetails[] = [];
   for (let page = 1; ; page += 1) {
-    const review = await fetchDividendLedgerReview({ ticker, marketCode, page, limit: DIVIDEND_FETCH_LIMIT });
+    const review = await fetchDividendLedgerReview({ tickers: [ticker], marketCode, page, limit: DIVIDEND_FETCH_LIMIT });
     entries.push(...review.ledgerEntries);
     if (entries.length >= review.total || review.ledgerEntries.length === 0) return entries;
   }

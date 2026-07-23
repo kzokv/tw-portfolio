@@ -8,6 +8,7 @@ type TransactionFormMarket = MarketCode | "ALL";
 export interface TTransactionFormElements {
   recordTransactionButton: Locator;
   recordTransactionDialog: Locator;
+  addTransactionDialog: Locator;
   tickerCombobox: Locator;
   tickerListbox: Locator;
   tickerEmptyState: Locator;
@@ -37,6 +38,13 @@ export interface TTransactionFormElements {
   taxEstimateValue: Locator;
   taxEstimateUnavailable: Locator;
   taxOverrideInput: Locator;
+  sellAvailabilityPanel: Locator;
+  sellAvailabilityLoading: Locator;
+  sellAvailabilityReady: Locator;
+  sellAvailabilityUseMax: Locator;
+  sellAvailabilityTransportWarning: Locator;
+  sellAvailabilityUnavailable: Locator;
+  sellAvailabilityOversell: Locator;
   submitButton: Locator;
 }
 
@@ -51,6 +59,7 @@ export class TransactionFormComponent extends BasePage<TTransactionFormElements>
     this._elements = {
       recordTransactionButton: this.locate("record-transaction-button", "Record Transaction Button"),
       recordTransactionDialog: this.locate("record-transaction-dialog", "Record Transaction Dialog"),
+      addTransactionDialog: this.locate("add-transaction-dialog", "Global Add Transaction Dialog"),
       tickerCombobox: this.locate("tx-ticker-combobox", "Ticker Combobox"),
       tickerListbox: this.locate("tx-ticker-listbox", "Ticker Listbox"),
       tickerEmptyState: this.locate("tx-ticker-empty-state", "Ticker Empty State"),
@@ -92,6 +101,16 @@ export class TransactionFormComponent extends BasePage<TTransactionFormElements>
       taxEstimateValue: this.locate("tax-estimate-value", "Tax Estimate Value"),
       taxEstimateUnavailable: this.locate("tax-estimate-unavailable", "Tax Estimate Unavailable"),
       taxOverrideInput: this.locate("tax-override-input", "Tax Override Input"),
+      sellAvailabilityPanel: this.locate("sell-availability-panel", "Sell Availability Panel"),
+      sellAvailabilityLoading: this.locate("sell-availability-loading", "Sell Availability Loading State"),
+      sellAvailabilityReady: this.locate("sell-availability-ready", "Sell Availability Ready State"),
+      sellAvailabilityUseMax: this.locate("sell-availability-use-max", "Sell Availability Use Max Button"),
+      sellAvailabilityTransportWarning: this.locate(
+        "sell-availability-transport-warning",
+        "Sell Availability Transport Warning",
+      ),
+      sellAvailabilityUnavailable: this.locate("sell-availability-unavailable", "Sell Availability Unavailable State"),
+      sellAvailabilityOversell: this.locate("sell-availability-oversell", "Sell Availability Oversell Error"),
       submitButton: this.locate("tx-submit-button", "Submit Button"),
     };
   }

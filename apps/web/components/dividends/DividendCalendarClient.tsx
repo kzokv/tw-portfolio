@@ -72,6 +72,7 @@ type CurrencyTotals = Partial<Record<CurrencyCode, number>>;
 type StockSummaryLike = Pick<DividendEventListItem, "marketCode" | "ticker" | "tickerName"> & { quantity: number };
 
 const THIS_MONTH_DESKTOP_GRID = "xl:grid-cols-[minmax(220px,1.5fr)_120px_120px_minmax(240px,1.4fr)_minmax(180px,1fr)]";
+const RECENT_RECEIPTS_DESKTOP_GRID = "xl:grid-cols-[minmax(220px,1.4fr)_120px_130px_minmax(240px,1.2fr)_110px]";
 
 function formatTemplate(template: string, values: Record<string, string | number>): string {
   return Object.entries(values).reduce((result, [key, value]) => result.replaceAll(`{${key}}`, String(value)), template);
@@ -793,7 +794,7 @@ export function DividendCalendarClient({ initialSnapshot, initialMonth, initialD
 
       <Card className="overflow-hidden rounded-lg border-border bg-card p-0 shadow-sm" data-testid="dividends-recent-receipts">
         <PanelHeading title={dict.dividends.overview.recentReceipts} description={dict.dividends.overview.recentReceiptsDescription} action={<Link className="text-sm font-semibold text-primary hover:underline" href={reviewHref(bounds, activeMonthKey)}>{dict.dividends.overview.viewLedger}</Link>} />
-        <div className="hidden border-t border-border bg-muted/30 px-4 py-3 text-[11px] font-semibold uppercase text-muted-foreground xl:grid xl:grid-cols-[minmax(190px,1.4fr)_110px_130px_130px_110px] xl:gap-3">
+        <div className={cn("hidden border-t border-border bg-muted/30 px-4 py-3 text-[11px] font-semibold uppercase text-muted-foreground xl:grid xl:gap-3", RECENT_RECEIPTS_DESKTOP_GRID)}>
           <div>{dict.dividends.review.table.ticker}</div>
           <div>{dict.dividends.overview.postedLabel}</div>
           <div>{dict.dividends.overview.accountLabel}</div>
@@ -1166,7 +1167,7 @@ function ReceiptRow({ row, dict, locale, onOpen }: { row: DividendCalendarRow; d
   if (!entry) return null;
   const badge = resolveBadge(row);
   return (
-    <button type="button" className="grid w-full min-w-0 gap-2 px-4 py-4 text-left text-sm enabled:hover:bg-muted/50 disabled:cursor-default xl:grid-cols-[minmax(220px,1.4fr)_120px_130px_minmax(240px,1.2fr)_110px] xl:items-center xl:gap-3" onClick={onOpen} disabled={!onOpen} data-testid={`dividend-receipt-${entry.id}`}>
+    <button type="button" className={cn("grid w-full min-w-0 gap-2 px-4 py-4 text-left text-sm enabled:hover:bg-muted/50 disabled:cursor-default xl:items-center xl:gap-3", RECENT_RECEIPTS_DESKTOP_GRID)} onClick={onOpen} disabled={!onOpen} data-testid={`dividend-receipt-${entry.id}`}>
       <div className="grid gap-2">
         <TickerCell event={row.event} subLabel={`Ledger ${entry.id}`} />
         <div className="flex flex-wrap items-center gap-2">

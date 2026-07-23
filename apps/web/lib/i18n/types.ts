@@ -1733,8 +1733,12 @@ export interface AppDictionary {
         ticker: string;
         account: string;
         eventType: string;
+        cashDividend: string;
+        stockDividend: string;
+        perShare: string;
         expected: string;
         received: string;
+        selectedCount: string;
         nhi: string;
         bankFee: string;
         otherDeduction: string;
@@ -2007,6 +2011,12 @@ export interface AppDictionary {
     noAccountForCurrency: string;
     createAccountLink: string;
     currencyMismatchError: string;
+    sellAvailabilityLoading: string;
+    sellAvailabilityReady: string;
+    sellAvailabilityUseMax: string;
+    sellAvailabilityTransportWarning: string;
+    sellAvailabilityUnavailable: string;
+    sellAvailabilityOversell: string;
   };
   priceHint: {
     exact: string;
@@ -2023,7 +2033,11 @@ export interface AppDictionary {
       selectionLabel: string;
       selectionAll: string;
       selectionSelectedCount: string;
+      selectionCount: string;
+      selectionNone: string;
       selectionReset: string;
+      selectionSelectAll: string;
+      selectionDeselectAll: string;
       selectionSearchPlaceholder: string;
       selectionNoMatches: string;
       selectionUnavailable: string;
@@ -2180,8 +2194,9 @@ export interface AppDictionary {
     topHoldingsLimitLabel: string;
     topHoldingsLimitDecreaseAria: string;
     topHoldingsLimitIncreaseAria: string;
-    allocationFallbackMissingQuote: string;
-    noResults: string;
+      allocationFallbackMissingQuote: string;
+      noneResults: string;
+      noResults: string;
     showingTickers: string;
     accountChildLabel: string;
     columnAccounts: string;

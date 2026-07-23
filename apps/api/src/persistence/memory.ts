@@ -117,6 +117,8 @@ import type {
   ReadinessStatus,
   ResolveOrCreateUserOptions,
   ResolveOrCreateUserResult,
+  ReplayedPositionScopeInput,
+  TransactionWriteContext,
   TradeEventPatch,
   UpdatePostedCashDividendInput,
   HoldingSnapshot,
@@ -639,6 +641,8 @@ export class MemoryPersistence implements Persistence {
   private readonly anonymousShareTokenLocks = new Map<string, Promise<unknown>>();
   /** Per-account async mutex for destructive dividend confirmation. */
   private readonly dividendDestructiveLocks = new Map<string, Promise<void>>();
+  /** Per-owner async mutex for full-store transaction writes. */
+  private readonly transactionWriteLocks = new Map<string, Promise<void>>();
   private readonly accountAccountingRevisions = new Map<string, number>();
   private readonly dividendDestructivePreviews = new Map<string, DividendDestructivePreviewRecord>();
   private readonly dividendDestructiveOutcomes = new Map<string, {
@@ -1079,6 +1083,77 @@ export class MemoryPersistence implements Persistence {
       release();
       if (this.dividendDestructiveLocks.get(key) === queued) {
         this.dividendDestructiveLocks.delete(key);
+      }
+    }
+  }
+
+  async withTransactionWriteLock<T>(
+    ownerUserId: string,
+    execute: (writer: TransactionWriteContext) => Promise<T>,
+  ): Promise<T> {
+    const key = ownerUserId;
+    const previous = this.transactionWriteLocks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const current = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const queued = previous.then(() => current);
+    this.transactionWriteLocks.set(key, queued);
+    await previous;
+    const previousStore = this.stores.has(ownerUserId)
+      ? structuredClone(this.stores.get(ownerUserId)!)
+      : undefined;
+    const previousInstruments = this.instrumentsByUser.has(ownerUserId)
+      ? structuredClone(this.instrumentsByUser.get(ownerUserId)!)
+      : undefined;
+    const revisionPrefix = `${ownerUserId}:`;
+    const previousRevisions = new Map(
+      [...this.accountAccountingRevisions.entries()].filter(([revisionKey]) => revisionKey.startsWith(revisionPrefix)),
+    );
+    try {
+      return await execute({
+        loadStore: async (userId) => {
+          if (userId !== ownerUserId) throw new Error("transaction writer owner mismatch");
+          return this.loadStore(userId);
+        },
+        getInstrument: (ticker, marketCode) => this.getInstrument(ticker, marketCode),
+        upsertInstruments: async (userId, instruments) => {
+          if (userId !== ownerUserId) throw new Error("transaction writer owner mismatch");
+          await this.upsertInstruments(userId, instruments);
+        },
+        savePostedTrade: async (userId, accounting, tradeEventId) => {
+          if (userId !== ownerUserId) throw new Error("transaction writer owner mismatch");
+          await this.savePostedTrade(userId, accounting, tradeEventId);
+        },
+        savePostedDividend: async (userId, accounting, marketData, dividendLedgerEntryId) => {
+          if (userId !== ownerUserId) throw new Error("transaction writer owner mismatch");
+          await this.savePostedDividend(userId, accounting, marketData, dividendLedgerEntryId);
+        },
+        updatePostedCashDividend: async (userId, input) => {
+          if (userId !== ownerUserId) throw new Error("transaction writer owner mismatch");
+          return this.updatePostedCashDividend(userId, input);
+        },
+        saveReplayedPositionScope: async (userId, accounting, input) => {
+          if (userId !== ownerUserId) throw new Error("transaction writer owner mismatch");
+          return this.saveReplayedPositionScope(userId, accounting, input);
+        },
+      });
+    } catch (error) {
+      if (previousStore) this.stores.set(ownerUserId, previousStore);
+      else this.stores.delete(ownerUserId);
+      if (previousInstruments) this.instrumentsByUser.set(ownerUserId, previousInstruments);
+      else this.instrumentsByUser.delete(ownerUserId);
+      for (const revisionKey of [...this.accountAccountingRevisions.keys()]) {
+        if (revisionKey.startsWith(revisionPrefix)) this.accountAccountingRevisions.delete(revisionKey);
+      }
+      for (const [revisionKey, revision] of previousRevisions) {
+        this.accountAccountingRevisions.set(revisionKey, revision);
+      }
+      throw error;
+    } finally {
+      release();
+      if (this.transactionWriteLocks.get(key) === queued) {
+        this.transactionWriteLocks.delete(key);
       }
     }
   }
@@ -2981,8 +3056,221 @@ export class MemoryPersistence implements Persistence {
     return this.accountAccountingRevisions.get(`${userId}:${accountId}`) ?? 0;
   }
 
-  async savePostedTrade(userId: string, accounting: AccountingStore): Promise<void> {
-    await this.saveAccountingStore(userId, accounting);
+  async savePostedTrade(userId: string, accounting: AccountingStore, tradeEventId: string): Promise<void> {
+    const trade = accounting.facts.tradeEvents.find((item) => item.id === tradeEventId);
+    if (!trade) {
+      throw new Error(`trade event ${tradeEventId} not found in accounting store`);
+    }
+    const cashEntry = accounting.facts.cashLedgerEntries.find((entry) => entry.relatedTradeEventId === tradeEventId);
+    if (!cashEntry) {
+      throw new Error(`cash ledger entry for trade event ${tradeEventId} not found in accounting store`);
+    }
+
+    const store = await this.loadStore(userId);
+    store.accounting.facts.tradeEvents.push(structuredClone(trade));
+    store.accounting.facts.cashLedgerEntries.push(structuredClone(cashEntry));
+    store.accounting.projections.lotAllocations = [
+      ...store.accounting.projections.lotAllocations.filter((allocation) => allocation.tradeEventId !== tradeEventId),
+      ...structuredClone(accounting.projections.lotAllocations.filter(
+        (allocation) => allocation.tradeEventId === tradeEventId,
+      )),
+    ];
+    store.accounting.projections.lots = [
+      ...store.accounting.projections.lots.filter(
+        (lot) => lot.accountId !== trade.accountId || lot.ticker !== trade.ticker,
+      ),
+      ...structuredClone(accounting.projections.lots.filter(
+        (lot) => lot.accountId === trade.accountId && lot.ticker === trade.ticker,
+      )),
+    ];
+    rebuildHoldingProjection(store);
+    this.stores.set(userId, store);
+    const revisionKey = `${userId}:${trade.accountId}`;
+    this.accountAccountingRevisions.set(
+      revisionKey,
+      (this.accountAccountingRevisions.get(revisionKey) ?? 0) + 1,
+    );
+  }
+
+  private async saveReplayedPositionScope(
+    userId: string,
+    accounting: AccountingStore,
+    input: ReplayedPositionScopeInput,
+  ): Promise<DividendLedgerRecomputeChange[]> {
+    const currentStore = await this.loadStore(userId);
+    if (!currentStore.accounts.some((account) => account.id === input.accountId && account.userId === userId)) {
+      throw new Error("replayed position scope account does not belong to writer owner");
+    }
+    const isScopedTrade = (trade: BookedTradeEvent) =>
+      trade.userId === userId
+      && trade.accountId === input.accountId
+      && trade.ticker === input.ticker
+      && trade.marketCode === input.marketCode;
+    const scopedTrades = accounting.facts.tradeEvents.filter(isScopedTrade);
+    const replayedTradesById = new Map(scopedTrades.map((trade) => [trade.id, trade]));
+    const candidate = input.newTradeEventId
+      ? replayedTradesById.get(input.newTradeEventId)
+      : undefined;
+    if (input.newTradeEventId && !candidate) {
+      throw new Error(`trade event ${input.newTradeEventId} not found in replayed scope`);
+    }
+    if (
+      input.newTradeEventId
+      && currentStore.accounting.facts.tradeEvents.some((trade) => trade.id === input.newTradeEventId)
+    ) {
+      throw new Error(`trade event ${input.newTradeEventId} already exists`);
+    }
+    const candidateCashEntry = input.newTradeEventId
+      ? accounting.facts.cashLedgerEntries.find((entry) =>
+          entry.userId === userId
+          && entry.accountId === input.accountId
+          && entry.relatedTradeEventId === input.newTradeEventId)
+      : undefined;
+    if (input.newTradeEventId && !candidateCashEntry) {
+      throw new Error(`cash ledger entry for trade event ${input.newTradeEventId} not found`);
+    }
+    const newAction = input.newPositionActionId
+      ? accounting.facts.positionActions.find((action) => action.id === input.newPositionActionId)
+      : undefined;
+    if (
+      input.newPositionActionId
+      && (!newAction
+        || newAction.accountId !== input.accountId
+        || newAction.ticker !== input.ticker
+        || newAction.marketCode !== input.marketCode)
+    ) {
+      throw new Error(`position action ${input.newPositionActionId} not found in replayed scope`);
+    }
+    if (
+      input.newPositionActionId
+      && currentStore.accounting.facts.positionActions.some((action) => action.id === input.newPositionActionId)
+    ) {
+      throw new Error(`position action ${input.newPositionActionId} already exists`);
+    }
+    const scopeLots = accounting.projections.lots.filter(
+      (lot) => lot.accountId === input.accountId && lot.ticker === input.ticker,
+    );
+    const scopeLotIds = new Set(scopeLots.map((lot) => lot.id));
+    const scopeTradeIds = new Set(scopedTrades.map((trade) => trade.id));
+    const scopeAllocations = accounting.projections.lotAllocations.filter(
+      (allocation) => allocation.accountId === input.accountId && allocation.ticker === input.ticker,
+    );
+    for (const allocation of scopeAllocations) {
+      if (
+        allocation.userId !== userId
+        || !scopeTradeIds.has(allocation.tradeEventId)
+        || !scopeLotIds.has(allocation.lotId)
+      ) {
+        throw new Error(`lot allocation ${allocation.id} does not match replayed scope`);
+      }
+    }
+
+    const store = structuredClone(currentStore);
+    const isStoredScopedTrade = (trade: BookedTradeEvent) =>
+      trade.accountId === input.accountId
+      && trade.ticker === input.ticker
+      && trade.marketCode === input.marketCode;
+
+    store.accounting.facts.tradeEvents = store.accounting.facts.tradeEvents.map((trade) => {
+      const replayed = isStoredScopedTrade(trade) ? replayedTradesById.get(trade.id) : undefined;
+      if (!replayed) return trade;
+      return {
+        ...trade,
+        realizedPnlAmount: replayed.realizedPnlAmount,
+        realizedPnlCurrency: replayed.realizedPnlCurrency,
+      };
+    });
+    if (candidate && candidateCashEntry) {
+      store.accounting.facts.tradeEvents.push(structuredClone(candidate));
+    }
+    if (newAction) {
+      store.accounting.facts.positionActions.push(structuredClone(newAction));
+    }
+    const replacedTradeIds = new Set([
+      ...currentStore.accounting.facts.tradeEvents.filter(isStoredScopedTrade).map((trade) => trade.id),
+      ...scopeTradeIds,
+      ...(input.deletedTradeEventIds ?? []),
+    ]);
+    store.accounting.facts.cashLedgerEntries = [
+      ...store.accounting.facts.cashLedgerEntries.filter(
+        (entry) => !entry.relatedTradeEventId || !replacedTradeIds.has(entry.relatedTradeEventId),
+      ),
+      ...structuredClone(accounting.facts.cashLedgerEntries.filter(
+        (entry) => entry.relatedTradeEventId && scopeTradeIds.has(entry.relatedTradeEventId),
+      )),
+    ];
+
+    store.accounting.projections.lotAllocations = [
+      ...store.accounting.projections.lotAllocations.filter(
+        (allocation) => allocation.accountId !== input.accountId || allocation.ticker !== input.ticker,
+      ),
+      ...structuredClone(scopeAllocations),
+    ];
+    store.accounting.projections.lots = [
+      ...store.accounting.projections.lots.filter(
+        (lot) => lot.accountId !== input.accountId || lot.ticker !== input.ticker,
+      ),
+      ...structuredClone(scopeLots),
+    ];
+    const appliedDividendChanges: DividendLedgerRecomputeChange[] = [];
+    for (const change of input.dividendLedgerChanges ?? []) {
+      const entryIndex = store.accounting.facts.dividendLedgerEntries.findIndex(
+        (entry) => entry.id === change.ledgerEntryId && entry.accountId === change.accountId,
+      );
+      if (change.changeKind === "created") {
+        if (entryIndex >= 0) throw new Error(`dividend ledger entry ${change.ledgerEntryId} already exists`);
+        store.accounting.facts.dividendLedgerEntries.push(structuredClone(change.nextEntry));
+        appliedDividendChanges.push(change);
+        continue;
+      }
+      if (entryIndex < 0) throw new Error(`dividend ledger entry ${change.ledgerEntryId} not found`);
+      if (store.accounting.facts.dividendLedgerEntries[entryIndex]!.version !== change.previousVersion) {
+        throw new Error(`dividend ledger entry ${change.ledgerEntryId} version changed before replay commit`);
+      }
+      store.accounting.facts.dividendLedgerEntries[entryIndex] = structuredClone(change.nextEntry);
+      appliedDividendChanges.push(change);
+    }
+    rebuildHoldingProjection(store);
+    const assertUniqueIds = <T extends { id: string }>(records: T[], kind: string) => {
+      const ids = new Set<string>();
+      for (const record of records) {
+        if (ids.has(record.id)) throw new Error(`duplicate ${kind} id ${record.id}`);
+        ids.add(record.id);
+      }
+    };
+    assertUniqueIds(store.accounting.facts.tradeEvents, "trade event");
+    assertUniqueIds(store.accounting.facts.cashLedgerEntries, "cash ledger entry");
+    assertUniqueIds(store.accounting.facts.positionActions, "position action");
+    assertUniqueIds(store.accounting.projections.lots, "lot");
+    assertUniqueIds(store.accounting.projections.lotAllocations, "lot allocation");
+    const accountIds = new Set(store.accounts.map((account) => account.id));
+    const tradeIds = new Set(store.accounting.facts.tradeEvents.map((trade) => trade.id));
+    const lotIds = new Set(store.accounting.projections.lots.map((lot) => lot.id));
+    if (store.accounting.facts.tradeEvents.some((trade) => !accountIds.has(trade.accountId))) {
+      throw new Error("trade event references unknown account");
+    }
+    if (store.accounting.facts.cashLedgerEntries.some((entry) => !accountIds.has(entry.accountId))) {
+      throw new Error("cash ledger entry references unknown account");
+    }
+    if (store.accounting.facts.positionActions.some((action) => !accountIds.has(action.accountId))) {
+      throw new Error("position action references unknown account");
+    }
+    if (store.accounting.projections.lots.some((lot) => !accountIds.has(lot.accountId))) {
+      throw new Error("lot references unknown account");
+    }
+    if (store.accounting.projections.lotAllocations.some((allocation) =>
+      !accountIds.has(allocation.accountId)
+      || !tradeIds.has(allocation.tradeEventId)
+      || !lotIds.has(allocation.lotId))) {
+      throw new Error("lot allocation references unknown accounting fact");
+    }
+    this.stores.set(userId, store);
+    const revisionKey = `${userId}:${input.accountId}`;
+    this.accountAccountingRevisions.set(
+      revisionKey,
+      (this.accountAccountingRevisions.get(revisionKey) ?? 0) + 1,
+    );
+    return appliedDividendChanges;
   }
 
   async savePostedDividend(
@@ -3561,6 +3849,23 @@ export class MemoryPersistence implements Persistence {
     opts: Omit<DividendReviewListOptions, "page" | "limit" | "sortBy" | "sortOrder">,
   ) {
     const store = await this.loadStore(userId);
+    const selectedAccountIds = new Set(
+      opts.accountIds?.length
+        ? opts.accountIds
+        : opts.accountId
+          ? [opts.accountId]
+          : [],
+    );
+    const selectedCashStatuses = new Set(
+      opts.cashStatuses?.length
+        ? opts.cashStatuses
+        : [],
+    );
+    const selectedStockStatuses = new Set(
+      opts.stockStatuses?.length
+        ? opts.stockStatuses
+        : [],
+    );
     const selectedTickers = opts.tickers ?? ("ticker" in opts && typeof opts.ticker === "string" ? [opts.ticker] : undefined);
     const eventById = new Map(store.marketData.dividendEvents.map((event) => [event.id, event]));
     const accountById = new Map(store.accounts.map((account) => [account.id, account]));
@@ -3616,7 +3921,7 @@ export class MemoryPersistence implements Persistence {
     };
 
     const ledgerRows: DividendReviewRowWithDetails[] = activeLedgerEntries.flatMap((entry) => {
-      if (opts.accountId && entry.accountId !== opts.accountId) return [];
+      if (selectedAccountIds.size > 0 && !selectedAccountIds.has(entry.accountId)) return [];
       if (opts.excludeExpected && entry.postingStatus === "expected") return [];
       if (opts.reconciliationStatus && entry.reconciliationStatus !== opts.reconciliationStatus) return [];
       if (opts.postingStatus && entry.postingStatus !== opts.postingStatus) return [];
@@ -3663,6 +3968,7 @@ export class MemoryPersistence implements Persistence {
         exDividendDate: event.exDividendDate,
         paymentDate: event.paymentDate,
         cashCurrency: event.cashDividendCurrency,
+        cashDividendPerShare: event.cashDividendPerShare,
         receivedCashAmount: receivedByLedgerId.get(entry.id) ?? 0,
         deductions,
         sourceLines: store.accounting.facts.dividendSourceLines.filter(
@@ -3696,8 +4002,9 @@ export class MemoryPersistence implements Persistence {
         },
         activeCalculation: activeCalculation ? mapDividendCalculationVersionDto(activeCalculation) : null,
       };
-      if (opts.cashStatus && (row.cashReconciliationStatus ?? row.reconciliationStatus) !== opts.cashStatus) return [];
-      if (opts.stockStatus && deriveDividendReviewStockStatus(row) !== opts.stockStatus) return [];
+      if (selectedCashStatuses.size > 0 && !selectedCashStatuses.has(row.cashReconciliationStatus ?? row.reconciliationStatus)) return [];
+      const ledgerStockStatus = deriveDividendReviewStockStatus(row);
+      if (selectedStockStatuses.size > 0 && (!ledgerStockStatus || !selectedStockStatuses.has(ledgerStockStatus))) return [];
       return [row];
     });
 
@@ -3705,7 +4012,7 @@ export class MemoryPersistence implements Persistence {
     if (!opts.excludeExpected) {
       for (const account of store.accounts) {
         if (account.userId !== userId) continue;
-        if (opts.accountId && account.id !== opts.accountId) continue;
+        if (selectedAccountIds.size > 0 && !selectedAccountIds.has(account.id)) continue;
 
         for (const event of store.marketData.dividendEvents) {
           let eventMarketCode: MarketCode;
@@ -3759,6 +4066,7 @@ export class MemoryPersistence implements Persistence {
             exDividendDate: event.exDividendDate,
             paymentDate: event.paymentDate,
             cashCurrency: event.cashDividendCurrency,
+            cashDividendPerShare: event.cashDividendPerShare,
             eligibleQuantity,
             expectedCashAmount: cashReconciliation.expectedGrossAmount,
             expectedStockQuantity: activeCalculation?.expectedWholeShares ?? stockEntitlement.expectedStockQuantity,
@@ -3797,8 +4105,9 @@ export class MemoryPersistence implements Persistence {
             },
             activeCalculation: activeCalculation ? mapDividendCalculationVersionDto(activeCalculation) : null,
           };
-          if (opts.cashStatus && "open" !== opts.cashStatus) continue;
-          if (opts.stockStatus && deriveDividendReviewStockStatus(row) !== opts.stockStatus) continue;
+          if (selectedCashStatuses.size > 0 && !selectedCashStatuses.has("open")) continue;
+          const expectedStockStatus = deriveDividendReviewStockStatus(row);
+          if (selectedStockStatuses.size > 0 && (!expectedStockStatus || !selectedStockStatuses.has(expectedStockStatus))) continue;
           expectedRows.push(row);
         }
       }
@@ -3914,6 +4223,7 @@ export class MemoryPersistence implements Persistence {
       exDividendDate: row.exDividendDate,
       paymentDate: row.paymentDate,
       cashCurrency: row.cashCurrency,
+      cashDividendPerShare: row.cashDividendPerShare,
       eligibleQuantity: row.eligibleQuantity,
       expectedCashAmount: row.expectedCashAmount,
       receivedCashAmount: row.receivedCashAmount,
@@ -4023,7 +4333,7 @@ export class MemoryPersistence implements Persistence {
 
   async listDividendReviewMetadata(
     userId: string,
-    filters: Pick<DividendReviewFilterDto, "accountId" | "fromPaymentDate" | "toPaymentDate"> = {},
+    filters: Partial<Pick<DividendReviewFilterDto, "accountIds" | "fromPaymentDate" | "toPaymentDate">> = {},
   ): Promise<DividendReviewMetadataResult> {
     const [store, { years }] = await Promise.all([
       this.loadStore(userId),
@@ -9851,10 +10161,6 @@ function compareDividendReviewRows(
     case "account":
       cmp = compareStringByOrder(leftAccountName, rightAccountName, opts.sortOrder);
       break;
-    case "expectedCashAmount":
-    case "expectedGrossAmount":
-      cmp = compareNumberByOrder(left.expectedCashAmount, right.expectedCashAmount, opts.sortOrder);
-      break;
     case "expectedNetAmount":
       cmp = compareNumberByOrder(left.expectedNetAmount ?? 0, right.expectedNetAmount ?? 0, opts.sortOrder);
       break;
@@ -9866,9 +10172,6 @@ function compareDividendReviewRows(
       break;
     case "otherDeductionAmount":
       cmp = compareNumberByOrder(left.otherDeductionAmount ?? 0, right.otherDeductionAmount ?? 0, opts.sortOrder);
-      break;
-    case "receivedCashAmount":
-      cmp = compareNumberByOrder(left.receivedCashAmount, right.receivedCashAmount, opts.sortOrder);
       break;
     case "actualNetAmount":
       cmp = compareNumberByOrder(left.actualNetAmount ?? 0, right.actualNetAmount ?? 0, opts.sortOrder);

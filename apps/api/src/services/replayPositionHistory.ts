@@ -2,6 +2,7 @@ import { applyBuyToLots, allocateSellLots, roundToDecimal } from "@vakwen/domain
 import type { Lot, MarketCode } from "@vakwen/domain";
 import { currencyFor, MARKET_CODES, type MarketCode as SharedMarketCode } from "@vakwen/shared-types";
 import type { Persistence } from "../persistence/types.js";
+import { MemoryPersistence } from "../persistence/memory.js";
 import type { BookedTradeEvent, CashLedgerEntry, DividendEvent, LotAllocationProjection, PositionAction } from "../types/store.js";
 import type { EventBus } from "../events/types.js";
 import { reconcileDividendEntitlementsForScope, type DividendLedgerRecomputeChange } from "./dividends.js";
@@ -39,10 +40,59 @@ export class ReplayError extends Error {
   }
 }
 
-interface ReplayPositionHistoryOptions {
+export interface ReplayPositionHistoryOptions {
   marketCode?: MarketCode;
   deletedTradeEventIds?: readonly string[];
   preserveTradeCashEntries?: boolean;
+}
+
+export async function commitPositionReplay(
+  persistence: Persistence,
+  userId: string,
+  accountId: string,
+  ticker: string,
+  options: ReplayPositionHistoryOptions = {},
+): Promise<ReplaySummary> {
+  return persistence.withTransactionWriteLock(userId, async (writer) => {
+    const authoritativeStore = structuredClone(await writer.loadStore(userId));
+    const simulation = new MemoryPersistence({ seedCatalog: false, seedDevBypassUser: false });
+    await simulation.saveStore(structuredClone(authoritativeStore));
+    const summary = await replayPositionHistory(simulation, userId, accountId, ticker, options);
+    const replayedStore = await simulation.loadStore(userId);
+    const appliedDividendChanges = await writer.saveReplayedPositionScope(userId, replayedStore.accounting, {
+      accountId,
+      ticker,
+      marketCode: options.marketCode ?? inferScopeMarketCode(authoritativeStore, accountId, ticker),
+      deletedTradeEventIds: options.deletedTradeEventIds,
+      dividendLedgerChanges: summary.dividendLedgerChanges,
+    });
+    return {
+      ...summary,
+      dividendLedgerChanges: appliedDividendChanges,
+    };
+  });
+}
+
+function inferScopeMarketCode(
+  store: Awaited<ReturnType<Persistence["loadStore"]>>,
+  accountId: string,
+  ticker: string,
+): MarketCode {
+  const trade = store.accounting.facts.tradeEvents.find(
+    (item) => item.accountId === accountId && item.ticker === ticker,
+  );
+  const action = store.accounting.facts.positionActions.find(
+    (item) => item.accountId === accountId && item.ticker === ticker,
+  );
+  const marketCode = trade?.marketCode ?? action?.marketCode;
+  if (!marketCode) throw new Error(`marketCode is required to commit replay for ${accountId}/${ticker}`);
+  return marketCode;
+}
+
+export interface ReplayBoundary {
+  tradeDate: string;
+  tradeTimestamp?: string;
+  bookingSequence?: number;
 }
 
 export async function replayPositionHistory(
@@ -247,7 +297,7 @@ export async function replayPositionHistory(
   };
 }
 
-function applyPositionActionToLots(currentLots: Lot[], action: PositionAction): Lot[] {
+export function applyPositionActionToLots(currentLots: Lot[], action: PositionAction): Lot[] {
   if (action.reversalOfPositionActionId || action.supersededAt) {
     return currentLots;
   }
@@ -370,6 +420,71 @@ export function deriveEligibleQuantityFromReplayStream(
   );
 }
 
+export function buildReplayLotsBeforeBoundary(
+  trades: readonly BookedTradeEvent[],
+  positionActions: readonly PositionAction[],
+  boundary: ReplayBoundary,
+): Lot[] {
+  let lots: Lot[] = [];
+  const reversedTradeIds = new Set(
+    trades
+      .map((trade) => trade.reversalOfTradeEventId)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const reversedPositionActionIds = new Set(
+    positionActions
+      .map((action) => action.reversalOfPositionActionId)
+      .filter((id): id is string => Boolean(id)),
+  );
+  const stream = [
+    ...trades.map((trade) => ({ kind: "trade" as const, trade })),
+    ...positionActions.map((action) => ({ kind: "action" as const, action })),
+  ]
+    .filter((entry) => {
+      if (entry.kind === "trade") {
+        if (entry.trade.reversalOfTradeEventId || reversedTradeIds.has(entry.trade.id)) return false;
+      } else if (
+        entry.action.reversalOfPositionActionId
+        || entry.action.supersededAt
+        || reversedPositionActionIds.has(entry.action.id)
+      ) {
+        return false;
+      }
+      return compareReplayEntriesWithBoundary(entry, { kind: "boundary", boundary }) < 0;
+    })
+    .sort(compareReplayEntriesWithBoundary);
+
+  for (const entry of stream) {
+    if (entry.kind === "action") {
+      lots = applyPositionActionToLots(lots, entry.action);
+      continue;
+    }
+
+    if (entry.trade.type === "BUY") {
+      lots = applyBuyToLots(lots, {
+        id: `boundary-lot-${entry.trade.id}`,
+        accountId: entry.trade.accountId,
+        ticker: entry.trade.ticker,
+        openQuantity: entry.trade.quantity,
+        totalCostAmount:
+          roundToDecimal(entry.trade.unitPrice * entry.trade.quantity, 2)
+          + entry.trade.commissionAmount
+          + entry.trade.taxAmount,
+        costCurrency: entry.trade.priceCurrency,
+        openedAt: entry.trade.tradeDate,
+        openedSequence: entry.trade.bookingSequence ?? 1,
+      }).updatedLots;
+      continue;
+    }
+
+    const openLots = lots.filter((lot) => lot.openQuantity > 0);
+    const result = allocateSellLots(openLots, entry.trade.quantity);
+    lots = lots.map((lot) => result.updatedLots.find((updated) => updated.id === lot.id) ?? lot);
+  }
+
+  return lots;
+}
+
 async function emitDividendLedgerChangeEvents(
   eventBus: EventBus,
   userId: string,
@@ -442,6 +557,39 @@ async function recomputeSnapshotsIfExists(
   }
 }
 
+export function scheduleCommittedReplayFollowUp(
+  persistence: Persistence,
+  eventBus: EventBus,
+  userId: string,
+  summary: ReplaySummary,
+  options: Pick<ScheduleReplayOptions, "snapshotFromDate" | "marketCode"> = {},
+): void {
+  const fromDate = options.snapshotFromDate ?? "1970-01-01";
+  void emitDividendLedgerChangeEvents(eventBus, userId, summary.dividendLedgerChanges);
+  setImmediate(async () => {
+    try {
+      await recomputeSnapshotsIfExists(
+        persistence,
+        userId,
+        summary.accountId,
+        summary.ticker,
+        fromDate,
+        options.marketCode,
+      );
+      await eventBus.publishEvent(userId, "recompute_complete", {
+        accountId: summary.accountId,
+        ticker: summary.ticker,
+        updatedHoldings: summary.updatedHoldings,
+        cashBalanceChange: summary.cashBalanceChange,
+        lotsRecalculated: summary.lotsRecalculated,
+        affectedTradeCount: summary.affectedTradeCount,
+      });
+    } catch {
+      // Persistence is already committed; clients will observe it on their next poll.
+    }
+  });
+}
+
 export function scheduleReplayWithRetry(
   persistence: Persistence,
   eventBus: EventBus,
@@ -456,7 +604,7 @@ export function scheduleReplayWithRetry(
 
   setImmediate(async () => {
     try {
-      const summary = await replayPositionHistory(persistence, userId, accountId, ticker, {
+      const summary = await commitPositionReplay(persistence, userId, accountId, ticker, {
         marketCode: options.marketCode,
         deletedTradeEventIds: options.deletedTradeEventIds,
       });
@@ -490,7 +638,7 @@ export function scheduleReplayWithRetry(
       // into.
       setImmediate(async () => {
         try {
-          const summary = await replayPositionHistory(persistence, userId, accountId, ticker, {
+          const summary = await commitPositionReplay(persistence, userId, accountId, ticker, {
             marketCode: options.marketCode,
             deletedTradeEventIds: options.deletedTradeEventIds,
           });
@@ -535,6 +683,10 @@ type ReplayStreamEntry =
   | { kind: "trade"; trade: Parameters<typeof compareTrades>[0] }
   | { kind: "action"; action: PositionAction };
 
+type ReplayBoundaryStreamEntry =
+  | ReplayStreamEntry
+  | { kind: "boundary"; boundary: ReplayBoundary };
+
 function compareReplayEntries(left: ReplayStreamEntry, right: ReplayStreamEntry): number {
   const leftDate = left.kind === "trade" ? left.trade.tradeDate : left.action.actionDate;
   const rightDate = right.kind === "trade" ? right.trade.tradeDate : right.action.actionDate;
@@ -561,7 +713,56 @@ function compareReplayEntries(left: ReplayStreamEntry, right: ReplayStreamEntry)
   return left.kind === "action" ? -1 : 1;
 }
 
-function compareTrades(
+function compareReplayEntriesWithBoundary(left: ReplayBoundaryStreamEntry, right: ReplayBoundaryStreamEntry): number {
+  const leftDate = left.kind === "trade" ? left.trade.tradeDate : left.kind === "action" ? left.action.actionDate : left.boundary.tradeDate;
+  const rightDate = right.kind === "trade" ? right.trade.tradeDate : right.kind === "action" ? right.action.actionDate : right.boundary.tradeDate;
+  if (leftDate !== rightDate) return leftDate.localeCompare(rightDate);
+
+  const leftTimestamp = left.kind === "trade"
+    ? left.trade.tradeTimestamp ?? null
+    : left.kind === "action"
+      ? left.action.actionTimestamp ?? null
+      : left.boundary.tradeTimestamp ?? null;
+  const rightTimestamp = right.kind === "trade"
+    ? right.trade.tradeTimestamp ?? null
+    : right.kind === "action"
+      ? right.action.actionTimestamp ?? null
+      : right.boundary.tradeTimestamp ?? null;
+  if (leftTimestamp && rightTimestamp && leftTimestamp !== rightTimestamp) {
+    return leftTimestamp.localeCompare(rightTimestamp);
+  }
+  if (left.kind !== right.kind && (!leftTimestamp || !rightTimestamp)) {
+    if (left.kind === "action") return -1;
+    if (right.kind === "action") return 1;
+    if (left.kind === "boundary") return 1;
+    if (right.kind === "boundary") return -1;
+  }
+
+  if (left.kind === "trade" && right.kind === "trade") {
+    return compareTrades(left.trade, right.trade);
+  }
+  if (left.kind === "action" && right.kind === "action") {
+    return (
+      (left.action.bookedAt ?? "").localeCompare(right.action.bookedAt ?? "")
+      || left.action.id.localeCompare(right.action.id)
+    );
+  }
+  if (left.kind === "boundary" && right.kind === "trade") {
+    return (
+      ((left.boundary.bookingSequence ?? Number.MAX_SAFE_INTEGER) - (right.trade.bookingSequence ?? 0))
+      || 1
+    );
+  }
+  if (left.kind === "trade" && right.kind === "boundary") {
+    return (
+      ((left.trade.bookingSequence ?? 0) - (right.boundary.bookingSequence ?? Number.MAX_SAFE_INTEGER))
+      || -1
+    );
+  }
+  return left.kind === "boundary" ? 1 : -1;
+}
+
+export function compareTrades(
   left: Awaited<ReturnType<Persistence["getTradeEventsForAccountTicker"]>>[number],
   right: Awaited<ReturnType<Persistence["getTradeEventsForAccountTicker"]>>[number],
 ): number {

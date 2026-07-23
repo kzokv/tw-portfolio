@@ -164,6 +164,62 @@ async function postSeededReceipt(rowId: string, idempotencyKey = `mcp-dividend-$
   });
 }
 
+async function seedLaterCashDividendLedger(): Promise<string> {
+  const store = await app.persistence.loadStore(USER_ID);
+  const account = store.accounts[0]!;
+  const dividendEvent: DividendEvent = {
+    id: randomUUID(),
+    ticker: "2330",
+    marketCode: "TW",
+    eventType: "CASH",
+    exDividendDate: "2024-08-01",
+    paymentDate: "2024-08-10",
+    cashDividendPerShare: 2,
+    cashDividendCurrency: "TWD",
+    stockDividendPerShare: 0,
+    stockDistributionAmountRaw: 0,
+    stockDistributionRatio: null,
+    stockDistributionRatioState: "unresolved",
+    stockParValueAmount: null,
+    stockParValueCurrency: null,
+    source: "test_seed",
+  };
+  const ledgerEntry: DividendLedgerEntry = {
+    id: randomUUID(),
+    accountId: account.id,
+    dividendEventId: dividendEvent.id,
+    eligibleQuantity: 1000,
+    expectedCashAmount: 2000,
+    expectedStockQuantity: 0,
+    receivedCashAmount: 0,
+    receivedStockQuantity: 0,
+    postingStatus: "expected",
+    reconciliationStatus: "open",
+    version: 1,
+    sourceCompositionStatus: "unknown_pending_disclosure",
+    reconciliationNote: undefined,
+    bookedAt: "2024-08-02T00:00:00.000Z",
+  };
+  store.marketData.dividendEvents.push(dividendEvent);
+  store.accounting.facts.dividendLedgerEntries.push(ledgerEntry);
+  await app.persistence.saveStore(store);
+  return ledgerEntry.id;
+}
+
+async function expectLaterRuleBEntitlement(
+  ledgerEntryId: string,
+  eligibleQuantity: number,
+  expectedCashAmount: number,
+): Promise<void> {
+  const store = await app.persistence.loadStore(USER_ID);
+  expect(store.accounting.facts.dividendLedgerEntries).toContainEqual(expect.objectContaining({
+    id: ledgerEntryId,
+    eligibleQuantity,
+    expectedCashAmount,
+    postingStatus: "expected",
+  }));
+}
+
 describe("MCP dividend services", () => {
   beforeEach(async () => {
     app = await buildApp({ persistenceBackend: "memory" });
@@ -474,6 +530,29 @@ describe("MCP dividend services", () => {
     ]));
   });
 
+  it("persists Rule B entitlement changes for a later dividend after posting a stock receipt", async () => {
+    const rowId = await seedExpectedDividendRow({
+      eventType: "STOCK",
+      cashDividendPerShare: 0,
+      stockDividendPerShare: 0.1,
+      stockParValueAmount: 10,
+    });
+    const laterLedgerEntryId = await seedLaterCashDividendLedger();
+    const receiptInput = { rowId, receivedCashAmount: 0, receivedStockQuantity: 100 };
+    const preview = await previewPostDividendReceipt(serviceContext(), receiptInput);
+
+    const posted = await postDividendReceipt(serviceContext(), {
+      ...receiptInput,
+      confirmationSummary: preview.confirmationSummary,
+      confirmationDigest: preview.confirmationDigest,
+      idempotencyKey: "mcp-dividend-stock-rule-b-post",
+    });
+
+    expect(posted.ledgerEntry).toEqual(expect.objectContaining({ receivedStockQuantity: 100 }));
+    await expectLaterRuleBEntitlement(laterLedgerEntryId, 1100, 2200);
+    await expectLaterRuleBEntitlement(laterLedgerEntryId, 1100, 2200);
+  });
+
   it("amends posted stock dividend receipts through confirmation-gated MCP mutation", async () => {
     const rowId = await seedExpectedDividendRow({
       eventType: "STOCK",
@@ -550,6 +629,39 @@ describe("MCP dividend services", () => {
     expect(zeroStore.accounting.projections.lots.some(
       (lot) => lot.id === `lot-pa-${positionAction!.id}`,
     )).toBe(false);
+  });
+
+  it("persists Rule B entitlement changes for a later dividend after amending a stock receipt", async () => {
+    const rowId = await seedExpectedDividendRow({
+      eventType: "STOCK",
+      cashDividendPerShare: 0,
+      stockDividendPerShare: 0.1,
+      stockParValueAmount: 10,
+    });
+    const laterLedgerEntryId = await seedLaterCashDividendLedger();
+    const posted = await postSeededReceipt(rowId, "mcp-dividend-stock-rule-b-amend-post");
+    await expectLaterRuleBEntitlement(laterLedgerEntryId, 1100, 2200);
+    const receiptInput = {
+      rowId: posted.dividendLedgerEntryId,
+      receivedCashAmount: 0,
+      receivedStockQuantity: 120,
+      sourceCompositionStatus: "unknown_pending_disclosure" as const,
+    };
+    const preview = await previewAmendDividendReceipt(serviceContext(), receiptInput);
+
+    const amended = await amendDividendReceipt(serviceContext(), {
+      ...receiptInput,
+      confirmationSummary: preview.confirmationSummary,
+      confirmationDigest: preview.confirmationDigest,
+      idempotencyKey: "mcp-dividend-stock-rule-b-amend",
+    });
+
+    expect(amended.ledgerEntry).toEqual(expect.objectContaining({
+      receivedStockQuantity: 120,
+      version: 2,
+    }));
+    await expectLaterRuleBEntitlement(laterLedgerEntryId, 1120, 2240);
+    await expectLaterRuleBEntitlement(laterLedgerEntryId, 1120, 2240);
   });
 
   it("posts mixed dividend receipts with deductions and source lines", async () => {

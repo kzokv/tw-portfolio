@@ -404,12 +404,47 @@ describe("MCP portfolio maintenance service", () => {
       },
     });
     const publishEvent = vi.fn().mockResolvedValue(undefined);
+    const originalWriteLock = persistence.withTransactionWriteLock.bind(persistence);
+    let releaseReplay!: () => void;
+    const replayRelease = new Promise<void>((resolve) => {
+      releaseReplay = resolve;
+    });
+    let signalReplayRead!: () => void;
+    const replayRead = new Promise<void>((resolve) => {
+      signalReplayRead = resolve;
+    });
+    let interceptReplayRead = true;
+    persistence.withTransactionWriteLock = (async (ownerUserId, execute) => originalWriteLock(
+      ownerUserId,
+      async (writer) => execute({
+        ...writer,
+        loadStore: async (userId) => {
+          const store = await writer.loadStore(userId);
+          if (interceptReplayRead) {
+            interceptReplayRead = false;
+            signalReplayRead();
+            await replayRelease;
+          }
+          return store;
+        },
+      }),
+    )) as typeof persistence.withTransactionWriteLock;
     persistence.armSnapshotFailures();
 
-    await executeReplayRun({
+    const replayExecution = executeReplayRun({
       persistence,
       eventBus: { publishEvent },
     } as never, "user-1", confirmed.runId);
+    await replayRead;
+    let newerWriterRan = false;
+    const newerWriter = originalWriteLock("user-1", async () => {
+      newerWriterRan = true;
+    });
+    await Promise.resolve();
+    expect(newerWriterRan).toBe(false);
+    releaseReplay();
+    await replayExecution;
+    await newerWriter;
 
     await expect(persistence.getPostedTransactionMutationRun(confirmed.runId)).resolves.toMatchObject({
       status: "completed",
@@ -417,6 +452,7 @@ describe("MCP portfolio maintenance service", () => {
       scopes: [expect.objectContaining({ status: "completed" })],
     });
     expect(persistence.snapshotAttempts).toBe(3);
+    expect(newerWriterRan).toBe(true);
     expect(publishEvent).toHaveBeenCalledWith("user-1", "posted_transaction_mutation_rebuild", expect.objectContaining({
       status: "running",
     }));

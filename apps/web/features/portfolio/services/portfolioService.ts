@@ -11,6 +11,8 @@ import type {
   RecomputeConfirmResponseDto,
   RecomputeFeeMode,
   RecomputePreviewDto,
+  SellAvailabilityDto,
+  SellAvailabilityQueryDto,
   TransactionPrimaryDto,
   TransactionHistoryItemDto,
   TransactionHistoryPageDto,
@@ -79,6 +81,21 @@ export interface TransactionEstimateInput {
 export interface TransactionEstimateResponse {
   commissionAmount: number;
   taxAmount: number;
+}
+
+export async function fetchSellAvailability(
+  input: SellAvailabilityQueryDto,
+  signal?: AbortSignal,
+): Promise<SellAvailabilityDto> {
+  const params = new URLSearchParams({
+    accountId: input.accountId,
+    ticker: input.ticker.trim().toUpperCase(),
+    marketCode: input.marketCode,
+    tradeDate: input.tradeDate,
+  });
+  if (input.tradeTimestamp) params.set("tradeTimestamp", input.tradeTimestamp);
+  if (typeof input.bookingSequence === "number") params.set("bookingSequence", String(input.bookingSequence));
+  return getJson<SellAvailabilityDto>(`/portfolio/transactions/sell-availability?${params.toString()}`, { signal });
 }
 
 export interface CorporateActionInput {

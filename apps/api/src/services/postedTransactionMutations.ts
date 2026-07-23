@@ -19,7 +19,7 @@ import type {
 import { MemoryPersistence } from "../persistence/memory.js";
 import type { Persistence, TradeEventPatch } from "../persistence/types.js";
 import { routeError } from "../lib/routeError.js";
-import { replayPositionHistory } from "./replayPositionHistory.js";
+import { commitPositionReplay, replayPositionHistory } from "./replayPositionHistory.js";
 import { recomputeSnapshotsForTicker } from "./snapshotGeneration.js";
 import { canonicalJsonStringify } from "./canonicalJson.js";
 import type { BookedTradeEvent, Store } from "../types/store.js";
@@ -1246,7 +1246,7 @@ async function runRebuildSynchronously(
     let completed = false;
     for (let attempt = 1; attempt <= MUTATION_REBUILD_MAX_ATTEMPTS; attempt += 1) {
       try {
-        const summary = await replayPositionHistory(persistence, ownerUserId, scope.accountId, scope.ticker, {
+        const summary = await commitPositionReplay(persistence, ownerUserId, scope.accountId, scope.ticker, {
           marketCode: scope.marketCode,
           deletedTradeEventIds: replayScope?.deletedTradeEventIds,
         });

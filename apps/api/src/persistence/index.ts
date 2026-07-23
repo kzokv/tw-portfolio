@@ -6,6 +6,7 @@ import type { Persistence } from "./types.js";
 interface PersistenceFactoryOptions {
   seedMemoryCatalog?: boolean;
   seedDevBypassUser?: boolean;
+  postgresPoolMax?: number;
 }
 
 export function createPersistence(
@@ -22,5 +23,6 @@ export function createPersistence(
   return new PostgresPersistence({
     databaseUrl: Env.getDatabaseUrl(),
     redisUrl: Env.getRedisUrl(),
+    poolMax: options.postgresPoolMax,
   });
 }

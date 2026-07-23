@@ -16,6 +16,32 @@ function seededEventId(seedBody: Record<string, unknown>): string {
 }
 
 test.describe("dividend calendar", () => {
+  test("dividends overview: Recent Receipts desktop tracks align → mobile cards remain unchanged", async ({
+    dividends,
+    page,
+  }) => {
+    await dividends.arrange.seedPostedDividend({
+      ticker: "2330",
+      eventType: "CASH",
+      exDividendDate: isoDateForMonth(8),
+      paymentDate: isoDateForMonth(20),
+      cashDividendPerShare: 1.5,
+      receivedCashAmount: 150,
+      deductions: [],
+      sourceCompositionStatus: "provided",
+      sourceLines: [{ sourceBucket: "DIVIDEND_INCOME", amount: 150, currencyCode: "TWD", source: "test" }],
+    });
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await dividends.actions.navigateToCalendar();
+    await dividends.assert.calendarLoaded();
+    await dividends.assert.recentReceiptDesktopTracksAlign();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await dividends.assert.recentReceiptsUseMobileCards();
+    await dividends.assert.recentReceiptsContains(/2330/);
+  });
+
   test("dividend calendar: month navigation remains latest-wins and direct month picker loads target month", async ({
     dividends,
   }) => {

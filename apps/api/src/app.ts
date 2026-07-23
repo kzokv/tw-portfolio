@@ -36,6 +36,8 @@ type _AssertAssignable = GoogleOAuthEnvConfig extends GoogleOAuthConfig ? true :
 
 interface BuildAppOptions {
   persistenceBackend?: "postgres" | "memory";
+  /** Override the Postgres application pool size for deterministic integration tests. */
+  postgresPoolMax?: number;
   seedMemoryCatalog?: boolean;
   eventBusBackend?: "postgres" | "memory";
   /** Disable pg-boss worker registration for route tests that do not exercise queues. */
@@ -172,7 +174,11 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<AppInstan
   const persistenceBackend = options.persistenceBackend ?? Env.PERSISTENCE_BACKEND;
   const seedMemoryCatalog = options.seedMemoryCatalog ?? (persistenceBackend === "memory" && Env.NODE_ENV !== "test");
   const seedDevBypassUser = persistenceBackend === "memory" && Env.AUTH_MODE === "dev_bypass";
-  app.persistence = createPersistence(persistenceBackend, { seedMemoryCatalog, seedDevBypassUser });
+  app.persistence = createPersistence(persistenceBackend, {
+    seedMemoryCatalog,
+    seedDevBypassUser,
+    postgresPoolMax: options.postgresPoolMax,
+  });
 
   // KZO-198: bind the app_config TTL cache to live persistence + eager pre-
   // warm BEFORE downstream init that consumes effective values (e.g. the

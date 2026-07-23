@@ -8,7 +8,7 @@ import type { HoldingSnapshotScopePair, McpReplayRunRecord, McpReplayScopeRecord
 import type { RecomputeJob, Store } from "../types/store.js";
 import { listHoldings } from "./portfolio.js";
 import { previewRecompute, confirmRecompute } from "./recompute.js";
-import { replayPositionHistory } from "./replayPositionHistory.js";
+import { commitPositionReplay } from "./replayPositionHistory.js";
 import { recomputeSnapshotsForTicker, generateHoldingSnapshots } from "./snapshotGeneration.js";
 import { generateCurrencyWalletSnapshots } from "./currencyWalletSnapshotGeneration.js";
 import { getEffectiveTickerPriceFreshnessConfig } from "./appConfig/tickerPriceFreshness.js";
@@ -641,7 +641,7 @@ export async function executeReplayRun(app: FastifyInstance, userId: string, run
     let completed = false;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
-        const summary = await replayPositionHistory(app.persistence, userId, scope.accountId, scope.ticker, {
+        const summary = await commitPositionReplay(app.persistence, userId, scope.accountId, scope.ticker, {
           marketCode: scope.marketCode,
           deletedTradeEventIds: scope.deletedTradeEventIds,
         });

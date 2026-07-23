@@ -8,6 +8,7 @@ import type {
   DividendLedgerListOptions,
   DividendReviewResponseRowWithDetails,
 } from "../persistence/types.js";
+import { MemoryPersistence } from "../persistence/memory.js";
 import { buildConfirmationDigest } from "./mcpNameResolution.js";
 import {
   buildDividendLedgerEntryDetails,
@@ -15,7 +16,7 @@ import {
   preparePostedCashDividendUpdate,
   resolveDividendEventMarketCode,
 } from "./dividends.js";
-import { assertDividendUpdateReplayCanApply } from "./dividendReplayPreflight.js";
+import { getDividendUpdateReplayScope } from "./dividendReplayPreflight.js";
 import { replayPositionHistory } from "./replayPositionHistory.js";
 
 type ReconciliationStatus = DividendLedgerEntry["reconciliationStatus"];
@@ -447,22 +448,51 @@ export async function postDividendReceipt(deps: McpToolHandlerContext, input: Co
     const preview = receiptPreviewPayload(resolved, input);
     assertConfirmation(input, preview.confirmationSummary, preview.digestPayload);
 
-    const draftStore = structuredClone(resolved.store);
-    const result = postDividend(draftStore, resolved.userId, {
-      id: randomUUID(),
-      accountId: resolved.row.accountId,
-      dividendEventId: resolved.row.dividendEventId,
-      receivedCashAmount: preview.receipt.receivedCashAmount,
-      receivedStockQuantity: preview.receipt.receivedStockQuantity,
-      deductions: preview.receipt.deductions.map((entry) => ({ ...entry, id: randomUUID() })),
-      sourceLines: preview.receipt.sourceLines.map((entry) => ({ ...entry, id: entry.id ?? randomUUID() })),
-      sourceCompositionStatus: preview.receipt.sourceCompositionStatus,
-    });
-    await deps.app.persistence.savePostedDividend(
+    const { draftStore, result } = await deps.app.persistence.withTransactionWriteLock(
       resolved.userId,
-      draftStore.accounting,
-      draftStore.marketData,
-      result.dividendLedgerEntry.id,
+      async (writer) => {
+        const draftStore = structuredClone(await writer.loadStore(resolved.userId));
+        const result = postDividend(draftStore, resolved.userId, {
+          id: randomUUID(),
+          accountId: resolved.row.accountId,
+          dividendEventId: resolved.row.dividendEventId,
+          receivedCashAmount: preview.receipt.receivedCashAmount,
+          receivedStockQuantity: preview.receipt.receivedStockQuantity,
+          deductions: preview.receipt.deductions.map((entry) => ({ ...entry, id: randomUUID() })),
+          sourceLines: preview.receipt.sourceLines.map((entry) => ({ ...entry, id: entry.id ?? randomUUID() })),
+          sourceCompositionStatus: preview.receipt.sourceCompositionStatus,
+        });
+        let replayedStore: Store | null = null;
+        let replaySummary: Awaited<ReturnType<typeof replayPositionHistory>> | null = null;
+        if (result.positionAction || result.dividendEvent.eventType !== "CASH") {
+          const marketCode = result.positionAction?.marketCode ?? resolveDividendEventMarketCode(result.dividendEvent);
+          const simulation = new MemoryPersistence({ seedCatalog: false, seedDevBypassUser: false });
+          await simulation.saveStore(structuredClone(draftStore));
+          replaySummary = await replayPositionHistory(
+            simulation,
+            resolved.userId,
+            result.dividendLedgerEntry.accountId,
+            result.dividendEvent.ticker,
+            { marketCode },
+          );
+          replayedStore = await simulation.loadStore(resolved.userId);
+        }
+        await writer.savePostedDividend(
+          resolved.userId,
+          draftStore.accounting,
+          draftStore.marketData,
+          result.dividendLedgerEntry.id,
+        );
+        if (replayedStore && replaySummary) {
+          await writer.saveReplayedPositionScope(resolved.userId, replayedStore.accounting, {
+            accountId: result.dividendLedgerEntry.accountId,
+            ticker: result.dividendEvent.ticker,
+            marketCode: result.positionAction?.marketCode ?? resolveDividendEventMarketCode(result.dividendEvent),
+            dividendLedgerChanges: replaySummary.dividendLedgerChanges,
+          });
+        }
+        return { draftStore, result };
+      },
     );
     await deps.app.eventBus.publishEvent(resolved.userId, "dividend_posted", {
       dividendLedgerEntryId: result.dividendLedgerEntry.id,
@@ -470,18 +500,6 @@ export async function postDividendReceipt(deps: McpToolHandlerContext, input: Co
       accountId: result.dividendLedgerEntry.accountId,
       version: result.dividendLedgerEntry.version,
     });
-    if (result.positionAction || result.dividendEvent.eventType !== "CASH") {
-      const marketCode = result.positionAction?.marketCode ?? resolveDividendEventMarketCode(result.dividendEvent);
-      await replayPositionHistory(
-        deps.app.persistence,
-        resolved.userId,
-        result.dividendLedgerEntry.accountId,
-        result.dividendEvent.ticker,
-        {
-          marketCode,
-        },
-      );
-    }
     const details = buildDividendLedgerEntryDetails(draftStore, [{
       ...result.dividendLedgerEntry,
       deductions: result.dividendDeductionEntries,
@@ -572,35 +590,54 @@ export async function amendDividendReceipt(deps: McpToolHandlerContext, input: C
     const preview = amendReceiptPreviewPayload(resolved, input);
     assertConfirmation(input, preview.confirmationSummary, preview.digestPayload);
 
-    const draftStore = structuredClone(resolved.store);
-    const prepared = preparePostedCashDividendUpdate(draftStore, resolved.userId, {
-      accountId: resolved.row.accountId,
-      dividendEventId: resolved.row.dividendEventId,
-      dividendLedgerEntryId: resolved.row.id,
-      expectedVersion: resolved.row.version,
-      receivedCashAmount: preview.receipt.receivedCashAmount,
-      receivedStockQuantity: preview.receipt.receivedStockQuantity,
-      deductions: preview.receipt.deductions.map((entry) => ({ ...entry, id: randomUUID() })),
-      sourceLines: preview.receipt.sourceLines.map((entry) => ({ ...entry, id: entry.id ?? randomUUID() })),
-      sourceCompositionStatus: preview.receipt.sourceCompositionStatus,
-    });
-    const replayScope = await assertDividendUpdateReplayCanApply(draftStore, resolved.userId, prepared);
-    await deps.app.persistence.updatePostedCashDividend(resolved.userId, prepared.persistenceInput);
+    const { prepared } = await deps.app.persistence.withTransactionWriteLock(
+      resolved.userId,
+      async (writer) => {
+        const draftStore = structuredClone(await writer.loadStore(resolved.userId));
+        const prepared = preparePostedCashDividendUpdate(draftStore, resolved.userId, {
+          accountId: resolved.row.accountId,
+          dividendEventId: resolved.row.dividendEventId,
+          dividendLedgerEntryId: resolved.row.id,
+          expectedVersion: resolved.row.version,
+          receivedCashAmount: preview.receipt.receivedCashAmount,
+          receivedStockQuantity: preview.receipt.receivedStockQuantity,
+          deductions: preview.receipt.deductions.map((entry) => ({ ...entry, id: randomUUID() })),
+          sourceLines: preview.receipt.sourceLines.map((entry) => ({ ...entry, id: entry.id ?? randomUUID() })),
+          sourceCompositionStatus: preview.receipt.sourceCompositionStatus,
+        });
+        const replayScope = getDividendUpdateReplayScope(prepared);
+        let replayedStore: Store | null = null;
+        let replaySummary: Awaited<ReturnType<typeof replayPositionHistory>> | null = null;
+        if (replayScope) {
+          const simulation = new MemoryPersistence({ seedCatalog: false, seedDevBypassUser: false });
+          await simulation.saveStore(structuredClone(draftStore));
+          replaySummary = await replayPositionHistory(
+            simulation,
+            resolved.userId,
+            replayScope.accountId,
+            replayScope.ticker,
+            { marketCode: replayScope.marketCode },
+          );
+          replayedStore = await simulation.loadStore(resolved.userId);
+        }
+        await writer.updatePostedCashDividend(resolved.userId, prepared.persistenceInput);
+        if (replayScope && replayedStore && replaySummary) {
+          await writer.saveReplayedPositionScope(resolved.userId, replayedStore.accounting, {
+            accountId: replayScope.accountId,
+            ticker: replayScope.ticker,
+            marketCode: replayScope.marketCode as MarketCode,
+            dividendLedgerChanges: replaySummary.dividendLedgerChanges,
+          });
+        }
+        return { prepared };
+      },
+    );
     await deps.app.eventBus.publishEvent(resolved.userId, "dividend_updated", {
       dividendLedgerEntryId: prepared.response.dividendLedgerEntry.id,
       dividendEventId: prepared.response.dividendEvent.id,
       accountId: prepared.response.dividendLedgerEntry.accountId,
       version: prepared.response.dividendLedgerEntry.version,
     });
-    if (replayScope) {
-      await replayPositionHistory(
-        deps.app.persistence,
-        resolved.userId,
-        replayScope.accountId,
-        replayScope.ticker,
-        { marketCode: replayScope.marketCode },
-      );
-    }
     const detailed = await deps.app.persistence.getDividendLedgerEntryWithDetails(resolved.userId, prepared.response.dividendLedgerEntry.id);
     const latestStore = await deps.app.persistence.loadStore(resolved.userId);
     const ledgerEntry = detailed ? buildDividendLedgerEntryDetails(latestStore, [detailed])[0] : null;

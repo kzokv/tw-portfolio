@@ -2,18 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildApp, type AppInstance } from "../../src/app.js";
 import { ReadPathTiming } from "../../src/services/readPathTiming.js";
 import type { DividendEvent, DividendLedgerEntry } from "../../src/types/store.js";
+import { dividendReviewFilterParity } from "../helpers/dividendReviewFilterParity.js";
 
 const SORT_COLUMNS = [
   "paymentDate",
   "ticker",
   "account",
-  "expectedCashAmount",
-  "expectedGrossAmount",
   "expectedNetAmount",
   "nhiAmount",
   "bankFeeAmount",
   "otherDeductionAmount",
-  "receivedCashAmount",
   "actualNetAmount",
   "varianceAmount",
   "reconciliationStatus",
@@ -81,6 +79,9 @@ describe("dividend review read-model routes", () => {
   it("primary query: rejects unsupported sort, page size, and source composition values", async () => {
     for (const query of [
       "sortBy=unsupported",
+      "sortBy=expectedCashAmount",
+      "sortBy=expectedGrossAmount",
+      "sortBy=receivedCashAmount",
       "limit=20",
       "sourceComposition=provided",
     ]) {
@@ -91,6 +92,39 @@ describe("dividend review read-model routes", () => {
 
       expect(response.statusCode, `${query}: ${response.body}`).toBe(400);
     }
+  });
+
+  it("primary query: accepts repeated singular filter keys and deduplicates them internally", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: [
+        "/portfolio/dividends/review/primary",
+        "?accountId=acc-1",
+        "&accountId=acc-1",
+        "&cashStatus=open",
+        "&cashStatus=open",
+        "&stockStatus=matched",
+        "&stockStatus=matched",
+        "&limit=10",
+      ].join(""),
+    });
+
+    expect(response.statusCode).toBe(200);
+  });
+
+  it("primary query: rejects more than 50 repeated singular filter values", async () => {
+    const tooManyAccountIds = new URLSearchParams();
+    for (let index = 0; index < 51; index += 1) {
+      tooManyAccountIds.append("accountId", `acc-${index}`);
+    }
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/portfolio/dividends/review/primary?${tooManyAccountIds.toString()}`,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: "validation_error" });
   });
 
   it("primary response: filters pending composition before count and omits detail arrays", async () => {
@@ -201,6 +235,151 @@ describe("dividend review read-model routes", () => {
     const rows = response.json().reviewRows as Array<{ id: string; eligibleQuantity: number }>;
     expect(rows.find((row) => row.id === `expected:${account.id}:memory-event-lot`)).toMatchObject({ eligibleQuantity: 1 });
     expect(rows.find((row) => row.id === `expected:${account.id}:memory-event-order`)).toMatchObject({ eligibleQuantity: 3 });
+  });
+
+  it("primary query: applies OR within account and status groups, AND across groups", async () => {
+    const store = await app.persistence.loadStore("user-1");
+    const account = store.accounts[0]!;
+    const templateFeeProfile = store.feeProfiles.find((profile) => profile.id === account.feeProfileId)!;
+    const secondAccountId = "review-parity-account-2";
+    const secondFeeProfileId = "review-parity-fee-2";
+    store.feeProfiles.push({
+      ...templateFeeProfile,
+      id: secondFeeProfileId,
+      accountId: secondAccountId,
+      name: "Review Parity Fee 2",
+      taxRules: undefined,
+    });
+    store.accounts.push({
+      ...account,
+      id: secondAccountId,
+      name: "Review Parity 2",
+      feeProfileId: secondFeeProfileId,
+    });
+    store.instruments.push(
+      { ticker: "PARA", name: "Parity A", type: "STOCK", marketCode: "TW", isProvisional: false },
+      { ticker: "PARB", name: "Parity B", type: "STOCK", marketCode: "TW", isProvisional: false },
+      { ticker: "PARC", name: "Parity C", type: "STOCK", marketCode: "TW", isProvisional: false },
+    );
+    store.marketData.dividendEvents.push(
+      {
+        id: "parity-event-a",
+        ticker: "PARA",
+        marketCode: "TW",
+        eventType: "CASH_AND_STOCK",
+        exDividendDate: "2026-03-01",
+        paymentDate: "2026-03-20",
+        cashDividendPerShare: 2,
+        cashDividendCurrency: "TWD",
+        stockDividendPerShare: 0.1,
+        stockDistributionRatio: 0.1,
+        stockDistributionRatioState: "authoritative",
+        source: "test",
+      },
+      {
+        id: "parity-event-b",
+        ticker: "PARB",
+        marketCode: "TW",
+        eventType: "CASH_AND_STOCK",
+        exDividendDate: "2026-03-02",
+        paymentDate: "2026-03-21",
+        cashDividendPerShare: 2,
+        cashDividendCurrency: "TWD",
+        stockDividendPerShare: 0.1,
+        stockDistributionRatio: 0.1,
+        stockDistributionRatioState: "authoritative",
+        source: "test",
+      },
+      {
+        id: "parity-event-c",
+        ticker: "PARC",
+        marketCode: "TW",
+        eventType: "CASH_AND_STOCK",
+        exDividendDate: "2026-03-03",
+        paymentDate: "2026-03-22",
+        cashDividendPerShare: 2,
+        cashDividendCurrency: "TWD",
+        stockDividendPerShare: 0.1,
+        stockDistributionRatio: 0.1,
+        stockDistributionRatioState: "authoritative",
+        source: "test",
+      },
+    );
+    store.accounting.facts.dividendLedgerEntries.push(
+      {
+        id: "parity-ledger-a",
+        accountId: account.id,
+        dividendEventId: "parity-event-a",
+        eligibleQuantity: 100,
+        expectedCashAmount: 200,
+        expectedStockQuantity: 10,
+        receivedCashAmount: 0,
+        receivedStockQuantity: 10,
+        postingStatus: "posted",
+        reconciliationStatus: "open",
+        version: 1,
+        sourceCompositionStatus: "provided",
+        bookedAt: "2026-03-20T09:00:00.000Z",
+      },
+      {
+        id: "parity-ledger-b",
+        accountId: secondAccountId,
+        dividendEventId: "parity-event-b",
+        eligibleQuantity: 100,
+        expectedCashAmount: 200,
+        expectedStockQuantity: 10,
+        receivedCashAmount: 200,
+        receivedStockQuantity: 7,
+        postingStatus: "posted",
+        reconciliationStatus: "matched",
+        version: 1,
+        sourceCompositionStatus: "provided",
+        bookedAt: "2026-03-21T09:00:00.000Z",
+      },
+      {
+        id: "parity-ledger-c",
+        accountId: secondAccountId,
+        dividendEventId: "parity-event-c",
+        eligibleQuantity: 100,
+        expectedCashAmount: 200,
+        expectedStockQuantity: 10,
+        receivedCashAmount: 0,
+        receivedStockQuantity: 7,
+        postingStatus: "posted",
+        reconciliationStatus: "open",
+        version: 1,
+        sourceCompositionStatus: "provided",
+        bookedAt: "2026-03-22T09:00:00.000Z",
+      },
+    );
+    store.accounting.facts.cashLedgerEntries.push(
+      {
+        id: "parity-cash-b",
+        userId: "user-1",
+        accountId: secondAccountId,
+        entryDate: "2026-03-21",
+        entryType: "DIVIDEND_RECEIPT",
+        amount: 200,
+        currency: "TWD",
+        relatedDividendLedgerEntryId: "parity-ledger-b",
+        source: "test",
+        bookedAt: "2026-03-21T09:00:01.000Z",
+      },
+    );
+    await app.persistence.saveStore(store);
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/portfolio/dividends/review/primary?accountId=${account.id}&accountId=${secondAccountId}`
+        + dividendReviewFilterParity.cashStatuses.map((status) => `&cashStatus=${status}`).join("")
+        + dividendReviewFilterParity.stockStatuses.map((status) => `&stockStatus=${status}`).join("")
+        + "&limit=10",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().reviewRows.map((row: { id: string }) => row.id).sort()).toEqual(
+      dividendReviewFilterParity.expectedRowSuffixes.map((suffix) => `parity-ledger-${suffix}`),
+    );
   });
 
   it("enrichment response: aggregates the full filtered set including ETF NHI and source composition", async () => {
@@ -426,8 +605,6 @@ describe("dividend review read-model routes", () => {
     const keyFor = (sortBy: typeof SORT_COLUMNS[number], row: Record<string, unknown>): string | number => {
       switch (sortBy) {
         case "account": return String(row.accountName ?? "");
-        case "expectedCashAmount":
-        case "expectedGrossAmount": return Number(row.expectedCashAmount ?? 0);
         default: return row[sortBy] == null ? "" : row[sortBy] as string | number;
       }
     };

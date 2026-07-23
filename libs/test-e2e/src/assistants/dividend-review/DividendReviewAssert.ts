@@ -167,6 +167,65 @@ export class DividendReviewAssert extends BaseAssert {
   }
 
   @Step()
+  async accountFilterIsOpen(): Promise<void> {
+    await expect(this.el.accountDropdown).toHaveAttribute("open", "");
+  }
+
+  @Step()
+  async accountSummaryIsExpanded(): Promise<void> {
+    await expect(this.el.accountSummary).toHaveAttribute("aria-expanded", "true");
+  }
+
+  @Step()
+  async accountSummaryIsFocused(): Promise<void> {
+    await expect(this.el.accountSummary).toBeFocused();
+  }
+
+  @Step()
+  async accountOptionIsChecked(value: string): Promise<void> {
+    await expect(this.el.accountOption(value)).toBeChecked();
+  }
+
+  @Step()
+  async accountOptionIsUnchecked(value: string): Promise<void> {
+    await expect(this.el.accountOption(value)).not.toBeChecked();
+  }
+
+  @Step()
+  async accountOptionIsFocused(value: string): Promise<void> {
+    await expect(this.el.accountOption(value)).toBeFocused();
+  }
+
+  @Step()
+  async accountAllIsCheckedAndFocused(): Promise<void> {
+    await expect(this.el.accountAll).toBeChecked();
+    await expect(this.el.accountAll).toBeFocused();
+  }
+
+  @Step()
+  async accountAnnouncementContains(text: string | RegExp): Promise<void> {
+    await expect(this.el.accountAnnouncement).toContainText(text);
+  }
+
+  @Step()
+  async cashStatusOptionIsChecked(value: string): Promise<void> {
+    await expect(this.el.cashStatusOption(value)).toBeChecked();
+  }
+
+  @Step()
+  async stockStatusOptionIsChecked(value: string): Promise<void> {
+    await expect(this.el.stockStatusOption(value)).toBeChecked();
+  }
+
+  @Step()
+  async mobileSortExcludes(values: string[]): Promise<void> {
+    const options = await this.el.mobileSortOptions.evaluateAll((nodes) =>
+      nodes.map((node) => (node as HTMLOptionElement).value),
+    );
+    for (const value of values) expect(options).not.toContain(value);
+  }
+
+  @Step()
   async dateErrorIsVisible(): Promise<void> {
     await expect(this.el.dateError).toBeVisible();
   }
