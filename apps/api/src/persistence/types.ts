@@ -329,6 +329,38 @@ export interface ResolveOrCreateUserResult {
   sessionVersion: number;
 }
 
+export interface ReplayedPositionScopeInput {
+  accountId: string;
+  ticker: string;
+  marketCode: MarketCode;
+  newTradeEventId?: string;
+  newPositionActionId?: string;
+  deletedTradeEventIds?: readonly string[];
+  dividendLedgerChanges?: DividendLedgerRecomputeChange[];
+}
+
+export interface TransactionWriteContext {
+  loadStore(userId: string): Promise<Store>;
+  getInstrument(ticker: string, marketCode?: string): Promise<InstrumentRow | null>;
+  upsertInstruments(userId: string, instruments: Store["instruments"]): Promise<void>;
+  savePostedTrade(userId: string, accounting: AccountingStore, tradeEventId: string): Promise<void>;
+  savePostedDividend(
+    userId: string,
+    accounting: AccountingStore,
+    marketData: MarketDataFacts,
+    dividendLedgerEntryId: string,
+  ): Promise<void>;
+  updatePostedCashDividend(
+    userId: string,
+    input: UpdatePostedCashDividendInput,
+  ): Promise<DividendLedgerEntry>;
+  saveReplayedPositionScope(
+    userId: string,
+    accounting: AccountingStore,
+    input: ReplayedPositionScopeInput,
+  ): Promise<DividendLedgerRecomputeChange[]>;
+}
+
 export type InviteStatus = "valid" | "invalid" | "expired" | "used" | "revoked";
 export type InviteConsumeFailure = InviteStatus | "email_mismatch";
 
@@ -1304,8 +1336,9 @@ export interface DividendLedgerListOptions {
 export interface DividendReviewListOptions extends Omit<DividendLedgerListOptions, "sortBy" | "ticker"> {
   sortBy: DividendReviewSortColumn;
   sourceComposition?: DividendReviewPrimaryQueryDto["sourceComposition"];
-  cashStatus?: DividendReviewPrimaryQueryDto["cashStatus"];
-  stockStatus?: DividendReviewPrimaryQueryDto["stockStatus"];
+  accountIds?: string[];
+  cashStatuses?: DividendReviewPrimaryQueryDto["cashStatuses"];
+  stockStatuses?: DividendReviewPrimaryQueryDto["stockStatuses"];
   /** @deprecated Prefer `tickers`; retained for programmatic caller compatibility. */
   ticker?: string;
   tickers?: string[];
@@ -1378,6 +1411,7 @@ export type DividendReviewRowWithDetails = DividendLedgerEntryWithDetails & {
   exDividendDate: string;
   paymentDate: string | null;
   cashCurrency: CurrencyCode;
+  cashDividendPerShare: number;
   stockDistributionRatio?: number | null;
   stockDistributionRatioState?: import("@vakwen/shared-types").StockDistributionRatioState;
   expectedStockCalcState?: import("@vakwen/shared-types").ExpectedStockCalcState;
@@ -2789,6 +2823,14 @@ export interface Persistence {
   countDividendDestructivePreviews(ownerUserId: string, operationKey: string): Promise<number>;
   recordDividendDestructiveOutcome(input: RecordDividendDestructiveOutcomeInput): Promise<void>;
   withDividendDestructiveLock<T>(ownerUserId: string, accountId: string, execute: () => Promise<T>): Promise<T>;
+  /**
+   * Runs a transaction write behind an owner lock. The scoped writer persists
+   * the candidate through the same backend transaction that owns the lock.
+   */
+  withTransactionWriteLock<T>(
+    ownerUserId: string,
+    execute: (writer: TransactionWriteContext) => Promise<T>,
+  ): Promise<T>;
   bumpSessionVersion(userId: string): Promise<number>;
   createInvite(input: CreateInviteInput): Promise<InviteRecord>;
   insertBootstrapInvite(input: CreateInviteInput): Promise<InviteRecord>;
@@ -3148,7 +3190,7 @@ export interface Persistence {
   ): Promise<DividendReviewEnrichmentResult>;
   listDividendReviewMetadata(
     userId: string,
-    filters?: Pick<DividendReviewFilterDto, "accountId" | "fromPaymentDate" | "toPaymentDate">,
+    filters?: Partial<Pick<DividendReviewFilterDto, "accountIds" | "fromPaymentDate" | "toPaymentDate">>,
   ): Promise<DividendReviewMetadataResult>;
   listDividendLedgerYears(userId: string): Promise<{ years: number[] }>;
   getTickerFundamentals(

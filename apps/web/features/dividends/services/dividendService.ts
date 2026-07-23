@@ -32,14 +32,13 @@ export interface DividendQuery {
 export interface DividendReviewQuery {
   fromPaymentDate?: string;
   toPaymentDate?: string;
-  accountId?: string;
-  ticker?: string;
+  accountIds?: string[];
   tickers?: string[];
   marketCode?: MarketCode;
   postingStatus?: string;
   reconciliationStatus?: string;
-  cashStatus?: DividendReviewFilterDto["cashStatus"];
-  stockStatus?: DividendReviewFilterDto["stockStatus"];
+  cashStatuses?: DividendReviewFilterDto["cashStatuses"];
+  stockStatuses?: DividendReviewFilterDto["stockStatuses"];
   excludeExpected?: boolean;
   sortBy?: string;
   sortOrder?: "asc" | "desc";
@@ -92,7 +91,9 @@ function buildReviewQuery(params: DividendReviewQuery | DividendReviewFilterDto 
 
   if (params.fromPaymentDate) query.set("fromPaymentDate", params.fromPaymentDate);
   if (params.toPaymentDate) query.set("toPaymentDate", params.toPaymentDate);
-  if (params.accountId) query.set("accountId", params.accountId);
+  if (params.accountIds?.length) {
+    for (const accountId of params.accountIds) query.append("accountId", accountId);
+  }
   if ("tickers" in params && params.tickers) {
     for (const ticker of params.tickers) query.append("ticker", ticker);
   } else if ("ticker" in params && params.ticker) {
@@ -101,8 +102,16 @@ function buildReviewQuery(params: DividendReviewQuery | DividendReviewFilterDto 
   if (params.marketCode) query.set("marketCode", params.marketCode);
   if (params.postingStatus) query.set("postingStatus", params.postingStatus);
   if (params.reconciliationStatus) query.set("reconciliationStatus", params.reconciliationStatus);
-  if (params.cashStatus) query.set("cashStatus", params.cashStatus);
-  if (params.stockStatus) query.set("stockStatus", params.stockStatus);
+  if (params.cashStatuses?.length) {
+    for (const cashStatus of params.cashStatuses) {
+      if (cashStatus) query.append("cashStatus", cashStatus);
+    }
+  }
+  if (params.stockStatuses?.length) {
+    for (const stockStatus of params.stockStatuses) {
+      if (stockStatus) query.append("stockStatus", stockStatus);
+    }
+  }
   if (params.excludeExpected) query.set("excludeExpected", "true");
   if (params.sourceComposition) query.set("sourceComposition", params.sourceComposition);
   if ("sortBy" in params && params.sortBy) query.set("sortBy", params.sortBy);
@@ -211,14 +220,14 @@ export async function fetchDividendReviewEnrichment(
   const semanticFilters: DividendReviewFilterDto = {
     fromPaymentDate: filters.fromPaymentDate,
     toPaymentDate: filters.toPaymentDate,
-    accountId: filters.accountId,
+    accountIds: filters.accountIds,
     ticker: filters.ticker,
     tickers: filters.tickers,
     marketCode: filters.marketCode,
     postingStatus: filters.postingStatus,
     reconciliationStatus: filters.reconciliationStatus,
-    cashStatus: filters.cashStatus,
-    stockStatus: filters.stockStatus,
+    cashStatuses: filters.cashStatuses,
+    stockStatuses: filters.stockStatuses,
     excludeExpected: filters.excludeExpected,
     sourceComposition: filters.sourceComposition,
   };

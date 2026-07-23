@@ -1912,6 +1912,10 @@ export function TickerHistoryClient({
         priceHint={submission.priceHint}
         showPriceUnavailableHint={submission.showPriceUnavailableHint}
         feeEstimate={submission.feeEstimate}
+        sellAvailability={submission.sellAvailability}
+        sellAvailabilityRequestKey={submission.sellAvailabilityRequestKey}
+        isSellAvailabilityLoading={submission.isSellAvailabilityLoading}
+        sellAvailabilityTransportError={submission.sellAvailabilityTransportError}
       />
 
       <RepairModal

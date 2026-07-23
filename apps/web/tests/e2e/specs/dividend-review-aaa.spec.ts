@@ -13,8 +13,6 @@ const REVIEW_SORT_FIELDS: DividendReviewSortColumn[] = [
   "paymentDate",
   "ticker",
   "account",
-  "expectedGrossAmount",
-  "receivedCashAmount",
   "nhiAmount",
   "bankFeeAmount",
   "otherDeductionAmount",
@@ -41,6 +39,7 @@ function reviewRow(index: number, overrides: Partial<DividendReviewRowSummaryDto
     exDividendDate: `2026-01-${String((index % 28) + 1).padStart(2, "0")}`,
     paymentDate: `2026-02-${String((index % 28) + 1).padStart(2, "0")}`,
     cashCurrency: "TWD",
+    cashDividendPerShare: (amount + 4) / (100 + index),
     eligibleQuantity: 100 + index,
     expectedCashAmount: amount + 4,
     receivedCashAmount: amount + 2,
@@ -64,7 +63,6 @@ function reviewRow(index: number, overrides: Partial<DividendReviewRowSummaryDto
 
 function sortValue(row: DividendReviewRowSummaryDto, field: DividendReviewSortColumn): string | number | null {
   if (field === "account") return row.accountName ?? row.accountId;
-  if (field === "expectedCashAmount") return row.expectedCashAmount;
   return row[field as keyof DividendReviewRowSummaryDto] as string | number | null;
 }
 
@@ -110,22 +108,35 @@ async function installReviewHarness(page: Page, options: {
   const allRows = options.rows ?? Array.from({ length: 55 }, (_, index) => reviewRow(index));
   const primaryUrls: string[] = [];
   const enrichmentUrls: string[] = [];
-  await page.route("**/portfolio/dividends/review/primary?*", async (route) => {
+  await page.route(/\/portfolio\/dividends\/review\/primary(?:\?.*)?$/, async (route) => {
     const url = new URL(route.request().url());
     primaryUrls.push(url.href);
-    const field = (url.searchParams.get("sortBy") ?? "paymentDate") as DividendReviewSortColumn;
+    const requestedField = url.searchParams.get("sortBy") ?? "paymentDate";
+    const field: DividendReviewSortColumn = REVIEW_SORT_FIELDS.includes(requestedField as DividendReviewSortColumn)
+      ? requestedField as DividendReviewSortColumn
+      : "paymentDate";
     const order = url.searchParams.get("sortOrder") === "asc" ? "asc" : "desc";
     const pageNumber = Number(url.searchParams.get("page") ?? 1);
     const limit = Number(url.searchParams.get("limit") ?? 25);
-    const filtered = url.searchParams.get("sourceComposition") === "pending"
+    const sourceFiltered = url.searchParams.get("sourceComposition") === "pending"
       ? allRows.filter((row) => row.sourceCompositionStatus === "unknown_pending_disclosure")
       : allRows;
+    const accountIds = url.searchParams.getAll("accountId");
+    const cashStatuses = url.searchParams.getAll("cashStatus");
+    const stockStatuses = url.searchParams.getAll("stockStatus");
+    const filtered = sourceFiltered.filter((row) =>
+      (accountIds.length === 0 || accountIds.includes(row.accountId))
+      && (cashStatuses.length === 0 || cashStatuses.includes(row.cashReconciliationStatus))
+      && (stockStatuses.length === 0 || (row.stockReconciliationStatus !== null && stockStatuses.includes(row.stockReconciliationStatus))),
+    );
     const ordered = sortedRows(filtered, field, order);
     const payload: DividendReviewPrimaryDto = {
       reviewRows: ordered.slice((pageNumber - 1) * limit, pageNumber * limit),
       total: filtered.length,
       years: [2020, 2021, 2022, 2023, 2024, 2025, 2026],
-      accounts: [{ id: "account-00", name: "QA Account 00" }],
+      accounts: Array.from(
+        new Map(allRows.map((row) => [row.accountId, { id: row.accountId, name: row.accountName ?? row.accountId }])).values(),
+      ),
       eligibleTickers: Array.from(
         new Map(allRows.map((row) => [row.ticker, { ticker: row.ticker, name: row.tickerName ?? null }])).values(),
       ),
@@ -133,7 +144,7 @@ async function installReviewHarness(page: Page, options: {
     if (options.primary) await options.primary(route, url, payload);
     else await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(payload) });
   });
-  await page.route("**/portfolio/dividends/review/enrichment?*", async (route) => {
+  await page.route(/\/portfolio\/dividends\/review\/enrichment(?:\?.*)?$/, async (route) => {
     const url = new URL(route.request().url());
     enrichmentUrls.push(url.href);
     if (options.enrichment) await options.enrichment(route, url);
@@ -168,6 +179,104 @@ function yearStart(): string {
 // ─── Group 1: Filter auto-apply ─────────────────────────────────────────────
 
 test.describe("dividend review — filter auto-apply", () => {
+  test("dividends review: retired sort and repeated filters → canonical URL and OR-within/AND-across rows", async ({
+    dividendReview,
+    page,
+  }) => {
+    const rows = [
+      reviewRow(0, { id: "filter-row-a", accountId: "account-00", cashReconciliationStatus: "open", stockReconciliationStatus: "matched" }),
+      reviewRow(1, { id: "filter-row-b", accountId: "account-01", cashReconciliationStatus: "matched", stockReconciliationStatus: "variance" }),
+      reviewRow(2, { id: "filter-row-c", accountId: "account-02", cashReconciliationStatus: "open", stockReconciliationStatus: "matched" }),
+      reviewRow(3, { id: "filter-row-d", accountId: "account-01", cashReconciliationStatus: "explained", stockReconciliationStatus: "matched" }),
+    ];
+    const harness = await installReviewHarness(page, { rows });
+
+    await openHarnessedReview(page, () => dividendReview.actions.navigateToReviewWithParams(
+      "sortBy=exDate&accountId=account-00&accountId=account-00&accountId=account-01&cashStatus=open&cashStatus=matched&stockStatus=matched&stockStatus=variance",
+    ));
+
+    const canonicalUrl = new URL(page.url());
+    dividendReview.assert.valueEquals(canonicalUrl.searchParams.getAll("accountId"), ["account-00", "account-01"]);
+    dividendReview.assert.valueEquals(canonicalUrl.searchParams.getAll("cashStatus"), ["open", "matched"]);
+    dividendReview.assert.valueEquals(canonicalUrl.searchParams.getAll("stockStatus"), ["matched", "variance"]);
+    await dividendReview.assert.orderedRowIdsAre(["filter-row-b", "filter-row-a"]);
+
+    await dividendReview.actions.openAccountFilter();
+    await dividendReview.assert.accountFilterIsOpen();
+    await dividendReview.assert.accountOptionIsChecked("account-00");
+    await dividendReview.assert.accountOptionIsChecked("account-01");
+    await dividendReview.actions.openCashStatusFilter();
+    await dividendReview.assert.cashStatusOptionIsChecked("open");
+    await dividendReview.assert.cashStatusOptionIsChecked("matched");
+    await dividendReview.actions.openStockStatusFilter();
+    await dividendReview.assert.stockStatusOptionIsChecked("matched");
+    await dividendReview.assert.stockStatusOptionIsChecked("variance");
+
+    await dividendReview.actions.toggleStockStatus("variance");
+    await dividendReview.assert.orderedRowIdsAre(["filter-row-a"]);
+    dividendReview.assert.valueContains(harness.primaryUrls.at(-1), "stockStatus=matched");
+    await dividendReview.assert.urlDoesNotContain("sortBy=exDate");
+  });
+
+  test("dividends review: consolidated desktop dividend columns → labeled values replace retired amount columns", async ({
+    dividendReview,
+    page,
+  }) => {
+    const mixed = reviewRow(0, {
+      id: "consolidated-row",
+      eventType: "CASH_AND_STOCK",
+      stockReconciliationStatus: "variance",
+      expectedStockQuantity: 10,
+      receivedStockQuantity: 8,
+    });
+    await installReviewHarness(page, { rows: [mixed] });
+    await openHarnessedReview(page, () => dividendReview.actions.navigateToReview());
+    await page.getByTestId("review-sort-ticker").click();
+
+    const header = page.getByTestId("review-table").locator("thead");
+    await dividendReview.assert.locatorContains(header, /Cash dividend/);
+    await dividendReview.assert.locatorContains(header, /Stock dividend/);
+    await dividendReview.assert.locatorContains(page.getByTestId("review-row-consolidated-row"), /per share|Expected|Received|Variance/);
+    await dividendReview.assert.locatorHasCount(page.getByTestId("review-sort-expected-cash-amount"), 0);
+    await dividendReview.assert.locatorHasCount(page.getByTestId("review-sort-received-cash-amount"), 0);
+  });
+
+  test("account checkbox filter: keyboard toggles stay open and announced → All resets selection", async ({
+    dividendReview,
+    page,
+  }) => {
+    await installReviewHarness(page, {
+      rows: [
+        reviewRow(0, { accountId: "account-00", accountName: "QA Account 00" }),
+        reviewRow(1, { accountId: "account-01", accountName: "QA Account 01" }),
+      ],
+    });
+    await openHarnessedReview(page, () => dividendReview.actions.navigateToReview());
+    await dividendReview.actions.clickColumnHeader("ticker");
+
+    await dividendReview.actions.openAccountFilterWithKeyboard();
+    await dividendReview.assert.accountFilterIsOpen();
+    await dividendReview.assert.accountSummaryIsExpanded();
+    await dividendReview.assert.accountSummaryIsFocused();
+
+    await dividendReview.actions.toggleAccountWithKeyboard("account-00");
+    await dividendReview.assert.accountFilterIsOpen();
+    await dividendReview.assert.accountOptionIsFocused("account-00");
+    await dividendReview.assert.accountAnnouncementContains(/Account: QA Account 00/);
+
+    await dividendReview.actions.toggleAccountWithKeyboard("account-01");
+    await dividendReview.assert.accountFilterIsOpen();
+    await dividendReview.assert.accountOptionIsFocused("account-01");
+    await dividendReview.assert.accountAnnouncementContains(/Account: 2 selected/);
+
+    await dividendReview.actions.selectAllAccountsWithKeyboard();
+    await dividendReview.assert.accountFilterIsOpen();
+    await dividendReview.assert.accountAllIsCheckedAndFocused();
+    await dividendReview.assert.accountOptionIsUnchecked("account-00");
+    await dividendReview.assert.accountOptionIsUnchecked("account-01");
+    await dividendReview.assert.accountAnnouncementContains(/Account: All accounts/);
+  });
+
   test("year range dropdown: 2010 through current year → URL and date inputs reflect range", async ({
     dividendReview,
   }) => {
@@ -380,7 +489,8 @@ test.describe("dividend review — filter auto-apply", () => {
     // ACT
     await dividendReview.actions.navigateToReview();
     await dividendReview.assert.pageLoaded();
-    await dividendReview.actions.selectStatus("open");
+    await dividendReview.actions.openCashStatusFilter();
+    await dividendReview.actions.toggleCashStatus("open");
 
     // ASSERT
     await dividendReview.assert.urlContains("cashStatus=open");

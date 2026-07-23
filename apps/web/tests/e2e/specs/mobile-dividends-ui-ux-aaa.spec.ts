@@ -56,3 +56,36 @@ test("[mobile-dividends-ui-ux-A]: Overview stacks action queue before monthly ev
   await ticker.assert.dividendsPanelIsVisible();
   await ticker.assert.dividendsPanelContains(TEST_TICKER_NAME);
 });
+
+test("dividends review mobile: consolidated cash/stock cards → retired sort fields remain absent", async ({
+  appShell,
+  dividendReview,
+  dividends,
+  page,
+  ticker,
+}) => {
+  await ticker.arrange.seedInstruments([
+    { ticker: "7790", name: "Mobile Mixed Dividend", instrumentType: "STOCK", marketCode: "TW", barsBackfillStatus: "ready" },
+  ]);
+  const seeded = await dividends.arrange.seedPostedDividend({
+    ticker: "7790",
+    eventType: "CASH_AND_STOCK",
+    exDividendDate: "2026-07-09",
+    paymentDate: "2026-07-25",
+    cashDividendPerShare: 1.6,
+    stockDividendPerShare: 0.1,
+    receivedCashAmount: 152,
+    receivedStockQuantity: 8,
+    sourceCompositionStatus: "unknown_pending_disclosure",
+    deductions: [],
+    sourceLines: [],
+  });
+
+  await appShell.actions.navigateToRouteForResponsiveTest("/dividends?view=ledger");
+  await dividendReview.assert.pageLoaded();
+  const row = page.getByTestId(`review-row-${seeded.dividendLedgerEntryId}`);
+  await dividendReview.assert.locatorContains(row, /Cash \+ Stock/);
+  await dividendReview.assert.locatorContains(row, /per share|Expected|Received|Variance/);
+  await dividendReview.assert.mobileSortExcludes(["exDate", "recordDate", "dividendType"]);
+  await dividendReview.assert.viewportHasNoHorizontalOverflow();
+});

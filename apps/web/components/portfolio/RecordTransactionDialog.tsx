@@ -1,7 +1,7 @@
 "use client";
 
 import * as Dialog from "@radix-ui/react-dialog";
-import type { LocaleCode } from "@vakwen/shared-types";
+import type { LocaleCode, SellAvailabilityDto } from "@vakwen/shared-types";
 import type { AppDictionary } from "../../lib/i18n";
 import type { TransactionPriceHint } from "../../features/portfolio/hooks/useTransactionSubmission";
 import type { TransactionEstimateResponse } from "../../features/portfolio/services/portfolioService";
@@ -28,6 +28,10 @@ interface RecordTransactionDialogProps {
   priceHint: TransactionPriceHint | null;
   showPriceUnavailableHint: boolean;
   feeEstimate: TransactionEstimateResponse | null;
+  sellAvailability?: SellAvailabilityDto | null;
+  sellAvailabilityRequestKey?: string | null;
+  isSellAvailabilityLoading?: boolean;
+  sellAvailabilityTransportError?: string;
 }
 
 export function RecordTransactionDialog({
@@ -48,6 +52,10 @@ export function RecordTransactionDialog({
   priceHint,
   showPriceUnavailableHint,
   feeEstimate,
+  sellAvailability = null,
+  sellAvailabilityRequestKey = null,
+  isSellAvailabilityLoading = false,
+  sellAvailabilityTransportError = "",
 }: RecordTransactionDialogProps) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -72,6 +80,10 @@ export function RecordTransactionDialog({
             priceHint={priceHint}
             showPriceUnavailableHint={showPriceUnavailableHint}
             feeEstimate={feeEstimate}
+            sellAvailability={sellAvailability}
+            sellAvailabilityRequestKey={sellAvailabilityRequestKey}
+            isSellAvailabilityLoading={isSellAvailabilityLoading}
+            sellAvailabilityTransportError={sellAvailabilityTransportError}
           />
           {message && (
             <p role="status" aria-live="polite" className="mt-3 text-sm text-emerald-700">{message}</p>

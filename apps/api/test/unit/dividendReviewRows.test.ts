@@ -164,6 +164,22 @@ describe("MemoryPersistence.listDividendReviewRows", () => {
     expect(review.aggregates.openCount).toBe(1);
   });
 
+  it("preserves the legacy singular account filter", async () => {
+    const accountA = await seedTwdAccount();
+    const accountB = await seedSecondTwdAccount();
+    const event = await seedDividendEvent();
+    await seedLedgerEntry(accountA, event.id);
+    await seedLedgerEntry(accountB, event.id);
+
+    const review = await app.persistence.listDividendReviewRows(USER_ID, {
+      ...defaultOpts,
+      accountId: accountB,
+    });
+
+    expect(review.rows).toHaveLength(1);
+    expect(review.rows[0]?.accountId).toBe(accountB);
+  });
+
   it("excludes materialized expected ledger rows when expected rows are disabled", async () => {
     const accountId = await seedTwdAccount();
     const event = await seedDividendEvent();

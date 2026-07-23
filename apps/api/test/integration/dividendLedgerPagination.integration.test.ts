@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { PostgresPersistence } from "../../src/persistence/postgres.js";
-import type { DividendLedgerListOptions } from "../../src/persistence/types.js";
+import type { DividendLedgerListOptions, DividendReviewListOptions } from "../../src/persistence/types.js";
 import type { DividendLedgerRecomputeChange } from "../../src/services/dividends.js";
 import type { DividendLedgerEntry } from "../../src/types/store.js";
 
@@ -39,6 +39,13 @@ async function resetDatabase(): Promise<void> {
 // ── Shared default query options ─────────────────────────────────────────────
 
 const defaultOpts: DividendLedgerListOptions = {
+  page: 1,
+  limit: 50,
+  sortBy: "paymentDate",
+  sortOrder: "desc",
+};
+
+const defaultReviewOpts: DividendReviewListOptions = {
   page: 1,
   limit: 50,
   sortBy: "paymentDate",
@@ -387,7 +394,7 @@ describePostgres("PostgresPersistence.listDividendLedgerEntries — pagination/s
     const eventId = await insertDividendEvent("AAPL", "USD", "2024-03-15", "2024-04-15");
 
     const result = await persistence.listDividendReviewRows(userId, {
-      ...defaultOpts,
+      ...defaultReviewOpts,
       ticker: "AAPL",
     });
 
@@ -397,6 +404,7 @@ describePostgres("PostgresPersistence.listDividendLedgerEntries — pagination/s
       rowKind: "expected",
       dividendEventId: eventId,
       ticker: "AAPL",
+      cashDividendPerShare: 1,
       eligibleQuantity: 10,
       expectedCashAmount: 10,
       receivedCashAmount: 0,
@@ -416,7 +424,7 @@ describePostgres("PostgresPersistence.listDividendLedgerEntries — pagination/s
     await insertLedgerEntry({ eventId, expectedCashAmount: 10, postingStatus: "expected" });
 
     const result = await persistence.listDividendReviewRows(userId, {
-      ...defaultOpts,
+      ...defaultReviewOpts,
       ticker: "AAPL",
       reconciliationStatus: "open",
       excludeExpected: true,

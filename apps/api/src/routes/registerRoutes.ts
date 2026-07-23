@@ -103,6 +103,7 @@ import { enqueueDemandIntradayRefreshes } from "../services/market-data/intraday
 import { getRegularSessionState, isRegularSessionMarketCode } from "../services/market-data/marketRegularSession.js";
 import { getMarketLocalDate } from "../services/market-data/tradingCalendar.js";
 import {
+  appendTradeEvent,
   listPositionActions,
   listTradeEvents,
   syncAccountingPolicy,
@@ -120,14 +121,23 @@ import {
   resolveDividendEventMarketCode,
   resolveDividendPostingDate,
 } from "../services/dividends.js";
-import { assertDividendUpdateReplayCanApply, assertPositionReplayCanApply } from "../services/dividendReplayPreflight.js";
+import { getDividendUpdateReplayScope } from "../services/dividendReplayPreflight.js";
 import {
   confirmAccountCutoffPurge,
   confirmTradeDividendDeletion,
   previewAccountCutoffPurge,
   previewTradeDividendDeletion,
 } from "../services/dividendDestructivePreview.js";
-import { applyCorporateAction, createPositionAction, createTransaction, listHoldings, previewPositionAction } from "../services/portfolio.js";
+import {
+  applyCorporateAction,
+  buildTransactionRecord,
+  createPositionAction,
+  createTransaction,
+  listHoldings,
+  previewPositionAction,
+  resolveBookingSequence,
+} from "../services/portfolio.js";
+import { resolveSellAvailability } from "../services/sellAvailability.js";
 import {
   archiveTransactionDraftBatch,
   deleteUnconfirmedTransactionDraftBatch,
@@ -145,7 +155,13 @@ import {
   toAiConnectorPolicySettingsDto,
 } from "../services/mcpConnectorLifecycle.js";
 import { confirmRecompute, previewRecompute } from "../services/recompute.js";
-import { replayPositionHistory, scheduleReplayWithRetry } from "../services/replayPositionHistory.js";
+import {
+  ReplayError,
+  replayPositionHistory,
+  scheduleCommittedReplayFollowUp,
+  scheduleReplayWithRetry,
+} from "../services/replayPositionHistory.js";
+import { MemoryPersistence } from "../persistence/memory.js";
 import {
   confirmPostedTransactionMutation,
   dispatchPostedTransactionMutationRebuild,
@@ -334,6 +350,15 @@ function normalizeTickerQueryValue(value: unknown): string[] | undefined {
     .map((item) => item.trim())
     .filter(Boolean);
   return tickers.length > 0 ? [...new Set(tickers)] : undefined;
+}
+
+function normalizeRepeatedStringQueryValue(value: unknown): string[] | undefined {
+  const rawValues = Array.isArray(value) ? value : [value];
+  const values = rawValues
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return values.length > 0 ? [...new Set(values)] : undefined;
 }
 
 function sortDividendDailyHighlightItems<T extends {
@@ -591,9 +616,15 @@ const dividendLedgerQuerySchema = z.object({
 const dividendReviewQuerySchema = z.object({
   fromPaymentDate: isoDateSchema.optional(),
   toPaymentDate: isoDateSchema.optional(),
-  accountId: userScopedIdSchema.optional(),
-  cashStatus: z.enum(["open", "matched", "explained", "resolved"]).optional(),
-  stockStatus: z.enum(["needs_calculation", "pending_receipt", "matched", "variance", "explained"]).optional(),
+  accountId: z.preprocess(normalizeRepeatedStringQueryValue, z.array(userScopedIdSchema).max(50).optional()),
+  cashStatus: z.preprocess(
+    normalizeRepeatedStringQueryValue,
+    z.array(z.enum(["open", "matched", "explained", "resolved"])).max(50).optional(),
+  ),
+  stockStatus: z.preprocess(
+    normalizeRepeatedStringQueryValue,
+    z.array(z.enum(["needs_calculation", "pending_receipt", "matched", "variance", "explained"])).max(50).optional(),
+  ),
   reconciliationStatus: z.enum(["open", "matched", "explained", "resolved"]).optional(),
   postingStatus: z.enum(["expected", "posted", "adjusted"]).optional(),
   excludeExpected: z.enum(["true", "false"]).transform((value) => value === "true").optional(),
@@ -608,18 +639,24 @@ const dividendReviewQuerySchema = z.object({
     "paymentDate",
     "ticker",
     "account",
-    "expectedCashAmount",
-    "expectedGrossAmount",
     "expectedNetAmount",
     "nhiAmount",
     "bankFeeAmount",
     "otherDeductionAmount",
-    "receivedCashAmount",
     "actualNetAmount",
     "varianceAmount",
     "reconciliationStatus",
   ]).default("paymentDate"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
+});
+
+const sellAvailabilityQuerySchema = z.object({
+  accountId: userScopedIdSchema,
+  ticker: tickerSchema,
+  marketCode: marketCodeSchema,
+  tradeDate: isoDateSchema,
+  tradeTimestamp: isoDateTimeSchema.optional(),
+  bookingSequence: z.coerce.number().int().positive().optional(),
 });
 
 const dividendReviewFilterQuerySchema = dividendReviewQuerySchema.omit({
@@ -885,6 +922,7 @@ const WRITER_ROLE_ROUTE_KEYS = new Set([
   "DELETE /fee-profiles/:id",
   "PUT /fee-profile-bindings",
   "POST /portfolio/transactions",
+  "GET /portfolio/transactions/sell-availability",
   "DELETE /portfolio/transactions/:tradeEventId",
   "PATCH /portfolio/transactions/:tradeEventId",
   "POST /portfolio/transactions/:tradeEventId/dividend-delete-preview",
@@ -964,6 +1002,7 @@ const SHARED_CONTEXT_WRITE_ROUTE_KEYS = new Set([
   "DELETE /fee-profiles/:id",
   "PUT /fee-profile-bindings",
   "POST /portfolio/transactions",
+  "GET /portfolio/transactions/sell-availability",
   "DELETE /portfolio/transactions/:tradeEventId",
   "PATCH /portfolio/transactions/:tradeEventId",
   "POST /portfolio/transactions/:tradeEventId/dividend-delete-preview",
@@ -1015,6 +1054,7 @@ const SHARED_CONTEXT_WRITE_CAPABILITY_MATRIX: Readonly<Record<string, ShareCapab
   "DELETE /fee-profiles/:id": "account:manage",
   "PUT /fee-profile-bindings": "account:manage",
   "POST /portfolio/transactions": "transaction:write",
+  "GET /portfolio/transactions/sell-availability": "transaction:write",
   "DELETE /portfolio/transactions/:tradeEventId": "transaction:write",
   "PATCH /portfolio/transactions/:tradeEventId": "transaction:write",
   "POST /portfolio/transactions/:tradeEventId/dividend-delete-preview": "transaction:write",
@@ -5467,66 +5507,165 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const { userId, isDemo } = resolveUserId(req, app.oauthConfig?.sessionSecret);
-    const store = await app.persistence.loadStore(userId);
-    const draftStore = structuredClone(store);
-    assertStoreIntegrity(draftStore);
-
-    // KZO-169: server-side currency_mismatch guard. Trade currency derives
-    // from `currencyFor(body.marketCode)`; reject when the chosen account's
-    // defaultCurrency disagrees. This is the safety net for stale-state
-    // clients and bulk-import paths that miss the chip filter.
-    const account = draftStore.accounts.find((a) => a.id === body.accountId);
-    if (!account) {
-      throw routeError(404, "account_not_found", "Account not found");
-    }
-    const tradeCurrency = currencyFor(body.marketCode);
-    if (account.defaultCurrency !== tradeCurrency) {
-      throw routeError(
-        400,
-        "currency_mismatch",
-        `Trade currency ${tradeCurrency} does not match account currency ${account.defaultCurrency}`,
-      );
-    }
-
-    // KZO-183: hydrate the persisted instrument catalog into draftStore so the
-    // market guard sees the canonical marketCode rather than the provisional
-    // default of "TW" produced by ensureInstrumentDefinition. KZO-169: the
-    // lookup is now scoped by (ticker, marketCode) per migration 044's PK.
-    const persistedInstrument = await app.persistence.getInstrument(body.ticker, body.marketCode);
-    if (persistedInstrument) {
-      setStoreInstruments(
-        draftStore,
-        upsertInstrumentDefinitions(draftStore.instruments, [{
-          ticker: persistedInstrument.ticker,
-          type: persistedInstrument.instrumentType ?? null,
-          marketCode: persistedInstrument.marketCode,
-          isProvisional: persistedInstrument.isProvisional,
-          lastSyncedAt: null,
-        }]),
-      );
-    }
-    const ensured = ensureInstrumentDefinition(draftStore, body.ticker, body.marketCode);
-
-    if (ensured.instrument.type === null) {
-      throw routeError(400, "unclassified_instrument", "Cannot create trades for unclassified instruments");
-    }
-
-    const tx = createTransaction(draftStore, userId, {
-      ...body,
-      id: randomUUID(),
-      feesSource: body.commissionAmount !== undefined || body.taxAmount !== undefined ? "MANUAL" : "CALCULATED",
-    });
-
     const claimed = await app.persistence.claimIdempotencyKey(userId, idempotencyKey);
     if (!claimed) {
       throw routeError(409, "duplicate_idempotency_key", "duplicate idempotency key");
     }
 
+    let tx;
+    let transactionReplaySummary: Awaited<ReturnType<typeof replayPositionHistory>>;
     try {
-      if (ensured.created) {
-        await app.persistence.upsertInstruments(userId, [ensured.instrument]);
-      }
-      await app.persistence.savePostedTrade(userId, draftStore.accounting, tx.id);
+      const committed = await app.persistence.withTransactionWriteLock(
+        userId,
+        async (writer) => {
+          const latestStore = await writer.loadStore(userId);
+          const draftStore = structuredClone(latestStore);
+          assertStoreIntegrity(draftStore);
+
+          const account = draftStore.accounts.find((item) => item.id === body.accountId);
+          if (!account) {
+            throw routeError(404, "account_not_found", "Account not found");
+          }
+          const tradeCurrency = currencyFor(body.marketCode);
+          if (account.defaultCurrency !== tradeCurrency) {
+            throw routeError(
+              400,
+              "currency_mismatch",
+              `Trade currency ${tradeCurrency} does not match account currency ${account.defaultCurrency}`,
+            );
+          }
+
+          const persistedInstrument = await writer.getInstrument(body.ticker, body.marketCode);
+          if (persistedInstrument) {
+            setStoreInstruments(
+              draftStore,
+              upsertInstrumentDefinitions(draftStore.instruments, [{
+                ticker: persistedInstrument.ticker,
+                type: persistedInstrument.instrumentType ?? null,
+                marketCode: persistedInstrument.marketCode,
+                isProvisional: persistedInstrument.isProvisional,
+                lastSyncedAt: null,
+              }]),
+            );
+          }
+
+          const ensured = ensureInstrumentDefinition(draftStore, body.ticker, body.marketCode);
+          if (ensured.instrument.type === null) {
+            throw routeError(400, "unclassified_instrument", "Cannot create trades for unclassified instruments");
+          }
+          if (ensured.created) {
+            await writer.upsertInstruments(userId, [ensured.instrument]);
+          }
+
+          const transactionInput = {
+            ...body,
+            id: randomUUID(),
+            feesSource: body.commissionAmount !== undefined || body.taxAmount !== undefined
+              ? "MANUAL" as const
+              : "CALCULATED" as const,
+          };
+
+          if (body.type === "SELL") {
+            const candidateTx = buildTransactionRecord(draftStore, userId, transactionInput);
+            const availability = resolveSellAvailability(draftStore, userId, {
+              accountId: body.accountId,
+              ticker: body.ticker,
+              marketCode: body.marketCode,
+              tradeDate: body.tradeDate,
+              tradeTimestamp: candidateTx.tradeTimestamp,
+              bookingSequence: candidateTx.bookingSequence,
+            });
+            if (availability.status === "unavailable") {
+              throw routeError(
+                409,
+                "sell_availability_unavailable",
+                "Sell availability is unavailable for the requested history scope",
+                { reason: availability.reason },
+              );
+            }
+            if (availability.availableQuantity < body.quantity) {
+              throw routeError(409, "insufficient_quantity", "Insufficient quantity to sell", {
+                requestedQuantity: body.quantity,
+                availableQuantity: availability.availableQuantity,
+              });
+            }
+
+            appendTradeEvent(draftStore, candidateTx);
+            const simulation = new MemoryPersistence({ seedCatalog: false, seedDevBypassUser: false });
+            await simulation.saveStore(structuredClone(draftStore));
+            try {
+              const replaySummary = await replayPositionHistory(simulation, userId, candidateTx.accountId, candidateTx.ticker, {
+                marketCode: candidateTx.marketCode,
+              });
+              const replayedStore = await simulation.loadStore(userId);
+              assertStoreIntegrity(replayedStore);
+              const appliedDividendChanges = await writer.saveReplayedPositionScope(userId, replayedStore.accounting, {
+                accountId: candidateTx.accountId,
+                ticker: candidateTx.ticker,
+                marketCode: candidateTx.marketCode,
+                newTradeEventId: candidateTx.id,
+                dividendLedgerChanges: replaySummary.dividendLedgerChanges,
+              });
+              const persistedTx = replayedStore.accounting.facts.tradeEvents.find((trade) => trade.id === candidateTx.id);
+              if (!persistedTx) {
+                throw new Error(`trade event ${candidateTx.id} missing after replay persistence`);
+              }
+              return {
+                tx: persistedTx,
+                replaySummary: { ...replaySummary, dividendLedgerChanges: appliedDividendChanges },
+              };
+            } catch (error) {
+              if (error instanceof ReplayError) {
+                throw routeError(
+                  409,
+                  "sell_availability_unavailable",
+                  "Sell availability is unavailable for the requested history scope",
+                  { reason: "unreplayable_history" },
+                );
+              }
+              throw error;
+            }
+          }
+
+          try {
+            const candidateTx = createTransaction(draftStore, userId, transactionInput);
+            const simulation = new MemoryPersistence({ seedCatalog: false, seedDevBypassUser: false });
+            await simulation.saveStore(structuredClone(draftStore));
+            const replaySummary = await replayPositionHistory(
+              simulation,
+              userId,
+              candidateTx.accountId,
+              candidateTx.ticker,
+              { marketCode: candidateTx.marketCode },
+            );
+            const replayedStore = await simulation.loadStore(userId);
+            assertStoreIntegrity(replayedStore);
+            const appliedDividendChanges = await writer.saveReplayedPositionScope(userId, replayedStore.accounting, {
+              accountId: candidateTx.accountId,
+              ticker: candidateTx.ticker,
+              marketCode: candidateTx.marketCode,
+              newTradeEventId: candidateTx.id,
+              dividendLedgerChanges: replaySummary.dividendLedgerChanges,
+            });
+            return {
+              tx: candidateTx,
+              replaySummary: { ...replaySummary, dividendLedgerChanges: appliedDividendChanges },
+            };
+          } catch (error) {
+            if (error instanceof ReplayError) {
+              throw routeError(
+                409,
+                "position_history_unreplayable",
+                "Position history is unavailable for replay",
+                { reason: "unreplayable_history" },
+              );
+            }
+            throw error;
+          }
+        },
+      );
+      tx = committed.tx;
+      transactionReplaySummary = committed.replaySummary;
     } catch (error) {
       await app.persistence.releaseIdempotencyKey(userId, idempotencyKey);
       throw error;
@@ -5540,11 +5679,7 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       marketCode: tx.marketCode,
     });
 
-    // KZO-37 Invariant 5: a new trade may make a historical dividend
-    // retroactively eligible. Fire the replay (which includes dividend
-    // ledger recompute) after savePostedTrade commits. Fire-and-forget —
-    // POST remains 200 and the client refetches on SSE.
-    scheduleReplayWithRetry(app.persistence, app.eventBus, userId, tx.accountId, tx.ticker, {
+    scheduleCommittedReplayFollowUp(app.persistence, app.eventBus, userId, transactionReplaySummary, {
       snapshotFromDate: tx.tradeDate,
       marketCode: tx.marketCode,
     });
@@ -5570,6 +5705,17 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     return tx;
+  });
+
+  app.get("/portfolio/transactions/sell-availability", async (req) => {
+    const query = sellAvailabilityQuerySchema.parse(req.query);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const store = await app.persistence.loadStore(userId);
+    const bookingSequence = resolveBookingSequence(store, query.accountId, query.tradeDate, query.bookingSequence);
+    return resolveSellAvailability(store, userId, {
+      ...query,
+      bookingSequence,
+    });
   });
 
   app.post("/portfolio/transactions/estimate", async (req) => {
@@ -7321,14 +7467,20 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/portfolio/dividends/review/primary", async (req, reply) => {
     const query = dividendReviewQuerySchema.parse(req.query);
-    const { ticker, ...reviewQuery } = query;
+    const { ticker, accountId, cashStatus, stockStatus, ...reviewQuery } = query;
     return withReadPathTiming(req, reply, "/portfolio/dividends/review/primary", async (timing) => {
       const { contextUserId: userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
       const [primary, metadata] = await Promise.all([
-        app.persistence.listDividendReviewPrimary(userId, { ...reviewQuery, tickers: ticker }),
+        app.persistence.listDividendReviewPrimary(userId, {
+          ...reviewQuery,
+          accountIds: accountId,
+          cashStatuses: cashStatus,
+          stockStatuses: stockStatus,
+          tickers: ticker,
+        }),
         timing.measure("review_primary_metadata", "db", () =>
           app.persistence.listDividendReviewMetadata(userId, {
-            accountId: query.accountId,
+            accountIds: accountId,
             fromPaymentDate: query.fromPaymentDate,
             toPaymentDate: query.toPaymentDate,
           })),
@@ -7347,11 +7499,14 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.get("/portfolio/dividends/review/enrichment", async (req, reply) => {
     const filters = dividendReviewFilterQuerySchema.parse(req.query);
-    const { ticker, ...reviewFilters } = filters;
+    const { ticker, accountId, cashStatus, stockStatus, ...reviewFilters } = filters;
     return withReadPathTiming(req, reply, "/portfolio/dividends/review/enrichment", async (timing) => {
       const { contextUserId: userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
       const enrichment = await app.persistence.getDividendReviewEnrichment(userId, {
         ...reviewFilters,
+        accountIds: accountId,
+        cashStatuses: cashStatus,
+        stockStatuses: stockStatus,
         tickers: ticker,
       });
       timing.record("review_enrichment_db", "db", enrichment.phaseTimings?.dbMs ?? 0);
@@ -7369,11 +7524,11 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     const query = dividendReviewQuerySchema.parse(req.query);
     const { contextUserId: userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
     const result = await app.persistence.listDividendReviewRows(userId, {
-      accountId: query.accountId,
+      accountIds: query.accountId,
       fromPaymentDate: query.fromPaymentDate,
       toPaymentDate: query.toPaymentDate,
-      cashStatus: query.cashStatus,
-      stockStatus: query.stockStatus,
+      cashStatuses: query.cashStatus,
+      stockStatuses: query.stockStatus,
       reconciliationStatus: query.reconciliationStatus,
       postingStatus: query.postingStatus,
       excludeExpected: query.excludeExpected,
@@ -7535,11 +7690,6 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
     }
 
     const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
-    const store = await app.persistence.loadStore(userId);
-    const draftStore = structuredClone(store);
-    assertStoreIntegrity(draftStore);
-    requireAccount(draftStore, body.accountId);
-
     const claimed = await app.persistence.claimIdempotencyKey(userId, idempotencyKey);
     if (!claimed) {
       throw routeError(409, "duplicate_idempotency_key", "duplicate idempotency key");
@@ -7547,11 +7697,119 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
     try {
       if (body.dividendLedgerEntryId) {
-        const prepared = preparePostedCashDividendUpdate(draftStore, userId, {
+        const { prepared, replayScope, replaySummary } = await app.persistence.withTransactionWriteLock(userId, async (writer) => {
+          const draftStore = structuredClone(await writer.loadStore(userId));
+          assertStoreIntegrity(draftStore);
+          requireAccount(draftStore, body.accountId);
+          const prepared = preparePostedCashDividendUpdate(draftStore, userId, {
+            accountId: body.accountId,
+            dividendEventId: body.dividendEventId,
+            dividendLedgerEntryId: body.dividendLedgerEntryId!,
+            expectedVersion: body.expectedVersion!,
+            receivedCashAmount: body.receivedCashAmount,
+            receivedStockQuantity: body.receivedStockQuantity,
+            deductions: body.deductions.map((entry) => ({
+              id: randomUUID(),
+              deductionType: entry.deductionType,
+              amount: entry.amount,
+              currencyCode: entry.currencyCode,
+              withheldAtSource: entry.withheldAtSource,
+              source: entry.source,
+              sourceReference: entry.sourceReference,
+              note: entry.note,
+            })),
+            sourceLines: body.sourceLines.map((entry) => ({
+              id: entry.id ?? randomUUID(),
+              sourceBucket: entry.sourceBucket,
+              amount: entry.amount,
+              currencyCode: entry.currencyCode,
+              source: entry.source,
+              sourceReference: entry.sourceReference,
+              note: entry.note,
+            })),
+            sourceCompositionStatus: body.sourceCompositionStatus,
+          });
+
+          const replayScope = getDividendUpdateReplayScope(prepared);
+          let replayedStore: Store | null = null;
+          let replaySummary: Awaited<ReturnType<typeof replayPositionHistory>> | null = null;
+          if (replayScope) {
+            const simulation = new MemoryPersistence({ seedCatalog: false, seedDevBypassUser: false });
+            await simulation.saveStore(structuredClone(draftStore));
+            replaySummary = await replayPositionHistory(simulation, userId, replayScope.accountId, replayScope.ticker, {
+              marketCode: replayScope.marketCode,
+            });
+            replayedStore = await simulation.loadStore(userId);
+            assertStoreIntegrity(replayedStore);
+          }
+          await writer.updatePostedCashDividend(userId, prepared.persistenceInput);
+          if (replayScope && replayedStore && replaySummary) {
+            const appliedDividendChanges = await writer.saveReplayedPositionScope(userId, replayedStore.accounting, {
+              accountId: replayScope.accountId,
+              ticker: replayScope.ticker,
+              marketCode: replayScope.marketCode as MarketCode,
+              dividendLedgerChanges: replaySummary.dividendLedgerChanges,
+            });
+            replaySummary = { ...replaySummary, dividendLedgerChanges: appliedDividendChanges };
+          }
+          return { prepared, replayScope, replaySummary };
+        });
+        await app.eventBus.publishEvent(userId, "dividend_updated", {
+          dividendLedgerEntryId: prepared.response.dividendLedgerEntry.id,
+          dividendEventId: prepared.response.dividendEvent.id,
+          accountId: prepared.response.dividendLedgerEntry.accountId,
+          version: prepared.response.dividendLedgerEntry.version,
+        });
+        if (replayScope && replaySummary) {
+          scheduleCommittedReplayFollowUp(app.persistence, app.eventBus, userId, replaySummary, {
+            snapshotFromDate: replayScope.actionDate,
+            marketCode: replayScope.marketCode,
+          });
+        }
+        await appendDelegatedWriteAudit(app, req, {
+          mutation: "dividend_posting_updated",
+          routeKey: "POST /portfolio/dividends/postings",
+          dividendLedgerEntryId: prepared.response.dividendLedgerEntry.id,
+          dividendEventId: prepared.response.dividendEvent.id,
+        });
+        return prepared.response;
+      }
+
+      let calculationPreview: Awaited<ReturnType<typeof buildDividendCalculationPreview>> | null = null;
+      if (body.calculation) {
+        calculationPreview = await buildDividendCalculationPreview(userId, {
           accountId: body.accountId,
           dividendEventId: body.dividendEventId,
-          dividendLedgerEntryId: body.dividendLedgerEntryId,
-          expectedVersion: body.expectedVersion!,
+          method: body.calculation.method,
+          selectedParValue: body.calculation.selectedParValue ?? null,
+          customRatio: body.calculation.customRatio ?? null,
+        });
+        if (calculationPreview.requiresHighRatioConfirmation && !body.calculation.acknowledgeHighRatio) {
+          throw routeError(409, "dividend_calculation_high_ratio_confirmation_required", "High stock ratios require explicit confirmation.");
+        }
+        if (calculationPreview.drift?.hasDrift && !body.calculation.acknowledgeDrift) {
+          throw routeError(409, "dividend_calculation_drift_confirmation_required", "Provider drift requires explicit reconfirmation.");
+        }
+      }
+
+      const committed = await app.persistence.withTransactionWriteLock(userId, async (writer) => {
+        const draftStore = structuredClone(await writer.loadStore(userId));
+        assertStoreIntegrity(draftStore);
+        requireAccount(draftStore, body.accountId);
+        if (body.calculation && calculationPreview) {
+          appendConfirmedDividendCalculationToStore(draftStore, userId, {
+            accountId: body.accountId,
+            dividendEventId: body.dividendEventId,
+            method: body.calculation.method,
+            selectedParValue: body.calculation.selectedParValue ?? null,
+            customRatio: body.calculation.customRatio ?? null,
+          }, calculationPreview);
+        }
+
+        const result = postDividend(draftStore, userId, {
+          id: randomUUID(),
+          accountId: body.accountId,
+          dividendEventId: body.dividendEventId,
           receivedCashAmount: body.receivedCashAmount,
           receivedStockQuantity: body.receivedStockQuantity,
           deductions: body.deductions.map((entry) => ({
@@ -7575,119 +7833,67 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
           })),
           sourceCompositionStatus: body.sourceCompositionStatus,
         });
-
-        const replayScope = await assertDividendUpdateReplayCanApply(draftStore, userId, prepared);
-        await app.persistence.updatePostedCashDividend(userId, prepared.persistenceInput);
-        await app.eventBus.publishEvent(userId, "dividend_updated", {
-          dividendLedgerEntryId: prepared.response.dividendLedgerEntry.id,
-          dividendEventId: prepared.response.dividendEvent.id,
-          accountId: prepared.response.dividendLedgerEntry.accountId,
-          version: prepared.response.dividendLedgerEntry.version,
-        });
-        if (replayScope) {
-          await replayPositionHistory(app.persistence, userId, replayScope.accountId, replayScope.ticker, {
-            marketCode: replayScope.marketCode,
-          });
-          scheduleReplayWithRetry(app.persistence, app.eventBus, userId, replayScope.accountId, replayScope.ticker, {
-            snapshotFromDate: replayScope.actionDate,
-            marketCode: replayScope.marketCode,
-          });
-        }
-        await appendDelegatedWriteAudit(app, req, {
-          mutation: "dividend_posting_updated",
-          routeKey: "POST /portfolio/dividends/postings",
-          dividendLedgerEntryId: prepared.response.dividendLedgerEntry.id,
-          dividendEventId: prepared.response.dividendEvent.id,
-        });
-        return prepared.response;
-      }
-
-      if (body.calculation) {
-        const calculationPreview = await buildDividendCalculationPreview(userId, {
-          accountId: body.accountId,
-          dividendEventId: body.dividendEventId,
-          method: body.calculation.method,
-          selectedParValue: body.calculation.selectedParValue ?? null,
-          customRatio: body.calculation.customRatio ?? null,
-        });
-        if (calculationPreview.requiresHighRatioConfirmation && !body.calculation.acknowledgeHighRatio) {
-          throw routeError(409, "dividend_calculation_high_ratio_confirmation_required", "High stock ratios require explicit confirmation.");
-        }
-        if (calculationPreview.drift?.hasDrift && !body.calculation.acknowledgeDrift) {
-          throw routeError(409, "dividend_calculation_drift_confirmation_required", "Provider drift requires explicit reconfirmation.");
-        }
-        appendConfirmedDividendCalculationToStore(draftStore, userId, {
-          accountId: body.accountId,
-          dividendEventId: body.dividendEventId,
-          method: body.calculation.method,
-          selectedParValue: body.calculation.selectedParValue ?? null,
-          customRatio: body.calculation.customRatio ?? null,
-        }, calculationPreview);
-      }
-
-      const result = postDividend(draftStore, userId, {
-        id: randomUUID(),
-        accountId: body.accountId,
-        dividendEventId: body.dividendEventId,
-        receivedCashAmount: body.receivedCashAmount,
-        receivedStockQuantity: body.receivedStockQuantity,
-        deductions: body.deductions.map((entry) => ({
-          id: randomUUID(),
-          deductionType: entry.deductionType,
-          amount: entry.amount,
-          currencyCode: entry.currencyCode,
-          withheldAtSource: entry.withheldAtSource,
-          source: entry.source,
-          sourceReference: entry.sourceReference,
-          note: entry.note,
-        })),
-        sourceLines: body.sourceLines.map((entry) => ({
-          id: entry.id ?? randomUUID(),
-          sourceBucket: entry.sourceBucket,
-          amount: entry.amount,
-          currencyCode: entry.currencyCode,
-          source: entry.source,
-          sourceReference: entry.sourceReference,
-          note: entry.note,
-        })),
-        sourceCompositionStatus: body.sourceCompositionStatus,
-      });
-      const activeCalculation = getStoreActiveDividendCalculation(
-        draftStore,
-        userId,
-        body.accountId,
-        body.dividendEventId,
-      );
-      if (activeCalculation) {
-        applyDividendCalculationSnapshotToLedgerEntry(result.dividendLedgerEntry, activeCalculation);
-        const persistedLedgerEntry = draftStore.accounting.facts.dividendLedgerEntries.find(
-          (entry) => entry.id === result.dividendLedgerEntry.id,
+        const activeCalculation = getStoreActiveDividendCalculation(
+          draftStore,
+          userId,
+          body.accountId,
+          body.dividendEventId,
         );
-        if (persistedLedgerEntry) {
-          applyDividendCalculationSnapshotToLedgerEntry(persistedLedgerEntry, activeCalculation);
+        if (activeCalculation) {
+          applyDividendCalculationSnapshotToLedgerEntry(result.dividendLedgerEntry, activeCalculation);
+          const persistedLedgerEntry = draftStore.accounting.facts.dividendLedgerEntries.find(
+            (entry) => entry.id === result.dividendLedgerEntry.id,
+          );
+          if (persistedLedgerEntry) {
+            applyDividendCalculationSnapshotToLedgerEntry(persistedLedgerEntry, activeCalculation);
+          }
         }
-      }
 
-      await app.persistence.savePostedDividend(
-        userId,
-        draftStore.accounting,
-        draftStore.marketData,
-        result.dividendLedgerEntry.id,
-      );
+        let replayedStore: Store | null = null;
+        let replaySummary: Awaited<ReturnType<typeof replayPositionHistory>> | null = null;
+        if (result.positionAction || result.dividendEvent.eventType !== "CASH") {
+          const marketCode = result.positionAction?.marketCode ?? resolveDividendEventMarketCode(result.dividendEvent);
+          const simulation = new MemoryPersistence({ seedCatalog: false, seedDevBypassUser: false });
+          await simulation.saveStore(structuredClone(draftStore));
+          replaySummary = await replayPositionHistory(
+            simulation,
+            userId,
+            result.dividendLedgerEntry.accountId,
+            result.dividendEvent.ticker,
+            { marketCode },
+          );
+          replayedStore = await simulation.loadStore(userId);
+          assertStoreIntegrity(replayedStore);
+        }
+        await writer.savePostedDividend(
+          userId,
+          draftStore.accounting,
+          draftStore.marketData,
+          result.dividendLedgerEntry.id,
+        );
+        if (replayedStore && replaySummary) {
+          const appliedDividendChanges = await writer.saveReplayedPositionScope(userId, replayedStore.accounting, {
+            accountId: result.dividendLedgerEntry.accountId,
+            ticker: result.dividendEvent.ticker,
+            marketCode: result.positionAction?.marketCode ?? resolveDividendEventMarketCode(result.dividendEvent),
+            dividendLedgerChanges: replaySummary.dividendLedgerChanges,
+          });
+          replaySummary = { ...replaySummary, dividendLedgerChanges: appliedDividendChanges };
+        }
+        return { result, replaySummary };
+      });
+      const { result, replaySummary } = committed;
       await app.eventBus.publishEvent(userId, "dividend_posted", {
         dividendLedgerEntryId: result.dividendLedgerEntry.id,
         dividendEventId: result.dividendEvent.id,
         accountId: result.dividendLedgerEntry.accountId,
         version: result.dividendLedgerEntry.version,
       });
-      if (result.positionAction || result.dividendEvent.eventType !== "CASH") {
+      if ((result.positionAction || result.dividendEvent.eventType !== "CASH") && replaySummary) {
         const marketCode = result.positionAction?.marketCode ?? resolveDividendEventMarketCode(result.dividendEvent);
         const actionDate = result.positionAction?.actionDate
           ?? resolveDividendPostingDate(result.dividendEvent.paymentDate, result.dividendLedgerEntry.bookedAt);
-        await replayPositionHistory(app.persistence, userId, result.dividendLedgerEntry.accountId, result.dividendEvent.ticker, {
-          marketCode,
-        });
-        scheduleReplayWithRetry(app.persistence, app.eventBus, userId, result.dividendLedgerEntry.accountId, result.dividendEvent.ticker, {
+        scheduleCommittedReplayFollowUp(app.persistence, app.eventBus, userId, replaySummary, {
           snapshotFromDate: actionDate,
           marketCode,
         });
@@ -8181,54 +8387,66 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
 
   app.post("/corporate-actions", async (req) => {
     const body = corporateActionSchema.parse(req.body);
-    const { userId, store } = await loadUserStore(app, req);
-    assertStoreIntegrity(store);
-    const account = requireAccount(store, body.accountId);
+    const { userId } = resolveUserId(req, app.oauthConfig?.sessionSecret);
+    const result = await app.persistence.withTransactionWriteLock(userId, async (writer) => {
+      const latestStore = await writer.loadStore(userId);
+      const draftStore = structuredClone(latestStore);
+      assertStoreIntegrity(draftStore);
+      requireAccount(draftStore, body.accountId);
+      const id = randomUUID();
+      let preview = null;
+      const responseAction = body.actionType === "DIVIDEND"
+        ? applyCorporateAction(draftStore, { id, ...body })
+        : (() => {
+            const input = {
+              id,
+              accountId: body.accountId,
+              ticker: body.ticker,
+              actionType: body.actionType,
+              numerator: body.numerator,
+              denominator: body.denominator,
+              actionDate: body.actionDate,
+              actionTimestamp: body.actionTimestamp,
+              cashInLieuAmount: body.cashInLieuAmount,
+              cashInLieuCurrency: body.cashInLieuCurrency,
+            };
+            preview = previewPositionAction(draftStore, input);
+            return createPositionAction(draftStore, input);
+          })();
+      const positionAction = draftStore.accounting.facts.positionActions.find((action) => action.id === id);
+      if (!positionAction) throw new Error(`position action ${id} missing before replay`);
 
+      const simulation = new MemoryPersistence({ seedCatalog: false, seedDevBypassUser: false });
+      await simulation.saveStore(structuredClone(draftStore));
+      const replaySummary = await replayPositionHistory(
+        simulation,
+        userId,
+        positionAction.accountId,
+        positionAction.ticker,
+        { marketCode: positionAction.marketCode },
+      );
+      const replayedStore = await simulation.loadStore(userId);
+      assertStoreIntegrity(replayedStore);
+      const appliedDividendChanges = await writer.saveReplayedPositionScope(userId, replayedStore.accounting, {
+        accountId: positionAction.accountId,
+        ticker: positionAction.ticker,
+        marketCode: positionAction.marketCode,
+        newPositionActionId: positionAction.id,
+        dividendLedgerChanges: replaySummary.dividendLedgerChanges,
+      });
+      return {
+        responseAction,
+        positionAction,
+        preview,
+        replaySummary: { ...replaySummary, dividendLedgerChanges: appliedDividendChanges },
+      };
+    });
     if (body.actionType === "DIVIDEND") {
-      const draftStore = structuredClone(store);
-      const action = applyCorporateAction(draftStore, {
-        id: randomUUID(),
-        ...body,
-      });
-      await assertPositionReplayCanApply(draftStore, userId, {
-        accountId: action.accountId,
-        ticker: action.ticker,
-        marketCode: marketCodeFor(account.defaultCurrency),
-      });
-      await app.persistence.saveAccountingStore(draftStore.userId, draftStore.accounting);
-      await replayPositionHistory(app.persistence, userId, action.accountId, action.ticker, {
-        marketCode: marketCodeFor(account.defaultCurrency),
-      });
-      return action;
+      return result.responseAction;
     }
 
-    const id = randomUUID();
-    const input = {
-      id,
-      accountId: body.accountId,
-      ticker: body.ticker,
-      actionType: body.actionType,
-      numerator: body.numerator,
-      denominator: body.denominator,
-      actionDate: body.actionDate,
-      actionTimestamp: body.actionTimestamp,
-      cashInLieuAmount: body.cashInLieuAmount,
-      cashInLieuCurrency: body.cashInLieuCurrency,
-    };
-    const preview = previewPositionAction(store, input);
-    const draftStore = structuredClone(store);
-    const action = createPositionAction(draftStore, input);
-    await assertPositionReplayCanApply(draftStore, userId, {
-      accountId: action.accountId,
-      ticker: action.ticker,
-      marketCode: action.marketCode,
-    });
-    await app.persistence.saveAccountingStore(draftStore.userId, draftStore.accounting);
-    const replaySummary = await replayPositionHistory(app.persistence, userId, action.accountId, action.ticker, {
-      marketCode: action.marketCode,
-    });
-    scheduleReplayWithRetry(app.persistence, app.eventBus, userId, action.accountId, action.ticker, {
+    const action = result.positionAction;
+    scheduleCommittedReplayFollowUp(app.persistence, app.eventBus, userId, result.replaySummary, {
       snapshotFromDate: action.actionDate,
       marketCode: action.marketCode,
     });
@@ -8243,8 +8461,8 @@ export async function registerRoutes(app: FastifyInstance): Promise<void> {
       ...action,
       numerator: action.ratioNumerator,
       denominator: action.ratioDenominator,
-      preview,
-      replaySummary,
+      preview: result.preview,
+      replaySummary: result.replaySummary,
     };
   });
 

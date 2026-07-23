@@ -38,6 +38,7 @@ const primary = (id: string): DividendReviewPrimaryDto => ({
     rowKind: "expected", id, version: 0, accountId: "acc-1", dividendEventId: "event-1",
     ticker: id, tickerName: id, marketCode: "TW", instrumentType: "STOCK", eventType: "CASH",
     exDividendDate: "2026-06-01", paymentDate: "2026-07-01", cashCurrency: "TWD",
+    cashDividendPerShare: 1,
     eligibleQuantity: 1, expectedCashAmount: 1, receivedCashAmount: 0,
     expectedStockQuantity: 0, receivedStockQuantity: 0, postingStatus: "expected",
     cashReconciliationStatus: "open", stockReconciliationStatus: null,

@@ -98,6 +98,16 @@ export function createTransaction(
   userId: string,
   input: CreateTransactionInput,
 ): Transaction {
+  const tx = buildTransactionRecord(store, userId, input);
+  commitPreparedTransaction(store, tx);
+  return tx;
+}
+
+export function buildTransactionRecord(
+  store: Store,
+  userId: string,
+  input: CreateTransactionInput,
+): Transaction {
   const account = store.accounts.find((item) => item.id === input.accountId && item.userId === userId);
   if (!account) throw routeError(404, "account_not_found", "Account not found");
 
@@ -137,7 +147,7 @@ export function createTransaction(
   const commissionAmount = input.commissionAmount ?? suggestedFees.commissionAmount;
   const taxAmount = input.taxAmount ?? suggestedFees.taxAmount;
 
-  const tx: Transaction = {
+  return {
     id: input.id,
     userId,
     accountId: input.accountId,
@@ -160,14 +170,15 @@ export function createTransaction(
     bookedAt: new Date().toISOString(),
     feesSource: input.feesSource ?? (input.commissionAmount !== undefined || input.taxAmount !== undefined ? "MANUAL" : "CALCULATED"),
   };
+}
 
+export function commitPreparedTransaction(store: Store, tx: Transaction): void {
   applyToLots(store, tx);
   appendTradeEvent(store, tx);
   // KZO-167: route through cashLedgerService so the currency-match guard
   // fires on path 1 (initial trade booking) before delegating to
   // appendCashLedgerEntry.
   bookCashLedgerEntry(store, buildTradeSettlementCashEntry(tx));
-  return tx;
 }
 
 function applyToLots(store: Store, tx: Transaction): void {
@@ -559,7 +570,7 @@ function nextBookingSequence(store: Store, accountId: string, tradeDate: string)
   return highestSequence + 1;
 }
 
-function resolveBookingSequence(
+export function resolveBookingSequence(
   store: Store,
   accountId: string,
   tradeDate: string,

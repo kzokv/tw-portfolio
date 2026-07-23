@@ -371,6 +371,10 @@ export function TransactionsClient({
                         priceHint={transactionSubmission.priceHint}
                         showPriceUnavailableHint={transactionSubmission.showPriceUnavailableHint}
                         feeEstimate={transactionSubmission.feeEstimate}
+                        sellAvailability={transactionSubmission.sellAvailability}
+                        sellAvailabilityRequestKey={transactionSubmission.sellAvailabilityRequestKey}
+                        isSellAvailabilityLoading={transactionSubmission.isSellAvailabilityLoading}
+                        sellAvailabilityTransportError={transactionSubmission.sellAvailabilityTransportError}
                       />
                     </Card>
                   );

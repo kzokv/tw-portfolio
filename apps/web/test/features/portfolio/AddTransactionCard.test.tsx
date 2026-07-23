@@ -444,4 +444,170 @@ describe("AddTransactionCard — chip + account-filter render contract", () => {
       taxAmount: undefined,
     });
   });
+
+  it("renders ready sell availability guidance with a Use max action", async () => {
+    function Harness() {
+      const [value, setValue] = useState<TransactionInput>(
+        valueWith({
+          accountId: "acc-tw",
+          ticker: "2330",
+          marketCode: "TW",
+          quantity: 1,
+          unitPrice: 100,
+          tradeDate: "2026-04-30",
+          type: "SELL",
+        }),
+      );
+
+      return (
+        <AddTransactionCard
+          value={value}
+          accountOptions={[TWD_ACCOUNT]}
+          pending={false}
+          onChange={setValue}
+          onSubmit={async () => undefined}
+          dict={dict}
+          locale="en"
+          framed={false}
+          priceHint={null}
+          showPriceUnavailableHint={false}
+        feeEstimate={null}
+        sellAvailability={{
+          status: "ready",
+          accountId: "acc-tw",
+          ticker: "2330",
+          marketCode: "TW",
+          tradeDate: "2026-04-30",
+          availableQuantity: 17,
+        }}
+        sellAvailabilityRequestKey="acc-tw|2330|TW|2026-04-30"
+      />
+      );
+    }
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    await act(async () => {
+      root!.render(<Harness />);
+    });
+
+    expect(container.textContent).toContain("Available to sell: 17");
+    expect((container.querySelector('[data-testid="tx-quantity-input"]') as HTMLInputElement | null)?.max).toBe("17");
+
+    await act(async () => {
+      container!.querySelector<HTMLButtonElement>('[data-testid="sell-availability-use-max"]')?.click();
+    });
+
+    expect((container.querySelector('[data-testid="tx-quantity-input"]') as HTMLInputElement | null)?.value).toBe("17");
+  });
+
+  it("disables SELL submit while sell availability is loading", () => {
+    const html = renderToStaticMarkup(
+      <AddTransactionCard
+        value={valueWith({
+          accountId: "acc-tw",
+          ticker: "2330",
+          marketCode: "TW",
+          quantity: 2,
+          unitPrice: 50,
+          tradeDate: "2026-04-30",
+          type: "SELL",
+        })}
+        accountOptions={[TWD_ACCOUNT]}
+        pending={false}
+        onChange={() => undefined}
+        onSubmit={async () => undefined}
+        dict={dict}
+        locale="en"
+        framed={false}
+        priceHint={null}
+        showPriceUnavailableHint={false}
+        feeEstimate={null}
+        isSellAvailabilityLoading
+      />,
+    );
+
+    expect(html).toContain('data-testid="sell-availability-loading"');
+    expect(html).toContain("disabled");
+  });
+
+  it("disables Use max and submit when sell availability is zero", () => {
+    container = document.createElement("div");
+    container.innerHTML = renderToStaticMarkup(
+      <AddTransactionCard
+        value={valueWith({
+          accountId: "acc-tw",
+          ticker: "2330",
+          marketCode: "TW",
+          quantity: 1,
+          unitPrice: 50,
+          tradeDate: "2026-04-30",
+          type: "SELL",
+        })}
+        accountOptions={[TWD_ACCOUNT]}
+        pending={false}
+        onChange={() => undefined}
+        onSubmit={async () => undefined}
+        dict={dict}
+        locale="en"
+        framed={false}
+        priceHint={null}
+        showPriceUnavailableHint={false}
+        feeEstimate={null}
+        sellAvailability={{
+          status: "ready",
+          accountId: "acc-tw",
+          ticker: "2330",
+          marketCode: "TW",
+          tradeDate: "2026-04-30",
+          availableQuantity: 0,
+        }}
+        sellAvailabilityRequestKey="acc-tw|2330|TW|2026-04-30"
+      />,
+    );
+
+    expect(container.querySelector<HTMLButtonElement>('[data-testid="sell-availability-use-max"]')?.disabled).toBe(true);
+    expect(container.querySelector<HTMLButtonElement>('[data-testid="tx-submit-button"]')?.disabled).toBe(true);
+    expect(container.querySelector<HTMLInputElement>('[data-testid="tx-quantity-input"]')?.value).toBe("1");
+  });
+
+  it("shows an inline oversell error and blocks submit when quantity exceeds known availability", () => {
+    const html = renderToStaticMarkup(
+      <AddTransactionCard
+        value={valueWith({
+          accountId: "acc-tw",
+          ticker: "2330",
+          marketCode: "TW",
+          quantity: 12,
+          unitPrice: 50,
+          tradeDate: "2026-04-30",
+          type: "SELL",
+        })}
+        accountOptions={[TWD_ACCOUNT]}
+        pending={false}
+        onChange={() => undefined}
+        onSubmit={async () => undefined}
+        dict={dict}
+        locale="en"
+        framed={false}
+        priceHint={null}
+        showPriceUnavailableHint={false}
+        feeEstimate={null}
+        sellAvailability={{
+          status: "ready",
+          accountId: "acc-tw",
+          ticker: "2330",
+          marketCode: "TW",
+          tradeDate: "2026-04-30",
+          availableQuantity: 5,
+        }}
+        sellAvailabilityRequestKey="acc-tw|2330|TW|2026-04-30"
+      />,
+    );
+
+    expect(html).toContain('data-testid="sell-availability-oversell"');
+    expect(html).toContain("Requested 12 exceeds available quantity 5.");
+    expect(html).toContain("disabled");
+  });
 });

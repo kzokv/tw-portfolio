@@ -7,6 +7,7 @@ import {
   defaultHoldingsSelectionPreference,
   fetchHoldingsSelectionUniverseTickerIds,
   fetchHoldingsPreferences,
+  noneHoldingsSelectionPreference,
   persistHoldingsSelectionPreference,
 } from "./holdingsPreferenceHelpers";
 
@@ -55,7 +56,7 @@ async function ensureSelectionHydrated(force = false): Promise<HoldingsSelection
 function normalizeSelectionForPersist(tickerIds: string[]): HoldingsSelectionPreferenceDto {
   const dedupedTickerIds = [...new Set(tickerIds)].sort((left, right) => left.localeCompare(right));
   if (dedupedTickerIds.length === 0) {
-    return defaultHoldingsSelectionPreference();
+    return noneHoldingsSelectionPreference();
   }
   return {
     version: 1,
@@ -66,6 +67,14 @@ function normalizeSelectionForPersist(tickerIds: string[]): HoldingsSelectionPre
 
 function buildTickerIdSet(selection: HoldingsSelectionPreferenceDto): Set<string> {
   return new Set(selection.mode === "custom" ? selection.tickerIds ?? [] : []);
+}
+
+function isAllMode(selection: HoldingsSelectionPreferenceDto): boolean {
+  return selection.mode === "all";
+}
+
+function isRestrictiveMode(selection: HoldingsSelectionPreferenceDto): boolean {
+  return selection.mode !== "all";
 }
 
 export function useHoldingsSelection(universe: HoldingsSelectionUniverseItem[]) {
@@ -116,10 +125,10 @@ export function useHoldingsSelection(universe: HoldingsSelectionUniverseItem[]) 
     [selectedTickerIds, universeTickerIdSet],
   );
   const availableSelectedTickerIds = useMemo(
-    () => selection.mode === "all"
+    () => isAllMode(selection)
       ? []
       : selectedTickerIds.filter((tickerId) => universeTickerIdSet.has(tickerId)),
-    [selection.mode, selectedTickerIds, universeTickerIdSet],
+    [selection, selectedTickerIds, universeTickerIdSet],
   );
 
   function commit(nextSelection: HoldingsSelectionPreferenceDto): void {
@@ -138,12 +147,16 @@ export function useHoldingsSelection(universe: HoldingsSelectionUniverseItem[]) 
     commit(defaultHoldingsSelectionPreference());
   }
 
+  function setNone(): void {
+    commit(noneHoldingsSelectionPreference());
+  }
+
   function setCustomTickerIds(nextTickerIds: string[]): void {
     commit(normalizeSelectionForPersist(nextTickerIds));
   }
 
   function toggleTicker(tickerId: string): void {
-    if (selection.mode === "all") {
+    if (isAllMode(selection)) {
       void fetchHoldingsSelectionUniverseTickerIds()
         .then((fullUniverseTickerIds) => {
           const materializedTickerIds = [...new Set([...fullUniverseTickerIds, ...universeTickerIds])];
@@ -172,7 +185,8 @@ export function useHoldingsSelection(universe: HoldingsSelectionUniverseItem[]) 
 
   return {
     isHydrated,
-    isAllSelected: selection.mode === "all",
+    isAllSelected: isAllMode(selection),
+    isNoneSelected: selection.mode === "none",
     selectionMode: selection.mode,
     selectedTickerIds,
     selectedTickerIdSet,
@@ -182,12 +196,14 @@ export function useHoldingsSelection(universe: HoldingsSelectionUniverseItem[]) 
     universeItems,
     universeTickerIds,
     universeTickerIdSet,
-    isTickerSelected: (tickerId: string) => selection.mode === "all"
+    isTickerSelected: (tickerId: string) => isAllMode(selection)
       ? universeTickerIdSet.has(tickerId)
       : selectedTickerIdSet.has(tickerId),
     setAll,
+    setNone,
     setCustomTickerIds,
     toggleTicker,
     removeTicker,
+    hasRestrictiveSelection: isRestrictiveMode(selection),
   };
 }

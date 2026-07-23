@@ -1,3 +1,7 @@
+import type {
+  DividendCashReconciliationStatus,
+  DividendStockReconciliationStatus,
+} from "@vakwen/shared-types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../lib/api", () => ({
@@ -57,7 +61,7 @@ describe("dividendService calendar snapshot", () => {
     });
 
     await fetchDividendLedgerReview({
-      ticker: "BHP",
+      tickers: ["BHP"],
       marketCode: "AU",
       page: 1,
       limit: 25,
@@ -91,10 +95,11 @@ describe("dividendService calendar snapshot", () => {
     const query = {
       fromPaymentDate: "2026-01-01",
       toPaymentDate: "2026-12-31",
+      accountIds: ["acc-1", "acc-2"],
       tickers: ["2886", "3714"],
       sourceComposition: "pending" as const,
-      cashStatus: "explained" as const,
-      stockStatus: "variance" as const,
+      cashStatuses: ["explained", "matched"] satisfies DividendCashReconciliationStatus[],
+      stockStatuses: ["variance", "pending_receipt"] satisfies DividendStockReconciliationStatus[],
       sortBy: "varianceAmount" as const,
       sortOrder: "asc" as const,
       page: 2,
@@ -105,12 +110,12 @@ describe("dividendService calendar snapshot", () => {
 
     expect(getJson).toHaveBeenNthCalledWith(
       1,
-      "/portfolio/dividends/review/primary?fromPaymentDate=2026-01-01&toPaymentDate=2026-12-31&ticker=2886&ticker=3714&cashStatus=explained&stockStatus=variance&sourceComposition=pending&sortBy=varianceAmount&sortOrder=asc&page=2&limit=25",
+      "/portfolio/dividends/review/primary?fromPaymentDate=2026-01-01&toPaymentDate=2026-12-31&accountId=acc-1&accountId=acc-2&ticker=2886&ticker=3714&cashStatus=explained&cashStatus=matched&stockStatus=variance&stockStatus=pending_receipt&sourceComposition=pending&sortBy=varianceAmount&sortOrder=asc&page=2&limit=25",
       { signal },
     );
     expect(getJson).toHaveBeenNthCalledWith(
       2,
-      "/portfolio/dividends/review/enrichment?fromPaymentDate=2026-01-01&toPaymentDate=2026-12-31&ticker=2886&ticker=3714&cashStatus=explained&stockStatus=variance&sourceComposition=pending",
+      "/portfolio/dividends/review/enrichment?fromPaymentDate=2026-01-01&toPaymentDate=2026-12-31&accountId=acc-1&accountId=acc-2&ticker=2886&ticker=3714&cashStatus=explained&cashStatus=matched&stockStatus=variance&stockStatus=pending_receipt&sourceComposition=pending",
       { signal },
     );
   });

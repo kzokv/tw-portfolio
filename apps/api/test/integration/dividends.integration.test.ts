@@ -158,6 +158,21 @@ describe("dividends", () => {
       }),
     );
 
+    const reviewResponse = await app.inject({
+      method: "GET",
+      url: "/portfolio/dividends/review/primary?ticker=2330&limit=10",
+    });
+    expect(reviewResponse.statusCode).toBe(200);
+    expect(reviewResponse.json()).toMatchObject({
+      reviewRows: [
+        expect.objectContaining({
+          id: posting.dividendLedgerEntry.id,
+          ticker: "2330",
+          cashDividendPerShare: 12,
+        }),
+      ],
+    });
+
     const store = await app.persistence.loadStore("user-1");
     expect(store.accounting.facts.dividendDeductionEntries).toEqual([
       expect.objectContaining({
@@ -1738,16 +1753,11 @@ describe("dividends", () => {
       }),
     );
 
-    // POST /portfolio/transactions fires scheduleReplayWithRetry after
-    // KZO-37 Invariant 5, so the event bus sees recompute_complete from the
-    // seed buy before the dividend lifecycle events. Filter for dividend
-    // events only — their relative order is the load-bearing contract.
+    // The seed transaction commits its replay synchronously, before this
+    // dividend exists. Only the posting and amendment lifecycle events belong
+    // to this operation; their relative order is the load-bearing contract.
     const dividendOnly = events.filter((event) => event.type.startsWith("dividend_"));
-    expect(dividendOnly.map((event) => event.type)).toEqual([
-      "dividend_updated",
-      "dividend_posted",
-      "dividend_updated",
-    ]);
+    expect(dividendOnly.map((event) => event.type)).toEqual(["dividend_posted", "dividend_updated"]);
   });
 
   it("posts stock dividends through the non-cash holdings path, amends before sells, and reverses/replaces after sells", async () => {
