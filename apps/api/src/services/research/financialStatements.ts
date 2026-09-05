@@ -814,6 +814,13 @@ export function validateResearchFinancialStatementRecord(
   record: ResearchFinancialStatementRecord,
 ): void {
   validatePeriodicity(record);
+  if (
+    !Number.isInteger(record.fiscalPeriod.fiscalYear)
+    || record.fiscalPeriod.fiscalYear < 1900
+    || record.fiscalPeriod.fiscalYear > 9999
+  ) {
+    throw invalidResearchFinancialStatementRecord("fiscalYear must be an integer between 1900 and 9999");
+  }
   if (!isIsoDate(record.fiscalPeriod.periodStart) || !isIsoDate(record.fiscalPeriod.periodEnd)) {
     throw invalidResearchFinancialStatementRecord("fiscal period dates must be ISO dates");
   }

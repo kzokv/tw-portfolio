@@ -206,6 +206,14 @@ function makeRecord(overrides: Partial<ResearchFinancialStatementRecord> = {}): 
 }
 
 describe("research financial statements", () => {
+  it.each([1899, 10_000, 2026.5])("record validation rejects non-canonical fiscal year %s", (fiscalYear) => {
+    const record = makeRecord();
+    record.fiscalPeriod.fiscalYear = fiscalYear;
+
+    expect(() => validateResearchFinancialStatementRecord(record))
+      .toThrow(/fiscalYear must be an integer between 1900 and 9999/);
+  });
+
   it("processing identity changes with the canonical parser version", () => {
     expect(researchFinancialStatementProcessingId("sha256:same", "research-financial-statements-parser/1.0.1"))
       .not.toBe(researchFinancialStatementProcessingId("sha256:same", "research-financial-statements-parser/1.0.2"));

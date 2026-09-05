@@ -1209,7 +1209,6 @@ function qualityStateForRecord(
     }
   })();
   const matched = facts.filter((fact) => {
-    if (recordMatched) return true;
     switch (kind) {
       case "taxonomyChanges":
         return fact.ambiguityFlags.includes("taxonomy_change");

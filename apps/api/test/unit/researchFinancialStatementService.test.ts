@@ -1792,6 +1792,53 @@ describe("research financial-statement service", () => {
     ]);
   });
 
+  it("keeps record quality present without attributing an unselected statement flag to healthy facts", async () => {
+    const persistence = new MemoryPersistence();
+    const identity = makeIdentity();
+    await persistence.appendResearchIdentityRecords([identity]);
+    const record = makeQuarterRecord(identity, 2026, 2, { revenue: "60" }, {
+      ambiguityFlags: ["unknown_unit"],
+    });
+    record.statements.push({
+      kind: "sector_extension",
+      facts: [normalizeResearchFinancialStatementFact({
+        listingId: identity.listing.id,
+        issuerId: identity.issuer.id,
+        filingId: record.publicationContext.filingId,
+        revisionId: record.publicationContext.revisionId,
+        statementKind: "sector_extension",
+        concept: { qname: "vakwen:SectorDisclosure", label: "Sector disclosure" },
+        metric: { state: "unmapped", reason: "no_core_metric_mapping" },
+        contextId: "sector-disclosure",
+        period: { kind: "duration", startAt: "2026-04-01T00:00:00.000Z", endAt: "2026-06-30T23:59:59.999Z" },
+        valueKind: "discrete",
+        rawValue: "disclosure",
+        unit: { state: "unknown", rawUnitId: "mystery" },
+      })],
+    });
+    await persistence.appendResearchFinancialStatementRecords([record]);
+
+    const result = await getFinancialStatements(persistence, {
+      subject: { kind: "listing_id", listingId: identity.listing.id },
+      context: {
+        knowledgeAt: "2026-09-01T00:00:00.000Z",
+        effectiveAt: "2026-09-01T00:00:00.000Z",
+        assessmentMode: "effective",
+      },
+      periodicity: "quarterly",
+      range: { kind: "latest_periods", count: 1 },
+      statements: ["income"],
+      derivedMetrics: [],
+    });
+
+    expect(result.periods[0]?.sourceFacts).toHaveLength(1);
+    expect(result.periods[0]?.quality.unknownUnits).toEqual({
+      status: "present",
+      reasonCodes: ["unknownUnits"],
+      observationIds: [],
+    });
+  });
+
   it("returns derived metrics on every page and rejects bound-cursor mutations", async () => {
     const persistence = new MemoryPersistence();
     const identity = makeIdentity();
