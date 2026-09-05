@@ -547,11 +547,11 @@ function extractXbrlFacts(
   candidates.sort((left, right) => left.offset - right.offset);
   const namespaceMaps = namespaceMapsAtElementOffsets(content, candidates);
   const facts = candidates.flatMap((candidate) => {
-    const rawValue = stripMarkup(candidate.value);
+    const localName = candidate.qname.includes(":") ? candidate.qname.slice(candidate.qname.indexOf(":") + 1) : candidate.qname;
     const numeric = candidate.attributes.unitRef !== undefined
       || candidate.attributes.decimals !== undefined
       || candidate.attributes.precision !== undefined
-      || /^[+-]?(?:\d+(?:[.,]\d+)?|[.,]\d+)$/.test(rawValue.replaceAll(/[\s,](?=\d{3}(?:\D|$))/g, ""));
+      || KNOWN_STATEMENT_ROLE_BY_CONCEPT.has(localName);
     const fact = buildFactRecord(
       candidate.qname,
       candidate.attributes,

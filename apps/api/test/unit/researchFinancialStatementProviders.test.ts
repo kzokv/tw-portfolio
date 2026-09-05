@@ -294,6 +294,7 @@ describe("MOPS XBRL provider parser", () => {
         <xbrli:unit id="twd"><xbrli:measure>iso4217:TWD</xbrli:measure></xbrli:unit>
         <ifrs-full:Revenue contextRef="duration" unitRef="twd">60</ifrs-full:Revenue>
         <custom:NarrativeDisclosure contextRef="duration">Management expects growth</custom:NarrativeDisclosure>
+        <custom:CompanyIdentifier contextRef="duration">22099131</custom:CompanyIdentifier>
       </xbrli:xbrl>`,
       xbrlDescriptor,
       { retrievedAt: "2026-08-15T00:00:00.000Z", acquisitionRunId: "plain-text-fact-test" },
@@ -301,6 +302,8 @@ describe("MOPS XBRL provider parser", () => {
 
     expect(artifact.facts.find((fact) => fact.concept.localName === "NarrativeDisclosure"))
       .toMatchObject({ inlineType: "nonNumeric", statementRole: "notes", normalizedValue: "Management expects growth" });
+    expect(artifact.facts.find((fact) => fact.concept.localName === "CompanyIdentifier"))
+      .toMatchObject({ inlineType: "nonNumeric", statementRole: "notes", normalizedValue: "22099131" });
     expect(artifact.issues.unknownUnitIds).toEqual([]);
   });
 
