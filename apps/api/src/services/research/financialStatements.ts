@@ -861,6 +861,9 @@ export function validateResearchFinancialStatementRecord(
     sectionKinds.add(section.kind);
     const factIds = new Set<string>();
     for (const fact of section.facts) {
+      if (fact.id.length > 120 || !/^[0-9A-Za-z_-]+$/.test(fact.id)) {
+        throw invalidResearchFinancialStatementRecord(`fact id ${fact.id} must be a canonical identifier`);
+      }
       if (
         fact.listingId !== record.listingId
         || fact.issuerId !== record.issuerId

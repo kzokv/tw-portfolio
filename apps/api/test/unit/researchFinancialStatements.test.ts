@@ -555,6 +555,14 @@ describe("research financial statements", () => {
     expect(() => validateResearchFinancialStatementRecord(record)).toThrow(/duplicate fact id/);
   });
 
+  it.each(["bad:id", "a".repeat(121)])("record validation rejects non-canonical fact id %s", (factId) => {
+    const record = makeRecord();
+    record.statements[0]!.facts[0]!.id = factId;
+
+    expect(() => validateResearchFinancialStatementRecord(record))
+      .toThrow(/fact id .* must be a canonical identifier/);
+  });
+
   it("latest revision selection follows explicit publication and revision sequence instead of retrieval order", () => {
     const original = makeRecord();
     const amendment = makeRecord({
