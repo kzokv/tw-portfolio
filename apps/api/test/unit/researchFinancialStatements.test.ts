@@ -358,6 +358,14 @@ describe("research financial statements", () => {
     });
   });
 
+  it("record validation rejects revision publication before original publication", () => {
+    const record = makeRecord();
+    record.publicationContext.revisionPublishedAt = "2026-08-13T10:00:00.000Z";
+
+    expect(() => validateResearchFinancialStatementRecord(record))
+      .toThrow(/revisionPublishedAt must be at or after publishedAt/);
+  });
+
   it("raw artifact materialization: preserves artifact-wide unit and mapping flags", () => {
     const artifact = makeRawArtifact([makeRawRevenueFact()]);
     artifact.issues = {
@@ -569,6 +577,22 @@ describe("research financial statements", () => {
 
     expect(() => validateResearchFinancialStatementRecord(record))
       .toThrow(/provenance id .* must be a canonical identifier/);
+  });
+
+  it.each(["", "a".repeat(121)])("record validation rejects unreadable filing id %s", (filingId) => {
+    const record = makeRecord();
+    record.publicationContext.filingId = filingId;
+
+    expect(() => validateResearchFinancialStatementRecord(record))
+      .toThrow(/filing id must be non-empty and fit its canonical output form/);
+  });
+
+  it.each(["", "a".repeat(121)])("record validation rejects out-of-bounds revision id %s", (revisionId) => {
+    const record = makeRecord();
+    record.publicationContext.revisionId = revisionId;
+
+    expect(() => validateResearchFinancialStatementRecord(record))
+      .toThrow(/revision id must contain between 1 and 120 characters/);
   });
 
   it("latest revision selection follows explicit publication and revision sequence instead of retrieval order", () => {

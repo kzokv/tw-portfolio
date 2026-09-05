@@ -840,6 +840,12 @@ export function validateResearchFinancialStatementRecord(
   ) {
     throw invalidResearchFinancialStatementRecord("revisionPublishedAt must be an ISO datetime when present");
   }
+  if (
+    record.publicationContext.revisionPublishedAt !== null
+    && Date.parse(record.publicationContext.revisionPublishedAt) < Date.parse(record.publicationContext.publishedAt)
+  ) {
+    throw invalidResearchFinancialStatementRecord("revisionPublishedAt must be at or after publishedAt");
+  }
   if (!isTimestamp(record.provenance.processedAt)) {
     throw invalidResearchFinancialStatementRecord("processedAt must be an ISO datetime");
   }
@@ -859,6 +865,18 @@ export function validateResearchFinancialStatementRecord(
   }
   if (!record.publicationContext.processingId) {
     throw invalidResearchFinancialStatementRecord("processing revision identity must be present");
+  }
+  if (
+    record.publicationContext.filingId.length === 0
+    || (/^[0-9A-Za-z_-]+$/.test(record.publicationContext.filingId) && record.publicationContext.filingId.length > 120)
+  ) {
+    throw invalidResearchFinancialStatementRecord("filing id must be non-empty and fit its canonical output form");
+  }
+  if (
+    record.publicationContext.revisionId.length === 0
+    || record.publicationContext.revisionId.length > 120
+  ) {
+    throw invalidResearchFinancialStatementRecord("revision id must contain between 1 and 120 characters");
   }
   const sectionKinds = new Set<ResearchFinancialStatementKind>();
   for (const section of record.statements) {
