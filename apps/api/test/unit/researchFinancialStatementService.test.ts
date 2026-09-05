@@ -318,11 +318,11 @@ describe("research financial-statement service", () => {
 
     expect(result.confidence).toEqual({
       status: "mixed",
-      reasonCodes: ["taxonomy_change", "unmapped_concept", "unknown_unit"],
+      reasonCodes: ["taxonomy_change", "unmapped_concept", "unknown_unit", "missing_requested_facts"],
     });
     expect(result.readiness).toEqual({
       status: "usable_with_gaps",
-      reasonCodes: ["taxonomy_change", "unmapped_concept", "unknown_unit"],
+      reasonCodes: ["taxonomy_change", "unmapped_concept", "unknown_unit", "missing_requested_facts"],
     });
   });
 
@@ -1386,6 +1386,45 @@ describe("research financial-statement service", () => {
     expect(secondPage.coverage).toEqual(firstPage.coverage);
   });
 
+  it("partial period coverage degrades top-level readiness", async () => {
+    const persistence = new MemoryPersistence();
+    const identity = makeIdentity();
+    await persistence.appendResearchIdentityRecords([identity]);
+    await persistence.appendResearchFinancialStatementRecords([
+      makeQuarterRecord(identity, 2026, 2, {
+        revenue: "100",
+        gross_profit: "40",
+        operating_income: "30",
+        net_income: "20",
+        assets: "500",
+        liabilities: "200",
+        equity: "300",
+        current_assets: "150",
+        current_liabilities: "75",
+        cash_and_cash_equivalents: "50",
+        interest_bearing_debt: "80",
+        operating_cash_flow: "35",
+        investing_cash_flow: "-10",
+        capital_expenditure: "8",
+      }),
+    ]);
+
+    const result = await getFinancialStatements(persistence, {
+      subject: { kind: "listing_id", listingId: identity.listing.id },
+      context: {
+        knowledgeAt: "2026-09-01T00:00:00.000Z",
+        effectiveAt: "2026-09-01T00:00:00.000Z",
+        assessmentMode: "effective",
+      },
+      periodicity: "quarterly",
+      range: { kind: "latest_periods", count: 2 },
+      derivedMetrics: [],
+    });
+
+    expect(result.coverage.status).toBe("partial");
+    expect(result.readiness).toEqual({ status: "usable_with_gaps", reasonCodes: ["partial_coverage"] });
+  });
+
   it("source fact auditability: exposes raw and normalized values with transformation metadata", async () => {
     const persistence = new MemoryPersistence();
     const identity = makeIdentity();
@@ -1678,6 +1717,10 @@ describe("research financial-statement service", () => {
       status: "partial",
       missingFactCount: 3,
     });
+    expect(result.readiness).toMatchObject({
+      status: "usable_with_gaps",
+      reasonCodes: expect.arrayContaining(["missing_requested_facts"]),
+    });
     expect(result.periods[0]?.sourceFacts.some((fact) => fact.observationId === comparativeGrossProfit.id)).toBe(true);
   });
 
@@ -1780,11 +1823,11 @@ describe("research financial-statement service", () => {
     expect(result.periods[0]?.quality.unknownUnits.status).toBe("present");
     expect(result.confidence).toEqual({
       status: "mixed",
-      reasonCodes: ["unmapped_concept", "unknown_unit"],
+      reasonCodes: ["unmapped_concept", "unknown_unit", "missing_requested_facts", "missing_inputs"],
     });
     expect(result.readiness).toEqual({
       status: "usable_with_gaps",
-      reasonCodes: ["unmapped_concept", "unknown_unit"],
+      reasonCodes: ["unmapped_concept", "unknown_unit", "missing_requested_facts", "missing_inputs"],
     });
     expect(result.periods[0]?.sourceFacts.some((fact) => fact.value.normalized.state === "present" && fact.value.normalized.value === "0")).toBe(false);
     expect(result.derivedOutcomes).toEqual([

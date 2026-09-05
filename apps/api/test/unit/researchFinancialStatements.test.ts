@@ -563,6 +563,14 @@ describe("research financial statements", () => {
       .toThrow(/fact id .* must be a canonical identifier/);
   });
 
+  it.each(["bad:id", "a".repeat(121)])("record validation rejects non-canonical provenance id %s", (provenanceId) => {
+    const record = makeRecord();
+    record.provenance.id = provenanceId;
+
+    expect(() => validateResearchFinancialStatementRecord(record))
+      .toThrow(/provenance id .* must be a canonical identifier/);
+  });
+
   it("latest revision selection follows explicit publication and revision sequence instead of retrieval order", () => {
     const original = makeRecord();
     const amendment = makeRecord({

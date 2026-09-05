@@ -1985,6 +1985,9 @@ export async function getFinancialStatements(
     ]),
     ...gaps.map((gap) => gap.code),
     ...conflicts.map((conflict) => conflict.code),
+    ...(outputRange.length > 0 && outputRange.length < financialStatementsRangeRequestedCount(query) ? ["partial_coverage"] : []),
+    ...(missingFactCount > 0 ? ["missing_requested_facts"] : []),
+    ...derivedOutcomes.filter((outcome) => outcome.status !== "returned").map((outcome) => outcome.reasonCode),
   ], (value) => value);
   return researchFinancialStatementsOutputSchema.parse({
     contractVersion: RESEARCH_FINANCIAL_STATEMENTS_CONTRACT_VERSION,

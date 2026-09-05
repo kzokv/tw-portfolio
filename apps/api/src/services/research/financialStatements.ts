@@ -195,6 +195,10 @@ function opaqueId(prefix: string, ...parts: string[]): string {
   return `${prefix}_${createHash("sha256").update(parts.join("\u001f")).digest("hex").slice(0, 32)}`;
 }
 
+function isCanonicalIdentifier(value: string): boolean {
+  return value.length <= 120 && /^[0-9A-Za-z_-]+$/.test(value);
+}
+
 function isIsoDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const date = new Date(`${value}T00:00:00.000Z`);
@@ -842,6 +846,9 @@ export function validateResearchFinancialStatementRecord(
   if (Date.parse(record.provenance.processedAt) < Date.parse(record.provenance.retrievedAt)) {
     throw invalidResearchFinancialStatementRecord("processedAt must be at or after retrievedAt");
   }
+  if (!isCanonicalIdentifier(record.provenance.id)) {
+    throw invalidResearchFinancialStatementRecord(`provenance id ${record.provenance.id} must be a canonical identifier`);
+  }
   const publicationSequences = [
     record.publicationContext.filingSequence,
     record.publicationContext.revisionSequence,
@@ -861,7 +868,7 @@ export function validateResearchFinancialStatementRecord(
     sectionKinds.add(section.kind);
     const factIds = new Set<string>();
     for (const fact of section.facts) {
-      if (fact.id.length > 120 || !/^[0-9A-Za-z_-]+$/.test(fact.id)) {
+      if (!isCanonicalIdentifier(fact.id)) {
         throw invalidResearchFinancialStatementRecord(`fact id ${fact.id} must be a canonical identifier`);
       }
       if (
