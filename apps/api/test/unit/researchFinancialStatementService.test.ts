@@ -60,6 +60,10 @@ function makeRecord(overrides: Partial<ResearchFinancialStatementRecord> = {}): 
   const revisionId = overrides.publicationContext?.revisionId ?? "mops-2026q2:r0";
   const listingId = overrides.listingId ?? "lst_2330";
   const issuerId = overrides.issuerId ?? "iss_2330";
+  const publishedAt = overrides.publicationContext?.publishedAt ?? "2026-08-14T10:00:00.000Z";
+  const effectivePublicationTimestamp = overrides.publicationContext?.revisionPublishedAt ?? publishedAt;
+  const retrievedAt = new Date(Date.parse(effectivePublicationTimestamp) + 60 * 60 * 1_000).toISOString();
+  const processedAt = new Date(Date.parse(retrievedAt) + 5 * 60 * 1_000).toISOString();
   return {
     listingId,
     issuerId,
@@ -76,7 +80,7 @@ function makeRecord(overrides: Partial<ResearchFinancialStatementRecord> = {}): 
     publicationContext: {
       filingId,
       revisionId,
-      publishedAt: "2026-08-14T10:00:00.000Z",
+      publishedAt,
       revisionPublishedAt: null,
       filingSequence: 1,
       revisionSequence: 0,
@@ -104,8 +108,8 @@ function makeRecord(overrides: Partial<ResearchFinancialStatementRecord> = {}): 
       contentHash: `sha256:${filingId}`,
       acquisitionPath: "scheduled_official_snapshot",
       acquisitionRunId: `run-${filingId}`,
-      retrievedAt: "2026-08-14T11:00:00.000Z",
-      processedAt: "2026-08-14T11:05:00.000Z",
+      retrievedAt,
+      processedAt,
       parserVersion: "research-financial-statements-parser/1.0.0",
       taxonomyVersion: "ifrs-full-2026",
       usagePolicyVersion: "taiwan-open-data/1.0.0",
@@ -579,7 +583,7 @@ describe("research financial-statement service", () => {
     });
 
     expect(result.derivedOutcomes).toEqual([
-      expect.objectContaining({ status: "returned", metricId: "reconstructed_discrete_quarter", value: "40" }),
+      expect.objectContaining({ status: "withheld", metricId: "reconstructed_discrete_quarter", reasonCode: "missing_inputs" }),
     ]);
   });
 
@@ -694,7 +698,7 @@ describe("research financial-statement service", () => {
     ]);
   });
 
-  it("first-quarter change: compares Q1 with the prior-year Q4", async () => {
+  it("first-quarter change: withholds prior-year Q4 evidence outside the returned range", async () => {
     const persistence = new MemoryPersistence();
     const identity = makeIdentity();
     await persistence.appendResearchIdentityRecords([identity]);
@@ -716,7 +720,11 @@ describe("research financial-statement service", () => {
     });
 
     expect(result.derivedOutcomes).toEqual([
-      expect.objectContaining({ status: "returned", metricId: "period_over_period_change", value: "0.25" }),
+      expect.objectContaining({
+        status: "withheld",
+        metricId: "period_over_period_change",
+        reasonCode: "missing_inputs",
+      }),
     ]);
   });
 
@@ -1066,8 +1074,8 @@ describe("research financial-statement service", () => {
     expect(result.periods[0]?.sourceFacts.some((fact) => fact.value.normalized.state === "present" && fact.value.normalized.value === "0")).toBe(false);
     expect(result.derivedOutcomes).toEqual([
       expect.objectContaining({ status: "returned", metricId: "gross_margin", value: "0.4" }),
-      expect.objectContaining({ status: "returned", metricId: "current_ratio", value: "2" }),
-      expect.objectContaining({ status: "returned", metricId: "free_cash_flow", value: "15" }),
+      expect.objectContaining({ status: "withheld", metricId: "current_ratio", reasonCode: "missing_inputs" }),
+      expect.objectContaining({ status: "withheld", metricId: "free_cash_flow", reasonCode: "missing_inputs" }),
     ]);
     expect(appendIdentitySpy).not.toHaveBeenCalled();
     expect(appendStatementsSpy).not.toHaveBeenCalled();
@@ -1159,20 +1167,20 @@ describe("research financial-statement service", () => {
     expect(result.periods).toHaveLength(1);
     expect(result.periods[0]).toMatchObject({ fiscalYear: 2026, fiscalQuarter: 2 });
     expect(result.derivedOutcomes).toEqual([
-      expect.objectContaining({ status: "returned", metricId: "reconstructed_discrete_quarter", value: "32" }),
-      expect.objectContaining({ status: "returned", metricId: "trailing_twelve_month", value: "135" }),
-      expect.objectContaining({ status: "returned", metricId: "period_over_period_change", value: "0.142857" }),
-      expect.objectContaining({ status: "returned", metricId: "gross_margin", value: "0.4" }),
-      expect.objectContaining({ status: "returned", metricId: "operating_margin", value: "0.3" }),
-      expect.objectContaining({ status: "returned", metricId: "net_margin", value: "0.2" }),
+      expect.objectContaining({ status: "withheld", metricId: "reconstructed_discrete_quarter", reasonCode: "missing_inputs" }),
+      expect.objectContaining({ status: "withheld", metricId: "trailing_twelve_month", reasonCode: "missing_inputs" }),
+      expect.objectContaining({ status: "withheld", metricId: "period_over_period_change", reasonCode: "missing_inputs" }),
+      expect.objectContaining({ status: "withheld", metricId: "gross_margin", reasonCode: "missing_inputs" }),
+      expect.objectContaining({ status: "withheld", metricId: "operating_margin", reasonCode: "missing_inputs" }),
+      expect.objectContaining({ status: "withheld", metricId: "net_margin", reasonCode: "missing_inputs" }),
       expect.objectContaining({ status: "returned", metricId: "debt_to_equity", value: "0.495238" }),
       expect.objectContaining({ status: "returned", metricId: "current_ratio", value: "2" }),
-      expect.objectContaining({ status: "returned", metricId: "free_cash_flow", value: "5" }),
-      expect.objectContaining({ status: "returned", metricId: "return_on_equity", value: "0.064" }),
-      expect.objectContaining({ status: "returned", metricId: "return_on_assets", value: "0.032" }),
+      expect.objectContaining({ status: "withheld", metricId: "free_cash_flow", reasonCode: "missing_inputs" }),
+      expect.objectContaining({ status: "withheld", metricId: "return_on_equity", reasonCode: "missing_inputs" }),
+      expect.objectContaining({ status: "withheld", metricId: "return_on_assets", reasonCode: "missing_inputs" }),
     ]);
-    expect(result.derivedOutcomes[1]?.periodObservationIds.length).toBe(5);
-    expect(result.derivedOutcomes.every((metric) => metric.status === "returned" && metric.calculatedAt === "2026-09-01T00:00:00.000Z")).toBe(true);
+    expect(result.derivedOutcomes.filter((metric) => metric.status === "returned")
+      .every((metric) => metric.calculatedAt === "2026-09-01T00:00:00.000Z")).toBe(true);
   });
 
   it("reconstructed discrete quarter: withholds annual duration metrics", async () => {
@@ -1661,7 +1669,7 @@ describe("research financial-statement service", () => {
     });
   });
 
-  it("period-end range: loads predecessor lookback for derived metrics without widening output", async () => {
+  it("period-end range: withholds predecessor evidence outside the returned range", async () => {
     const persistence = new MemoryPersistence();
     const identity = makeIdentity();
     await persistence.appendResearchIdentityRecords([identity]);
@@ -1685,7 +1693,7 @@ describe("research financial-statement service", () => {
     expect(result.periods).toHaveLength(1);
     expect(result.periods[0]).toMatchObject({ fiscalYear: 2026, fiscalQuarter: 2 });
     expect(result.derivedOutcomes).toEqual([
-      expect.objectContaining({ status: "returned", metricId: "period_over_period_change", value: "0.142857" }),
+      expect.objectContaining({ status: "withheld", metricId: "period_over_period_change", reasonCode: "missing_inputs" }),
     ]);
   });
 

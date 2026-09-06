@@ -377,7 +377,11 @@ function statementRoleForConcept(
 ): MopsStatementRole {
   const knownRole = KNOWN_STATEMENT_ROLE_BY_CONCEPT.get(localName);
   if (knownRole) return knownRole;
-  if (namespaceUri && /^https?:\/\/xbrl\.ifrs\.org\/taxonomy\/.+\/ifrs-full\/?$/i.test(namespaceUri)) {
+  const isTrustedFinancialStatementNamespace = namespaceUri !== null && (
+    /^https?:\/\/xbrl\.ifrs\.org\/taxonomy\/.+\/ifrs-full\/?$/i.test(namespaceUri)
+    || /^https?:\/\/mops\.twse\.com\.tw\/taxonomy\/.+\/tifrs(?:[-_/].*)?\/?$/i.test(namespaceUri)
+  );
+  if (isTrustedFinancialStatementNamespace) {
     if (context?.periodType === "instant") return "balance_sheet";
     if (context?.periodType === "duration") {
       if (/Equity|ShareCapital|TreasuryShares|DistributionsToOwners|TransactionsWithOwners/i.test(localName)) {

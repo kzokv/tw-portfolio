@@ -1910,13 +1910,11 @@ export async function getFinancialStatements(
     periodId,
     facts.slice(0, FINANCIAL_STATEMENT_MAX_FACTS_PER_PERIOD),
   ] as const));
-  const truncatedObservationIds = (factsByPeriod: ReadonlyMap<string, readonly ResearchFinancialStatementFact[]>) => new Set(
-    [...factsByPeriod.values()].flatMap((facts) => (
-      facts.slice(FINANCIAL_STATEMENT_MAX_FACTS_PER_PERIOD).map((fact) => fact.id)
+  const rangeVisibleObservationIds = new Set(
+    [...selectedRangeFacts.values()].flatMap((facts) => (
+      facts.slice(0, FINANCIAL_STATEMENT_MAX_FACTS_PER_PERIOD).map((fact) => fact.id)
     )),
   );
-  const pageTruncatedObservationIds = truncatedObservationIds(selectedPageFacts);
-  const rangeTruncatedObservationIds = truncatedObservationIds(selectedRangeFacts);
   const mapPeriod = (
     record: ResearchFinancialStatementRecord,
     facts: readonly ResearchFinancialStatementFact[],
@@ -1968,27 +1966,23 @@ export async function getFinancialStatements(
           query.context.knowledgeAt,
         )
   )));
-  const withholdTruncatedOutcomes = (
+  const withholdUnreachableEvidenceOutcomes = (
     outcomes: readonly ResearchFinancialStatementDerivedOutcome[],
-    hiddenObservationIds: ReadonlySet<string>,
   ): ResearchFinancialStatementDerivedOutcome[] => outcomes.map((outcome) => (
     outcome.status === "returned"
-      && outcome.periodObservationIds.some((observationId) => hiddenObservationIds.has(observationId))
+      && outcome.periodObservationIds.some((observationId) => !rangeVisibleObservationIds.has(observationId))
       ? {
           status: "withheld" as const,
           metricId: outcome.metricId,
           filingPeriodId: outcome.filingPeriodId,
           reasonCode: "missing_inputs" as const,
-          periodObservationIds: outcome.periodObservationIds.filter((observationId) => !hiddenObservationIds.has(observationId)),
+          periodObservationIds: outcome.periodObservationIds.filter((observationId) => rangeVisibleObservationIds.has(observationId)),
           parameters: outcome.parameters,
         }
       : outcome
   ));
-  const derivedOutcomes = withholdTruncatedOutcomes(deriveOutcomes(pageRecords), pageTruncatedObservationIds);
-  const completenessDerivedOutcomes = withholdTruncatedOutcomes(
-    deriveOutcomes(outputRange),
-    rangeTruncatedObservationIds,
-  );
+  const derivedOutcomes = withholdUnreachableEvidenceOutcomes(deriveOutcomes(pageRecords));
+  const completenessDerivedOutcomes = withholdUnreachableEvidenceOutcomes(deriveOutcomes(outputRange));
   const pageRecordIds = new Set(pageRecords.map((record) => periodIdForRecord(record)));
   const derivedObservationIds = new Set(derivedOutcomes.flatMap((outcome) => outcome.periodObservationIds));
   const provenanceRecords = calculationRecords.filter((record) => (

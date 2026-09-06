@@ -179,8 +179,8 @@ describePostgres("research financial statements memory/Postgres parity", () => {
         ...original.provenance,
         id: "prv_mops-2026q2-r1_proc-2",
         contentHash: "sha256:amended",
-        retrievedAt: "2026-08-15T01:00:00.000Z",
-        processedAt: "2026-08-15T01:05:00.000Z",
+        retrievedAt: "2026-08-16T10:00:00.000Z",
+        processedAt: "2026-08-16T10:05:00.000Z",
       },
       relations: [
         { kind: "supersedes", targetRecordKey: researchFinancialStatementRecordKey(original) },

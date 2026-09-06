@@ -907,6 +907,11 @@ export function validateResearchFinancialStatementRecord(
   ) {
     throw invalidResearchFinancialStatementRecord("revisionPublishedAt must be at or after publishedAt");
   }
+  const effectivePublicationTimestamp = record.publicationContext.revisionPublishedAt
+    ?? record.publicationContext.publishedAt;
+  if (Date.parse(record.provenance.retrievedAt) < Date.parse(effectivePublicationTimestamp)) {
+    throw invalidResearchFinancialStatementRecord("retrievedAt must be at or after the effective publication timestamp");
+  }
   if (!isTimestamp(record.provenance.processedAt)) {
     throw invalidResearchFinancialStatementRecord("processedAt must be an ISO datetime");
   }

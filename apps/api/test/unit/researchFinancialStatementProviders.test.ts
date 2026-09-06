@@ -84,6 +84,7 @@ describe("MOPS XBRL provider parser", () => {
           <xbrli:measure xmlns:direct-currency="http://www.xbrl.org/2003/iso4217">direct-currency:TWD</xbrli:measure>
         </xbrli:unit>
         <ifrs-full:Inventories contextRef="ctx_comparative" unitRef="twd">190000</ifrs-full:Inventories>
+        <tifrs-bsci-ci:Inventories contextRef="ctx_instant" unitRef="twd">205000</tifrs-bsci-ci:Inventories>
         <ifrs-full:Assets contextRef="ctx_consolidated" unitRef="twd">3450000</ifrs-full:Assets>
         <ifrs-full:Inventories contextRef="ctx_instant" unitRef="twd">210000</ifrs-full:Inventories>
         <ifrs-full:BasicEarningsLossPerShare contextRef="ctx_consolidated" unitRef="twd">12.5</ifrs-full:BasicEarningsLossPerShare>
@@ -118,6 +119,8 @@ describe("MOPS XBRL provider parser", () => {
     expect(artifact.facts.find((fact) => fact.concept.localName === "GrossProfit")?.normalizedValue).toBe("");
     expect(artifact.contexts).toHaveLength(6);
     expect(artifact.facts.find((fact) => fact.concept.localName === "Inventories")?.statementRole)
+      .toBe("balance_sheet");
+    expect(artifact.facts.find((fact) => fact.concept.qname === "tifrs-bsci-ci:Inventories")?.statementRole)
       .toBe("balance_sheet");
     expect(artifact.facts.find((fact) => fact.concept.localName === "BasicEarningsLossPerShare")?.statementRole)
       .toBe("income_statement");

@@ -1211,6 +1211,23 @@ describe("research financial statements", () => {
     })).toThrow(/instant period invalid/);
   });
 
+  it("record validation rejects retrieval before the effective publication timestamp", () => {
+    const original = makeRecord();
+    original.provenance.retrievedAt = "2026-08-14T09:59:59.999Z";
+    original.provenance.processedAt = "2026-08-14T10:00:00.000Z";
+    expect(() => validateResearchFinancialStatementRecord(original))
+      .toThrow(/retrievedAt must be at or after the effective publication timestamp/);
+
+    const amendment = makeRecord();
+    amendment.publicationContext.revisionSequence = 1;
+    amendment.publicationContext.amendment = true;
+    amendment.publicationContext.revisionPublishedAt = "2026-08-15T10:00:00.000Z";
+    amendment.provenance.retrievedAt = "2026-08-15T09:59:59.999Z";
+    amendment.provenance.processedAt = "2026-08-15T10:00:00.000Z";
+    expect(() => validateResearchFinancialStatementRecord(amendment))
+      .toThrow(/retrievedAt must be at or after the effective publication timestamp/);
+  });
+
   it("canonical publication sequences require the non-negative PostgreSQL INTEGER range", () => {
     for (const field of ["filingSequence", "revisionSequence", "processingSequence"] as const) {
       for (const invalid of [-1, 1.5, 2_147_483_648, Number.NaN, Number.POSITIVE_INFINITY]) {
