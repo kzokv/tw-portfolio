@@ -613,13 +613,16 @@ describe("research financial statements", () => {
     expect(() => validateResearchFinancialStatementRecord(record)).toThrow(/duplicate fact id/);
   });
 
-  it.each(["", "a".repeat(121)])("record validation rejects unreadable filing id %s", (filingId) => {
-    const record = makeRecord();
-    record.publicationContext.filingId = filingId;
+  it.each(["", "a".repeat(121), `mops:${"a".repeat(116)}`])(
+    "record validation rejects unreadable filing id %s",
+    (filingId) => {
+      const record = makeRecord();
+      record.publicationContext.filingId = filingId;
 
-    expect(() => validateResearchFinancialStatementRecord(record))
-      .toThrow(/filing id must be non-empty and fit its canonical output form/);
-  });
+      expect(() => validateResearchFinancialStatementRecord(record))
+        .toThrow(/filing id must be non-empty and fit its canonical output form/);
+    },
+  );
 
   it.each(["", "a".repeat(121)])("record validation rejects out-of-bounds revision id %s", (revisionId) => {
     const record = makeRecord();

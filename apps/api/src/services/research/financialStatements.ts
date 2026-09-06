@@ -879,7 +879,7 @@ export function validateResearchFinancialStatementRecord(
   }
   if (
     record.publicationContext.filingId.length === 0
-    || (/^[0-9A-Za-z_-]+$/.test(record.publicationContext.filingId) && record.publicationContext.filingId.length > 120)
+    || record.publicationContext.filingId.length > 120
   ) {
     throw invalidResearchFinancialStatementRecord("filing id must be non-empty and fit its canonical output form");
   }
