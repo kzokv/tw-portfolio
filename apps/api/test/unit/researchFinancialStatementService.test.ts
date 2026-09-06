@@ -1930,6 +1930,90 @@ describe("research financial-statement service", () => {
     ]);
   });
 
+  it("derived metrics: withholds mapped facts whose context period type is incompatible", async () => {
+    const persistence = new MemoryPersistence();
+    const identity = makeIdentity();
+    await persistence.appendResearchIdentityRecords([identity]);
+    const record = makeAnnualRecord(identity, 2025, {
+      revenue: "100",
+      gross_profit: "40",
+      current_assets: "120",
+      current_liabilities: "60",
+    });
+    for (const fact of record.statements.flatMap((section) => section.facts)) {
+      if (fact.metric.state !== "mapped") continue;
+      if (fact.metric.metricId === "revenue" || fact.metric.metricId === "gross_profit") {
+        fact.context.period = { kind: "instant", instantAt: "2025-12-31T23:59:59.999Z" };
+        fact.context.valueKind = "instant";
+      } else {
+        fact.context.period = {
+          kind: "duration",
+          startAt: "2025-01-01T00:00:00.000Z",
+          endAt: "2025-12-31T23:59:59.999Z",
+        };
+        fact.context.valueKind = "cumulative";
+      }
+    }
+    await persistence.appendResearchFinancialStatementRecords([record]);
+
+    const result = await getFinancialStatements(persistence, {
+      subject: { kind: "listing_id", listingId: identity.listing.id },
+      context: {
+        knowledgeAt: "2026-09-01T00:00:00.000Z",
+        effectiveAt: "2026-09-01T00:00:00.000Z",
+        assessmentMode: "effective",
+      },
+      periodicity: "annual",
+      range: { kind: "latest_periods", count: 1 },
+      derivedMetrics: [
+        { metricId: "gross_margin", parameters: {} },
+        { metricId: "current_ratio", parameters: {} },
+      ],
+    });
+
+    expect(result.derivedOutcomes).toEqual([
+      expect.objectContaining({ status: "withheld", metricId: "gross_margin", reasonCode: "missing_inputs" }),
+      expect.objectContaining({ status: "withheld", metricId: "current_ratio", reasonCode: "missing_inputs" }),
+    ]);
+  });
+
+  it("derived metrics: withholds outcomes when response truncation hides formula facts", async () => {
+    const persistence = new MemoryPersistence();
+    const identity = makeIdentity();
+    await persistence.appendResearchIdentityRecords([identity]);
+    const record = makeAnnualRecord(identity, 2025, { current_assets: "120", current_liabilities: "60" });
+    const balanceSheet = record.statements.find((section) => section.kind === "balance_sheet");
+    if (!balanceSheet) throw new Error("expected balance sheet");
+    balanceSheet.facts.unshift(...Array.from({ length: 100 }, (_, index) => metricFact(record, "assets", String(index + 1), {
+      context: { contextId: `truncation-assets-${index}` },
+    })));
+    await persistence.appendResearchFinancialStatementRecords([record]);
+
+    const result = await getFinancialStatements(persistence, {
+      subject: { kind: "listing_id", listingId: identity.listing.id },
+      context: {
+        knowledgeAt: "2026-09-01T00:00:00.000Z",
+        effectiveAt: "2026-09-01T00:00:00.000Z",
+        assessmentMode: "effective",
+      },
+      periodicity: "annual",
+      range: { kind: "latest_periods", count: 1 },
+      derivedMetrics: [{ metricId: "current_ratio", parameters: {} }],
+    });
+
+    expect(result.page.truncatedByBudget).toBe(true);
+    expect(result.periods[0]?.sourceFacts).toHaveLength(100);
+    expect(result.periods[0]?.sourceFacts.some((fact) => fact.metricId === "current_assets")).toBe(false);
+    expect(result.derivedOutcomes).toEqual([
+      expect.objectContaining({
+        status: "withheld",
+        metricId: "current_ratio",
+        reasonCode: "missing_inputs",
+        periodObservationIds: [],
+      }),
+    ]);
+  });
+
   it("sector-extension group: returns unmapped extension facts from the requested section", async () => {
     const persistence = new MemoryPersistence();
     const identity = makeIdentity();

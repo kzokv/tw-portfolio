@@ -1283,6 +1283,7 @@ function deriveComparableMetricValue(
   if (record.ambiguityFlags.includes("taxonomy_change")) return { reason: "incomparable_inputs" };
   const matches = facts.filter((fact) => {
     if (fact.metric.state !== "mapped" || fact.metric.metricId !== metricId) return false;
+    if (isDurationMetric(metricId) !== (fact.context.period.kind === "duration")) return false;
     const periodMatches = fact.context.period.kind === "instant"
       ? researchFinancialStatementCalendarDate(fact.context.period.instantAt) === record.fiscalPeriod.periodEnd
       : researchFinancialStatementCalendarDate(fact.context.period.endAt) === record.fiscalPeriod.periodEnd;
@@ -1909,6 +1910,13 @@ export async function getFinancialStatements(
     periodId,
     facts.slice(0, FINANCIAL_STATEMENT_MAX_FACTS_PER_PERIOD),
   ] as const));
+  const truncatedObservationIds = (factsByPeriod: ReadonlyMap<string, readonly ResearchFinancialStatementFact[]>) => new Set(
+    [...factsByPeriod.values()].flatMap((facts) => (
+      facts.slice(FINANCIAL_STATEMENT_MAX_FACTS_PER_PERIOD).map((fact) => fact.id)
+    )),
+  );
+  const pageTruncatedObservationIds = truncatedObservationIds(selectedPageFacts);
+  const rangeTruncatedObservationIds = truncatedObservationIds(selectedRangeFacts);
   const mapPeriod = (
     record: ResearchFinancialStatementRecord,
     facts: readonly ResearchFinancialStatementFact[],
@@ -1960,8 +1968,27 @@ export async function getFinancialStatements(
           query.context.knowledgeAt,
         )
   )));
-  const derivedOutcomes = deriveOutcomes(pageRecords);
-  const completenessDerivedOutcomes = deriveOutcomes(outputRange);
+  const withholdTruncatedOutcomes = (
+    outcomes: readonly ResearchFinancialStatementDerivedOutcome[],
+    hiddenObservationIds: ReadonlySet<string>,
+  ): ResearchFinancialStatementDerivedOutcome[] => outcomes.map((outcome) => (
+    outcome.status === "returned"
+      && outcome.periodObservationIds.some((observationId) => hiddenObservationIds.has(observationId))
+      ? {
+          status: "withheld" as const,
+          metricId: outcome.metricId,
+          filingPeriodId: outcome.filingPeriodId,
+          reasonCode: "missing_inputs" as const,
+          periodObservationIds: outcome.periodObservationIds.filter((observationId) => !hiddenObservationIds.has(observationId)),
+          parameters: outcome.parameters,
+        }
+      : outcome
+  ));
+  const derivedOutcomes = withholdTruncatedOutcomes(deriveOutcomes(pageRecords), pageTruncatedObservationIds);
+  const completenessDerivedOutcomes = withholdTruncatedOutcomes(
+    deriveOutcomes(outputRange),
+    rangeTruncatedObservationIds,
+  );
   const pageRecordIds = new Set(pageRecords.map((record) => periodIdForRecord(record)));
   const derivedObservationIds = new Set(derivedOutcomes.flatMap((outcome) => outcome.periodObservationIds));
   const provenanceRecords = calculationRecords.filter((record) => (

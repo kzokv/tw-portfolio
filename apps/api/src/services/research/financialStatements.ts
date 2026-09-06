@@ -1052,16 +1052,20 @@ export function validateResearchFinancialStatementRecord(
       const outputPeriodEnd = fact.context.period.kind === "instant"
         ? fact.context.period.instantAt
         : fact.context.period.endAt;
-      if (researchFinancialStatementCalendarDate(outputPeriodEnd) > record.fiscalPeriod.periodEnd) {
+      const outputPeriodEndDate = researchFinancialStatementCalendarDate(outputPeriodEnd);
+      if (outputPeriodEndDate > record.fiscalPeriod.periodEnd) {
         throw invalidResearchFinancialStatementRecord(`fact ${fact.id} period cannot end after the filing period`);
       }
-      const outputFiscalYear = Number(outputPeriodEnd.slice(0, 4));
+      const outputFiscalYear = Number(outputPeriodEndDate.slice(0, 4));
       const outputDurationMonths = fact.context.period.kind === "instant"
         ? 1
-        : ((Number(fact.context.period.endAt.slice(0, 4)) - Number(fact.context.period.startAt.slice(0, 4))) * 12)
-          + Number(fact.context.period.endAt.slice(5, 7))
-          - Number(fact.context.period.startAt.slice(5, 7))
-          + 1;
+        : (() => {
+            const outputPeriodStartDate = researchFinancialStatementCalendarDate(fact.context.period.startAt);
+            return ((Number(outputPeriodEndDate.slice(0, 4)) - Number(outputPeriodStartDate.slice(0, 4))) * 12)
+              + Number(outputPeriodEndDate.slice(5, 7))
+              - Number(outputPeriodStartDate.slice(5, 7))
+              + 1;
+          })();
       if (outputFiscalYear < 1900 || outputFiscalYear > 9999 || outputDurationMonths < 1 || outputDurationMonths > 24) {
         throw invalidResearchFinancialStatementRecord(`fact ${fact.id} period must fit financial statement response bounds`);
       }

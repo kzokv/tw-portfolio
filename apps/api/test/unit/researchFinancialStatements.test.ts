@@ -863,6 +863,18 @@ describe("research financial statements", () => {
       .toThrow(/duration period invalid/);
   });
 
+  it("record validation measures duration bounds using UTC-normalized calendar dates", () => {
+    const record = makeRecord();
+    record.statements[0]!.facts[0]!.context.period = {
+      kind: "duration",
+      startAt: "2024-01-01T00:30:00+14:00",
+      endAt: "2025-12-31T23:59:59.999Z",
+    };
+
+    expect(() => validateResearchFinancialStatementRecord(record))
+      .toThrow(/period must fit financial statement response bounds/);
+  });
+
   it.each(["", "a".repeat(121)])(
     "record validation rejects response-invalid accession number %s",
     (accessionNumber) => {
