@@ -134,7 +134,7 @@ function makeRecord(overrides: Partial<ResearchFinancialStatementRecord> = {}): 
               startAt: "2026-04-01T00:00:00.000Z",
               endAt: "2026-06-30T23:59:59.999Z",
             },
-            valueKind: "cumulative",
+            valueKind: "discrete",
             rawValue: "1,234",
             unit: { state: "known", unitId: "TWD" },
           }),
@@ -176,7 +176,7 @@ function makeRecord(overrides: Partial<ResearchFinancialStatementRecord> = {}): 
               startAt: "2026-04-01T00:00:00.000Z",
               endAt: "2026-06-30T23:59:59.999Z",
             },
-            valueKind: "cumulative",
+            valueKind: "discrete",
             rawValue: "456",
             unit: { state: "known", unitId: "TWD" },
           }),
@@ -256,7 +256,7 @@ describe("research financial statements", () => {
         startAt: "2026-04-01T00:00:00.000Z",
         endAt: "2026-06-30T23:59:59.999Z",
       },
-      valueKind: "cumulative",
+      valueKind: "discrete",
       rawValue: "1.234,5",
       normalizedValue: "1234.5",
       unit: { state: "known", unitId: "TWD" },
@@ -291,6 +291,20 @@ describe("research financial statements", () => {
     const record = materializeResearchFinancialStatementRecord(makeRawArtifact([repeated, { ...repeated }]));
 
     expect(record.statements[0]?.facts).toHaveLength(1);
+  });
+
+  it("raw artifact materialization: classifies comparative year-to-date facts from their own dates", () => {
+    const comparative = {
+      ...makeRawRevenueFact(),
+      id: "raw-revenue-comparative",
+      contextRef: "duration-comparative",
+      periodStart: "2025-01-01",
+      periodEnd: "2025-06-30",
+    };
+
+    const record = materializeResearchFinancialStatementRecord(makeRawArtifact([comparative]));
+
+    expect(record.statements[0]?.facts[0]?.context.valueKind).toBe("cumulative");
   });
 
   it("raw artifact materialization: rejects a claimed basis contradicted by artifact contexts", () => {
@@ -454,7 +468,7 @@ describe("research financial statements", () => {
         startAt: "2026-04-01T00:00:00.000Z",
         endAt: "2026-06-30T23:59:59.999Z",
       },
-      valueKind: "cumulative",
+      valueKind: "discrete",
       rawValue: "-",
       unit: { state: "known", unitId: "TWD" },
     });
@@ -472,7 +486,7 @@ describe("research financial statements", () => {
         startAt: "2026-04-01T00:00:00.000Z",
         endAt: "2026-06-30T23:59:59.999Z",
       },
-      valueKind: "cumulative",
+      valueKind: "discrete",
       rawValue: "0",
       unit: { state: "known", unitId: "TWD" },
     });
@@ -497,7 +511,7 @@ describe("research financial statements", () => {
         startAt: "2026-04-01T00:00:00.000Z",
         endAt: "2026-06-30T23:59:59.999Z",
       },
-      valueKind: "cumulative" as const,
+      valueKind: "discrete" as const,
       rawValue: "1",
     };
     const twd = normalizeResearchFinancialStatementFact({
@@ -527,7 +541,7 @@ describe("research financial statements", () => {
         startAt: "2026-04-01T00:00:00.000Z",
         endAt: "2026-06-30T23:59:59.999Z",
       },
-      valueKind: "cumulative" as const,
+      valueKind: "discrete" as const,
       rawValue: "1",
       unit: { state: "known" as const, unitId: "TWD" },
     };
@@ -559,7 +573,7 @@ describe("research financial statements", () => {
         startAt: "2026-04-01T00:00:00.000Z",
         endAt: "2026-06-30T23:59:59.999Z",
       },
-      valueKind: "cumulative" as const,
+      valueKind: "discrete" as const,
       rawValue: "1",
       unit: { state: "known" as const, unitId: "TWD" },
     };
@@ -616,7 +630,7 @@ describe("research financial statements", () => {
         startAt: "2026-04-01T00:00:00.000Z",
         endAt: "2026-06-30T23:59:59.999Z",
       },
-      valueKind: "cumulative" as const,
+      valueKind: "discrete" as const,
       rawValue: "1",
       unit: { state: "known" as const, unitId: "TWD" },
     };
@@ -849,6 +863,40 @@ describe("research financial statements", () => {
 
     expect(() => validateResearchFinancialStatementRecord(record))
       .toThrow(/fiscal period end must match the declared fiscal year and quarter/);
+  });
+
+  it.each([
+    ["annual", { fiscalYear: 2026, fiscalQuarter: null, periodStart: "2026-02-01", periodEnd: "2026-12-31" }],
+    ["quarterly", { fiscalYear: 2026, fiscalQuarter: 3, periodStart: "2026-08-01", periodEnd: "2026-09-30" }],
+  ] as const)("record validation rejects %s periods that start after their calendar boundary", (periodicity, fiscalPeriod) => {
+    const record = makeRecord();
+    record.periodicity = periodicity;
+    record.fiscalPeriod = fiscalPeriod;
+
+    expect(() => validateResearchFinancialStatementRecord(record))
+      .toThrow(/fiscal period start must match the declared fiscal year and quarter/);
+  });
+
+  it.each([
+    ["discrete", "2026-01-01T00:00:00.000Z", "2026-09-30T23:59:59.999Z"],
+    ["cumulative", "2026-07-01T00:00:00.000Z", "2026-09-30T23:59:59.999Z"],
+  ] as const)("record validation rejects %s duration facts whose value kind conflicts with their dates", (valueKind, startAt, endAt) => {
+    const record = makeRecord();
+    record.fiscalPeriod = {
+      fiscalYear: 2026,
+      fiscalQuarter: 3,
+      periodStart: "2026-07-01",
+      periodEnd: "2026-09-30",
+    };
+    record.publicationContext.publishedAt = "2026-10-01T10:00:00.000Z";
+    record.provenance.retrievedAt = "2026-10-01T11:00:00.000Z";
+    record.provenance.processedAt = "2026-10-01T11:05:00.000Z";
+    const fact = record.statements[0]!.facts[0]!;
+    fact.context.period = { kind: "duration", startAt, endAt };
+    fact.context.valueKind = valueKind;
+
+    expect(() => validateResearchFinancialStatementRecord(record))
+      .toThrow(/duration valueKind must match its calendar start and end dates/);
   });
 
   it("record validation compares duration timestamps as instants across offsets", () => {

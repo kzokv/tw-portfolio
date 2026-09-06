@@ -425,7 +425,7 @@ function buildSupportedOrWithheldConclusions(
   const annualRevenueUnitsMatch = latestAnnualRevenueFact?.unit.normalized.state === "present"
     && priorAnnualRevenueFact?.unit.normalized.state === "present"
     && latestAnnualRevenueFact.unit.normalized.value === priorAnnualRevenueFact.unit.normalized.value;
-  const yoyConclusion = !yoyReason && annualFreshness !== "stale" && annualRevenueUnitsMatch && latestAnnual && priorAnnual && latestAnnualRevenue !== null && priorAnnualRevenue !== null && priorAnnualRevenue !== 0
+  const yoyConclusion = !yoyReason && annualFreshness !== "stale" && annualRevenueUnitsMatch && latestAnnual && priorAnnual && latestAnnualRevenue !== null && priorAnnualRevenue !== null && priorAnnualRevenue > 0
     ? {
         id: "latest_revenue_yoy" as const,
         status: "supported" as const,

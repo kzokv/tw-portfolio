@@ -13,6 +13,7 @@ KZO-249 adds a financial-statement acquisition and reporting lane to the Taiwan 
 - Coverage describes the full selected range and is independent of page size or cursor position; page record counts remain transport metadata.
 - Returned derived outcomes may cite only source facts reachable within that selected range and its pagination; otherwise the outcome is withheld as missing inputs.
 - Fundamentals reports accept duration contexts for flow metrics, return explicit unsupported-sector withholdings before dataset availability checks, and withhold period-over-period percentages when the comparison base is nonpositive.
+- Canonical filing periods must span their declared calendar year or quarter, and duration facts derive cumulative-versus-discrete semantics from calendar-aligned context dates rather than trusting caller labels.
 
 ## Taxonomy And Ambiguity
 

@@ -93,7 +93,7 @@ function makeFinancialStatementRecord(overrides: Partial<ResearchFinancialStatem
             contextId: "ctx-income",
             period: {
               kind: "duration",
-              startAt: "2026-04-01T00:00:00.000Z",
+              startAt: "2026-01-01T00:00:00.000Z",
               endAt: "2026-06-30T23:59:59.999Z",
             },
             valueKind: "cumulative",
@@ -135,7 +135,7 @@ function makeFinancialStatementRecord(overrides: Partial<ResearchFinancialStatem
             contextId: "ctx-cash",
             period: {
               kind: "duration",
-              startAt: "2026-04-01T00:00:00.000Z",
+              startAt: "2026-01-01T00:00:00.000Z",
               endAt: "2026-06-30T23:59:59.999Z",
             },
             valueKind: "cumulative",

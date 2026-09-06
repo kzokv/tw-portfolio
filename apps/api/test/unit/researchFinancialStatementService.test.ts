@@ -140,6 +140,7 @@ function metricFact(
   },
 ) {
   const definition = metricDefinitions[metricId];
+  const valueKind = overrides?.context?.valueKind ?? overrides?.valueKind ?? definition.defaultValueKind;
   return normalizeResearchFinancialStatementFact({
     listingId: record.listingId,
     issuerId: record.issuerId,
@@ -157,10 +158,10 @@ function metricFact(
       ? { kind: "instant", instantAt: `${record.fiscalPeriod.periodEnd}T23:59:59.999Z` }
       : {
           kind: "duration",
-          startAt: `${record.fiscalPeriod.periodStart}T00:00:00.000Z`,
+          startAt: `${valueKind === "cumulative" ? `${record.fiscalPeriod.fiscalYear}-01-01` : record.fiscalPeriod.periodStart}T00:00:00.000Z`,
           endAt: `${record.fiscalPeriod.periodEnd}T23:59:59.999Z`,
         }),
-    valueKind: overrides?.context?.valueKind ?? overrides?.valueKind ?? definition.defaultValueKind,
+    valueKind,
     rawValue,
     unit: { state: "known", unitId: overrides?.unitId ?? "TWD" },
   });
@@ -704,7 +705,7 @@ describe("research financial-statement service", () => {
     await persistence.appendResearchIdentityRecords([identity]);
     await persistence.appendResearchFinancialStatementRecords([
       makeQuarterRecord(identity, 2025, 4, { revenue: "40" }, { valueKinds: { revenue: { valueKind: "discrete" } } }),
-      makeQuarterRecord(identity, 2026, 1, { revenue: "50" }, { valueKinds: { revenue: { valueKind: "discrete" } } }),
+      makeQuarterRecord(identity, 2026, 1, { revenue: "50" }, { valueKinds: { revenue: { valueKind: "cumulative" } } }),
     ]);
 
     const result = await getFinancialStatements(persistence, {
@@ -733,7 +734,7 @@ describe("research financial-statement service", () => {
     const identity = makeIdentity();
     await persistence.appendResearchIdentityRecords([identity]);
     const prior = makeQuarterRecord(identity, 2025, 4, { revenue: "40" }, { valueKinds: { revenue: { valueKind: "discrete" } } });
-    const current = makeQuarterRecord(identity, 2026, 1, { revenue: "50" }, { valueKinds: { revenue: { valueKind: "discrete" } } });
+    const current = makeQuarterRecord(identity, 2026, 1, { revenue: "50" }, { valueKinds: { revenue: { valueKind: "cumulative" } } });
     prior.statements.flatMap((section) => section.facts).find((fact) => fact.metric.state === "mapped" && fact.metric.metricId === "revenue")!.taxonomy = {
       namespaceUri: "http://xbrl.ifrs.org/taxonomy/2025/ifrs-full",
       version: "2025",
@@ -767,7 +768,7 @@ describe("research financial-statement service", () => {
     await persistence.appendResearchIdentityRecords([identity]);
     await persistence.appendResearchFinancialStatementRecords([
       makeQuarterRecord(identity, 2025, 4, { net_income: "-100" }, { valueKinds: { net_income: { valueKind: "discrete" } } }),
-      makeQuarterRecord(identity, 2026, 1, { net_income: "-50" }, { valueKinds: { net_income: { valueKind: "discrete" } } }),
+      makeQuarterRecord(identity, 2026, 1, { net_income: "-50" }, { valueKinds: { net_income: { valueKind: "cumulative" } } }),
     ]);
 
     const result = await getFinancialStatements(persistence, {

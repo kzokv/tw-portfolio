@@ -424,6 +424,31 @@ describe("financial statement fundamentals report", () => {
     });
   });
 
+  it("annual YoY: withholds nonpositive prior revenue bases", async () => {
+    const persistence = new MemoryPersistence();
+    const identity = makeIdentity();
+    await persistence.appendResearchIdentityRecords([identity]);
+    const annuals = [makePeriod(2023, null, "-120"), makePeriod(2024, null, "-100"), makePeriod(2025, null, "-50")];
+
+    const report = await buildFinancialStatementFundamentalsResearchReport(
+      persistence,
+      { subject: { kind: "listing_id", listingId: identity.listing.id }, context: availableFinancialStatementManifest(identity).context },
+      {
+        getResearchManifestImpl: async () => availableFinancialStatementManifest(identity) as never,
+        getFinancialStatementsImpl: async (_persistence, query: ResearchFinancialStatementsQueryInput) => (
+          query.periodicity === "annual"
+            ? buildStatementsOutput(identity.listing.id, "annual", annuals)
+            : buildStatementsOutput(identity.listing.id, "quarterly", [])
+        ),
+      },
+    );
+
+    expect(report.conclusions.find((conclusion) => conclusion.id === "latest_revenue_yoy")).toMatchObject({
+      status: "withheld",
+      reasonCodes: ["insufficient_yoy_window"],
+    });
+  });
+
   it("flow metrics: withholds instant-context revenue from report calculations", async () => {
     const persistence = new MemoryPersistence();
     const identity = makeIdentity();

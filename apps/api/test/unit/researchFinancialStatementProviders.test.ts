@@ -17,7 +17,7 @@ const xbrlDescriptor: MopsFinancialStatementDescriptor = {
     filingId: "mops:2330:2026:q2:r2",
     fiscalYear: 2026,
     fiscalPeriod: "q2",
-    periodStart: "2026-01-01",
+    periodStart: "2026-04-01",
     periodEnd: "2026-06-30",
     filingBasis: "consolidated",
     publishedAt: "2026-08-14",

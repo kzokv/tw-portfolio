@@ -31,6 +31,9 @@ function makeRecord(overrides: Partial<ResearchFinancialStatementRecord> = {}): 
     periodStart: "2026-04-01",
     periodEnd: "2026-06-30",
   };
+  const durationValueKind = fiscalPeriod.fiscalQuarter === null || fiscalPeriod.fiscalQuarter === 1
+    ? "cumulative"
+    : "discrete";
   return {
     listingId,
     issuerId,
@@ -69,7 +72,7 @@ function makeRecord(overrides: Partial<ResearchFinancialStatementRecord> = {}): 
               startAt: `${fiscalPeriod.periodStart}T00:00:00.000Z`,
               endAt: `${fiscalPeriod.periodEnd}T23:59:59.999Z`,
             },
-            valueKind: "cumulative",
+            valueKind: durationValueKind,
             rawValue: "1,234",
             unit: { state: "known", unitId: "TWD" },
           }),
@@ -111,7 +114,7 @@ function makeRecord(overrides: Partial<ResearchFinancialStatementRecord> = {}): 
               startAt: `${fiscalPeriod.periodStart}T00:00:00.000Z`,
               endAt: `${fiscalPeriod.periodEnd}T23:59:59.999Z`,
             },
-            valueKind: "cumulative",
+            valueKind: durationValueKind,
             rawValue: "456",
             unit: { state: "known", unitId: "TWD" },
           }),

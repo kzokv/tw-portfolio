@@ -415,8 +415,9 @@ export function valueKindForMopsFact(
   filing: MopsFinancialStatementArtifact["filing"],
 ): ResearchFinancialStatementValueKind {
   if (!fact.periodStart) return "instant";
-  if (filing.fiscalPeriod === "annual" || filing.fiscalPeriod === "q1") return "cumulative";
-  return fact.periodStart === `${filing.fiscalYear}-01-01` ? "cumulative" : "discrete";
+  const periodEnd = fact.periodEnd ?? filing.periodEnd;
+  const periodYear = periodEnd.slice(0, 4);
+  return fact.periodStart === `${periodYear}-01-01` ? "cumulative" : "discrete";
 }
 
 export function resolveMopsArtifactFilingBasis(
@@ -866,6 +867,12 @@ export function validateResearchFinancialStatementRecord(
   const expectedPeriodEnd = record.fiscalPeriod.fiscalQuarter === null
     ? `${record.fiscalPeriod.fiscalYear}-12-31`
     : `${record.fiscalPeriod.fiscalYear}-${["03-31", "06-30", "09-30", "12-31"][record.fiscalPeriod.fiscalQuarter - 1]}`;
+  const expectedPeriodStart = record.fiscalPeriod.fiscalQuarter === null
+    ? `${record.fiscalPeriod.fiscalYear}-01-01`
+    : `${record.fiscalPeriod.fiscalYear}-${["01-01", "04-01", "07-01", "10-01"][record.fiscalPeriod.fiscalQuarter - 1]}`;
+  if (record.fiscalPeriod.periodStart !== expectedPeriodStart) {
+    throw invalidResearchFinancialStatementRecord("fiscal period start must match the declared fiscal year and quarter");
+  }
   if (record.fiscalPeriod.periodEnd !== expectedPeriodEnd) {
     throw invalidResearchFinancialStatementRecord("fiscal period end must match the declared fiscal year and quarter");
   }
@@ -1073,6 +1080,25 @@ export function validateResearchFinancialStatementRecord(
           })();
       if (outputFiscalYear < 1900 || outputFiscalYear > 9999 || outputDurationMonths < 1 || outputDurationMonths > 24) {
         throw invalidResearchFinancialStatementRecord(`fact ${fact.id} period must fit financial statement response bounds`);
+      }
+      if (fact.context.period.kind === "duration") {
+        const durationStartDate = researchFinancialStatementCalendarDate(fact.context.period.startAt);
+        const durationYear = outputPeriodEndDate.slice(0, 4);
+        const durationEndMonth = Number(outputPeriodEndDate.slice(5, 7));
+        const expectedQuarterStart = `${durationYear}-${["01-01", "04-01", "07-01", "10-01"][Math.floor((durationEndMonth - 1) / 3)]}`;
+        const expectedValueKind = durationStartDate === `${durationYear}-01-01`
+          ? "cumulative"
+          : durationStartDate === expectedQuarterStart
+            ? "discrete"
+            : null;
+        if (expectedValueKind === null) {
+          throw invalidResearchFinancialStatementRecord(`fact ${fact.id} duration period must start at a calendar year or quarter boundary`);
+        }
+        if (fact.context.valueKind !== expectedValueKind) {
+          throw invalidResearchFinancialStatementRecord(
+            `fact ${fact.id} duration valueKind must match its calendar start and end dates`,
+          );
+        }
       }
       const formattedRaw = applyResearchFinancialStatementInlineFormat(
         fact.raw.value,

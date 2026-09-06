@@ -70,7 +70,7 @@ function fact(
     contextId: `${record.publicationContext.revisionId}:${metricId}`,
     period: {
       kind: "duration",
-      startAt: `${record.fiscalPeriod.periodStart}T00:00:00.000Z`,
+      startAt: `${valueKind === "cumulative" ? `${record.fiscalPeriod.fiscalYear}-01-01` : record.fiscalPeriod.periodStart}T00:00:00.000Z`,
       endAt: `${record.fiscalPeriod.periodEnd}T23:59:59.999Z`,
     },
     valueKind,
