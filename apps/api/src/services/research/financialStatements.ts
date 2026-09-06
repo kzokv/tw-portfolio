@@ -825,6 +825,15 @@ export function validateResearchFinancialStatementRecord(
   if (record.ticker.length === 0 || record.ticker.length > 120) {
     throw invalidResearchFinancialStatementRecord("ticker must contain between 1 and 120 characters");
   }
+  if (record.venue !== "TWSE" && record.venue !== "TPEX") {
+    throw invalidResearchFinancialStatementRecord("venue must be TWSE or TPEX");
+  }
+  if (record.periodicity !== "annual" && record.periodicity !== "quarterly") {
+    throw invalidResearchFinancialStatementRecord("periodicity must be annual or quarterly");
+  }
+  if (!(["consolidated", "individual", "unknown"] as const).includes(record.filingBasis)) {
+    throw invalidResearchFinancialStatementRecord("filingBasis must be consolidated, individual, or unknown");
+  }
   validatePeriodicity(record);
   if (
     !Number.isInteger(record.fiscalPeriod.fiscalYear)
@@ -863,6 +872,18 @@ export function validateResearchFinancialStatementRecord(
   if (!isCanonicalIdentifier(record.provenance.id)) {
     throw invalidResearchFinancialStatementRecord(`provenance id ${record.provenance.id} must be a canonical identifier`);
   }
+  if (
+    record.provenance.publisher !== "MOPS"
+    || record.provenance.accessProvider !== "MOPS_XBRL"
+    || record.provenance.authorityRole !== "authoritative"
+    || record.provenance.canonicalDatasetId !== "financial_statements"
+    || record.provenance.acquisitionPath !== "scheduled_official_snapshot"
+    || record.provenance.usagePolicyVersion !== "taiwan-open-data/1.0.0"
+    || record.provenance.retentionStatus !== "retained"
+    || record.provenance.contentExposure !== "allowed"
+  ) {
+    throw invalidResearchFinancialStatementRecord("provenance contract literals must match the financial statement contract");
+  }
   if (record.provenance.publisherDataset.length === 0 || record.provenance.publisherDataset.length > 120) {
     throw invalidResearchFinancialStatementRecord("provenance publisherDataset must contain between 1 and 120 characters");
   }
@@ -871,6 +892,9 @@ export function validateResearchFinancialStatementRecord(
   }
   if (record.provenance.contentHash.length === 0 || record.provenance.contentHash.length > 200) {
     throw invalidResearchFinancialStatementRecord("provenance contentHash must contain between 1 and 200 characters");
+  }
+  if (record.provenance.taxonomyVersion.length === 0 || record.provenance.taxonomyVersion.length > 120) {
+    throw invalidResearchFinancialStatementRecord("provenance taxonomyVersion must contain between 1 and 120 characters");
   }
   const publicationSequences = [
     record.publicationContext.filingSequence,
@@ -933,11 +957,32 @@ export function validateResearchFinancialStatementRecord(
       if (!fact.concept.qname || !fact.concept.label) {
         throw invalidResearchFinancialStatementRecord(`fact ${fact.id} concept must preserve qname and label`);
       }
+      const taxonomyNamespace = fact.taxonomy?.namespaceUri ?? fact.concept.qname.split(":")[0] ?? "unknown";
+      const taxonomyConceptName = fact.concept.qname.split(":").at(1) ?? fact.concept.qname;
+      const taxonomyVersion = fact.taxonomy?.version ?? record.provenance.taxonomyVersion;
+      if (taxonomyNamespace.length === 0 || taxonomyNamespace.length > 500) {
+        throw invalidResearchFinancialStatementRecord(`fact ${fact.id} taxonomy namespace must contain between 1 and 500 characters`);
+      }
+      if (taxonomyConceptName.length === 0 || taxonomyConceptName.length > 120) {
+        throw invalidResearchFinancialStatementRecord(`fact ${fact.id} taxonomy concept name must contain between 1 and 120 characters`);
+      }
+      if (taxonomyVersion.length === 0 || taxonomyVersion.length > 120) {
+        throw invalidResearchFinancialStatementRecord(`fact ${fact.id} taxonomy version must contain between 1 and 120 characters`);
+      }
+      if (
+        Object.entries(fact.context.dimensions)
+          .some(([key, value]) => key.length === 0 || key.length > 200 || value.length === 0 || value.length > 200)
+      ) {
+        throw invalidResearchFinancialStatementRecord(`fact ${fact.id} dimensions must use 1 to 200 character keys and values`);
+      }
       if (fact.unit.state === "known" && !fact.unit.unitId) {
         throw invalidResearchFinancialStatementRecord(`fact ${fact.id} known unit must provide unitId`);
       }
-      if (fact.metric.state === "mapped" && !fact.metric.metricId) {
-        throw invalidResearchFinancialStatementRecord(`fact ${fact.id} mapped metricId missing`);
+      if (
+        fact.metric.state === "mapped"
+        && (fact.metric.metricId.length === 0 || fact.metric.metricId.length > 120)
+      ) {
+        throw invalidResearchFinancialStatementRecord(`fact ${fact.id} mapped metricId must contain between 1 and 120 characters`);
       }
       if (fact.context.period.kind === "instant") {
         if (!isTimestamp(fact.context.period.instantAt)) {
@@ -957,6 +1002,19 @@ export function validateResearchFinancialStatementRecord(
         if (fact.context.valueKind === "instant") {
           throw invalidResearchFinancialStatementRecord(`fact ${fact.id} duration periods cannot be instant valueKind`);
         }
+      }
+      const outputPeriodEnd = fact.context.period.kind === "instant"
+        ? fact.context.period.instantAt
+        : fact.context.period.endAt;
+      const outputFiscalYear = Number(outputPeriodEnd.slice(0, 4));
+      const outputDurationMonths = fact.context.period.kind === "instant"
+        ? 1
+        : ((Number(fact.context.period.endAt.slice(0, 4)) - Number(fact.context.period.startAt.slice(0, 4))) * 12)
+          + Number(fact.context.period.endAt.slice(5, 7))
+          - Number(fact.context.period.startAt.slice(5, 7))
+          + 1;
+      if (outputFiscalYear < 1900 || outputFiscalYear > 9999 || outputDurationMonths < 1 || outputDurationMonths > 24) {
+        throw invalidResearchFinancialStatementRecord(`fact ${fact.id} period must fit financial statement response bounds`);
       }
       const formattedRaw = applyResearchFinancialStatementInlineFormat(
         fact.raw.value,

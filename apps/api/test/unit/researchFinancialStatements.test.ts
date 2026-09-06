@@ -663,6 +663,99 @@ describe("research financial statements", () => {
       .toThrow(/listingId and issuerId must be canonical identifiers/);
   });
 
+  it.each(["", "a".repeat(121)])(
+    "record validation rejects response-invalid provenance taxonomy version %s",
+    (taxonomyVersion) => {
+      const record = makeRecord();
+      record.provenance.taxonomyVersion = taxonomyVersion;
+
+      expect(() => validateResearchFinancialStatementRecord(record))
+        .toThrow(/provenance taxonomyVersion must contain between 1 and 120 characters/);
+    },
+  );
+
+  it.each([
+    ["venue", "NYSE", /venue must be TWSE or TPEX/],
+    ["periodicity", "monthly", /periodicity must be annual or quarterly/],
+    ["filingBasis", "combined", /filingBasis must be consolidated, individual, or unknown/],
+  ] as const)("record validation rejects response-invalid record %s", (field, value, error) => {
+    const record = makeRecord();
+    Object.assign(record, { [field]: value });
+
+    expect(() => validateResearchFinancialStatementRecord(record)).toThrow(error);
+  });
+
+  it("record validation rejects response-invalid provenance contract literals", () => {
+    const record = makeRecord();
+    Object.assign(record.provenance, { publisher: "OTHER" });
+
+    expect(() => validateResearchFinancialStatementRecord(record))
+      .toThrow(/provenance contract literals must match the financial statement contract/);
+  });
+
+  it.each(["ifrs-full:", `ifrs-full:${"a".repeat(121)}`])(
+    "record validation rejects response-invalid taxonomy concept name %s",
+    (qname) => {
+      const record = makeRecord();
+      record.statements[0]!.facts[0]!.concept.qname = qname;
+
+      expect(() => validateResearchFinancialStatementRecord(record))
+        .toThrow(/taxonomy concept name must contain between 1 and 120 characters/);
+    },
+  );
+
+  it.each(["", "a".repeat(501)])(
+    "record validation rejects response-invalid taxonomy namespace %s",
+    (namespaceUri) => {
+      const record = makeRecord();
+      record.statements[0]!.facts[0]!.taxonomy = { namespaceUri, version: "2026" };
+
+      expect(() => validateResearchFinancialStatementRecord(record))
+        .toThrow(/taxonomy namespace must contain between 1 and 500 characters/);
+    },
+  );
+
+  it.each(["", "a".repeat(121)])(
+    "record validation rejects response-invalid fact taxonomy version %s",
+    (version) => {
+      const record = makeRecord();
+      record.statements[0]!.facts[0]!.taxonomy = { namespaceUri: "https://xbrl.ifrs.org", version };
+
+      expect(() => validateResearchFinancialStatementRecord(record))
+        .toThrow(/taxonomy version must contain between 1 and 120 characters/);
+    },
+  );
+
+  it("record validation rejects response-invalid mapped metric IDs", () => {
+    const record = makeRecord();
+    Object.assign(record.statements[0]!.facts[0]!.metric, { metricId: "a".repeat(121) });
+
+    expect(() => validateResearchFinancialStatementRecord(record))
+      .toThrow(/mapped metricId must contain between 1 and 120 characters/);
+  });
+
+  it.each([
+    [{ "": "value" }, /dimensions must use 1 to 200 character keys and values/],
+    [{ key: "a".repeat(201) }, /dimensions must use 1 to 200 character keys and values/],
+  ] as const)("record validation rejects response-invalid dimensions", (dimensions, error) => {
+    const record = makeRecord();
+    record.statements[0]!.facts[0]!.context.dimensions = dimensions;
+
+    expect(() => validateResearchFinancialStatementRecord(record)).toThrow(error);
+  });
+
+  it("record validation rejects fact periods outside response duration bounds", () => {
+    const record = makeRecord();
+    record.statements[0]!.facts[0]!.context.period = {
+      kind: "duration",
+      startAt: "2024-01-01T00:00:00.000Z",
+      endAt: "2026-06-30T23:59:59.999Z",
+    };
+
+    expect(() => validateResearchFinancialStatementRecord(record))
+      .toThrow(/period must fit financial statement response bounds/);
+  });
+
   it.each(["", "a".repeat(121)])("record validation rejects out-of-bounds ticker %s", (ticker) => {
     const record = makeRecord();
     record.ticker = ticker;
