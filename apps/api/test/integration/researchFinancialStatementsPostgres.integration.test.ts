@@ -25,18 +25,19 @@ function makeRecord(overrides: Partial<ResearchFinancialStatementRecord> = {}): 
   const processingId = overrides.publicationContext?.processingId ?? "proc-1";
   const listingId = overrides.listingId ?? "lst_2330";
   const issuerId = overrides.issuerId ?? "iss_2330";
+  const fiscalPeriod = overrides.fiscalPeriod ?? {
+    fiscalYear: 2026,
+    fiscalQuarter: 2,
+    periodStart: "2026-04-01",
+    periodEnd: "2026-06-30",
+  };
   return {
     listingId,
     issuerId,
     ticker: overrides.ticker ?? "2330",
     venue: overrides.venue ?? "TWSE",
     periodicity: overrides.periodicity ?? "quarterly",
-    fiscalPeriod: overrides.fiscalPeriod ?? {
-      fiscalYear: 2026,
-      fiscalQuarter: 2,
-      periodStart: "2026-04-01",
-      periodEnd: "2026-06-30",
-    },
+    fiscalPeriod,
     filingBasis: overrides.filingBasis ?? "consolidated",
     publicationContext: overrides.publicationContext ?? {
       filingId,
@@ -65,8 +66,8 @@ function makeRecord(overrides: Partial<ResearchFinancialStatementRecord> = {}): 
             contextId: "ctx-income",
             period: {
               kind: "duration",
-              startAt: "2026-04-01T00:00:00.000Z",
-              endAt: "2026-06-30T23:59:59.999Z",
+              startAt: `${fiscalPeriod.periodStart}T00:00:00.000Z`,
+              endAt: `${fiscalPeriod.periodEnd}T23:59:59.999Z`,
             },
             valueKind: "cumulative",
             rawValue: "1,234",
@@ -86,7 +87,7 @@ function makeRecord(overrides: Partial<ResearchFinancialStatementRecord> = {}): 
             concept: { qname: "ifrs-full:Assets", label: "Assets" },
             metric: { state: "mapped", metricId: "assets" },
             contextId: "ctx-assets",
-            period: { kind: "instant", instantAt: "2026-06-30T23:59:59.999Z" },
+            period: { kind: "instant", instantAt: `${fiscalPeriod.periodEnd}T23:59:59.999Z` },
             valueKind: "instant",
             rawValue: "9,999",
             unit: { state: "known", unitId: "TWD" },
@@ -107,8 +108,8 @@ function makeRecord(overrides: Partial<ResearchFinancialStatementRecord> = {}): 
             contextId: "ctx-cash",
             period: {
               kind: "duration",
-              startAt: "2026-04-01T00:00:00.000Z",
-              endAt: "2026-06-30T23:59:59.999Z",
+              startAt: `${fiscalPeriod.periodStart}T00:00:00.000Z`,
+              endAt: `${fiscalPeriod.periodEnd}T23:59:59.999Z`,
             },
             valueKind: "cumulative",
             rawValue: "456",

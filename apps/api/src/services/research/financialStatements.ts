@@ -447,12 +447,17 @@ export function researchFinancialStatementUnitId(
   unit: { measures: string[]; numeratorMeasures: string[]; denominatorMeasures: string[] },
   fallback: string,
 ): string {
+  let unitId: string;
   if (unit.numeratorMeasures.length > 0 || unit.denominatorMeasures.length > 0) {
     const numerator = unit.numeratorMeasures.length > 0 ? unit.numeratorMeasures.join("*") : "1";
     const denominator = unit.denominatorMeasures.length > 0 ? unit.denominatorMeasures.join("*") : "1";
-    return `${numerator}/${denominator}`;
+    unitId = `${numerator}/${denominator}`;
+  } else {
+    unitId = unit.measures.length > 0 ? unit.measures.join("*") : fallback;
   }
-  return unit.measures.length > 0 ? unit.measures.join("*") : fallback;
+  return unitId.length <= 40
+    ? unitId
+    : `unit-${createHash("sha256").update(unitId).digest("hex").slice(0, 32)}`;
 }
 
 export function materializeResearchFinancialStatementRecord(
@@ -873,6 +878,9 @@ export function validateResearchFinancialStatementRecord(
   if (!isTimestamp(record.publicationContext.publishedAt) || !isTimestamp(record.provenance.retrievedAt)) {
     throw invalidResearchFinancialStatementRecord("publication and retrieval timestamps must be ISO datetimes");
   }
+  if (new Date(record.publicationContext.publishedAt).toISOString().slice(0, 10) < record.fiscalPeriod.periodEnd) {
+    throw invalidResearchFinancialStatementRecord("publishedAt must be on or after the fiscal period end");
+  }
   if (
     record.publicationContext.revisionPublishedAt !== null
     && !isTimestamp(record.publicationContext.revisionPublishedAt)
@@ -1008,8 +1016,11 @@ export function validateResearchFinancialStatementRecord(
       ) {
         throw invalidResearchFinancialStatementRecord(`fact ${fact.id} dimensions must use 1 to 200 character keys and values`);
       }
-      if (fact.unit.state === "known" && !fact.unit.unitId) {
-        throw invalidResearchFinancialStatementRecord(`fact ${fact.id} known unit must provide unitId`);
+      if (
+        fact.unit.state === "known"
+        && (fact.unit.unitId.length === 0 || fact.unit.unitId.length > 40)
+      ) {
+        throw invalidResearchFinancialStatementRecord(`fact ${fact.id} known unitId must contain between 1 and 40 characters`);
       }
       if (
         fact.metric.state === "mapped"
@@ -1039,6 +1050,9 @@ export function validateResearchFinancialStatementRecord(
       const outputPeriodEnd = fact.context.period.kind === "instant"
         ? fact.context.period.instantAt
         : fact.context.period.endAt;
+      if (new Date(outputPeriodEnd).toISOString().slice(0, 10) > record.fiscalPeriod.periodEnd) {
+        throw invalidResearchFinancialStatementRecord(`fact ${fact.id} period cannot end after the filing period`);
+      }
       const outputFiscalYear = Number(outputPeriodEnd.slice(0, 4));
       const outputDurationMonths = fact.context.period.kind === "instant"
         ? 1

@@ -536,7 +536,7 @@ describe("research financial statement acquisition", () => {
       .find((fact) => fact.concept.qname === "custom:EarningsPerShare");
     expect(earningsPerShare?.unit).toEqual({
       state: "known",
-      unitId: "{http://www.xbrl.org/2003/iso4217}TWD/{http://www.xbrl.org/2003/instance}shares",
+      unitId: "unit-a6b338bbd8055b7c447f46c155a8c232",
     });
     const extensionRevenue = q2Latest?.statements.flatMap((section) => section.facts)
       .find((fact) => fact.concept.qname === "custom:Revenue");

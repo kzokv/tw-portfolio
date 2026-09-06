@@ -392,6 +392,27 @@ describe("research financial statements", () => {
       .toThrow(/revisionPublishedAt is required for amendment and revision records/);
   });
 
+  it.each([
+    ["pre-period publication", (record: ResearchFinancialStatementRecord) => {
+      record.publicationContext.publishedAt = "2026-06-29T10:00:00.000Z";
+    }, /publishedAt must be on or after the fiscal period end/],
+    ["future fact context", (record: ResearchFinancialStatementRecord) => {
+      const fact = record.statements[0]!.facts[0]!;
+      if (fact.context.period.kind !== "duration") throw new Error("expected duration fact");
+      fact.context.period.endAt = "2026-07-01T23:59:59.999Z";
+    }, /period cannot end after the filing period/],
+    ["overlong known unit", (record: ResearchFinancialStatementRecord) => {
+      record.statements[0]!.facts[0]!.unit = { state: "known", unitId: "u".repeat(41) };
+    }, /known unitId must contain between 1 and 40 characters/],
+  ] as const)("direct append rejects %s", async (_label, mutate, error) => {
+    const persistence = new MemoryPersistence();
+    const record = makeRecord();
+    mutate(record);
+
+    await expect(persistence.appendResearchFinancialStatementRecords([record]))
+      .rejects.toThrow(error);
+  });
+
   it("raw artifact materialization: preserves artifact-wide unit and mapping flags", () => {
     const artifact = makeRawArtifact([makeRawRevenueFact()]);
     artifact.issues = {
