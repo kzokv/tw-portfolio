@@ -1948,6 +1948,11 @@ describe("research financial-statement service", () => {
       }),
     );
     expect(result.periods[0]?.quality.unmappedConcepts.observationIds).toHaveLength(100);
+    expect(result.completeness.status).toBe("partial");
+    expect(result.readiness).toMatchObject({
+      status: "usable_with_gaps",
+      reasonCodes: expect.arrayContaining(["response_truncated"]),
+    });
     expect(result.page.truncatedByBudget).toBe(true);
   });
 

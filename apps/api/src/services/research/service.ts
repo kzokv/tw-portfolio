@@ -1895,10 +1895,15 @@ export async function getFinancialStatements(
           || (record.fiscalPeriod.periodEnd === cursor.periodEndDate && periodIdForRecord(record) < cursor.filingPeriodId)
         : record.fiscalPeriod.periodEnd > cursor.periodEndDate
           || (record.fiscalPeriod.periodEnd === cursor.periodEndDate && periodIdForRecord(record) > cursor.filingPeriodId)
-    ));
+  ));
   const pageRecords = remainingRecords.slice(0, query.page.limit);
-  const selectedPageFacts = new Map(pageRecords.map((record) => [periodIdForRecord(record), selectedOutputFacts(record, query)] as const));
+  const selectedRangeFacts = new Map(outputRange.map((record) => [periodIdForRecord(record), selectedOutputFacts(record, query)] as const));
+  const selectedPageFacts = new Map(pageRecords.map((record) => [
+    periodIdForRecord(record),
+    selectedRangeFacts.get(periodIdForRecord(record)) ?? [],
+  ] as const));
   const truncatedByBudget = [...selectedPageFacts.values()].some((facts) => facts.length > FINANCIAL_STATEMENT_MAX_FACTS_PER_PERIOD);
+  const rangeTruncatedByBudget = [...selectedRangeFacts.values()].some((facts) => facts.length > FINANCIAL_STATEMENT_MAX_FACTS_PER_PERIOD);
   const pageFacts = new Map([...selectedPageFacts].map(([periodId, facts]) => [
     periodId,
     facts.slice(0, FINANCIAL_STATEMENT_MAX_FACTS_PER_PERIOD),
@@ -1934,7 +1939,7 @@ export async function getFinancialStatements(
     mapPeriod(record, pageFacts.get(periodIdForRecord(record)) ?? [])
   ));
   const completenessPeriods = outputRange.map((record) => (
-    mapPeriod(record, selectedOutputFacts(record, query))
+    mapPeriod(record, selectedRangeFacts.get(periodIdForRecord(record)) ?? [])
   ));
   const recordsByKey = new Map(calculationRecords.map((record) => [periodIdForRecord(record), record] as const));
   const factsByPeriodId = new Map(calculationRecords.map((record) => [
@@ -2029,6 +2034,7 @@ export async function getFinancialStatements(
     ...conflicts.map((conflict) => conflict.code),
     ...(outputRange.length > 0 && outputRange.length < financialStatementsRangeRequestedCount(query) ? ["partial_coverage"] : []),
     ...(freshnessState === "stale" ? ["stale_financial_statements"] : []),
+    ...(rangeTruncatedByBudget ? ["response_truncated"] : []),
     ...(missingFactCount > 0 ? ["missing_requested_facts"] : []),
     ...completenessDerivedOutcomes.filter((outcome) => outcome.status !== "returned").map((outcome) => outcome.reasonCode),
   ], (value) => value);
@@ -2070,7 +2076,9 @@ export async function getFinancialStatements(
         : null,
     },
     completeness: {
-      status: outputRange.length === 0 ? "withheld" : missingFactCount > 0 || missingMetricCount > 0 ? "partial" : "complete",
+      status: outputRange.length === 0
+        ? "withheld"
+        : rangeTruncatedByBudget || missingFactCount > 0 || missingMetricCount > 0 ? "partial" : "complete",
       missingFactCount,
       missingMetricCount,
     },
