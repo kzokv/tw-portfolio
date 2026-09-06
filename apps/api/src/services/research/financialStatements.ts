@@ -857,6 +857,15 @@ export function validateResearchFinancialStatementRecord(
   if (!isCanonicalIdentifier(record.provenance.id)) {
     throw invalidResearchFinancialStatementRecord(`provenance id ${record.provenance.id} must be a canonical identifier`);
   }
+  if (record.provenance.publisherDataset.length === 0 || record.provenance.publisherDataset.length > 120) {
+    throw invalidResearchFinancialStatementRecord("provenance publisherDataset must contain between 1 and 120 characters");
+  }
+  if (!URL.canParse(record.provenance.sourceUrl)) {
+    throw invalidResearchFinancialStatementRecord("provenance sourceUrl must be a valid URL");
+  }
+  if (record.provenance.contentHash.length === 0 || record.provenance.contentHash.length > 200) {
+    throw invalidResearchFinancialStatementRecord("provenance contentHash must contain between 1 and 200 characters");
+  }
   const publicationSequences = [
     record.publicationContext.filingSequence,
     record.publicationContext.revisionSequence,
@@ -881,12 +890,12 @@ export function validateResearchFinancialStatementRecord(
     throw invalidResearchFinancialStatementRecord("revision id must contain between 1 and 120 characters");
   }
   const sectionKinds = new Set<ResearchFinancialStatementKind>();
+  const factIds = new Set<string>();
   for (const section of record.statements) {
     if (sectionKinds.has(section.kind)) {
       throw invalidResearchFinancialStatementRecord(`duplicate statement section ${section.kind}`);
     }
     sectionKinds.add(section.kind);
-    const factIds = new Set<string>();
     for (const fact of section.facts) {
       if (!isCanonicalIdentifier(fact.id)) {
         throw invalidResearchFinancialStatementRecord(`fact id ${fact.id} must be a canonical identifier`);

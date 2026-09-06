@@ -589,6 +589,30 @@ describe("research financial statements", () => {
       .toThrow(/provenance id .* must be a canonical identifier/);
   });
 
+  it.each([
+    ["publisherDataset", "", /publisherDataset must contain between 1 and 120 characters/],
+    ["publisherDataset", "a".repeat(121), /publisherDataset must contain between 1 and 120 characters/],
+    ["sourceUrl", "not a URL", /sourceUrl must be a valid URL/],
+    ["contentHash", "", /contentHash must contain between 1 and 200 characters/],
+    ["contentHash", "a".repeat(201), /contentHash must contain between 1 and 200 characters/],
+  ] as const)("record validation rejects response-invalid provenance %s", (field, value, error) => {
+    const record = makeRecord();
+    record.provenance[field] = value;
+
+    expect(() => validateResearchFinancialStatementRecord(record)).toThrow(error);
+  });
+
+  it("record validation rejects duplicate fact IDs across statement sections", () => {
+    const record = makeRecord();
+    const duplicate = {
+      ...record.statements[0]!.facts[0]!,
+      statementKind: "balance_sheet" as const,
+    };
+    record.statements[1]!.facts.push(duplicate);
+
+    expect(() => validateResearchFinancialStatementRecord(record)).toThrow(/duplicate fact id/);
+  });
+
   it.each(["", "a".repeat(121)])("record validation rejects unreadable filing id %s", (filingId) => {
     const record = makeRecord();
     record.publicationContext.filingId = filingId;
