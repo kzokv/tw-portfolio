@@ -623,7 +623,7 @@ export function researchFinancialStatementPeriodKey(record: ResearchFinancialSta
 export function researchFinancialStatementRecordKey(
   record: ResearchFinancialStatementRecord,
 ): string {
-  return [
+  return opaqueId("fsr", JSON.stringify([
     record.issuerId,
     record.listingId,
     researchFinancialStatementPeriodKey(record),
@@ -631,7 +631,7 @@ export function researchFinancialStatementRecordKey(
     record.publicationContext.filingId,
     record.publicationContext.revisionId,
     record.publicationContext.processingId,
-  ].join(":");
+  ]));
 }
 
 export function compareResearchFinancialStatementRevisionPrecedence(
@@ -819,6 +819,12 @@ export function validateResearchFinancialStatementQuery(
 export function validateResearchFinancialStatementRecord(
   record: ResearchFinancialStatementRecord,
 ): void {
+  if (!isCanonicalIdentifier(record.listingId) || !isCanonicalIdentifier(record.issuerId)) {
+    throw invalidResearchFinancialStatementRecord("listingId and issuerId must be canonical identifiers");
+  }
+  if (record.ticker.length === 0 || record.ticker.length > 120) {
+    throw invalidResearchFinancialStatementRecord("ticker must contain between 1 and 120 characters");
+  }
   validatePeriodicity(record);
   if (
     !Number.isInteger(record.fiscalPeriod.fiscalYear)
@@ -874,8 +880,11 @@ export function validateResearchFinancialStatementRecord(
   if (!publicationSequences.every((sequence) => Number.isInteger(sequence) && sequence >= 0 && sequence <= 2_147_483_647)) {
     throw invalidResearchFinancialStatementRecord("publication sequences must fit the non-negative PostgreSQL INTEGER range");
   }
-  if (!record.publicationContext.processingId) {
-    throw invalidResearchFinancialStatementRecord("processing revision identity must be present");
+  if (
+    record.publicationContext.processingId.length === 0
+    || record.publicationContext.processingId.length > 120
+  ) {
+    throw invalidResearchFinancialStatementRecord("processing id must contain between 1 and 120 characters");
   }
   if (
     record.publicationContext.filingId.length === 0

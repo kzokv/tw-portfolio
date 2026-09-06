@@ -4,6 +4,7 @@ import { MemoryPersistence } from "../../src/persistence/memory.js";
 import { PostgresPersistence } from "../../src/persistence/postgres.js";
 import {
   normalizeResearchFinancialStatementFact,
+  researchFinancialStatementRecordKey,
   type ResearchFinancialStatementRecord,
 } from "../../src/services/research/financialStatements.js";
 
@@ -181,7 +182,7 @@ describePostgres("research financial statements memory/Postgres parity", () => {
         processedAt: "2026-08-15T01:05:00.000Z",
       },
       relations: [
-        { kind: "supersedes", targetRecordKey: "iss_2330:lst_2330:2026-Q2:consolidated:mops-2026q2:mops-2026q2-r0:proc-1" },
+        { kind: "supersedes", targetRecordKey: researchFinancialStatementRecordKey(original) },
       ],
     });
     const reprocessed = makeRecord({
@@ -290,6 +291,41 @@ describePostgres("research financial statements memory/Postgres parity", () => {
       "research_financial_statement_records_listing_latest_idx",
       "research_financial_statement_records_listing_temporal_idx",
     ]);
+  });
+
+  it("persists distinct colon-delimited source identifier tuples without record-key collisions", async () => {
+    const memory = new MemoryPersistence();
+    const left = makeRecord({
+      publicationContext: {
+        ...makeRecord().publicationContext,
+        filingId: "a:b",
+        revisionId: "c",
+      },
+    });
+    left.provenance.id = "prv_collision_left";
+    const right = makeRecord({
+      publicationContext: {
+        ...makeRecord().publicationContext,
+        filingId: "a",
+        revisionId: "b:c",
+      },
+    });
+    right.provenance.id = "prv_collision_right";
+
+    await memory.appendResearchFinancialStatementRecords([left, right]);
+    await postgres.appendResearchFinancialStatementRecords([left, right]);
+
+    const query = {
+      subject: { kind: "listing_id" as const, listingId: left.listingId },
+      effectiveAt: "2026-08-20T00:00:00.000Z",
+      knowledgeAt: "2026-08-20T00:00:00.000Z",
+      periodicity: "quarterly" as const,
+    };
+    const memoryRecords = await memory.listResearchFinancialStatementRecords(query);
+    const postgresRecords = await postgres.listResearchFinancialStatementRecords(query);
+
+    expect(postgresRecords).toEqual(memoryRecords);
+    expect(postgresRecords).toHaveLength(2);
   });
 
   it("keeps memory and Postgres knowledge-time visibility aligned for later processing revisions", async () => {

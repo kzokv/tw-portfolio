@@ -6,6 +6,7 @@ import {
   normalizeResearchFinancialStatementFact,
   researchFinancialStatementProcessingId,
   researchFinancialStatementProcessingSequence,
+  researchFinancialStatementRecordKey,
   researchFinancialStatementTaxonomyVersion,
   resolveLatestResearchFinancialStatementRecords,
   type ResearchFinancialStatementRecord,
@@ -623,6 +624,52 @@ describe("research financial statements", () => {
         .toThrow(/filing id must be non-empty and fit its canonical output form/);
     },
   );
+
+  it.each(["", "a".repeat(121)])("record validation rejects out-of-bounds processing id %s", (processingId) => {
+    const record = makeRecord();
+    record.publicationContext.processingId = processingId;
+
+    expect(() => validateResearchFinancialStatementRecord(record))
+      .toThrow(/processing id must contain between 1 and 120 characters/);
+  });
+
+  it("record keys encode source identifier tuples without delimiter collisions", () => {
+    const left = makeRecord({
+      publicationContext: {
+        ...makeRecord().publicationContext,
+        filingId: "a:b",
+        revisionId: "c",
+      },
+    });
+    const right = makeRecord({
+      publicationContext: {
+        ...makeRecord().publicationContext,
+        filingId: "a",
+        revisionId: "b:c",
+      },
+    });
+
+    expect(researchFinancialStatementRecordKey(left)).not.toBe(researchFinancialStatementRecordKey(right));
+  });
+
+  it.each([
+    ["listingId", "bad:id"],
+    ["issuerId", "a".repeat(121)],
+  ] as const)("record validation rejects non-canonical %s", (field, value) => {
+    const record = makeRecord();
+    record[field] = value;
+
+    expect(() => validateResearchFinancialStatementRecord(record))
+      .toThrow(/listingId and issuerId must be canonical identifiers/);
+  });
+
+  it.each(["", "a".repeat(121)])("record validation rejects out-of-bounds ticker %s", (ticker) => {
+    const record = makeRecord();
+    record.ticker = ticker;
+
+    expect(() => validateResearchFinancialStatementRecord(record))
+      .toThrow(/ticker must contain between 1 and 120 characters/);
+  });
 
   it.each(["", "a".repeat(121)])("record validation rejects out-of-bounds revision id %s", (revisionId) => {
     const record = makeRecord();
