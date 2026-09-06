@@ -644,6 +644,11 @@ export async function registerMcpRoutes(
     };
 
     try {
+      try {
+        args = tool.inputSchema.parse(args);
+      } catch (error) {
+        throw normalizeMcpExecutionError(error);
+      }
       const hasModelFacingPortfolioSelector = Boolean(
         args
         && typeof args === "object"
@@ -1330,30 +1335,29 @@ export async function registerMcpRoutes(
         researchToolSummary(toolName, adapted),
       );
     } catch (error) {
-      const executionError = normalizeMcpExecutionError(error);
-      const denialReason = executionError instanceof Error && "code" in executionError
-        ? String((executionError as { code?: unknown }).code)
-        : executionError instanceof Error
-          ? executionError.message
-          : String(executionError);
-      const result = executionError instanceof Error && "statusCode" in executionError && Number((executionError as { statusCode?: unknown }).statusCode) < 500
+      const denialReason = error instanceof Error && "code" in error
+        ? String((error as { code?: unknown }).code)
+        : error instanceof Error
+          ? error.message
+          : String(error);
+      const result = error instanceof Error && "statusCode" in error && Number((error as { statusCode?: unknown }).statusCode) < 500
         ? "denied"
         : "error";
       await logAccess(result, denialReason);
-      if (shouldReturnToolAuthChallenge(executionError)) {
-        const description = executionError instanceof Error ? executionError.message : "MCP authorization failed.";
+      if (shouldReturnToolAuthChallenge(error)) {
+        const description = error instanceof Error ? error.message : "MCP authorization failed.";
         return buildToolAuthChallengeResult({
           app,
           req: pending.req,
           scope: await challengeScopeForTool(toolName),
-          error: challengeErrorFor(executionError),
+          error: challengeErrorFor(error),
           description,
           text: `Authorization required for ${toToolTitle(toolName)}.`,
         });
       }
-      if (executionError instanceof Error && "statusCode" in executionError && Number((executionError as { statusCode?: unknown }).statusCode) < 500) {
+      if (error instanceof Error && "statusCode" in error && Number((error as { statusCode?: unknown }).statusCode) < 500) {
         return buildToolErrorResult(
-          executionError as Error & { statusCode?: unknown; code?: unknown; metadata?: unknown },
+          error as Error & { statusCode?: unknown; code?: unknown; metadata?: unknown },
           toolName === "get_research_manifest"
             || toolName === "get_research_identity"
             || toolName === "get_price_series"
@@ -1361,7 +1365,7 @@ export async function registerMcpRoutes(
             || toolName === "get_financial_statements",
         );
       }
-      throw executionError;
+      throw error;
     }
   };
 

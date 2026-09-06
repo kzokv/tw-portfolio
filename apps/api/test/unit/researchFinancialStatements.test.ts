@@ -360,6 +360,18 @@ describe("research financial statements", () => {
     });
   });
 
+  it("raw first-seen amendment materialization: derives revision publication time at revision zero", () => {
+    const artifact = makeRawArtifact([makeRawRevenueFact()]);
+    artifact.filing.amendmentType = "amendment";
+    artifact.artifact.retrievedAt = "2026-08-20T11:00:00.000Z";
+
+    expect(materializeResearchFinancialStatementRecord(artifact).publicationContext).toMatchObject({
+      revisionPublishedAt: "2026-08-20T11:00:00.000Z",
+      revisionSequence: 0,
+      amendment: true,
+    });
+  });
+
   it("raw artifact materialization preserves the supplied filing accession number", () => {
     const artifact = makeRawArtifact([makeRawRevenueFact()]);
     artifact.filing.accessionNumber = "MOPS-2026-Q2-2330";
@@ -816,9 +828,24 @@ describe("research financial statements", () => {
   it.each([
     ["year", { fiscalYear: 2025, fiscalQuarter: 2, periodStart: "2025-04-01", periodEnd: "2026-06-30" }],
     ["quarter", { fiscalYear: 2026, fiscalQuarter: 1, periodStart: "2026-01-01", periodEnd: "2026-06-30" }],
+    ["quarter calendar end", { fiscalYear: 2026, fiscalQuarter: 1, periodStart: "2026-01-01", periodEnd: "2026-02-28" }],
   ] as const)("record validation rejects a fiscal period with a mismatched declared %s", (_label, fiscalPeriod) => {
     const record = makeRecord();
     record.fiscalPeriod = fiscalPeriod;
+
+    expect(() => validateResearchFinancialStatementRecord(record))
+      .toThrow(/fiscal period end must match the declared fiscal year and quarter/);
+  });
+
+  it("record validation rejects an annual fiscal period that does not end on December 31", () => {
+    const record = makeRecord();
+    record.periodicity = "annual";
+    record.fiscalPeriod = {
+      fiscalYear: 2026,
+      fiscalQuarter: null,
+      periodStart: "2026-01-01",
+      periodEnd: "2026-06-30",
+    };
 
     expect(() => validateResearchFinancialStatementRecord(record))
       .toThrow(/fiscal period end must match the declared fiscal year and quarter/);

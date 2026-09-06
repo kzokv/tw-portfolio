@@ -548,7 +548,7 @@ export function materializeResearchFinancialStatementRecord(
       accessionNumber: input.filing.accessionNumber ?? null,
       revisionId: `${input.filing.filingId}:r${input.filing.revision}`,
       publishedAt,
-      revisionPublishedAt: input.filing.revision > 0
+      revisionPublishedAt: input.filing.revision > 0 || input.filing.amendmentType !== "original"
         ? financialStatementPublishedAtTimestamp(input.artifact.retrievedAt)
         : null,
       filingSequence: 0,
@@ -863,12 +863,10 @@ export function validateResearchFinancialStatementRecord(
   if (record.fiscalPeriod.periodStart > record.fiscalPeriod.periodEnd) {
     throw invalidResearchFinancialStatementRecord("fiscal period start must be <= end");
   }
-  const periodEndYear = Number(record.fiscalPeriod.periodEnd.slice(0, 4));
-  const periodEndQuarter = Math.ceil(Number(record.fiscalPeriod.periodEnd.slice(5, 7)) / 3);
-  if (
-    periodEndYear !== record.fiscalPeriod.fiscalYear
-    || (record.fiscalPeriod.fiscalQuarter !== null && periodEndQuarter !== record.fiscalPeriod.fiscalQuarter)
-  ) {
+  const expectedPeriodEnd = record.fiscalPeriod.fiscalQuarter === null
+    ? `${record.fiscalPeriod.fiscalYear}-12-31`
+    : `${record.fiscalPeriod.fiscalYear}-${["03-31", "06-30", "09-30", "12-31"][record.fiscalPeriod.fiscalQuarter - 1]}`;
+  if (record.fiscalPeriod.periodEnd !== expectedPeriodEnd) {
     throw invalidResearchFinancialStatementRecord("fiscal period end must match the declared fiscal year and quarter");
   }
   const publicationSequences = [
