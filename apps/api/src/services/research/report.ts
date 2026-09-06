@@ -294,7 +294,7 @@ function matchingFacts(
     fact.metricId === metricId
     && factMatchesSelectedBasis(fact)
     && fact.period.endDate === period.periodEndDate
-    && (fact.period.startDate === null || fact.period.startDate === expectedStartDate)
+    && fact.period.startDate === expectedStartDate
   ));
 }
 
@@ -509,6 +509,56 @@ export async function buildFinancialStatementFundamentalsResearchReport(
     context: manifest.context,
     history: { limit: 1 },
   });
+  if (identity.identity.issuer.classification !== "operating_company") {
+    return financialFundamentalsReportSchema.parse({
+      contractVersion: "research-report/3.0.0" as const,
+      profile: "financial_statement_fundamentals" as const,
+      selector: manifest.selector,
+      context: manifest.context,
+      generatedAt: manifest.context.knowledgeAt,
+      sections: [
+        {
+          id: "identity",
+          issuer: identity.identity.issuer,
+          security: identity.identity.security,
+          listing: identity.identity.listing,
+          displayName: presentFactValue(identity.identity.facts, "display_name"),
+        },
+        {
+          id: "minimum_windows",
+          windows: FUNDAMENTALS_MINIMUM_WINDOWS,
+        },
+        {
+          id: "independent_facts",
+          sector: identity.identity.issuer.classification,
+          periods: [],
+        },
+      ],
+      conclusions: [
+        {
+          id: "latest_revenue_yoy" as const,
+          status: "withheld" as const,
+          statement: "Latest due year-over-year financial statement conclusion is withheld.",
+          reasonCodes: ["unsupported_sector"],
+        },
+        {
+          id: "multi_year_revenue_trend" as const,
+          status: "withheld" as const,
+          statement: "Multi-year financial statement trend is withheld.",
+          reasonCodes: ["unsupported_sector"],
+        },
+        {
+          id: "quarterly_revenue_trend" as const,
+          status: "withheld" as const,
+          statement: "Quarterly financial statement trend is withheld.",
+          reasonCodes: ["unsupported_sector"],
+        },
+      ],
+      evidence: {
+        provenanceIds: [...new Set(identity.identity.provenance.map((item) => item.id))],
+      },
+    });
+  }
   const dataset = manifest.datasets.find((item) => item.id === "financial_statements");
   if (dataset?.status !== "available") {
     throw new ResearchServiceError(
@@ -539,37 +589,15 @@ export async function buildFinancialStatementFundamentalsResearchReport(
     derivedMetrics: [],
     page: { limit: 8, order: "desc" },
   }));
-  const unsupportedSector = annualStatements.identity.issuer.classification !== "operating_company";
-  const conclusions = unsupportedSector
-    ? [
-        {
-          id: "latest_revenue_yoy" as const,
-          status: "withheld" as const,
-          statement: "Latest due year-over-year financial statement conclusion is withheld.",
-          reasonCodes: ["unsupported_sector"],
-        },
-        {
-          id: "multi_year_revenue_trend" as const,
-          status: "withheld" as const,
-          statement: "Multi-year financial statement trend is withheld.",
-          reasonCodes: ["unsupported_sector"],
-        },
-        {
-          id: "quarterly_revenue_trend" as const,
-          status: "withheld" as const,
-          statement: "Quarterly financial statement trend is withheld.",
-          reasonCodes: ["unsupported_sector"],
-        },
-      ]
-    : buildSupportedOrWithheldConclusions(
-        annualStatements.periods,
-        quarterlyStatements.periods,
-        annualStatements.freshness.state,
-        {
-          annual: annualStatements.page.truncatedByBudget,
-          quarterly: quarterlyStatements.page.truncatedByBudget,
-        },
-      );
+  const conclusions = buildSupportedOrWithheldConclusions(
+    annualStatements.periods,
+    quarterlyStatements.periods,
+    annualStatements.freshness.state,
+    {
+      annual: annualStatements.page.truncatedByBudget,
+      quarterly: quarterlyStatements.page.truncatedByBudget,
+    },
+  );
   const evidenceProvenanceIds = [...new Set([
     ...annualStatements.provenanceIndex.map((item) => item.provenanceId),
     ...quarterlyStatements.provenanceIndex.map((item) => item.provenanceId),

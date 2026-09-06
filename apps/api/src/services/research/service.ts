@@ -1601,7 +1601,12 @@ function deriveMetricForRecord(
     if (current.unit !== prior.unit || !factsHaveComparableTaxonomy([...current.facts, ...prior.facts], recordsInOrder)) {
       return withholding("incomparable_inputs", [...current.facts, ...prior.facts].map((fact) => fact.id));
     }
-    if (prior.value === 0) return withholding("zero_denominator", [...current.facts, ...prior.facts].map((fact) => fact.id));
+    if (prior.value <= 0) {
+      return withholding(
+        prior.value === 0 ? "zero_denominator" : "incomparable_inputs",
+        [...current.facts, ...prior.facts].map((fact) => fact.id),
+      );
+    }
     return returned((current.value - prior.value) / prior.value, "ratio", [...current.facts, ...prior.facts].map((fact) => fact.id), "period_over_period_change");
   }
   if (metricId === "compound_annual_growth_rate") {

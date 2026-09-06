@@ -761,6 +761,32 @@ describe("research financial-statement service", () => {
     ]);
   });
 
+  it("period-over-period change: withholds nonpositive comparison bases", async () => {
+    const persistence = new MemoryPersistence();
+    const identity = makeIdentity();
+    await persistence.appendResearchIdentityRecords([identity]);
+    await persistence.appendResearchFinancialStatementRecords([
+      makeQuarterRecord(identity, 2025, 4, { net_income: "-100" }, { valueKinds: { net_income: { valueKind: "discrete" } } }),
+      makeQuarterRecord(identity, 2026, 1, { net_income: "-50" }, { valueKinds: { net_income: { valueKind: "discrete" } } }),
+    ]);
+
+    const result = await getFinancialStatements(persistence, {
+      subject: { kind: "listing_id", listingId: identity.listing.id },
+      context: {
+        knowledgeAt: "2026-09-01T00:00:00.000Z",
+        effectiveAt: "2026-09-01T00:00:00.000Z",
+        assessmentMode: "effective",
+      },
+      periodicity: "quarterly",
+      range: { kind: "latest_periods", count: 2 },
+      derivedMetrics: [{ metricId: "period_over_period_change", parameters: { baseMetricId: "net_income" } }],
+    });
+
+    expect(result.derivedOutcomes).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: "withheld", metricId: "period_over_period_change", reasonCode: "incomparable_inputs" }),
+    ]));
+  });
+
   it("same-period formulas: withhold inputs from different taxonomy versions", async () => {
     const persistence = new MemoryPersistence();
     const identity = makeIdentity();

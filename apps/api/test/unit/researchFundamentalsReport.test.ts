@@ -7,7 +7,7 @@ import {
 } from "../../src/services/research/report.js";
 import type { ResearchFinancialStatementsOutput, ResearchFinancialStatementsQueryInput } from "../../src/services/research/contracts.js";
 
-function makeIdentity() {
+function makeIdentity(industryCode = "24") {
   return canonicalizeOfficialIdentityRow({
     venue: "TWSE",
     snapshotDate: "2026-08-31",
@@ -19,7 +19,7 @@ function makeIdentity() {
       legalName: "台灣積體電路製造股份有限公司",
       displayName: "台積電",
       unifiedBusinessNumber: "22099131",
-      industryCode: "24",
+      industryCode,
       listedAt: "1994-09-05",
     },
   });
@@ -424,6 +424,35 @@ describe("financial statement fundamentals report", () => {
     });
   });
 
+  it("flow metrics: withholds instant-context revenue from report calculations", async () => {
+    const persistence = new MemoryPersistence();
+    const identity = makeIdentity();
+    await persistence.appendResearchIdentityRecords([identity]);
+    const annuals = [makePeriod(2023, null, "140"), makePeriod(2024, null, "160"), makePeriod(2025, null, "200")];
+    const quarters = [
+      makePeriod(2024, 1, "35"), makePeriod(2024, 2, "38"), makePeriod(2024, 3, "39"), makePeriod(2024, 4, "48"),
+      makePeriod(2025, 1, "46"), makePeriod(2025, 2, "49"), makePeriod(2025, 3, "50"), makePeriod(2025, 4, "55"),
+    ];
+    for (const period of [...annuals, ...quarters]) {
+      period.sourceFacts.find((fact) => fact.metricId === "revenue")!.period.startDate = null;
+    }
+
+    const report = await buildFinancialStatementFundamentalsResearchReport(
+      persistence,
+      { subject: { kind: "listing_id", listingId: identity.listing.id }, context: availableFinancialStatementManifest(identity).context },
+      {
+        getResearchManifestImpl: async () => availableFinancialStatementManifest(identity) as never,
+        getFinancialStatementsImpl: async (_persistence, query: ResearchFinancialStatementsQueryInput) => (
+          query.periodicity === "annual"
+            ? buildStatementsOutput(identity.listing.id, "annual", annuals)
+            : buildStatementsOutput(identity.listing.id, "quarterly", quarters)
+        ),
+      },
+    );
+
+    expect(report.conclusions.map((conclusion) => conclusion.status)).toEqual(["withheld", "withheld", "withheld"]);
+  });
+
   it("quarterly trend: withholds nonconsecutive or cumulative-only quarter windows", async () => {
     const persistence = new MemoryPersistence();
     const identity = makeIdentity();
@@ -751,8 +780,9 @@ describe("financial statement fundamentals report", () => {
 
   it("unsupported sector fixture: withhold every conclusion explicitly", async () => {
     const persistence = new MemoryPersistence();
-    const identity = makeIdentity();
+    const identity = makeIdentity("17");
     await persistence.appendResearchIdentityRecords([identity]);
+    let statementReads = 0;
 
     const report = await buildFinancialStatementFundamentalsResearchReport(
       persistence,
@@ -765,48 +795,10 @@ describe("financial statement fundamentals report", () => {
         },
       },
       {
-        getResearchManifestImpl: async () => ({
-          contractVersion: "research-manifest/1.0.0",
-          selector: { kind: "listing_id", listingId: identity.listing.id },
-          context: {
-            knowledgeAt: "2026-09-01T00:00:00.000Z",
-            effectiveAt: "2026-09-01T00:00:00.000Z",
-            assessmentMode: "effective",
-          },
-          eligibility: identity.eligibility,
-          orchestration: { skillExposure: "enabled" as const },
-          datasets: [
-            { id: "research_identity", status: "available" as const },
-            { id: "price_series", status: "unavailable" as const, reasonCode: "no_authoritative_price_history" },
-            { id: "exchange_valuation_references", status: "unavailable" as const, reasonCode: "identity_only_release" },
-            { id: "monthly_revenue", status: "unavailable" as const, reasonCode: "not_acquired" },
-            { id: "financial_statements", status: "available" as const },
-            { id: "institutional_trading", status: "unavailable" as const, reasonCode: "identity_only_release" },
-            { id: "foreign_ownership", status: "unavailable" as const, reasonCode: "identity_only_release" },
-            { id: "margin_and_short_balances", status: "unavailable" as const, reasonCode: "identity_only_release" },
-            { id: "dividend_events", status: "unavailable" as const, reasonCode: "identity_only_release" },
-            { id: "material_announcements", status: "unavailable" as const, reasonCode: "identity_only_release" },
-            { id: "investor_materials", status: "unavailable" as const, reasonCode: "identity_only_release" },
-          ],
-        }) as never,
-        getFinancialStatementsImpl: async (_persistence, financialQuery: ResearchFinancialStatementsQueryInput) => (
-          financialQuery.periodicity === "annual"
-            ? buildStatementsOutput(identity.listing.id, "annual", [
-                makePeriod(2023, null, "140"),
-                makePeriod(2024, null, "160"),
-                makePeriod(2025, null, "200"),
-              ], "financial_institution")
-            : buildStatementsOutput(identity.listing.id, "quarterly", [
-                makePeriod(2024, 1, "35"),
-                makePeriod(2024, 2, "38"),
-                makePeriod(2024, 3, "39"),
-                makePeriod(2024, 4, "48"),
-                makePeriod(2025, 1, "46"),
-                makePeriod(2025, 2, "49"),
-                makePeriod(2025, 3, "50"),
-                makePeriod(2025, 4, "55"),
-              ], "financial_institution")
-        ),
+        getFinancialStatementsImpl: async () => {
+          statementReads += 1;
+          throw new Error("unsupported sectors must not read financial statements");
+        },
       },
     );
 
@@ -815,5 +807,6 @@ describe("financial statement fundamentals report", () => {
       expect.objectContaining({ id: "multi_year_revenue_trend", status: "withheld", reasonCodes: ["unsupported_sector"] }),
       expect.objectContaining({ id: "quarterly_revenue_trend", status: "withheld", reasonCodes: ["unsupported_sector"] }),
     ]);
+    expect(statementReads).toBe(0);
   });
 });

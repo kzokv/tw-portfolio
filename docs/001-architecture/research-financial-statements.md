@@ -12,6 +12,7 @@ KZO-249 adds a financial-statement acquisition and reporting lane to the Taiwan 
 - Read side: research tools and skills must read only from the canonical store through `get_financial_statements`; they must not call MOPS, FinMind, or convenience-summary pages directly.
 - Coverage describes the full selected range and is independent of page size or cursor position; page record counts remain transport metadata.
 - Returned derived outcomes may cite only source facts reachable within that selected range and its pagination; otherwise the outcome is withheld as missing inputs.
+- Fundamentals reports accept duration contexts for flow metrics, return explicit unsupported-sector withholdings before dataset availability checks, and withhold period-over-period percentages when the comparison base is nonpositive.
 
 ## Taxonomy And Ambiguity
 
