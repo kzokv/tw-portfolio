@@ -397,6 +397,7 @@ async function canonicalizeFinancialStatementArtifact(
     filingBasis,
     publicationContext: {
       filingId: artifact.filing.filingId,
+      accessionNumber: artifact.filing.accessionNumber ?? null,
       revisionId,
       publishedAt,
       revisionPublishedAt,

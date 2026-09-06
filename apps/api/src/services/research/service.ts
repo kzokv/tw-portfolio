@@ -1179,7 +1179,7 @@ function mapFinancialFact(
       filingId: /^[0-9A-Za-z_-]+$/.test(record.publicationContext.filingId)
         ? record.publicationContext.filingId
         : `filing_${createHash("sha256").update(record.publicationContext.filingId).digest("hex").slice(0, 32)}`,
-      accessionNumber: null,
+      accessionNumber: record.publicationContext.accessionNumber ?? null,
       amended: record.publicationContext.amendment,
       restated: record.publicationContext.restatement,
       revisionTag: record.publicationContext.revisionId,

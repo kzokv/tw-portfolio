@@ -62,6 +62,7 @@ describe("research financial statement acquisition", () => {
       const appendSpy = vi.spyOn(persistence, "appendResearchFinancialStatementRecords");
       const descriptor = acquisitionDescriptor(0);
       descriptor.filing.amendmentType = "unknown";
+      descriptor.filing.accessionNumber = "MOPS-2026-Q2-2300";
 
       await runOfficialFinancialStatementAcquisition(persistence, {
         descriptors: [descriptor],
@@ -83,6 +84,10 @@ describe("research financial statement acquisition", () => {
       expect(appendSpy.mock.calls[0]?.[0][0]).toHaveProperty(
         "publicationContext.publishedAt",
         "2026-08-15T00:05:00.000Z",
+      );
+      expect(appendSpy.mock.calls[0]?.[0][0]).toHaveProperty(
+        "publicationContext.accessionNumber",
+        "MOPS-2026-Q2-2300",
       );
     } finally {
       vi.useRealTimers();

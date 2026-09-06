@@ -614,6 +614,30 @@ describe("research financial-statement service", () => {
     });
   });
 
+  it("preserves filing accession numbers in source-fact revisions", async () => {
+    const persistence = new MemoryPersistence();
+    const identity = makeIdentity();
+    await persistence.appendResearchIdentityRecords([identity]);
+    const record = makeQuarterRecord(identity, 2026, 2, { revenue: "60" }, {
+      publicationContext: { accessionNumber: "MOPS-2026-Q2-2330" },
+    });
+    await persistence.appendResearchFinancialStatementRecords([record]);
+
+    const result = await getFinancialStatements(persistence, {
+      subject: { kind: "listing_id", listingId: identity.listing.id },
+      context: {
+        knowledgeAt: "2026-09-01T00:00:00.000Z",
+        effectiveAt: "2026-09-01T00:00:00.000Z",
+        assessmentMode: "effective",
+      },
+      periodicity: "quarterly",
+      range: { kind: "latest_periods", count: 1 },
+      derivedMetrics: [],
+    });
+
+    expect(result.periods[0]?.sourceFacts[0]?.revision.accessionNumber).toBe("MOPS-2026-Q2-2330");
+  });
+
   it("average-balance ratios: withhold when the immediately preceding annual period is missing", async () => {
     const persistence = new MemoryPersistence();
     const identity = makeIdentity();

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   applyResearchFinancialStatementInlineFormat,
   applyResearchFinancialStatementTransform,
+  researchFinancialStatementTaxonomyVersion,
 } from "../financialStatements.js";
 
 export type MopsStatementVenue = "TWSE" | "TPEX";
@@ -571,8 +572,7 @@ function taxonomyVersionsForFacts(
   const candidates = new Set<string>();
   for (const fact of facts) {
     if (fact.concept.namespaceUri) {
-      const versionMatch = /\b(20\d{2}(?:[-/](?:Q?[1-4]|0[1-9]|1[0-2])(?:[-/](?:0[1-9]|[12]\d|3[01]))?)?)\b/.exec(fact.concept.namespaceUri);
-      candidates.add(versionMatch?.[1] ?? fact.concept.namespaceUri);
+      candidates.add(researchFinancialStatementTaxonomyVersion(fact.concept.namespaceUri));
     }
   }
   return [...candidates].filter((value) => value !== "").sort();

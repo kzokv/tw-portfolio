@@ -359,6 +359,14 @@ describe("research financial statements", () => {
     });
   });
 
+  it("raw artifact materialization preserves the supplied filing accession number", () => {
+    const artifact = makeRawArtifact([makeRawRevenueFact()]);
+    artifact.filing.accessionNumber = "MOPS-2026-Q2-2330";
+
+    expect(materializeResearchFinancialStatementRecord(artifact).publicationContext.accessionNumber)
+      .toBe("MOPS-2026-Q2-2330");
+  });
+
   it("record validation rejects revision publication before original publication", () => {
     const record = makeRecord();
     record.publicationContext.revisionPublishedAt = "2026-08-13T10:00:00.000Z";
@@ -755,6 +763,40 @@ describe("research financial statements", () => {
     expect(() => validateResearchFinancialStatementRecord(record))
       .toThrow(/period must fit financial statement response bounds/);
   });
+
+  it.each([
+    ["year", { fiscalYear: 2025, fiscalQuarter: 2, periodStart: "2025-04-01", periodEnd: "2026-06-30" }],
+    ["quarter", { fiscalYear: 2026, fiscalQuarter: 1, periodStart: "2026-01-01", periodEnd: "2026-06-30" }],
+  ] as const)("record validation rejects a fiscal period with a mismatched declared %s", (_label, fiscalPeriod) => {
+    const record = makeRecord();
+    record.fiscalPeriod = fiscalPeriod;
+
+    expect(() => validateResearchFinancialStatementRecord(record))
+      .toThrow(/fiscal period end must match the declared fiscal year and quarter/);
+  });
+
+  it("record validation compares duration timestamps as instants across offsets", () => {
+    const record = makeRecord();
+    record.statements[0]!.facts[0]!.context.period = {
+      kind: "duration",
+      startAt: "2026-01-01T23:00:00-12:00",
+      endAt: "2026-01-02T00:00:00+14:00",
+    };
+
+    expect(() => validateResearchFinancialStatementRecord(record))
+      .toThrow(/duration period invalid/);
+  });
+
+  it.each(["", "a".repeat(121)])(
+    "record validation rejects response-invalid accession number %s",
+    (accessionNumber) => {
+      const record = makeRecord();
+      record.publicationContext.accessionNumber = accessionNumber;
+
+      expect(() => validateResearchFinancialStatementRecord(record))
+        .toThrow(/accession number must contain between 1 and 120 characters when present/);
+    },
+  );
 
   it.each(["", "a".repeat(121)])("record validation rejects out-of-bounds ticker %s", (ticker) => {
     const record = makeRecord();

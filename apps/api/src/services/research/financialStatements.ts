@@ -137,6 +137,7 @@ export interface ResearchFinancialStatementRecord {
   filingBasis: ResearchFinancialStatementFilingBasis;
   publicationContext: {
     filingId: string;
+    accessionNumber?: string | null;
     revisionId: string;
     publishedAt: string;
     revisionPublishedAt: string | null;
@@ -531,6 +532,7 @@ export function materializeResearchFinancialStatementRecord(
     filingBasis,
     publicationContext: {
       filingId: input.filing.filingId,
+      accessionNumber: input.filing.accessionNumber ?? null,
       revisionId: `${input.filing.filingId}:r${input.filing.revision}`,
       publishedAt,
       revisionPublishedAt: input.filing.revision > 0
@@ -848,6 +850,14 @@ export function validateResearchFinancialStatementRecord(
   if (record.fiscalPeriod.periodStart > record.fiscalPeriod.periodEnd) {
     throw invalidResearchFinancialStatementRecord("fiscal period start must be <= end");
   }
+  const periodEndYear = Number(record.fiscalPeriod.periodEnd.slice(0, 4));
+  const periodEndQuarter = Math.ceil(Number(record.fiscalPeriod.periodEnd.slice(5, 7)) / 3);
+  if (
+    periodEndYear !== record.fiscalPeriod.fiscalYear
+    || (record.fiscalPeriod.fiscalQuarter !== null && periodEndQuarter !== record.fiscalPeriod.fiscalQuarter)
+  ) {
+    throw invalidResearchFinancialStatementRecord("fiscal period end must match the declared fiscal year and quarter");
+  }
   if (!isTimestamp(record.publicationContext.publishedAt) || !isTimestamp(record.provenance.retrievedAt)) {
     throw invalidResearchFinancialStatementRecord("publication and retrieval timestamps must be ISO datetimes");
   }
@@ -915,6 +925,13 @@ export function validateResearchFinancialStatementRecord(
     || record.publicationContext.filingId.length > 120
   ) {
     throw invalidResearchFinancialStatementRecord("filing id must be non-empty and fit its canonical output form");
+  }
+  if (
+    record.publicationContext.accessionNumber !== null
+    && record.publicationContext.accessionNumber !== undefined
+    && (record.publicationContext.accessionNumber.length === 0 || record.publicationContext.accessionNumber.length > 120)
+  ) {
+    throw invalidResearchFinancialStatementRecord("accession number must contain between 1 and 120 characters when present");
   }
   if (
     record.publicationContext.revisionId.length === 0
@@ -995,7 +1012,7 @@ export function validateResearchFinancialStatementRecord(
         if (
           !isTimestamp(fact.context.period.startAt)
           || !isTimestamp(fact.context.period.endAt)
-          || fact.context.period.startAt > fact.context.period.endAt
+          || Date.parse(fact.context.period.startAt) > Date.parse(fact.context.period.endAt)
         ) {
           throw invalidResearchFinancialStatementRecord(`fact ${fact.id} duration period invalid`);
         }

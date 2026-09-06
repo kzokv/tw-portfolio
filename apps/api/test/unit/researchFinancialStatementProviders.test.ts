@@ -376,4 +376,24 @@ describe("MOPS XBRL provider parser", () => {
     expect(artifact.facts.every((fact) => fact.concept.namespaceUri === "http://xbrl.ifrs.org/taxonomy/2026-03-01/ifrs-full"))
       .toBe(true);
   });
+
+  it("bounds artifact taxonomy-version fallbacks for long undated namespaces", () => {
+    const namespaceUri = `https://example.com/taxonomy/${"custom-segment/".repeat(12)}`;
+    const artifact = parseMopsFinancialStatementArtifact(
+      `<xbrli:xbrl xmlns:xbrli="http://www.xbrl.org/2003/instance" xmlns:custom="${namespaceUri}">
+        <xbrli:context id="instant">
+          <xbrli:entity><xbrli:identifier scheme="TWSE">22099131</xbrli:identifier></xbrli:entity>
+          <xbrli:period><xbrli:instant>2026-06-30</xbrli:instant></xbrli:period>
+        </xbrli:context>
+        <custom:Assets contextRef="instant">20</custom:Assets>
+      </xbrli:xbrl>`,
+      xbrlDescriptor,
+      { retrievedAt: "2026-08-15T00:00:00.000Z", acquisitionRunId: "bounded-taxonomy-version" },
+    );
+
+    expect(namespaceUri.length).toBeGreaterThan(120);
+    expect(artifact.artifact.taxonomyVersions).toEqual([expect.stringMatching(/^namespace-[0-9a-f]{32}$/)]);
+    expect(materializeResearchFinancialStatementRecord(artifact).provenance.taxonomyVersion.length)
+      .toBeLessThanOrEqual(120);
+  });
 });
