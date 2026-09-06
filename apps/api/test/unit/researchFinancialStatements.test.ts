@@ -6,6 +6,7 @@ import {
   normalizeResearchFinancialStatementFact,
   researchFinancialStatementProcessingId,
   researchFinancialStatementProcessingSequence,
+  researchFinancialStatementMetricForConcept,
   researchFinancialStatementRecordKey,
   researchFinancialStatementTaxonomyVersion,
   resolveLatestResearchFinancialStatementRecords,
@@ -528,6 +529,17 @@ describe("research financial statements", () => {
       .toBe("2026-03-01");
     expect(researchFinancialStatementTaxonomyVersion("https://xbrl.ifrs.org/taxonomy/2026-03-15/ifrs-full"))
       .toBe("2026-03-15");
+  });
+
+  it("maps core metrics from official MOPS TIFRS taxonomy families", () => {
+    expect(researchFinancialStatementMetricForConcept(
+      "Revenue",
+      "https://mops.twse.com.tw/taxonomy/2026/tifrs-bsci-ci",
+    )).toEqual({ state: "mapped", metricId: "revenue" });
+    expect(researchFinancialStatementMetricForConcept(
+      "Assets",
+      "https://mops.twse.com.tw/taxonomy/2026/custom-extension",
+    )).toEqual({ state: "unmapped", reason: "no_core_metric_mapping" });
   });
 
   it("taxonomy versions bound long undated namespace fallbacks", () => {

@@ -55,7 +55,8 @@ export class ResearchServiceError extends Error {
       | "research_dataset_unavailable"
       | "research_calendar_unavailable"
       | "research_record_too_large"
-      | "research_window_invalid",
+      | "research_window_invalid"
+      | "research_provenance_conflict",
     message: string,
     readonly metadata?: Record<string, unknown>,
   ) {
@@ -1238,9 +1239,21 @@ function parseFactNumber(fact: ResearchFinancialStatementFact): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
-function factsHaveComparableTaxonomy(facts: readonly ResearchFinancialStatementFact[]): boolean {
-  const versions = new Set(facts.flatMap((fact) => fact.taxonomy?.version ? [fact.taxonomy.version] : []));
-  return versions.size <= 1;
+function factsHaveComparableTaxonomy(
+  facts: readonly ResearchFinancialStatementFact[],
+  records: Iterable<ResearchFinancialStatementRecord>,
+): boolean {
+  const recordsByRevision = new Map([...records].map((record) => [
+    `${record.publicationContext.filingId}\u001f${record.publicationContext.revisionId}`,
+    record,
+  ] as const));
+  const versions = facts.map((fact) => (
+    fact.taxonomy?.version
+    ?? recordsByRevision.get(`${fact.filingId}\u001f${fact.revisionId}`)?.provenance.taxonomyVersion
+    ?? null
+  ));
+  return versions.every((version): version is string => version !== null)
+    && new Set(versions).size <= 1;
 }
 
 function periodIdForRecord(record: ResearchFinancialStatementRecord): string {
@@ -1407,7 +1420,7 @@ function discreteMetricValueForRecord(
     priorRecord,
   );
   if ("reason" in prior) return prior;
-  if (prior.unit !== current.unit || !factsHaveComparableTaxonomy([...current.facts, ...prior.facts])) {
+  if (prior.unit !== current.unit || !factsHaveComparableTaxonomy([...current.facts, ...prior.facts], recordsByToken.values())) {
     return { reason: "incomparable_inputs" };
   }
   return { facts: [...current.facts, ...prior.facts], value: current.value - prior.value, unit: current.unit };
@@ -1430,7 +1443,7 @@ function averageBalanceMetricForRecord(
   const previousFacts = factsByPeriodId.get(periodIdForRecord(previous)) ?? [];
   const beginning = deriveComparableMetricValue(previousFacts, metricId, previous);
   if ("reason" in beginning) return beginning;
-  if (beginning.unit !== ending.unit || !factsHaveComparableTaxonomy([...beginning.facts, ...ending.facts])) {
+  if (beginning.unit !== ending.unit || !factsHaveComparableTaxonomy([...beginning.facts, ...ending.facts], recordsInOrder)) {
     return { reason: "incomparable_inputs" };
   }
   const average = (beginning.value + ending.value) / 2;
@@ -1492,7 +1505,7 @@ function deriveMetricForRecord(
     if ("reason" in numerator) return withholding(numerator.reason, []);
     if ("reason" in denominator) return withholding(denominator.reason, []);
     const formulaFacts = [...numerator.facts, ...denominator.facts];
-    if (numerator.unit !== denominator.unit || !factsHaveComparableTaxonomy(formulaFacts)) {
+    if (numerator.unit !== denominator.unit || !factsHaveComparableTaxonomy(formulaFacts, recordsInOrder)) {
       return withholding("incomparable_inputs", formulaFacts.map((fact) => fact.id));
     }
     if (denominator.value === 0) return withholding("zero_denominator", [...numerator.facts, ...denominator.facts].map((fact) => fact.id));
@@ -1506,7 +1519,7 @@ function deriveMetricForRecord(
     if ("reason" in left) return withholding(left.reason, []);
     if ("reason" in right) return withholding(right.reason, []);
     const formulaFacts = [...left.facts, ...right.facts];
-    if (left.unit !== right.unit || !factsHaveComparableTaxonomy(formulaFacts)) {
+    if (left.unit !== right.unit || !factsHaveComparableTaxonomy(formulaFacts, recordsInOrder)) {
       return withholding("incomparable_inputs", formulaFacts.map((fact) => fact.id));
     }
     if (right.value === 0) return withholding("zero_denominator", [...left.facts, ...right.facts].map((fact) => fact.id));
@@ -1518,7 +1531,7 @@ function deriveMetricForRecord(
     if ("reason" in ocf) return withholding(ocf.reason, []);
     if ("reason" in capex) return withholding(capex.reason, []);
     const formulaFacts = [...ocf.facts, ...capex.facts];
-    if (ocf.unit !== capex.unit || !factsHaveComparableTaxonomy(formulaFacts)) {
+    if (ocf.unit !== capex.unit || !factsHaveComparableTaxonomy(formulaFacts, recordsInOrder)) {
       return withholding("incomparable_inputs", formulaFacts.map((fact) => fact.id));
     }
     return returned(ocf.value - Math.abs(capex.value), ocf.unit, [...ocf.facts, ...capex.facts].map((fact) => fact.id), metricId);
@@ -1558,7 +1571,7 @@ function deriveMetricForRecord(
     const resolved = components as FinancialMetricValue[];
     if (
       new Set(resolved.map((item) => item.unit)).size !== 1
-      || !factsHaveComparableTaxonomy(resolved.flatMap((item) => item.facts))
+      || !factsHaveComparableTaxonomy(resolved.flatMap((item) => item.facts), recordsInOrder)
     ) return withholding("incomparable_inputs", resolved.flatMap((item) => item.facts.map((fact) => fact.id)));
     return returned(
       resolved.reduce((sum, item) => sum + item.value, 0),
@@ -1583,7 +1596,7 @@ function deriveMetricForRecord(
       ? discreteMetricValueForRecord(baseMetricId, priorRecord, priorFacts, recordsByToken, factsByPeriodId)
       : deriveComparableMetricValue(priorFacts, baseMetricId, priorRecord);
     if ("reason" in prior) return withholding(prior.reason, []);
-    if (current.unit !== prior.unit || !factsHaveComparableTaxonomy([...current.facts, ...prior.facts])) {
+    if (current.unit !== prior.unit || !factsHaveComparableTaxonomy([...current.facts, ...prior.facts], recordsInOrder)) {
       return withholding("incomparable_inputs", [...current.facts, ...prior.facts].map((fact) => fact.id));
     }
     if (prior.value === 0) return withholding("zero_denominator", [...current.facts, ...prior.facts].map((fact) => fact.id));
@@ -1602,7 +1615,7 @@ function deriveMetricForRecord(
     const end = deriveComparableMetricValue(recordFacts, baseMetricId, record);
     if ("reason" in start) return withholding(start.reason, []);
     if ("reason" in end) return withholding(end.reason, []);
-    if (start.unit !== end.unit || !factsHaveComparableTaxonomy([...start.facts, ...end.facts])) {
+    if (start.unit !== end.unit || !factsHaveComparableTaxonomy([...start.facts, ...end.facts], recordsInOrder)) {
       return withholding("incomparable_inputs", [...start.facts, ...end.facts].map((fact) => fact.id));
     }
     if (start.value <= 0) return withholding("zero_denominator", [...start.facts, ...end.facts].map((fact) => fact.id));
@@ -1620,7 +1633,7 @@ function deriveMetricForRecord(
     const denominator = averageBalanceMetricForRecord(metricId === "return_on_equity" ? "equity" : "assets", record, recordFacts, recordsInOrder, factsByPeriodId);
     if ("reason" in denominator) return withholding(denominator.reason, []);
     const formulaFacts = [...numerator.facts, ...denominator.facts];
-    if (numerator.unit !== denominator.unit || !factsHaveComparableTaxonomy(formulaFacts)) {
+    if (numerator.unit !== denominator.unit || !factsHaveComparableTaxonomy(formulaFacts, recordsInOrder)) {
       return withholding("incomparable_inputs", formulaFacts.map((fact) => fact.id));
     }
     return returned(numerator.value / denominator.value, "ratio", [...numerator.facts, ...denominator.facts].map((fact) => fact.id), metricId);
@@ -1939,7 +1952,20 @@ export async function getFinancialStatements(
     pageRecordIds.has(periodIdForRecord(record))
     || record.statements.some((section) => section.facts.some((fact) => derivedObservationIds.has(fact.id)))
   ));
-  const provenanceIndex = dedupeByKey(provenanceRecords.map((record) => ({
+  const provenanceSignatures = new Map<string, string>();
+  for (const record of provenanceRecords) {
+    const signature = JSON.stringify(record.provenance);
+    const priorSignature = provenanceSignatures.get(record.provenance.id);
+    if (priorSignature !== undefined && priorSignature !== signature) {
+      throw new ResearchServiceError(
+        "research_provenance_conflict",
+        `Provenance ID ${record.provenance.id} identifies conflicting financial-statement artifacts`,
+        { provenanceId: record.provenance.id },
+      );
+    }
+    provenanceSignatures.set(record.provenance.id, signature);
+  }
+  const provenanceItems = provenanceRecords.map((record) => ({
     provenanceId: record.provenance.id,
     publisher: record.provenance.publisher,
     accessProvider: record.provenance.accessProvider,
@@ -1948,7 +1974,8 @@ export async function getFinancialStatements(
     sourceUrl: record.provenance.sourceUrl,
     contentHash: record.provenance.contentHash,
     retrievedAt: record.provenance.retrievedAt,
-  })), (item) => item.provenanceId);
+  }));
+  const provenanceIndex = dedupeByKey(provenanceItems, (item) => item.provenanceId);
   const gaps: ResearchFinancialStatementGap[] = [];
   const conflicts: ResearchFinancialStatementConflict[] = [];
   const recovery: ResearchFinancialStatementRecovery[] = [];

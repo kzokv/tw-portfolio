@@ -1267,6 +1267,63 @@ describe("research financial-statement service", () => {
     expect(quarterly.periods[0]).toMatchObject({ fiscalYear: 2026, fiscalQuarter: 2 });
   });
 
+  it("withholds cross-period metrics when record-level fallback taxonomy versions differ", async () => {
+    const persistence = new MemoryPersistence();
+    const identity = makeIdentity();
+    await persistence.appendResearchIdentityRecords([identity]);
+    const prior = makeAnnualRecord(identity, 2024, { revenue: "100" });
+    const current = makeAnnualRecord(identity, 2025, { revenue: "120" });
+    prior.provenance = { ...prior.provenance, taxonomyVersion: "2024" };
+    current.provenance = { ...current.provenance, taxonomyVersion: "2025" };
+    await persistence.appendResearchFinancialStatementRecords([prior, current]);
+
+    const result = await getFinancialStatements(persistence, {
+      subject: { kind: "listing_id", listingId: identity.listing.id },
+      context: {
+        knowledgeAt: "2026-09-01T00:00:00.000Z",
+        effectiveAt: "2026-09-01T00:00:00.000Z",
+        assessmentMode: "effective",
+      },
+      periodicity: "annual",
+      range: { kind: "latest_periods", count: 2 },
+      page: { limit: 1, order: "desc" },
+      derivedMetrics: [{ metricId: "compound_annual_growth_rate", parameters: { baseMetricId: "revenue", windowPeriods: 2 } }],
+    });
+
+    expect(result.derivedOutcomes).toEqual([
+      expect.objectContaining({
+        status: "withheld",
+        metricId: "compound_annual_growth_rate",
+        reasonCode: "incomparable_inputs",
+      }),
+    ]);
+  });
+
+  it("rejects conflicting metadata reuse for a financial-statement provenance ID", async () => {
+    const persistence = new MemoryPersistence();
+    const identity = makeIdentity();
+    await persistence.appendResearchIdentityRecords([identity]);
+    const q1 = makeQuarterRecord(identity, 2026, 1, { revenue: "28" });
+    const q2 = makeQuarterRecord(identity, 2026, 2, { revenue: "60" });
+    q2.provenance = { ...q2.provenance, id: q1.provenance.id };
+    await persistence.appendResearchFinancialStatementRecords([q1, q2]);
+
+    await expect(getFinancialStatements(persistence, {
+      subject: { kind: "listing_id", listingId: identity.listing.id },
+      context: {
+        knowledgeAt: "2026-09-01T00:00:00.000Z",
+        effectiveAt: "2026-09-01T00:00:00.000Z",
+        assessmentMode: "effective",
+      },
+      periodicity: "quarterly",
+      range: { kind: "latest_periods", count: 2 },
+      derivedMetrics: [],
+    })).rejects.toMatchObject({
+      code: "research_provenance_conflict",
+      metadata: { provenanceId: q1.provenance.id },
+    });
+  });
+
   it("recomputes from the latest amended revision without mutating historical source rows", async () => {
     const persistence = new MemoryPersistence();
     const identity = makeIdentity();

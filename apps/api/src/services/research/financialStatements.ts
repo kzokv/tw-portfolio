@@ -346,7 +346,11 @@ export function researchFinancialStatementMetricForConcept(
   localName: string,
   namespaceUri: string | null,
 ): ResearchFinancialStatementMetricRef {
-  if (!namespaceUri || !/^https?:\/\/xbrl\.ifrs\.org\/taxonomy\/.+\/ifrs-full\/?$/i.test(namespaceUri)) {
+  const isUpstreamIfrs = namespaceUri !== null
+    && /^https?:\/\/xbrl\.ifrs\.org\/taxonomy\/.+\/ifrs-full\/?$/i.test(namespaceUri);
+  const isOfficialTifrs = namespaceUri !== null
+    && /^https?:\/\/mops\.twse\.com\.tw\/taxonomy\/.+\/tifrs(?:[-_/].*)?\/?$/i.test(namespaceUri);
+  if (!isUpstreamIfrs && !isOfficialTifrs) {
     return { state: "unmapped", reason: "no_core_metric_mapping" };
   }
   switch (localName) {
