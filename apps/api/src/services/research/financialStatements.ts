@@ -230,6 +230,10 @@ function isTimestamp(value: string): boolean {
     && !Number.isNaN(Date.parse(value));
 }
 
+export function researchFinancialStatementCalendarDate(timestamp: string): string {
+  return new Date(timestamp).toISOString().slice(0, 10);
+}
+
 function isNormalizedDecimal(value: string): boolean {
   return /^-?\d+(?:\.\d+)?$/.test(value);
 }
@@ -878,7 +882,7 @@ export function validateResearchFinancialStatementRecord(
   if (!isTimestamp(record.publicationContext.publishedAt) || !isTimestamp(record.provenance.retrievedAt)) {
     throw invalidResearchFinancialStatementRecord("publication and retrieval timestamps must be ISO datetimes");
   }
-  if (new Date(record.publicationContext.publishedAt).toISOString().slice(0, 10) < record.fiscalPeriod.periodEnd) {
+  if (researchFinancialStatementCalendarDate(record.publicationContext.publishedAt) < record.fiscalPeriod.periodEnd) {
     throw invalidResearchFinancialStatementRecord("publishedAt must be on or after the fiscal period end");
   }
   if (
@@ -1050,7 +1054,7 @@ export function validateResearchFinancialStatementRecord(
       const outputPeriodEnd = fact.context.period.kind === "instant"
         ? fact.context.period.instantAt
         : fact.context.period.endAt;
-      if (new Date(outputPeriodEnd).toISOString().slice(0, 10) > record.fiscalPeriod.periodEnd) {
+      if (researchFinancialStatementCalendarDate(outputPeriodEnd) > record.fiscalPeriod.periodEnd) {
         throw invalidResearchFinancialStatementRecord(`fact ${fact.id} period cannot end after the filing period`);
       }
       const outputFiscalYear = Number(outputPeriodEnd.slice(0, 4));

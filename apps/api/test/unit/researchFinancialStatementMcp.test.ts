@@ -198,6 +198,61 @@ describe("financial statements MCP tool", () => {
     expect(initialize.statusCode).toBe(200);
     const sessionId = String(initialize.headers["mcp-session-id"]);
 
+    const invalidAnnual = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: {
+        host: "localhost:4000",
+        authorization: `Bearer ${devToken({ userId: "user-1", scopes: ["research:read"] })}`,
+        "mcp-session-id": sessionId,
+        accept: "application/json, text/event-stream",
+      },
+      payload: {
+        jsonrpc: "2.0",
+        id: "call-financial-statements-invalid-annual-limit",
+        method: "tools/call",
+        params: {
+          name: "get_financial_statements",
+          arguments: {
+            subject: { kind: "listing_id", listingId: identity.listing.id },
+            context: {
+              knowledgeAt: "2026-09-01T00:00:00.000Z",
+              effectiveAt: "2026-09-01T00:00:00.000Z",
+              assessmentMode: "effective",
+            },
+            periodicity: "annual",
+            range: { kind: "latest_periods", count: 1 },
+            page: { limit: 20, order: "desc" },
+            derivedMetrics: [],
+          },
+        },
+      },
+    });
+    const invalidAnnualBody = parseMcpJson<{
+      result: {
+        isError?: boolean;
+        structuredContent: {
+          result: {
+            code: string;
+            statusCode: number;
+            metadata: { issues: Array<{ path: string[]; message: string }> };
+          };
+        };
+      };
+    }>(invalidAnnual.body);
+    expect(invalidAnnual.statusCode).toBe(200);
+    expect(invalidAnnualBody.result.isError).toBe(true);
+    expect(invalidAnnualBody.result.structuredContent.result).toMatchObject({
+      code: "mcp_tool_validation_error",
+      statusCode: 422,
+      metadata: {
+        issues: [expect.objectContaining({
+          path: ["page", "limit"],
+          message: "page.limit must be at most 10 for annual requests",
+        })],
+      },
+    });
+
     const first = await app.inject({
       method: "POST",
       url: "/mcp",

@@ -18,6 +18,7 @@ import {
   researchFinancialStatementsQuerySchema,
 } from "./contracts.js";
 import {
+  researchFinancialStatementCalendarDate,
   researchFinancialStatementPeriodKey,
   type ResearchFinancialStatementFact,
   type ResearchFinancialStatementMetricId,
@@ -1069,13 +1070,13 @@ function selectedOutputFacts(
 function factDateRange(fact: ResearchFinancialStatementFact) {
   if (fact.context.period.kind === "duration") {
     return {
-      startDate: fact.context.period.startAt.slice(0, 10),
-      endDate: fact.context.period.endAt.slice(0, 10),
+      startDate: researchFinancialStatementCalendarDate(fact.context.period.startAt),
+      endDate: researchFinancialStatementCalendarDate(fact.context.period.endAt),
     };
   }
   return {
     startDate: null,
-    endDate: fact.context.period.instantAt.slice(0, 10),
+    endDate: researchFinancialStatementCalendarDate(fact.context.period.instantAt),
   };
 }
 
@@ -1084,8 +1085,8 @@ function factFiscalPeriod(
   periodicity: ResearchFinancialStatementRecord["periodicity"],
 ): { fiscalYear: number; fiscalQuarter: 1 | 2 | 3 | 4 | null } {
   const endDate = fact.context.period.kind === "duration"
-    ? fact.context.period.endAt.slice(0, 10)
-    : fact.context.period.instantAt.slice(0, 10);
+    ? researchFinancialStatementCalendarDate(fact.context.period.endAt)
+    : researchFinancialStatementCalendarDate(fact.context.period.instantAt);
   return {
     fiscalYear: Number(endDate.slice(0, 4)),
     fiscalQuarter: periodicity === "annual"
@@ -1283,8 +1284,8 @@ function deriveComparableMetricValue(
   const matches = facts.filter((fact) => {
     if (fact.metric.state !== "mapped" || fact.metric.metricId !== metricId) return false;
     const periodMatches = fact.context.period.kind === "instant"
-      ? fact.context.period.instantAt.slice(0, 10) === record.fiscalPeriod.periodEnd
-      : fact.context.period.endAt.slice(0, 10) === record.fiscalPeriod.periodEnd;
+      ? researchFinancialStatementCalendarDate(fact.context.period.instantAt) === record.fiscalPeriod.periodEnd
+      : researchFinancialStatementCalendarDate(fact.context.period.endAt) === record.fiscalPeriod.periodEnd;
     if (!periodMatches) return false;
     return Object.entries(fact.context.dimensions).every(([dimension, member]) => {
       const basisDimension = /consolidated|separate|individual/i.test(`${dimension}:${member}`);
@@ -1389,7 +1390,7 @@ function isCumulativeFact(fact: ResearchFinancialStatementFact): boolean {
 function isQ1DiscreteEligible(record: ResearchFinancialStatementRecord, fact: ResearchFinancialStatementFact): boolean {
   return record.fiscalPeriod.fiscalQuarter === 1
     && fact.context.period.kind === "duration"
-    && fact.context.period.startAt.slice(0, 10) === `${record.fiscalPeriod.fiscalYear}-01-01`;
+    && researchFinancialStatementCalendarDate(fact.context.period.startAt) === `${record.fiscalPeriod.fiscalYear}-01-01`;
 }
 
 function discreteMetricValueForRecord(

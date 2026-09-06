@@ -1896,6 +1896,40 @@ describe("research financial-statement service", () => {
     expect(result.periods[0]?.sourceFacts.some((fact) => fact.observationId === comparativeGrossProfit.id)).toBe(true);
   });
 
+  it("[fact timestamp normalization]: UTC-crossing instant → output and derived matching use the validated date", async () => {
+    const persistence = new MemoryPersistence();
+    const identity = makeIdentity();
+    await persistence.appendResearchIdentityRecords([identity]);
+    const record = makeAnnualRecord(identity, 2025, { current_assets: "120", current_liabilities: "60" });
+    const currentAssets = record.statements.flatMap((section) => section.facts)
+      .find((fact) => fact.metric.state === "mapped" && fact.metric.metricId === "current_assets");
+    if (!currentAssets) throw new Error("expected current assets fact");
+    currentAssets.context.period = { kind: "instant", instantAt: "2026-01-01T00:30:00+14:00" };
+    await persistence.appendResearchFinancialStatementRecords([record]);
+
+    const result = await getFinancialStatements(persistence, {
+      subject: { kind: "listing_id", listingId: identity.listing.id },
+      context: {
+        knowledgeAt: "2026-09-01T00:00:00.000Z",
+        effectiveAt: "2026-09-01T00:00:00.000Z",
+        assessmentMode: "effective",
+      },
+      periodicity: "annual",
+      range: { kind: "latest_periods", count: 1 },
+      statements: ["balance_sheet"],
+      derivedMetrics: [{ metricId: "current_ratio", parameters: {} }],
+    });
+
+    expect(result.periods[0]?.sourceFacts.find((fact) => fact.metricId === "current_assets")?.period).toMatchObject({
+      endDate: "2025-12-31",
+      fiscalYear: 2025,
+      fiscalQuarter: null,
+    });
+    expect(result.derivedOutcomes).toEqual([
+      expect.objectContaining({ status: "returned", metricId: "current_ratio", value: "2" }),
+    ]);
+  });
+
   it("sector-extension group: returns unmapped extension facts from the requested section", async () => {
     const persistence = new MemoryPersistence();
     const identity = makeIdentity();

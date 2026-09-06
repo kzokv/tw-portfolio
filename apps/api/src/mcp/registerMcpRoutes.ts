@@ -425,6 +425,21 @@ function buildToolErrorResult(
   };
 }
 
+function normalizeMcpExecutionError(error: unknown): unknown {
+  if (!(error instanceof z.ZodError)) return error;
+  return routeError(
+    422,
+    "mcp_tool_validation_error",
+    "MCP tool arguments failed cross-field validation",
+    {
+      issues: error.issues.map((issue) => ({
+        path: issue.path.map(String),
+        message: issue.message,
+      })),
+    },
+  );
+}
+
 function unwrapZodObjectShape(schema: unknown): z.ZodRawShape {
   if (schema instanceof z.ZodObject) return schema.shape;
   if (schema instanceof z.ZodEffects) return unwrapZodObjectShape(schema.innerType());
@@ -1315,29 +1330,30 @@ export async function registerMcpRoutes(
         researchToolSummary(toolName, adapted),
       );
     } catch (error) {
-      const denialReason = error instanceof Error && "code" in error
-        ? String((error as { code?: unknown }).code)
-        : error instanceof Error
-          ? error.message
-          : String(error);
-      const result = error instanceof Error && "statusCode" in error && Number((error as { statusCode?: unknown }).statusCode) < 500
+      const executionError = normalizeMcpExecutionError(error);
+      const denialReason = executionError instanceof Error && "code" in executionError
+        ? String((executionError as { code?: unknown }).code)
+        : executionError instanceof Error
+          ? executionError.message
+          : String(executionError);
+      const result = executionError instanceof Error && "statusCode" in executionError && Number((executionError as { statusCode?: unknown }).statusCode) < 500
         ? "denied"
         : "error";
       await logAccess(result, denialReason);
-      if (shouldReturnToolAuthChallenge(error)) {
-        const description = error instanceof Error ? error.message : "MCP authorization failed.";
+      if (shouldReturnToolAuthChallenge(executionError)) {
+        const description = executionError instanceof Error ? executionError.message : "MCP authorization failed.";
         return buildToolAuthChallengeResult({
           app,
           req: pending.req,
           scope: await challengeScopeForTool(toolName),
-          error: challengeErrorFor(error),
+          error: challengeErrorFor(executionError),
           description,
           text: `Authorization required for ${toToolTitle(toolName)}.`,
         });
       }
-      if (error instanceof Error && "statusCode" in error && Number((error as { statusCode?: unknown }).statusCode) < 500) {
+      if (executionError instanceof Error && "statusCode" in executionError && Number((executionError as { statusCode?: unknown }).statusCode) < 500) {
         return buildToolErrorResult(
-          error as Error & { statusCode?: unknown; code?: unknown; metadata?: unknown },
+          executionError as Error & { statusCode?: unknown; code?: unknown; metadata?: unknown },
           toolName === "get_research_manifest"
             || toolName === "get_research_identity"
             || toolName === "get_price_series"
@@ -1345,7 +1361,7 @@ export async function registerMcpRoutes(
             || toolName === "get_financial_statements",
         );
       }
-      throw error;
+      throw executionError;
     }
   };
 
