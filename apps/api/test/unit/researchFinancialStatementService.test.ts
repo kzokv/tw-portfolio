@@ -1358,6 +1358,7 @@ describe("research financial-statement service", () => {
       },
       periodicity: "quarterly",
       range: { kind: "latest_periods", count: 2 },
+      page: { limit: 1, order: "desc" },
       derivedMetrics: [],
     })).rejects.toMatchObject({
       code: "research_provenance_conflict",

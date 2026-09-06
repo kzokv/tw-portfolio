@@ -1968,7 +1968,7 @@ export async function getFinancialStatements(
     || record.statements.some((section) => section.facts.some((fact) => derivedObservationIds.has(fact.id)))
   ));
   const provenanceSignatures = new Map<string, string>();
-  for (const record of provenanceRecords) {
+  for (const record of calculationRecords) {
     const signature = JSON.stringify(record.provenance);
     const priorSignature = provenanceSignatures.get(record.provenance.id);
     if (priorSignature !== undefined && priorSignature !== signature) {
