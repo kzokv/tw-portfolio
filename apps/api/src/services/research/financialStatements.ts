@@ -432,8 +432,10 @@ export function resolveMopsArtifactFilingBasis(
 
 export function researchFinancialStatementTaxonomyVersion(namespaceUri: string | null): string {
   if (!namespaceUri) return "unknown";
-  return /\b(20\d{2}(?:[-/](?:Q?[1-4]|0[1-9]|1[0-2])(?:[-/](?:0[1-9]|[12]\d|3[01]))?)?)\b/.exec(namespaceUri)?.[1]
-    ?? namespaceUri;
+  const datedVersion = /\b(20\d{2}(?:[-/](?:Q?[1-4]|0[1-9]|1[0-2])(?:[-/](?:0[1-9]|[12]\d|3[01]))?)?)\b/.exec(namespaceUri)?.[1];
+  if (datedVersion) return datedVersion;
+  if (namespaceUri.length <= 120) return namespaceUri;
+  return `namespace-${createHash("sha256").update(namespaceUri).digest("hex").slice(0, 32)}`;
 }
 
 export function researchFinancialStatementUnitId(

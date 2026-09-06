@@ -521,6 +521,16 @@ describe("research financial statements", () => {
       .toBe("2026-03-15");
   });
 
+  it("taxonomy versions bound long undated namespace fallbacks", () => {
+    const namespaceUri = `https://example.com/taxonomy/${"custom-segment/".repeat(12)}`;
+    const version = researchFinancialStatementTaxonomyVersion(namespaceUri);
+
+    expect(namespaceUri.length).toBeGreaterThan(120);
+    expect(version).toMatch(/^namespace-[0-9a-f]{32}$/);
+    expect(version.length).toBeLessThanOrEqual(120);
+    expect(researchFinancialStatementTaxonomyVersion(namespaceUri)).toBe(version);
+  });
+
   it("fact identity uses structural XBRL identity and rejects conflicting reported values", () => {
     const baseInput = {
       listingId: "lst_2330",

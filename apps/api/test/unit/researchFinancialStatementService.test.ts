@@ -349,6 +349,51 @@ describe("research financial-statement service", () => {
     expect(statements.freshness.state).toBe("stale");
   });
 
+  it("stale complete filing windows degrade confidence and readiness", async () => {
+    const persistence = new MemoryPersistence();
+    const identity = makeIdentity();
+    const completeValues = {
+      revenue: "100",
+      gross_profit: "40",
+      operating_income: "30",
+      net_income: "20",
+      assets: "500",
+      liabilities: "200",
+      equity: "300",
+      current_assets: "150",
+      current_liabilities: "75",
+      cash_and_cash_equivalents: "50",
+      interest_bearing_debt: "80",
+      operating_cash_flow: "35",
+      investing_cash_flow: "-10",
+      capital_expenditure: "8",
+    } as const;
+    await persistence.appendResearchIdentityRecords([identity]);
+    await persistence.appendResearchFinancialStatementRecords([
+      makeAnnualRecord(identity, 2022, completeValues),
+      makeAnnualRecord(identity, 2023, completeValues),
+      makeAnnualRecord(identity, 2024, completeValues),
+    ]);
+
+    const statements = await getFinancialStatements(persistence, {
+      subject: { kind: "listing_id", listingId: identity.listing.id },
+      context: {
+        knowledgeAt: "2026-09-01T00:00:00.000Z",
+        effectiveAt: "2026-09-01T00:00:00.000Z",
+        assessmentMode: "effective",
+      },
+      periodicity: "annual",
+      range: { kind: "latest_periods", count: 3 },
+      derivedMetrics: [],
+    });
+
+    expect(statements.coverage.status).toBe("complete");
+    expect(statements.completeness.status).toBe("complete");
+    expect(statements.freshness.state).toBe("stale");
+    expect(statements.confidence).toEqual({ status: "mixed", reasonCodes: ["stale_financial_statements"] });
+    expect(statements.readiness).toEqual({ status: "usable_with_gaps", reasonCodes: ["stale_financial_statements"] });
+  });
+
   it("freshness deadlines advance only after the Taiwan statutory day ends", async () => {
     const persistence = new MemoryPersistence();
     const identity = makeIdentity();

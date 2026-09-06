@@ -1970,6 +1970,11 @@ export async function getFinancialStatements(
     + missingRequestedFactCount(period, query)
   ), 0);
   const missingMetricCount = derivedOutcomes.filter((metric) => metric.status !== "returned").length;
+  const freshnessState = periods.length === 0
+    ? "unknown"
+    : latestSelected!.fiscalPeriod.periodEnd < latestDueFinancialStatementPeriodEnd(identity.context.effectiveAt, query.periodicity)
+      ? "stale"
+      : "current";
   const readinessReasonCodes = dedupeByKey([
     ...(selectedRecordsForOutput.length === 0 ? ["no_authoritative_filing"] : []),
     ...(selectedRecordsForOutput.length > 0 && basisSelection.selected === "policy_selected" ? ["ambiguous_basis"] : []),
@@ -1986,6 +1991,7 @@ export async function getFinancialStatements(
     ...gaps.map((gap) => gap.code),
     ...conflicts.map((conflict) => conflict.code),
     ...(outputRange.length > 0 && outputRange.length < financialStatementsRangeRequestedCount(query) ? ["partial_coverage"] : []),
+    ...(freshnessState === "stale" ? ["stale_financial_statements"] : []),
     ...(missingFactCount > 0 ? ["missing_requested_facts"] : []),
     ...derivedOutcomes.filter((outcome) => outcome.status !== "returned").map((outcome) => outcome.reasonCode),
   ], (value) => value);
@@ -2018,11 +2024,7 @@ export async function getFinancialStatements(
       returnedPeriodCount: outputRange.length,
     },
     freshness: {
-      state: periods.length === 0
-        ? "unknown"
-        : latestSelected!.fiscalPeriod.periodEnd < latestDueFinancialStatementPeriodEnd(identity.context.effectiveAt, query.periodicity)
-          ? "stale"
-          : "current",
+      state: freshnessState,
       authoritativeAsOf: latestSelected
         ? taiwanCalendarDate(latestSelected.publicationContext.publishedAt)
         : null,
