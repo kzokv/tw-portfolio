@@ -1122,7 +1122,7 @@ function mapFinancialFact(
     },
     unit: fact.unit.state === "known"
       ? { raw: fact.unit.unitId, normalized: { state: "present", value: fact.unit.unitId } }
-      : { raw: fact.unit.rawUnitId, normalized: { state: "missing", reasonCode: "unknown_unit" } },
+      : { raw: fact.unit.rawUnitId ?? null, normalized: { state: "missing", reasonCode: "unknown_unit" } },
     scale: fact.declaredScale
       ? { raw: fact.declaredScale, normalized: { state: "present", value: fact.declaredScale } }
       : { raw: null, normalized: { state: "missing", reasonCode: "not_reported" } },
@@ -1903,8 +1903,10 @@ export async function getFinancialStatements(
     periodId,
     facts.slice(0, FINANCIAL_STATEMENT_MAX_FACTS_PER_PERIOD),
   ] as const));
-  const periods = pageRecords.map((record) => {
-    const facts = pageFacts.get(periodIdForRecord(record)) ?? [];
+  const mapPeriod = (
+    record: ResearchFinancialStatementRecord,
+    facts: readonly ResearchFinancialStatementFact[],
+  ): ResearchFinancialStatementPeriod => {
     const allStatementFacts = selectedStatementFacts(record, query.statements);
     return {
       filingPeriodId: periodIdForRecord(record),
@@ -1927,13 +1929,19 @@ export async function getFinancialStatements(
         ambiguousBasis: qualityStateForRecord(record, allStatementFacts, "ambiguousBasis"),
       },
     };
-  });
+  };
+  const periods = pageRecords.map((record) => (
+    mapPeriod(record, pageFacts.get(periodIdForRecord(record)) ?? [])
+  ));
+  const completenessPeriods = outputRange.map((record) => (
+    mapPeriod(record, selectedOutputFacts(record, query))
+  ));
   const recordsByKey = new Map(calculationRecords.map((record) => [periodIdForRecord(record), record] as const));
   const factsByPeriodId = new Map(calculationRecords.map((record) => [
     periodIdForRecord(record),
     record.statements.flatMap((section) => section.facts),
   ] as const));
-  const derivedOutcomes = pageRecords.flatMap((record) => query.derivedMetrics.map((request) => (
+  const deriveOutcomes = (records: readonly ResearchFinancialStatementRecord[]) => records.flatMap((record) => query.derivedMetrics.map((request) => (
     identity.identity.issuer.classification === "financial_institution"
       ? unsupportedSectorDerivedMetricForRecord(request, record)
       : deriveMetricForRecord(
@@ -1946,6 +1954,8 @@ export async function getFinancialStatements(
           query.context.knowledgeAt,
         )
   )));
+  const derivedOutcomes = deriveOutcomes(pageRecords);
+  const completenessDerivedOutcomes = deriveOutcomes(outputRange);
   const pageRecordIds = new Set(pageRecords.map((record) => periodIdForRecord(record)));
   const derivedObservationIds = new Set(derivedOutcomes.flatMap((outcome) => outcome.periodObservationIds));
   const provenanceRecords = calculationRecords.filter((record) => (
@@ -1991,13 +2001,13 @@ export async function getFinancialStatements(
       recovery.push({ action: "taxonomy_review", status: "unavailable", message: "Taxonomy change requires manual mapping review." });
     }
   }
-  const missingFactCount = periods.reduce((count, period) => (
+  const missingFactCount = completenessPeriods.reduce((count, period) => (
     count
     + period.sourceFacts.filter((fact) => sourceFactIsCurrentIssuerWide(fact, period) && fact.value.normalized.state === "missing").length
     + missingRequestedFactCount(period, query)
   ), 0);
-  const missingMetricCount = derivedOutcomes.filter((metric) => metric.status !== "returned").length;
-  const freshnessState = periods.length === 0
+  const missingMetricCount = completenessDerivedOutcomes.filter((metric) => metric.status !== "returned").length;
+  const freshnessState = outputRange.length === 0
     ? "unknown"
     : latestSelected!.fiscalPeriod.periodEnd < latestDueFinancialStatementPeriodEnd(identity.context.effectiveAt, query.periodicity)
       ? "stale"
@@ -2005,10 +2015,10 @@ export async function getFinancialStatements(
   const readinessReasonCodes = dedupeByKey([
     ...(selectedRecordsForOutput.length === 0 ? ["no_authoritative_filing"] : []),
     ...(selectedRecordsForOutput.length > 0 && basisSelection.selected === "policy_selected" ? ["ambiguous_basis"] : []),
-    ...pageRecords.flatMap((record) => record.ambiguityFlags.filter((flag) => (
+    ...outputRange.flatMap((record) => record.ambiguityFlags.filter((flag) => (
       flag === "taxonomy_change" || flag === "unmapped_concept" || flag === "unknown_unit"
     ))),
-    ...periods.flatMap((period) => [
+    ...completenessPeriods.flatMap((period) => [
       ...(period.quality.taxonomyChanges.status === "present" ? ["taxonomy_change"] : []),
       ...(period.quality.duplicateContexts.status === "present" ? ["duplicate_context"] : []),
       ...(period.quality.unmappedConcepts.status === "present" ? ["unmapped_concept"] : []),
@@ -2020,7 +2030,7 @@ export async function getFinancialStatements(
     ...(outputRange.length > 0 && outputRange.length < financialStatementsRangeRequestedCount(query) ? ["partial_coverage"] : []),
     ...(freshnessState === "stale" ? ["stale_financial_statements"] : []),
     ...(missingFactCount > 0 ? ["missing_requested_facts"] : []),
-    ...derivedOutcomes.filter((outcome) => outcome.status !== "returned").map((outcome) => outcome.reasonCode),
+    ...completenessDerivedOutcomes.filter((outcome) => outcome.status !== "returned").map((outcome) => outcome.reasonCode),
   ], (value) => value);
   return researchFinancialStatementsOutputSchema.parse({
     contractVersion: RESEARCH_FINANCIAL_STATEMENTS_CONTRACT_VERSION,
@@ -2060,16 +2070,16 @@ export async function getFinancialStatements(
         : null,
     },
     completeness: {
-      status: periods.length === 0 ? "withheld" : missingFactCount > 0 || missingMetricCount > 0 ? "partial" : "complete",
+      status: outputRange.length === 0 ? "withheld" : missingFactCount > 0 || missingMetricCount > 0 ? "partial" : "complete",
       missingFactCount,
       missingMetricCount,
     },
     confidence: {
-      status: periods.length === 0 ? "low" : readinessReasonCodes.length > 0 ? "mixed" : "high",
+      status: outputRange.length === 0 ? "low" : readinessReasonCodes.length > 0 ? "mixed" : "high",
       reasonCodes: readinessReasonCodes,
     },
     readiness: {
-      status: periods.length === 0 ? "withheld" : readinessReasonCodes.length > 0 ? "usable_with_gaps" : "ready",
+      status: outputRange.length === 0 ? "withheld" : readinessReasonCodes.length > 0 ? "usable_with_gaps" : "ready",
       reasonCodes: readinessReasonCodes,
     },
     periods,

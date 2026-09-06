@@ -94,6 +94,34 @@ describe("research financial statement acquisition", () => {
     }
   });
 
+  it("first-seen amendment: preserves its amendment publication timestamp", async () => {
+    setResearchRolloutOverrideForTest({ acquisitionEnabled: true });
+    const persistence = new MemoryPersistence();
+    const descriptor = acquisitionDescriptor(0);
+    descriptor.filing.amendmentType = "amendment";
+
+    const result = await runOfficialFinancialStatementAcquisition(persistence, {
+      descriptors: [descriptor],
+      fetchImpl: async () => new Response(validAcquisitionXbrl, { status: 200 }),
+      retrievedAt: "2026-08-15T00:00:00.000Z",
+      processedAt: "2026-08-15T00:00:00.000Z",
+      acquisitionRunId: "first-seen-amendment-run",
+    });
+    const records = await persistence.listResearchFinancialStatementRecords({
+      subject: { kind: "listing_id", listingId: descriptor.listingId },
+      effectiveAt: "2026-08-15T00:00:00.000Z",
+      knowledgeAt: "2026-08-15T00:00:00.000Z",
+      periodicity: "quarterly",
+    });
+
+    expect(result).toMatchObject({ recordCount: 1, failureCount: 0 });
+    expect(records[0]?.publicationContext).toMatchObject({
+      amendment: true,
+      revisionSequence: 0,
+      revisionPublishedAt: "2026-08-13T16:00:00.000Z",
+    });
+  });
+
   it("universe acquisition: bounds concurrency and persists successes when one filing fails", async () => {
     setResearchRolloutOverrideForTest({ acquisitionEnabled: true });
     const persistence = new MemoryPersistence();

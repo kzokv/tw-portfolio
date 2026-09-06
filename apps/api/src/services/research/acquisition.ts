@@ -372,6 +372,8 @@ async function canonicalizeFinancialStatementArtifact(
     ? latestRevision!.publicationContext.publishedAt
     : predecessor?.publicationContext.publishedAt ?? observedPublishedAt;
   const revisionPublishedAt = artifact.filing.revision > 0
+    || artifact.filing.amendmentType === "amendment"
+    || artifact.filing.amendmentType === "restatement"
     ? matchesLatestRevision
       ? latestRevision!.publicationContext.revisionPublishedAt
       : observedPublishedAt

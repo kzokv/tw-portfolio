@@ -949,6 +949,47 @@ describe("research financial-statement service", () => {
     expect(secondPage.freshness).toEqual(firstPage.freshness);
   });
 
+  it("pagination: completeness and readiness cover the full selected range", async () => {
+    const persistence = new MemoryPersistence();
+    const identity = makeIdentity();
+    await persistence.appendResearchIdentityRecords([identity]);
+    await persistence.appendResearchFinancialStatementRecords([
+      makeQuarterRecord(identity, 2026, 1, { revenue: "28" }),
+      makeQuarterRecord(identity, 2026, 2, {
+        revenue: "60",
+        gross_profit: "24",
+        operating_income: "18",
+        net_income: "15",
+      }),
+    ]);
+    const query = {
+      subject: { kind: "listing_id" as const, listingId: identity.listing.id },
+      context: {
+        knowledgeAt: "2026-09-01T00:00:00.000Z",
+        effectiveAt: "2026-09-01T00:00:00.000Z",
+        assessmentMode: "effective" as const,
+      },
+      periodicity: "quarterly" as const,
+      range: { kind: "latest_periods" as const, count: 2 },
+      statements: ["income" as const],
+      derivedMetrics: [],
+    };
+    const firstPage = await getFinancialStatements(persistence, {
+      ...query,
+      page: { limit: 1, order: "desc" },
+    });
+    const secondPage = await getFinancialStatements(persistence, {
+      ...query,
+      page: { limit: 1, order: "desc", cursor: firstPage.page.nextCursor ?? undefined },
+    });
+
+    expect(firstPage.periods[0]).toMatchObject({ fiscalQuarter: 2 });
+    expect(firstPage.completeness).toEqual({ status: "partial", missingFactCount: 3, missingMetricCount: 0 });
+    expect(firstPage.readiness).toEqual({ status: "usable_with_gaps", reasonCodes: ["missing_requested_facts"] });
+    expect(secondPage.completeness).toEqual(firstPage.completeness);
+    expect(secondPage.readiness).toEqual(firstPage.readiness);
+  });
+
   it("observation dates project exact instants without fabricating an unavailable filing date", async () => {
     const persistence = new MemoryPersistence();
     const identity = makeIdentity();
@@ -1963,6 +2004,35 @@ describe("research financial-statement service", () => {
     expect(result.derivedOutcomes).toEqual([
       expect.objectContaining({ status: "withheld", metricId: "current_ratio", reasonCode: "missing_inputs" }),
     ]);
+  });
+
+  it("unknown unit without a raw identifier maps its wire value to null", async () => {
+    const persistence = new MemoryPersistence();
+    const identity = makeIdentity();
+    await persistence.appendResearchIdentityRecords([identity]);
+    const record = makeQuarterRecord(identity, 2026, 2, { revenue: "60" });
+    const revenue = record.statements.flatMap((statement) => statement.facts)[0]!;
+    revenue.unit = { state: "unknown", rawUnitId: null };
+    delete (revenue.unit as { state: "unknown"; rawUnitId?: string | null }).rawUnitId;
+    await persistence.appendResearchFinancialStatementRecords([record]);
+
+    const result = await getFinancialStatements(persistence, {
+      subject: { kind: "listing_id", listingId: identity.listing.id },
+      context: {
+        knowledgeAt: "2026-09-01T00:00:00.000Z",
+        effectiveAt: "2026-09-01T00:00:00.000Z",
+        assessmentMode: "effective",
+      },
+      periodicity: "quarterly",
+      range: { kind: "latest_periods", count: 1 },
+      statements: ["income"],
+      derivedMetrics: [],
+    });
+
+    expect(result.periods[0]?.sourceFacts[0]?.unit).toEqual({
+      raw: null,
+      normalized: { state: "missing", reasonCode: "unknown_unit" },
+    });
   });
 
   it("keeps record quality present without attributing an unselected statement flag to healthy facts", async () => {
