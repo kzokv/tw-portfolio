@@ -376,6 +376,22 @@ describe("research financial statements", () => {
       .toThrow(/revisionPublishedAt must be at or after publishedAt/);
   });
 
+  it.each([
+    ["revision sequence", { revisionSequence: 1 }],
+    ["amendment flag", { amendment: true }],
+    ["restatement flag", { restatement: true }],
+  ])("record validation: %s requires its own publication timestamp", (_label, publicationContext) => {
+    const record = makeRecord();
+    record.publicationContext = {
+      ...record.publicationContext,
+      ...publicationContext,
+      revisionPublishedAt: null,
+    };
+
+    expect(() => validateResearchFinancialStatementRecord(record))
+      .toThrow(/revisionPublishedAt is required for amendment and revision records/);
+  });
+
   it("raw artifact materialization: preserves artifact-wide unit and mapping flags", () => {
     const artifact = makeRawArtifact([makeRawRevenueFact()]);
     artifact.issues = {
@@ -881,6 +897,21 @@ describe("research financial statements", () => {
     });
 
     expect(latest?.publicationContext.revisionId).toBe(original.publicationContext.revisionId);
+  });
+
+  it("direct append rejects revisions without their own publication timestamp", async () => {
+    const persistence = new MemoryPersistence();
+    const revision = makeRecord();
+    revision.publicationContext = {
+      ...revision.publicationContext,
+      revisionId: "mops-2026q2-r1",
+      revisionSequence: 1,
+      amendment: true,
+      revisionPublishedAt: null,
+    };
+
+    await expect(persistence.appendResearchFinancialStatementRecords([revision]))
+      .rejects.toThrow(/revisionPublishedAt is required for amendment and revision records/);
   });
 
   it("knowledge-time reads do not expose processing revisions before processing completes", async () => {

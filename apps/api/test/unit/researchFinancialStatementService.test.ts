@@ -1702,7 +1702,11 @@ describe("research financial-statement service", () => {
     const identity = makeIdentity();
     await persistence.appendResearchIdentityRecords([identity]);
     const record = makeQuarterRecord(identity, 2026, 2, { current_assets: "120", current_liabilities: "60" }, {
-      publicationContext: { amendment: true, restatement: true },
+      publicationContext: {
+        amendment: true,
+        restatement: true,
+        revisionPublishedAt: "2026-08-16T10:00:00.000Z",
+      },
       ambiguityFlags: [
         "taxonomy_change",
         "duplicate_context",

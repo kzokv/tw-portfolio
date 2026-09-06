@@ -862,6 +862,14 @@ export function validateResearchFinancialStatementRecord(
   ) {
     throw invalidResearchFinancialStatementRecord("fiscal period end must match the declared fiscal year and quarter");
   }
+  const publicationSequences = [
+    record.publicationContext.filingSequence,
+    record.publicationContext.revisionSequence,
+    record.publicationContext.processingSequence,
+  ];
+  if (!publicationSequences.every((sequence) => Number.isInteger(sequence) && sequence >= 0 && sequence <= 2_147_483_647)) {
+    throw invalidResearchFinancialStatementRecord("publication sequences must fit the non-negative PostgreSQL INTEGER range");
+  }
   if (!isTimestamp(record.publicationContext.publishedAt) || !isTimestamp(record.provenance.retrievedAt)) {
     throw invalidResearchFinancialStatementRecord("publication and retrieval timestamps must be ISO datetimes");
   }
@@ -870,6 +878,18 @@ export function validateResearchFinancialStatementRecord(
     && !isTimestamp(record.publicationContext.revisionPublishedAt)
   ) {
     throw invalidResearchFinancialStatementRecord("revisionPublishedAt must be an ISO datetime when present");
+  }
+  if (
+    record.publicationContext.revisionPublishedAt === null
+    && (
+      record.publicationContext.revisionSequence > 0
+      || record.publicationContext.amendment
+      || record.publicationContext.restatement
+    )
+  ) {
+    throw invalidResearchFinancialStatementRecord(
+      "revisionPublishedAt is required for amendment and revision records",
+    );
   }
   if (
     record.publicationContext.revisionPublishedAt !== null
@@ -909,14 +929,6 @@ export function validateResearchFinancialStatementRecord(
   }
   if (record.provenance.taxonomyVersion.length === 0 || record.provenance.taxonomyVersion.length > 120) {
     throw invalidResearchFinancialStatementRecord("provenance taxonomyVersion must contain between 1 and 120 characters");
-  }
-  const publicationSequences = [
-    record.publicationContext.filingSequence,
-    record.publicationContext.revisionSequence,
-    record.publicationContext.processingSequence,
-  ];
-  if (!publicationSequences.every((sequence) => Number.isInteger(sequence) && sequence >= 0 && sequence <= 2_147_483_647)) {
-    throw invalidResearchFinancialStatementRecord("publication sequences must fit the non-negative PostgreSQL INTEGER range");
   }
   if (
     record.publicationContext.processingId.length === 0
